@@ -1,0 +1,404 @@
+## AircraftBody.gd
+## Wissenschaftliches Arcade-Flugmodell (gebündelte Koeffizienten-Aufbaumethode,
+## wie in vielen Flugsimulationen). Stabil bei 60 Hz, trotzdem physikalisch fundiert.
+##
+## Auftrieb:  Cl = lerp(Cl_α·α , sin 2α , σ)   (endlicher Flügel + realer Stall)
+##            Cl_α = 2π·AR/(AR+2)              (Streckungsabhängiger Anstieg)
+## Widerstand: Cd = Cd0 + Cl²/(π·AR·e) + Stall  (Parasitär + induziert)
+## Schub:     Propeller fällt mit Tempo, Jet konstant.  Luftdichte sinkt mit Höhe.
+## Steuerung: Fly-by-Wire-Ratenregler; Autorität & Stabilität skalieren mit
+##            der Steuer-/Leitwerksfläche -> Bauen zählt.
+class_name AircraftBody
+extends RigidBody3D
+
+# Naturkonstanten / Tuning
+const RHO0 := 1.225           # Luftdichte Meereshöhe (kg/m³)
+const SCALE_H := 8500.0       # Atmosphären-Skalenhöhe (m)
+const LIFT_K := 2.9           # globaler Kraftfaktor (Spielgefühl: hebt früh & leicht ab)
+const INCIDENCE := 0.075      # ~4.3° Flügel-Einstellwinkel (hebt zügig ab)
+const STALL_A := 0.27         # Stall-Anstellwinkel (~15.5°)
+const STALL_W := 0.12         # Stall-Übergangsbreite
+const CL_MAX := 1.5
+const OSWALD := 0.75          # Oswald-Faktor (induzierter Widerstand)
+const CD0 := 0.030            # Parasitärwiderstand
+const SIDE := 0.5             # Seitenkraft (Kurvenflug)
+const PITCH_STAB := 0.5       # statische Nick-Stabilität (Wetterfahne)
+const YAW_STAB := 0.6         # statische Gier-Stabilität (Wetterfahne)
+const PROP_VMAX := 170.0      # Speed, bei der Propellerschub -> 0
+const MAX_ANGVEL := 7.0
+const LEVEL_K := 2.0          # sanftes Querlage-Ausnivellieren (Assist)
+
+# Fly-by-Wire-Ratenregler (mit T umschaltbar: Assist an = ruhig, aus = direkter)
+var assist := true
+const PITCH_RATE := 0.85
+const YAW_RATE := 0.6
+const ROLL_RATE := 2.1
+
+# Vom FlightController gesetzt
+var wing_area := 0.0
+var eff_ar := 4.0
+var lift_scale := 1.0
+var pitch_area := 0.0
+var roll_area := 0.0
+var yaw_area := 0.0
+var engines: Array = []       # [{pos, thrust, jet}]
+var props: Array = []
+var total_thrust := 0.0
+
+# Tragflächen-Struktur & Widerstand
+var wing_capacity := 0.0      # max. Auftriebskraft (N), bevor Flügel brechen
+var drag_area := 0.0          # parasitärer Luftwiderstand cW·A (m²) des Modells
+var wings_broken := false
+var wing_status := "ok"
+var parts: Array = []         # [{vis, cs, xform, csize, coffset, is_wing, control}]
+var _break_pending := false
+var _broke_done := false
+const DRAG_K := 0.45          # wie stark der Modell-Widerstand die Leistung bremst
+
+# Fahrwerk
+var gear_items: Array = []    # [{vis, cs, retract, base}]
+var gear_capacity := 0.0
+var gear_overloaded := false
+var gear_down := true         # ausgefahren?
+var _gear_anim := 0.0         # 0 = unten, 1 = oben (Einziehfahrwerk)
+var _collapsed := false       # Fahrwerk durch Überlast zusammengebrochen
+
+# Eingaben
+var throttle := 0.0
+var in_pitch := 0.0
+var in_roll := 0.0
+var in_yaw := 0.0
+var inverted := false         # Q: Steuerung umkehren
+
+# Landung / Schaden
+var landing_msg := ""
+var _land_timer := 0.0
+var _airborne := false
+var _last_vy := 0.0
+const HARD_LAND := 3.0        # ab hier "harte Landung"
+const BREAK_LAND := 7.0       # ab hier bricht das Fahrwerk
+
+# Telemetrie
+var airspeed := 0.0
+var altitude := 0.0
+var aoa_deg := 0.0
+var climb := 0.0
+var stall := false
+var gforce := 1.0
+var gear_status := "—"
+
+
+func _ready() -> void:
+	can_sleep = false
+	continuous_cd = true
+	angular_damp = 0.3
+	linear_damp = 0.0
+	var pm := PhysicsMaterial.new()
+	pm.friction = 0.05
+	pm.bounce = 0.0
+	physics_material_override = pm
+	contact_monitor = true
+	max_contacts_reported = 8
+	if gear_overloaded:
+		_collapse_gear()
+
+
+func _process(delta: float) -> void:
+	if _break_pending and not _broke_done:
+		_broke_done = true
+		_break_pending = false
+		_break_wings()
+	var spd := 4.0 + throttle * 60.0
+	for p in props:
+		if is_instance_valid(p):
+			p.rotate_z(spd * delta)
+	# Einziehfahrwerk animieren
+	if not _collapsed:
+		var target := 0.0 if gear_down else 1.0
+		if absf(_gear_anim - target) > 0.001:
+			_gear_anim = move_toward(_gear_anim, target, delta * 1.6)
+			for g in gear_items:
+				if not g["retract"]:
+					continue
+				var vis = g["vis"]
+				if is_instance_valid(vis):
+					var fold := Transform3D(Basis(Vector3.RIGHT, deg_to_rad(88.0 * _gear_anim)),
+						Vector3(0, 0.55 * _gear_anim, 0))
+					vis.transform = g["base"] * fold
+				var cs = g["cs"]
+				if is_instance_valid(cs):
+					cs.disabled = _gear_anim > 0.5
+	_update_gear_status()
+	if _land_timer > 0.0:
+		_land_timer -= delta
+		if _land_timer <= 0.0:
+			landing_msg = ""
+
+
+func _collapse_gear() -> void:
+	_collapsed = true
+	for g in gear_items:
+		var cs = g["cs"]
+		if is_instance_valid(cs):
+			cs.disabled = true
+		var vis = g["vis"]
+		if is_instance_valid(vis):
+			# zur Seite weggeknickt + abgesenkt -> sichtbarer Kollaps
+			vis.transform = g["base"] * Transform3D(Basis(Vector3.BACK, deg_to_rad(72.0)), Vector3(0, -0.12, 0))
+	_update_gear_status()
+
+
+func toggle_gear() -> void:
+	if _collapsed:
+		return
+	var has_retract := false
+	for g in gear_items:
+		if g["retract"]:
+			has_retract = true
+			break
+	if has_retract:
+		gear_down = not gear_down
+
+
+func _update_gear_status() -> void:
+	if _collapsed:
+		gear_status = "GEBROCHEN ⚠"
+	elif gear_items.is_empty():
+		gear_status = "keins"
+	elif _gear_anim > 0.5:
+		gear_status = "eingefahren"
+	else:
+		gear_status = "ausgefahren"
+
+
+func toggle_invert() -> void:
+	inverted = not inverted
+
+
+# Flügel physisch abreißen — mit allem, was darauf montiert ist (Trümmer)
+func _break_wings() -> void:
+	if parts.is_empty():
+		return
+	var brk := {}
+	for i in parts.size():
+		if parts[i]["is_wing"] and String(parts[i]["control"]) == "":
+			brk[i] = true
+	if brk.is_empty():
+		for i in parts.size():
+			if parts[i]["is_wing"]:
+				brk[i] = true
+	if brk.is_empty():
+		return
+	# transitiv: alles, dessen Ursprung auf einem brechenden Teil sitzt, kommt mit
+	for _pass in 3:
+		for i in parts.size():
+			if brk.has(i):
+				continue
+			var o: Vector3 = parts[i]["xform"].origin
+			for j in brk.keys():
+				if _origin_in_part(o, parts[j]):
+					brk[i] = true
+					break
+	var par := get_parent()
+	if par == null:
+		return
+	var debris := RigidBody3D.new()
+	debris.add_to_group("debris")
+	debris.collision_layer = 8
+	debris.collision_mask = 1          # nur Boden
+	debris.mass = 80.0
+	debris.angular_damp = 0.1
+	par.add_child(debris)
+	debris.global_transform = global_transform
+	debris.linear_velocity = linear_velocity
+	debris.angular_velocity = Vector3(randf_range(-4.0, 4.0), randf_range(-2.0, 2.0), randf_range(-4.0, 4.0))
+	for i in brk.keys():
+		var cs = parts[i]["cs"]
+		if is_instance_valid(cs):
+			cs.disabled = true
+		var vis = parts[i]["vis"]
+		if is_instance_valid(vis):
+			vis.reparent(debris, true)   # Weltposition beibehalten
+	var box := BoxShape3D.new()
+	box.size = Vector3(3.5, 0.5, 2.0)
+	var dcs := CollisionShape3D.new()
+	dcs.shape = box
+	debris.add_child(dcs)
+	var tmr := get_tree().create_timer(8.0)
+	tmr.timeout.connect(debris.queue_free)
+
+
+func _origin_in_part(point: Vector3, p: Dictionary) -> bool:
+	var xf: Transform3D = p["xform"]
+	var center: Vector3 = xf * p["coffset"]
+	var b := xf.basis.orthonormalized()
+	var local := b.transposed() * (point - center)
+	var half: Vector3 = p["csize"] * 0.5 + Vector3(0.3, 0.3, 0.3)
+	return absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z
+
+
+# Landung bewerten: hart -> Warnung, sehr hart -> Fahrwerk bricht
+func _register_landing(descent: float) -> void:
+	if descent > BREAK_LAND:
+		landing_msg = "💥 HARTE LANDUNG — Fahrwerk gebrochen!"
+		if not _collapsed and not gear_items.is_empty():
+			_collapse_gear()
+	elif descent > HARD_LAND:
+		landing_msg = "⚠ Harte Landung (%d m/s)" % int(round(descent))
+	elif descent > 0.6:
+		landing_msg = "🛬 Saubere Landung ✓"
+	else:
+		return
+	_land_timer = 3.5
+
+
+# Beim Neustart: Fahrwerk wiederherstellen (außer dauerhaft überlastet)
+func reset_gear() -> void:
+	landing_msg = ""
+	_land_timer = 0.0
+	_airborne = false
+	_last_vy = 0.0
+	wings_broken = false
+	wing_status = "ok"
+	gear_down = true
+	_gear_anim = 0.0
+	if gear_overloaded:
+		_collapse_gear()
+	else:
+		_collapsed = false
+		for g in gear_items:
+			var cs = g["cs"]
+			if is_instance_valid(cs):
+				cs.disabled = false
+			var vis = g["vis"]
+			if is_instance_valid(vis):
+				vis.transform = g["base"]
+		_update_gear_status()
+
+
+func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	if not state.linear_velocity.is_finite():
+		state.linear_velocity = Vector3.ZERO
+	if not state.angular_velocity.is_finite():
+		state.angular_velocity = Vector3.ZERO
+
+	var xf := state.transform
+	var v_lin := state.linear_velocity
+	var v_ang := state.angular_velocity
+	var fwd := -xf.basis.z
+
+	airspeed = v_lin.length()
+	altitude = xf.origin.y
+	climb = v_lin.y
+	var rho := RHO0 * exp(-maxf(altitude, 0.0) / SCALE_H)
+
+	# --- Aufsetz-Erkennung (harte Landung / Fahrwerksbruch) ----------------
+	var on_ground := state.get_contact_count() > 0
+	if on_ground:
+		if _airborne:
+			_airborne = false
+			_register_landing(maxf(0.0, -_last_vy))
+	else:
+		_airborne = true
+		_last_vy = v_lin.y
+
+	var tf := Vector3.ZERO
+	var tt := Vector3.ZERO
+
+	# --- Schub (zentral; Propeller fällt mit Tempo, Jet konstant) ----------
+	var fs := v_lin.dot(fwd)
+	var thr := 0.0
+	for e in engines:
+		var t: float = float(e["thrust"])
+		if not e.get("jet", false):
+			t *= clampf(1.0 - fs / PROP_VMAX, 0.0, 1.0)
+		thr += t
+	tf += fwd * (thr * maxf(throttle, 0.0))
+	# Bremsen bei negativem Gas: Luftbremse + (am Boden) Radbremse
+	if throttle < 0.0 and airspeed > 0.3:
+		var brake := -throttle
+		tf += -v_lin.normalized() * (0.5 * rho * airspeed * airspeed * (wing_area * 0.3 + drag_area + 0.5) * brake)
+		if on_ground:
+			tf += -v_lin * (brake * mass * 3.0)
+
+	# --- Aerodynamik (gebündelt, wissenschaftliche Koeffizienten) ----------
+	var sp := v_lin.length()
+	if sp > 0.5 and wing_area > 0.0:
+		var v_b := xf.basis.transposed() * v_lin
+		var denom: float = absf(v_b.z) + 0.6
+		var aoa := atan2(-v_b.y, denom) + INCIDENCE
+		var beta := atan2(v_b.x, denom)
+		var q := 0.5 * rho * sp * sp * LIFT_K
+		var cl_a := TAU * eff_ar / (eff_ar + 2.0)
+		var sigma := smoothstep(STALL_A, STALL_A + STALL_W, absf(aoa))
+		var cl := lerpf(clampf(cl_a * aoa, -CL_MAX, CL_MAX), sin(2.0 * aoa), sigma) * lift_scale
+		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5
+		var lift_mag := q * wing_area * cl
+		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
+		if not wings_broken and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
+			wings_broken = true
+			_break_pending = true   # Abtrennen erst im _process (nicht im Physik-Schritt)
+			landing_msg = "💥 FLÜGEL ÜBERLASTET — abgerissen!"
+			_land_timer = 4.0
+		if wings_broken:
+			cl *= 0.12          # kaum noch Auftrieb
+			cd += 0.6           # viel Widerstand (Trümmer)
+			lift_mag = q * wing_area * cl
+		var f_b := Vector3(-sin(beta) * q * wing_area * SIDE, lift_mag, 0.0)
+		f_b += -v_b.normalized() * (q * wing_area * cd)
+		tf += xf.basis * f_b
+		# statische Stabilität (Nase folgt der Anströmung; skaliert mit Leitwerk)
+		tt += xf.basis.x * (-aoa * q * (0.3 + pitch_area) * PITCH_STAB)
+		tt += xf.basis.y * (beta * q * (0.3 + yaw_area) * YAW_STAB)
+		aoa_deg = rad_to_deg(absf(aoa))
+		stall = absf(aoa) > STALL_A
+	else:
+		aoa_deg = 0.0
+		stall = false
+	wing_status = "GEBROCHEN ⚠" if wings_broken else "ok"
+
+	# --- Parasitärer Luftwiderstand des Modells (Bauform zählt) ------------
+	if drag_area > 0.0 and sp > 0.5:
+		tf += -v_lin.normalized() * (0.5 * rho * sp * sp * drag_area * DRAG_K)
+
+	# --- Fahrwerks-Widerstand (ausgefahren bremst; Bauchlandung = viel) ----
+	if sp > 0.5:
+		var gd := 0.0
+		if _collapsed:
+			gd = float(gear_items.size()) * 2.5
+		else:
+			for g in gear_items:
+				gd += (1.0 - _gear_anim) if g["retract"] else 1.0
+		if gd > 0.0:
+			tf += -v_lin.normalized() * (0.5 * rho * sp * sp * gd * 0.06)
+
+	# --- Fly-by-Wire-Ratenregler (Steuerung + Dämpfung) --------------------
+	var wb := xf.basis.transposed() * v_ang
+	var spf := clampf(airspeed / 20.0, 0.25, 1.8)
+	var inv := -1.0 if inverted else 1.0
+	var want := Vector3(in_pitch * inv * PITCH_RATE, in_yaw * inv * YAW_RATE, in_roll * inv * ROLL_RATE)
+	var gain := Vector3(
+		mass * (0.8 + 1.6 * pitch_area),
+		mass * (0.6 + 1.2 * yaw_area),
+		mass * (1.0 + 1.4 * roll_area))
+	if not assist:
+		gain *= 0.55   # "Pro"-Modus: weniger künstliche Hilfe
+	var rerr := want - wb
+	tt += xf.basis * (Vector3(rerr.x * gain.x, rerr.y * gain.y, rerr.z * gain.z) * spf)
+	# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist)
+	if assist and absf(in_roll) < 0.05 and airspeed > 6.0:
+		tt += xf.basis.z * (-xf.basis.x.y * LEVEL_K * mass)
+
+	# --- Sicherheit & Anwenden ---------------------------------------------
+	if not tf.is_finite():
+		tf = Vector3.ZERO
+	if not tt.is_finite():
+		tt = Vector3.ZERO
+	tf = tf.limit_length(mass * 45.0)
+	tt = tt.limit_length(mass * 80.0)
+	state.apply_central_force(tf)
+	state.apply_torque(tt)
+
+	gforce = tf.length() / maxf(mass * 9.81, 1.0)
+	if state.angular_velocity.length() > MAX_ANGVEL:
+		state.angular_velocity = state.angular_velocity.normalized() * MAX_ANGVEL

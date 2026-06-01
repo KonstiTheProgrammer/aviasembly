@@ -1,0 +1,13 @@
+# Godot 4+ Import-/Cache-Ordner
+.godot/
+
+# Exporte
+/build/
+/export/
+export_presets.cfg
+
+# Editor-/OS-Krempel
+*.tmp
+*.import.bak
+.DS_Store
+Thumbs.db
