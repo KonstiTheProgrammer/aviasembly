@@ -144,7 +144,7 @@ func _collapse_gear() -> void:
 	for g in gear_items:
 		var cs = g["cs"]
 		if is_instance_valid(cs):
-			cs.disabled = true
+			cs.set_deferred("disabled", true)   # nicht während _integrate_forces umschalten!
 		var vis = g["vis"]
 		if is_instance_valid(vis):
 			# zur Seite weggeknickt + abgesenkt -> sichtbarer Kollaps
