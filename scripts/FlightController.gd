@@ -83,8 +83,10 @@ func build_from_design(d: Array) -> void:
 		var vol: float = psc.x * psc.y * psc.z      # Volumen-Faktor (Masse/Traglast)
 
 		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)))
-		vis.transform = xf
-		vis.scale = psc                              # Pro-Teil-Skalierung (Editor-Transform)
+		# Skalierung in die Basis einrechnen (NICHT vis.scale setzen): bei gespiegelten
+		# Teilen ist die Basis improper (det<0); vis.scale würde die Spiegelung zerstören
+		# -> Flügel klappt auf die andere Seite -> "halbes Flugzeug".
+		vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
 		var prop := vis.find_child("Prop", true, false)
 		if prop:
