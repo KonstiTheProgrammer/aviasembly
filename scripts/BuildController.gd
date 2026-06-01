@@ -1087,7 +1087,7 @@ func compute_stats() -> Dictionary:
 		var m: float = p.get("mass", 0.0) * vol
 		mass += m
 		n += 1
-		thrust += p.get("thrust", 0.0)
+		thrust += p.get("thrust", 0.0) * vol
 		gear_cap += p.get("gear_capacity", 0.0) * vol
 		drag_area += PartCatalog.part_drag(p) * psc.x * psc.y
 		com += m * child.position

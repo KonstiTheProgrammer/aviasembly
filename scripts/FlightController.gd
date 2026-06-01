@@ -119,7 +119,7 @@ func build_from_design(d: Array) -> void:
 			"drag": PartCatalog.part_drag(p) * psc.x * psc.y,
 			"lift_part": 0.0, "ar": 4.0, "lift_coef": 1.0, "wing_cap": 0.0,
 			"pitch_a": 0.0, "roll_a": 0.0, "yaw_a": 0.0,
-			"thrust": p.get("thrust", 0.0), "jet": p.get("jet", false),
+			"thrust": p.get("thrust", 0.0) * vol, "jet": p.get("jet", false),
 			"gear_cap": p.get("gear_capacity", 0.0) * vol, "retract": p.get("retract", false),
 		}
 		if pinfo["is_wing"]:
