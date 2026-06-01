@@ -173,6 +173,12 @@ Querruder, kein Auftrieb.
 **Hangar:** Teil ziehen=setzen/verschieben · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
 `Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · Tab=Testflug.
+**Transformieren-Werkzeug** (`set_transform_mode`): Teil klicken=auswählen → 6 farbige
+Flächen-Griffe (X=rot Breite, Y=grün Höhe, Z=blau Länge); Griff ziehen=Achse strecken
+(Gegenfläche verankert), Body ziehen=verschieben (Bildschirmebene). Pro-Teil-Skalierung
+(`pscale`, Vector3) wird in get/load_design persistiert; `_apply_part_scale` skaliert
+Visual+Pickbox; FlightController/compute_stats skalieren Masse~Volumen, Fläche~x·z,
+Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl), Move: Ebene.
 **Flug:** **Maus/Touchpad = Umschauen** (Orbit-Kamera, Maus im Flug `MOUSE_MODE_CAPTURED`,
 schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in FlightController) ·
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·

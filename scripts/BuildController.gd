@@ -461,8 +461,8 @@ func _update_transform_drag() -> void:
 
 
 # Wendet Basis/Origin/Skalierung auf das gewählte Teil (und ggf. Spiegelteil) an.
-func _apply_sel_transform(basis: Basis, origin: Vector3, sc: Vector3) -> void:
-	selected_part.transform = Transform3D(basis, origin)
+func _apply_sel_transform(new_basis: Basis, origin: Vector3, sc: Vector3) -> void:
+	selected_part.transform = Transform3D(new_basis, origin)
 	_apply_part_scale(selected_part, sc)
 	if selected_part.has_meta("mirror"):
 		var m = selected_part.get_meta("mirror")
