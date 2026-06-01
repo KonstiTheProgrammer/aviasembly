@@ -65,7 +65,7 @@ var wing_status := "ok"
 var parts: Array = []         # [{vis, cs, xform, csize, coffset, is_wing, control}]
 var _break_pending := false
 var _broke_done := false
-const DRAG_K := 1.0           # wie stark der Modell-Widerstand die Leistung bremst (höher = langsamer)
+const DRAG_K := 0.5           # parasitärer Modell-Widerstand (niedriger = schneller, v.a. im Sturzflug)
 
 # Fahrwerk
 var gear_items: Array = []    # [{vis, cs, retract, base}]
@@ -469,7 +469,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			cd += 0.25          # zerfetzte Struktur -> mehr Widerstand
 			lift_mag = q * wing_area * cl
 		var f_b := Vector3(-sin(beta) * q * wing_area * SIDE, lift_mag, 0.0)
-		f_b += -v_b.normalized() * (q * wing_area * cd)
+		# Flügel-Widerstand mit ECHTEM Staudruck (nicht mit LIFT_K aufblähen) -> im
+		# Sturzflug baut sich realistisch Tempo auf.
+		f_b += -v_b.normalized() * ((q / LIFT_K) * wing_area * cd)
 		tf += xf.basis * f_b
 		# statische Stabilität (Nase folgt der Anströmung; skaliert mit Leitwerk)
 		tt += xf.basis.x * (-aoa * q * (0.3 + pitch_area) * PITCH_STAB)
@@ -520,8 +522,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		tf = Vector3.ZERO
 	if not tt.is_finite():
 		tt = Vector3.ZERO
-	tf = tf.limit_length(mass * 45.0)
-	tt = tt.limit_length(mass * 80.0)
+	tf = tf.limit_length(mass * 130.0)   # nur NaN-/Runaway-Sicherung, klippt normale Aero nicht mehr
+	tt = tt.limit_length(mass * 90.0)
 	state.apply_central_force(tf)
 	state.apply_torque(tt)
 

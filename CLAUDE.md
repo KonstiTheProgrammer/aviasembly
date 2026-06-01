@@ -90,7 +90,10 @@ Kraftspikes). Das gebündelte Modell ist stabil und trotzdem physikalisch fundie
   Flügel) und Stall-Übergang `σ` (smoothstep um STALL_A). `α` aus Körpergeschwindigkeit
   + INCIDENCE (Flügel-Einstellwinkel, damit es früh abhebt).
 - **Widerstand:** `Cd0 + Cl²/(π·AR·e)` (induziert) **plus** parasitärer Modell-Widerstand
-  `drag_area` (aus den Bauteil-Stirnflächen, siehe `PartCatalog.part_drag`).
+  `drag_area` (aus den Bauteil-Stirnflächen, siehe `PartCatalog.part_drag`). Flügel-Widerstand
+  nutzt den ECHTEN Staudruck (NICHT mit `LIFT_K` aufgebläht), damit Sturzflüge Tempo aufbauen.
+  Kraft-Limit (`tf.limit_length`) ist nur NaN-/Runaway-Sicherung (`mass·130`) und klippt die
+  normale Aero/den Schub bei Highspeed nicht mehr — sonst deckelte es die Sturzflug-Speed.
 - **Schub:** Summe der Triebwerke, **zentral durch den Schwerpunkt** (sonst „Pendel-
   Raketen"-Instabilität!). Propellerschub fällt mit Tempo (`PROP_VMAX`), Jet konstant.
   **Negativer Schub = Bremse** (Luftbremse + am Boden Radbremse).
