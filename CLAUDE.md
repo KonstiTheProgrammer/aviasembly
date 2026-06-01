@@ -127,10 +127,13 @@ Querruder, kein Auftrieb.
   anderen) bekommen ~0 und bleiben grün. Druckwiderstand je Teil = exponierte Fläche ×
   `PartCatalog.part_cd(p)` (Formbeiwert; eine Quelle für Flug + Windkanal). Einfärbung
   relativ zum größten Wert, Nenner `maxf(max_d, 0.45)` → schlanke Flieger grün, nur echte
-  vorne-anliegende Bluff-Körper rot (`_drag_color` grün→gelb→rot, `_tint` unshaded
-  `material_override`, heiße Teile glühen). **Nur tatsächlich angeströmte Teile werden
-  gefärbt** (`exposed ≥ maxf(0.04, max_exp·0.05)`); Teile im Windschatten → neutral grau
-  (`_neutral`, schattierter Clay-Look), damit der Hotspot heraussticht (CFD-Optik).
+  vorne-anliegende Bluff-Körper rot (`_drag_color` grün→gelb→rot). **Markiert wird nur die
+  widerstandsauslösende OBERFLÄCHE, nicht das ganze Teil:** ein **Pixel-Shader**
+  (`_get_wind_shader`/`_apply_wind_shader` als `material_override`) färbt pro Fragment nur
+  Flächen, deren Weltnormale gegen den +Z-Wind zeigt (`w = max(0,−worldNormal.z)`,
+  `smoothstep` → grau↔heat), Seiten-/Leeflächen bleiben grau. Die `heat_color` (Hue aus dem
+  Teil-`frac`) kommt von der Verdeckungs-Rechnung; Teile ganz im Windschatten
+  (`exposed < maxf(0.04, max_exp·0.05)`) bekommen `heat=grau` → komplett grau (CFD-Optik).
   Schlimmstes Teil → `wind_worst` (Toast +
   Statistik-„Hotspot“, nur wenn Windkanal an). Dazu CPUParticles-Strömungslinien (−Z→+Z).
   Aufheben via `_clear_wind_tunnel` → `_recolor` baut jedes Visual neu (Original zurück).

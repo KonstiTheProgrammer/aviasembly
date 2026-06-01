@@ -39,6 +39,7 @@ var paint_color := Color(0.86, 0.22, 0.20)
 var wind_tunnel := false     # Windkanal-Ansicht (Pro-Teil-Heatmap + Luftströmung)
 var wind_worst := ""         # Teil mit dem höchsten Flug-Widerstand
 var _tunnel_particles: CPUParticles3D
+var _wind_shader: Shader      # markiert nur die angeströmten Flächen (Normale gegen +Z)
 var _history: Array = []
 var _hist_i := -1
 var _suppress_history := false
@@ -481,17 +482,20 @@ func _apply_drag_heatmap() -> void:
 		if dv > max_d:
 			max_d = dv
 			wind_worst = PartCatalog.get_part(pt.get_meta("part_id")).get("name", "")
-	# 3) NUR windbeeinflusste Teile einfärben (grün->rot). Teile im Windschatten
-	#    (kaum/keine exponierte Fläche) werden neutral grau -> der Hotspot sticht heraus.
+	# 3) Per-Pixel-Shader: NUR die angeströmten FLÄCHEN (Normale gegen den +Z-Wind) werden
+	#    eingefärbt (grün->rot je nach Teil-Widerstand), Seiten-/Leeflächen bleiben grau.
+	#    Teile ganz im Windschatten -> komplett grau (heat = grau).
 	var denom := maxf(max_d, 0.45)
 	var wind_min := maxf(0.04, max_exp * 0.05)   # darunter = praktisch kein Wind
+	var gray := Color(0.62, 0.65, 0.72)
 	for pt in parts:
 		var vis: Node = pt.get_node_or_null("Visual")
 		if exposed[pt] < wind_min:
-			_neutral(vis)
+			_apply_wind_shader(vis, gray, 0.0)
 		else:
 			var frac := clampf(drag[pt] / denom, 0.0, 1.0)
-			_tint(vis, _drag_color(frac), frac)
+			var glow := maxf(frac - 0.55, 0.0) * 2.2
+			_apply_wind_shader(vis, _drag_color(frac), glow)
 
 
 # Welt-AABB aller Teil-Kollisionsboxen (für das Strahlengitter).
@@ -521,34 +525,39 @@ func _drag_color(f: float) -> Color:
 	return Color(0.97, 0.86, 0.15).lerp(Color(0.97, 0.16, 0.12), (f - 0.5) * 2.0)
 
 
-func _tint(node: Node, c: Color, emis: float) -> void:
+# Shader, der NUR die angeströmten Flächen markiert: Weltnormale gegen den +Z-Wind
+# -> frontale Flächen bekommen heat_color, Seiten-/Leeflächen bleiben base_color (grau).
+# So wird die widerstandsauslösende OBERFLÄCHE markiert, nicht das ganze Teil.
+func _get_wind_shader() -> Shader:
+	if _wind_shader == null:
+		_wind_shader = Shader.new()
+		_wind_shader.code = "shader_type spatial;\n" \
+			+ "render_mode unshaded, cull_disabled;\n" \
+			+ "uniform vec3 heat_color : source_color = vec3(0.6, 0.6, 0.6);\n" \
+			+ "uniform vec3 base_color : source_color = vec3(0.62, 0.65, 0.72);\n" \
+			+ "uniform float glow = 0.0;\n" \
+			+ "void fragment() {\n" \
+			+ "	vec3 wn = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz);\n" \
+			+ "	if (!FRONT_FACING) { wn = -wn; }\n" \
+			+ "	float w = max(0.0, -wn.z);\n" \
+			+ "	float blend = smoothstep(0.12, 0.55, w);\n" \
+			+ "	ALBEDO = mix(base_color, heat_color, blend);\n" \
+			+ "	EMISSION = heat_color * (blend * glow);\n" \
+			+ "}\n"
+	return _wind_shader
+
+
+func _apply_wind_shader(node: Node, heat_color: Color, glow: float) -> void:
 	if node == null:
 		return
 	for ch in node.get_children():
-		_tint(ch, c, emis)
+		_apply_wind_shader(ch, heat_color, glow)
 	if node is MeshInstance3D:
-		var m := StandardMaterial3D.new()
-		m.albedo_color = c
-		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		if emis > 0.55:                       # heiße Teile glühen leicht -> stechen heraus
-			m.emission_enabled = true
-			m.emission = c
-			m.emission_energy_multiplier = (emis - 0.55) * 2.2
-		node.material_override = m
-
-
-# Neutral-grau für Teile, die NICHT im Wind liegen (inerter Klay-Look, schattiert),
-# damit die eingefärbten windbeeinflussten Teile klar herausstechen.
-func _neutral(node: Node) -> void:
-	if node == null:
-		return
-	for ch in node.get_children():
-		_neutral(ch)
-	if node is MeshInstance3D:
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.62, 0.65, 0.72)
-		m.metallic = 0.0
-		m.roughness = 0.85
+		var m := ShaderMaterial.new()
+		m.shader = _get_wind_shader()
+		m.set_shader_parameter("heat_color", heat_color)
+		m.set_shader_parameter("base_color", Color(0.62, 0.65, 0.72))
+		m.set_shader_parameter("glow", glow)
 		node.material_override = m
 
 
