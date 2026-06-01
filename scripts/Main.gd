@@ -62,18 +62,40 @@ var part_buttons: Dictionary = {}
 var _part_group: ButtonGroup       # exklusive Auswahl der Teil-Kacheln
 var _cat_open: Dictionary = {}     # Kategorie -> auf-/zugeklappt
 
+# Wirtschaft / Missionen / Modi
+var game: GameState
+var money_label: Label             # Hangar
+var fly_money_label: Label         # Flug-HUD
+var mission_label: Label           # Missionsanzeige im Flug
+var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
+var upgrade_box: VBoxContainer     # Upgrade-Panel
+var missions: Array = []           # Missionsdefinitionen
+var rings: Array = []              # Ring-Checkpoint-Knoten (fly_world)
+var ring_idx := 0                  # nächster zu durchfliegender Ring
+var mode_overlay: Control          # Modus-Auswahl-Overlay
+var _fly_time := 0.0               # Flugzeit (für Missionsmeldungen)
+var _was_airborne := false         # war schon in der Luft (für Lande-Mission)
+
 
 func _ready() -> void:
 	# Höhere Physikrate gegen Ruckeln auf 120-Hz-Displays (ProMotion)
 	Engine.physics_ticks_per_second = 120
+	game = GameState.new()
+	add_child(game)
+	game.load_state()
+	game.changed.connect(_on_game_changed)
 	_setup_world()
 	_setup_camera()
 	_setup_controllers()
+	_build_missions()
 	_setup_ui()
 	if not _load_design():
 		build_ctrl.load_design(_default_design())
 	_set_mode(Mode.BUILD)
 	_refresh_tool_ui()
+	_on_game_changed()
+	if game.mode == GameState.GameMode.NONE:
+		_show_mode_select()
 
 
 # ===========================================================================
@@ -352,8 +374,15 @@ func _set_mode(m: int) -> void:
 		flight_ctrl.set_active(false)
 		flight_ctrl.clear_aircraft()
 	else:
+		if game != null:
+			flight_ctrl.thrust_mult = game.thrust_mult()
+			flight_ctrl.wing_mult = game.wing_mult()
+			flight_ctrl.mass_mult = game.mass_mult()
 		flight_ctrl.build_from_design(build_ctrl.get_design())
 		flight_ctrl.set_active(true)
+		_reset_rings()
+		_fly_time = 0.0
+		_was_airborne = false
 
 
 func _input(event: InputEvent) -> void:
@@ -414,6 +443,8 @@ func _build_hangar_ui() -> void:
 
 	var title := _lbl("🛠  HANGAR", 22, Color(1, 1, 1))
 	vb.add_child(title)
+	money_label = _lbl("", 15, Color(1.0, 0.86, 0.3))
+	vb.add_child(money_label)
 	tool_label = _lbl("Werkzeug: —", 13, Color(0.7, 1.0, 0.7))
 	vb.add_child(tool_label)
 	vb.add_child(HSeparator.new())
@@ -422,11 +453,15 @@ func _build_hangar_ui() -> void:
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vb.add_child(scroll)
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 3)
-	scroll.add_child(list)
-	_fill_part_list(list)
+	part_list_box = VBoxContainer.new()
+	part_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	part_list_box.add_theme_constant_override("separation", 3)
+	scroll.add_child(part_list_box)
+	_fill_part_list(part_list_box)
+
+	upgrade_box = VBoxContainer.new()
+	upgrade_box.add_theme_constant_override("separation", 2)
+	vb.add_child(upgrade_box)
 
 	vb.add_child(HSeparator.new())
 	var move_btn := Button.new()
@@ -627,12 +662,19 @@ func _make_part_tile(p: Dictionary) -> Button:
 	nm.add_theme_font_size_override("font_size", 10)
 	box.add_child(nm)
 
+	var locked: bool = game != null and not game.is_unlocked(id)
 	var mass := Label.new()
-	mass.text = "%d kg" % int(p["mass"])
 	mass.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mass.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	mass.add_theme_font_size_override("font_size", 9)
-	mass.add_theme_color_override("font_color", Color(0.72, 0.8, 0.92))
+	if locked:
+		mass.text = "🔒 %d 🪙" % PartCatalog.part_cost(p)
+		mass.add_theme_color_override("font_color", Color(1.0, 0.82, 0.35))
+		tile.modulate = Color(0.68, 0.68, 0.74)   # gesperrt -> ausgegraut
+		tile.tooltip_text = "%s — kosten %d 🪙 (klicken zum Kaufen)" % [p.get("desc", p["name"]), PartCatalog.part_cost(p)]
+	else:
+		mass.text = "%d kg" % int(p["mass"])
+		mass.add_theme_color_override("font_color", Color(0.72, 0.8, 0.92))
 	box.add_child(mass)
 
 	part_buttons[id] = tile
@@ -734,6 +776,15 @@ func _style_tile(btn: Button) -> void:
 
 
 func _on_pick_part(id: String) -> void:
+	if game != null and not game.is_unlocked(id):
+		var p := PartCatalog.get_part(id)
+		var cost := PartCatalog.part_cost(p)
+		if game.buy_part(id, cost):
+			_toast("Gekauft: %s  (−%d 🪙)" % [p.get("name", id), cost])
+			_rebuild_palette()
+		else:
+			_toast("Zu teuer: %s kostet %d 🪙 (du hast %d)" % [p.get("name", id), cost, game.money])
+		return
 	build_ctrl.set_brush(id)
 	_refresh_tool_ui()
 
@@ -810,8 +861,20 @@ func _build_flight_ui() -> void:
 	var hv := VBoxContainer.new()
 	hp.add_child(hv)
 	hv.add_child(_lbl("✈  FLUG-HUD", 16, Color(0.6, 0.85, 1.0)))
+	fly_money_label = _lbl("", 14, Color(1.0, 0.86, 0.3))
+	hv.add_child(fly_money_label)
 	hud_label = _lbl("", 15)
 	hv.add_child(hud_label)
+
+	# Missions-Panel oben rechts
+	var mp := _panel(Color(0, 0, 0, 0.45))
+	_rect(mp, 1, 0, 1, 0, -330, 12, -12, 250)
+	flight_root.add_child(mp)
+	var mv := VBoxContainer.new()
+	mp.add_child(mv)
+	mv.add_child(_lbl("🎯  MISSIONEN", 16, Color(1.0, 0.85, 0.4)))
+	mission_label = _lbl("", 13)
+	mv.add_child(mission_label)
 
 	# Stall-Warnung mitte oben
 	stall_label = _lbl("⚠  STRÖMUNGSABRISS  ⚠", 26, Color(1, 0.3, 0.25))
@@ -886,6 +949,7 @@ func _on_hud_changed(d: Dictionary) -> void:
 		thr_txt, int(d["kmh"]), int(d["speed"]),
 		int(d["alt"]), d["climb"], int(d["aoa"]), d.get("gforce", 1.0),
 		d.get("wings", "ok"), d.get("gear", "—"), inv_txt, assist_txt, nav]
+	_check_missions(d)
 	stall_label.visible = d.get("stall", false) and d.get("speed", 0.0) > 4.0
 	if land_label:
 		var lm: String = d.get("land_msg", "")
@@ -930,6 +994,214 @@ func _on_symmetry_toggled(on: bool) -> void:
 	build_ctrl.set_symmetry(on)
 
 
+# ===========================================================================
+# WIRTSCHAFT · MISSIONEN · MODI
+# ===========================================================================
+func _build_missions() -> void:
+	var ring_defs := [
+		Vector3(0, 35, -45), Vector3(28, 60, -135), Vector3(-24, 88, -245),
+		Vector3(32, 72, -360), Vector3(0, 115, -485),
+	]
+	for pos in ring_defs:
+		var t := TorusMesh.new()
+		t.inner_radius = 8.5
+		t.outer_radius = 10.5
+		t.rings = 26
+		t.ring_segments = 10
+		var mi := MeshInstance3D.new()
+		mi.mesh = t
+		mi.rotation = Vector3(PI * 0.5, 0, 0)   # Loch-Achse -> Z (durchfliegen)
+		mi.position = pos
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mi.material_override = m
+		fly_world.add_child(mi)
+		rings.append({"pos": pos, "mat": m})
+	missions = [
+		{"id": "first_flight", "title": "Erstflug", "desc": "Erreiche 60 m Höhe", "reward": 400, "type": "alt", "target": 60.0},
+		{"id": "rings", "title": "Ring-Parcours", "desc": "Durchfliege alle %d Ringe" % rings.size(), "reward": 2000, "type": "rings"},
+		{"id": "speed", "title": "Speed-Dämon", "desc": "Erreiche 250 km/h", "reward": 800, "type": "speed", "target": 250.0},
+		{"id": "high", "title": "Höhenflug", "desc": "Erreiche 400 m Höhe", "reward": 1100, "type": "alt", "target": 400.0},
+		{"id": "land", "title": "Saubere Landung", "desc": "Sauber landen nach echtem Flug", "reward": 1000, "type": "land"},
+	]
+	_reset_rings()
+
+
+func _reset_rings() -> void:
+	ring_idx = 0
+	var done: bool = game != null and game.mission_done("rings")
+	for i in rings.size():
+		var m: StandardMaterial3D = rings[i]["mat"]
+		var c := Color(0.25, 0.95, 0.45) if done else (Color(1.0, 0.85, 0.2) if i == 0 else Color(0.25, 0.7, 1.0))
+		m.albedo_color = c
+		m.emission_enabled = true
+		m.emission = c
+		m.emission_energy_multiplier = 0.7
+
+
+func _process(delta: float) -> void:
+	if mode != Mode.FLY or game == null:
+		return
+	if not is_instance_valid(flight_ctrl.aircraft):
+		return
+	_fly_time += delta
+	if flight_ctrl.aircraft.altitude > 18.0:
+		_was_airborne = true
+	# Ring-Parcours: aktuellen Ring durchfliegen
+	if not game.mission_done("rings") and ring_idx < rings.size():
+		var ap: Vector3 = flight_ctrl.aircraft.global_position
+		if ap.distance_to(rings[ring_idx]["pos"]) < 10.0:
+			var m: StandardMaterial3D = rings[ring_idx]["mat"]
+			m.albedo_color = Color(0.25, 0.95, 0.45)
+			m.emission = Color(0.25, 0.95, 0.45)
+			ring_idx += 1
+			if ring_idx >= rings.size():
+				_award_mission("rings")
+			else:
+				_toast("Ring %d/%d ✓" % [ring_idx, rings.size()])
+				var nm: StandardMaterial3D = rings[ring_idx]["mat"]
+				nm.albedo_color = Color(1.0, 0.85, 0.2)
+				nm.emission = Color(1.0, 0.85, 0.2)
+
+
+func _check_missions(d: Dictionary) -> void:
+	if game == null:
+		return
+	var alt: float = d.get("alt", 0.0)
+	var kmh: float = d.get("kmh", 0.0)
+	if not game.mission_done("first_flight") and alt >= 60.0:
+		_award_mission("first_flight")
+	if not game.mission_done("high") and alt >= 400.0:
+		_award_mission("high")
+	if not game.mission_done("speed") and kmh >= 250.0:
+		_award_mission("speed")
+	if not game.mission_done("land") and _was_airborne and _fly_time > 8.0:
+		if String(d.get("land_msg", "")).begins_with("🛬"):
+			_award_mission("land")
+	_update_mission_hud()
+
+
+func _award_mission(id: String) -> void:
+	for ms in missions:
+		if ms["id"] == id:
+			var r: int = game.complete_mission(id, ms["reward"])
+			if r > 0:
+				_toast("🏆 Mission erfüllt: %s   +%d 🪙" % [ms["title"], r])
+			break
+	_update_mission_hud()
+
+
+func _update_mission_hud() -> void:
+	if mission_label == null or game == null:
+		return
+	var lines: Array = []
+	for ms in missions:
+		var done: bool = game.mission_done(ms["id"])
+		var mark := "✅" if done else "▢"
+		var extra := ""
+		if ms["id"] == "rings" and not done:
+			extra = "  (%d/%d)" % [ring_idx, rings.size()]
+		lines.append("%s %s — %s%s\n      +%d 🪙" % [mark, ms["title"], ms["desc"], extra, ms["reward"]])
+	mission_label.text = "\n".join(lines)
+
+
+func _on_game_changed() -> void:
+	var mstr := "Sandbox ∞" if (game != null and game.is_sandbox()) else ("🪙 %d" % (game.money if game else 0))
+	if money_label:
+		money_label.text = "Guthaben: " + mstr
+	if fly_money_label:
+		fly_money_label.text = "🪙 " + ("∞ (Sandbox)" if (game and game.is_sandbox()) else str(game.money if game else 0))
+	_build_upgrades_ui()
+
+
+func _build_upgrades_ui() -> void:
+	if upgrade_box == null:
+		return
+	for c in upgrade_box.get_children():
+		c.queue_free()
+	if game == null:
+		return
+	upgrade_box.add_child(_lbl("⬆  UPGRADES", 13, Color(0.6, 1.0, 0.8)))
+	var defs := [
+		{"key": "thrust", "name": "Triebwerks-Tuning (+15% Schub)"},
+		{"key": "wing", "name": "Verstärkte Flügel (+30% Last)"},
+		{"key": "light", "name": "Leichtbau (−8% Masse)"},
+	]
+	for u in defs:
+		var lvl: int = game.upgrades.get(u["key"], 0)
+		var b := Button.new()
+		b.add_theme_font_size_override("font_size", 11)
+		if lvl >= 3:
+			b.text = "%s — MAX" % u["name"]
+			b.disabled = true
+		else:
+			var cost := 600 * (lvl + 1)
+			b.text = "%s  [Lv %d]  %d 🪙" % [u["name"], lvl, cost]
+			b.pressed.connect(_on_buy_upgrade.bind(u["key"], cost))
+		upgrade_box.add_child(b)
+
+
+func _on_buy_upgrade(key: String, cost: int) -> void:
+	if game.buy_upgrade(key, cost, 3):
+		_toast("Upgrade gekauft: %s  (−%d 🪙)" % [key, cost])
+	else:
+		_toast("Zu teuer oder Maximum erreicht")
+
+
+func _rebuild_palette() -> void:
+	if part_list_box == null:
+		return
+	for c in part_list_box.get_children():
+		c.queue_free()
+	part_buttons.clear()
+	_fill_part_list(part_list_box)
+	_refresh_tool_ui()
+
+
+# --- Modus-Auswahl-Overlay -------------------------------------------------
+func _show_mode_select() -> void:
+	mode_overlay = ColorRect.new()
+	mode_overlay.color = Color(0.03, 0.05, 0.09, 0.94)
+	mode_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mode_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	ui.add_child(mode_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	mode_overlay.add_child(center)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	center.add_child(v)
+	var t := _lbl("AVIASSEMBLY", 40, Color(1, 1, 1))
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	var s := _lbl("Wähle deinen Modus", 18, Color(0.7, 0.85, 1.0))
+	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(s)
+	var sandbox := Button.new()
+	sandbox.text = "🧰  SANDBOX\nAlle Teile frei · unbegrenzt bauen & fliegen"
+	sandbox.custom_minimum_size = Vector2(460, 70)
+	sandbox.add_theme_font_size_override("font_size", 18)
+	sandbox.pressed.connect(_choose_mode.bind(GameState.GameMode.SANDBOX))
+	v.add_child(sandbox)
+	var surv := Button.new()
+	surv.text = "🪖  SURVIVAL\nStarte klein · erfülle Missionen · verdiene Geld · kaufe & upgrade"
+	surv.custom_minimum_size = Vector2(460, 70)
+	surv.add_theme_font_size_override("font_size", 18)
+	surv.pressed.connect(_choose_mode.bind(GameState.GameMode.SURVIVAL))
+	v.add_child(surv)
+
+
+func _choose_mode(m: int) -> void:
+	game.start_mode(m)
+	if is_instance_valid(mode_overlay):
+		mode_overlay.queue_free()
+	mode_overlay = null
+	_rebuild_palette()
+	_on_game_changed()
+	_toast("Sandbox-Modus" if m == GameState.GameMode.SANDBOX else "Survival-Modus — viel Erfolg!")
+
+
 func _on_clear_pressed() -> void:
 	build_ctrl.clear_design()
 	_refresh_tool_ui()
@@ -967,7 +1239,9 @@ func _save_design() -> void:
 	var data: Array = []
 	for it in build_ctrl.get_design():
 		var c: Color = it.get("color", Color(0, 0, 0, 0))
-		data.append({"id": it["id"], "xform": _xform_to_array(it["xform"]), "color": [c.r, c.g, c.b, c.a]})
+		var s: Vector3 = it.get("scale", Vector3.ONE)
+		data.append({"id": it["id"], "xform": _xform_to_array(it["xform"]),
+			"color": [c.r, c.g, c.b, c.a], "scale": [s.x, s.y, s.z]})
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -992,7 +1266,11 @@ func _load_design() -> bool:
 			if it.has("color") and typeof(it["color"]) == TYPE_ARRAY and it["color"].size() >= 4:
 				var ca: Array = it["color"]
 				col = Color(ca[0], ca[1], ca[2], ca[3])
-			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col})
+			var scl := Vector3.ONE
+			if it.has("scale") and typeof(it["scale"]) == TYPE_ARRAY and it["scale"].size() >= 3:
+				var sa: Array = it["scale"]
+				scl = Vector3(sa[0], sa[1], sa[2])
+			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl})
 	if arr.is_empty():
 		return false
 	build_ctrl.load_design(arr)

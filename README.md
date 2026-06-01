@@ -43,7 +43,7 @@ das Flugzeug längsstabil.
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
 | **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) |
-| **Q / E** | nach links / rechts gieren (Seitenleitwerk) — auch **Z / C** |
+| **Q / E** | nach rechts / links gieren (Seitenleitwerk) — auch **C / Z** |
 | **G** | Einziehfahrwerk ein-/ausfahren |
 | **I** | Steuerung umkehren (alles in die andere Richtung) |
 | **T** | Assist an/aus (an = ruhig, aus = direkter „Pro"-Modus) |
@@ -133,6 +133,30 @@ Mit **T aus** bekommst du den direkteren „Pro"-Modus.
 (Beschleunigung/Steigen) und der Schwerpunkt (im Hangar als Marker sichtbar).
 
 Speicherstand: `user://aircraft_design.json` (Buttons **Speichern/Laden** im Hangar).
+
+---
+
+## 🎮 Spielmodi, Geld & Missionen
+
+Beim ersten Start wählst du einen **Modus**:
+
+- **🧰 Sandbox** — alle Teile frei, unbegrenzt bauen & fliegen, kein Geld-Stress.
+- **🪖 Survival** — du startest mit **🪙 1500** und nur Basis-Teilen. Erfülle **Missionen**,
+  verdiene Geld, **kaufe** weitere Teile (Schloss-Symbol + Preis in der Palette) und
+  **upgrade** dein Flugzeug (Triebwerks-Tuning, verstärkte Flügel, Leichtbau).
+
+**Missionen** (Belohnung in 🪙):
+
+| Mission | Ziel | Belohnung |
+|---|---|---|
+| Erstflug | 60 m Höhe erreichen | 400 |
+| Ring-Parcours | alle 5 Ringe durchfliegen | 2000 |
+| Speed-Dämon | 250 km/h erreichen | 800 |
+| Höhenflug | 400 m Höhe erreichen | 1100 |
+| Saubere Landung | nach echtem Flug sauber landen | 1000 |
+
+Fortschritt (Geld, Freischaltungen, Upgrades, erledigte Missionen) wird in
+`user://aviassembly_progress.json` gespeichert.
 
 ---
 

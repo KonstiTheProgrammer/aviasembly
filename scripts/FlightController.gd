@@ -21,6 +21,10 @@ var spawn_height := 2.0
 var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
 var _mouse_idle := 0.0
+# Survival-Upgrade-Multiplikatoren (von Main aus GameState gesetzt)
+var thrust_mult := 1.0
+var wing_mult := 1.0
+var mass_mult := 1.0
 
 
 func _ready() -> void:
@@ -132,6 +136,9 @@ func build_from_design(d: Array) -> void:
 	spawn_height = 0.3 - min_y
 
 	body.parts = part_infos
+	body.thrust_mult = thrust_mult
+	body.wing_mult = wing_mult
+	body.mass_mult = mass_mult
 	add_child(body)
 	body.recompute_aero()        # Masse/COM/Flächen/Schub/Fahrwerk aus den Teilen
 	aircraft = body
@@ -197,11 +204,11 @@ func _physics_process(delta: float) -> void:
 		roll += 1.0
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
 		roll -= 1.0
-	# Gieren / Seitenleitwerk (E oder C = rechts, Q oder Z = links)
+	# Gieren / Seitenleitwerk (Q oder C = rechts, E oder Z = links)
 	var yaw := 0.0
-	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_C):
+	if Input.is_physical_key_pressed(KEY_Q) or Input.is_physical_key_pressed(KEY_C):
 		yaw += 1.0
-	if Input.is_physical_key_pressed(KEY_Q) or Input.is_physical_key_pressed(KEY_Z):
+	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
 
 	aircraft.throttle = throttle

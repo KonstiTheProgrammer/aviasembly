@@ -213,6 +213,13 @@ static func part_drag(p: Dictionary) -> float:
 	return frontal * part_cd(p)
 
 
+## Kaufpreis eines Teils (Survival-Shop), aus Masse/Schub/Fläche/Traglast.
+static func part_cost(p: Dictionary) -> int:
+	var c: float = p.get("mass", 0.0) * 1.5 + p.get("thrust", 0.0) * 0.045 \
+		+ p.get("area", 0.0) * 65.0 + p.get("gear_capacity", 0.0) * 0.4
+	return int(round(maxf(c, 80.0) / 50.0)) * 50
+
+
 static func col_size(p: Dictionary) -> Vector3:
 	return p.get("col_size", p.get("size", Vector3.ONE))
 

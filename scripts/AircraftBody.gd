@@ -44,6 +44,10 @@ var yaw_area := 0.0
 var engines: Array = []       # [{pos, thrust, jet}]
 var props: Array = []
 var total_thrust := 0.0
+# Survival-Upgrades (Multiplikatoren, vom FlightController gesetzt)
+var thrust_mult := 1.0
+var wing_mult := 1.0
+var mass_mult := 1.0
 
 # Tragflächen-Struktur & Widerstand
 var wing_capacity := 0.0      # max. Auftriebskraft (N), bevor Flügel brechen
@@ -210,8 +214,9 @@ func recompute_aero() -> void:
 			ra += pi["roll_a"]
 			ya += pi["yaw_a"]
 		if float(pi["thrust"]) > 0.0:
-			eng.append({"pos": pi["pos"], "thrust": pi["thrust"], "jet": pi["jet"]})
-			thr += pi["thrust"]
+			var et: float = float(pi["thrust"]) * thrust_mult
+			eng.append({"pos": pi["pos"], "thrust": et, "jet": pi["jet"]})
+			thr += et
 			if pi["prop"] != null and is_instance_valid(pi["prop"]):
 				prp.append(pi["prop"])
 		if float(pi["gear_cap"]) > 0.0:
@@ -223,15 +228,16 @@ func recompute_aero() -> void:
 	pitch_area = pa
 	roll_area = ra
 	yaw_area = ya
-	wing_capacity = wc
+	wing_capacity = wc * wing_mult
 	drag_area = da
 	total_thrust = thr
 	engines = eng
 	props = prp
 	gear_items = gi
 	gear_capacity = gc
-	gear_overloaded = gc > 0.0 and tm > gc
-	mass = maxf(tm, 1.0)
+	var tm_eff := tm * mass_mult
+	gear_overloaded = gc > 0.0 and tm_eff > gc
+	mass = maxf(tm_eff, 1.0)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = (com / tm) if tm > 0.0 else Vector3.ZERO
 

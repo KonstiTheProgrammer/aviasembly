@@ -188,8 +188,8 @@ Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl), M
 **Flug:** **Maus/Touchpad = Umschauen** (Orbit-Kamera, Maus im Flug `MOUSE_MODE_CAPTURED`,
 schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in FlightController) ·
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
-`A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Q`/`E` gieren (Seitenleitwerk;
-auch `Z`/`C`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist an/aus ·
+`A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Q`/`E` gieren = **rechts/links**
+(Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
 `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
@@ -228,6 +228,25 @@ thrust, jet, gear_capacity, retract, shape, size, col_size/col_offset, orient_no
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
+
+## Modi, Geld & Missionen (`scripts/GameState.gd`)
+- **GameState** (Node, in Main als `game` erzeugt + `load_state()`): hält `mode`
+  (NONE/SANDBOX/SURVIVAL), `money`, `unlocked` (Teil-IDs), `upgrades` (thrust/wing/light),
+  `missions_done`. Persistiert nach `user://aviassembly_progress.json`. Signal `changed`.
+- **Modus-Auswahl** beim ersten Start (Overlay `_show_mode_select`, falls `mode==NONE`):
+  **Sandbox** = alles frei (`start_mode` unlockt alle, money ∞); **Survival** = Starter-Teile
+  (`STARTER`) + `START_MONEY=1500`.
+- **Shop:** Palette-Kacheln zeigen 🔒+Preis (`PartCatalog.part_cost`) für gesperrte Teile;
+  Klick kauft (`_on_pick_part` → `game.buy_part`), `_rebuild_palette` aktualisiert. Sandbox:
+  alles frei.
+- **Upgrades** (`_build_upgrades_ui`, Hangar): Triebwerk +15%/Lv, Flügel +30%/Lv, Leichtbau
+  −8%/Lv (max 3, 600·(Lv+1) 🪙). Wirken im Flug: Main setzt `flight_ctrl.thrust/wing/mass_mult`
+  → `AircraftBody.recompute_aero` wendet sie an (überleben auch den Flügelbruch).
+- **Missionen** (`missions` in Main, Erkennung in `_check_missions` aus HUD-Telemetrie +
+  `_process` für Ringe): Erstflug (Höhe), Speed, Höhenflug, Saubere Landung, **Ring-Parcours**
+  (5 Torus-Checkpoints in `fly_world`, der Reihe nach durchfliegen; `_reset_rings` beim
+  Flugstart, leuchten grün beim Passieren). Belohnung via `game.complete_mission` → 🪙.
+- **Persistenz Design** (`_save_design`/`_load_design`): serialisiert id/xform/color/**scale**.
 
 ## Status & nächste Schritte
 - **Git:** lokal initialisiert, Branch `main`, alles committet (`.godot/` ignoriert).
