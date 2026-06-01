@@ -260,6 +260,24 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   (`missions_done`/`complete_mission`), falls man Missionen später wieder einbaut.
 - **Persistenz Design** (`_save_design`/`_load_design`): serialisiert id/xform/color/**scale**.
 
+## Luftkampf: Waffen, Geschosse, Ziele
+- **Waffen-Bauteile** (`CAT_WEAPON`, Feld `weapon`): `cannon` (gun), `missile` (homing),
+  `bomb`. Prozedurale Shapes; mountbar wie jedes Teil.
+- **`scripts/Projectile.gd`** (`class_name Projectile`): `bullet`/`missile`/`bomb`.
+  Bewegung + Bomben-Schwerkraft; Rakete homt (`slerp` der Geschwindigkeit aufs nächste
+  Ziel); Treffer via Segment-Abstand gegen Gruppe `"target"` (kein Durchtunneln);
+  Knall-Partikel. Lebenszeit-begrenzt.
+- **`scripts/Target.gd`** (`class_name Target`, Gruppe `"target"`): Luftballon (1 HP, +120)
+  oder Luftschiff (4 HP, +600). Schwebt/driftet, `hit(dmg)` mit `_dead`-Flag (kein
+  Doppel-Reward), `_die()` → Signal `killed(reward,pos)` + Partikel. Main spawnt sie in
+  `targets_root` (in `fly_world`), vor der Startbahn (`_rand_target_pos`); Abschuss →
+  `game.add_money` + Toast; Nachschub-Ballon nach 7 s.
+- **Feuern** (`FlightController`): sammelt `weapons` (Typ+lokaler Offset) beim Bauen;
+  **Leertaste** = Kanone (Cadence `_gun_cd`) + Raketen (`_msl_cd`), **B** = Bombe.
+  Spawnt `Projectile` in `world_root` (= `targets_root`, von Main gesetzt). Mündung =
+  `aircraft.global_transform * off`, Vorwärts = `-basis.z`. Fadenkreuz im Flug-HUD.
+  -> Abschüsse sind die Survival-Einnahmequelle.
+
 ## Status & nächste Schritte
 - **Git:** lokal initialisiert, Branch `main`, alles committet (`.godot/` ignoriert).
   GitHub-User (SSH funktioniert): **KonstiTheProgrammer**.

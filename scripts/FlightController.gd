@@ -26,6 +26,13 @@ var thrust_mult := 1.0
 var wing_mult := 1.0
 var mass_mult := 1.0
 
+# Waffen (feuerbar): Mündungs-Offsets je Typ, aus dem Design gesammelt
+var weapons: Array = []        # [{type:"gun"/"missile"/"bomb", off:Vector3 lokal}]
+var world_root: Node3D         # wohin Geschosse/Effekte gespawnt werden (von Main gesetzt)
+var _gun_cd := 0.0
+var _msl_cd := 0.0
+var _bomb_cd := 0.0
+
 
 func _ready() -> void:
 	set_process(false)
@@ -61,6 +68,7 @@ func build_from_design(d: Array) -> void:
 
 	var min_y := INF
 	var part_infos: Array = []   # je Teil: alle Aero-Beiträge (für Neuberechnung nach Bruch)
+	weapons.clear()
 
 	for item in d:
 		var id: String = item.get("id", "")
@@ -129,6 +137,9 @@ func build_from_design(d: Array) -> void:
 				"yaw": pinfo["yaw_a"] = a
 				_: pinfo["roll_a"] = ctrl_part
 		part_infos.append(pinfo)
+		var wp := String(p.get("weapon", ""))
+		if wp != "":
+			weapons.append({"type": wp, "off": xf.origin})
 
 	# Spawn-Höhe so, dass der tiefste Punkt knapp über der Bahn liegt
 	if min_y == INF:
@@ -218,7 +229,59 @@ func _physics_process(delta: float) -> void:
 	aircraft.in_roll = _ramp(aircraft.in_roll, roll, delta, 7.0, 9.0)
 	aircraft.in_yaw = _ramp(aircraft.in_yaw, yaw, delta, 4.0, 6.0)
 
+	# --- Waffen ---------------------------------------------------------
+	_gun_cd = maxf(0.0, _gun_cd - delta)
+	_msl_cd = maxf(0.0, _msl_cd - delta)
+	_bomb_cd = maxf(0.0, _bomb_cd - delta)
+	if Input.is_physical_key_pressed(KEY_SPACE):
+		_fire_primary()
+	if Input.is_physical_key_pressed(KEY_B):
+		_drop_bomb()
+
 	_emit_hud()
+
+
+# Mündungsrichtung = Flugzeug-Vorwärts (-Z), Position = Welt-Offset des Mounts.
+func _muzzle(off: Vector3) -> Vector3:
+	return aircraft.global_transform * off
+
+
+func _fire_primary() -> void:
+	var fwd := -aircraft.global_transform.basis.z.normalized()
+	for w in weapons:
+		if w["type"] == "gun" and _gun_cd <= 0.0:
+			_spawn("bullet", _muzzle(w["off"]) + fwd * 1.2,
+				aircraft.linear_velocity + fwd * 350.0, 2.0, 1.0)
+			_gun_cd = 0.09
+		elif w["type"] == "missile" and _msl_cd <= 0.0:
+			_spawn("missile", _muzzle(w["off"]),
+				aircraft.linear_velocity + fwd * 90.0, 7.0, 3.0)
+			_msl_cd = 1.1
+
+
+func _drop_bomb() -> void:
+	if _bomb_cd > 0.0:
+		return
+	var dropped := false
+	for w in weapons:
+		if w["type"] == "bomb":
+			_spawn("bomb", _muzzle(w["off"]), aircraft.linear_velocity, 12.0, 5.0)
+			dropped = true
+	if dropped:
+		_bomb_cd = 0.8
+
+
+func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float) -> void:
+	var root := world_root if world_root != null else get_parent()
+	if root == null:
+		return
+	var p := Projectile.new()
+	p.kind = kind
+	p.vel = vel
+	p.life = life
+	p.damage = dmg
+	root.add_child(p)
+	p.global_position = pos
 
 
 # Eingabe sanft Richtung Ziel führen (rise = drücken, fall = loslassen/zentrieren).

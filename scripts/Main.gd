@@ -70,6 +70,9 @@ var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
 var upgrade_box: VBoxContainer     # Upgrade-Panel
 var mode_overlay: Control          # Modus-Auswahl-Overlay
 
+# Ziele zum Abschießen (Luftballons/Luftschiffe) + Geschosse
+var targets_root: Node3D           # Container in fly_world für Ziele + Geschosse
+
 
 func _ready() -> void:
 	# Höhere Physikrate gegen Ruckeln auf 120-Hz-Displays (ProMotion)
@@ -81,6 +84,10 @@ func _ready() -> void:
 	_setup_world()
 	_setup_camera()
 	_setup_controllers()
+	targets_root = Node3D.new()
+	fly_world.add_child(targets_root)
+	flight_ctrl.world_root = targets_root
+	_spawn_targets()
 	_setup_ui()
 	if not _load_design():
 		build_ctrl.load_design(_default_design())
@@ -877,8 +884,15 @@ func _build_flight_ui() -> void:
 	back_btn.pressed.connect(_on_hangar_pressed)
 	flight_root.add_child(back_btn)
 
+	# Fadenkreuz (Mitte)
+	var cross := _lbl("✛", 26, Color(1, 1, 1, 0.7))
+	cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_rect(cross, 0.5, 0.5, 0.5, 0.5, -16, -18, 16, 18)
+	flight_root.add_child(cross)
+
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Umschauen · Schub: Shift/Strg · Nase: W/S · Rollen: A/D · Gieren (Seitenleitwerk): Q/E · G: Fahrwerk · I: Steuerung umkehren · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Umschauen · Schub: Shift/Strg · Nase: W/S · Rollen: A/D · Gieren: Q/E · 🔫 LEERTASTE: Kanone/Rakete · 💣 B: Bombe · G: Fahrwerk · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
@@ -971,6 +985,49 @@ func _on_hangar_pressed() -> void:
 
 func _on_symmetry_toggled(on: bool) -> void:
 	build_ctrl.set_symmetry(on)
+
+
+# ===========================================================================
+# ZIELE (Luftballons / Luftschiffe zum Abschießen)
+# ===========================================================================
+const _TARGET_COLORS := [
+	Color(0.92, 0.22, 0.2), Color(0.96, 0.72, 0.12), Color(0.22, 0.6, 0.96),
+	Color(0.3, 0.85, 0.35), Color(0.85, 0.32, 0.88), Color(0.95, 0.5, 0.15),
+]
+
+
+func _spawn_targets() -> void:
+	for i in 16:
+		_make_target("balloon", _rand_target_pos(40.0, 210.0), _TARGET_COLORS[i % _TARGET_COLORS.size()])
+	for i in 3:
+		_make_target("airship", _rand_target_pos(130.0, 250.0), Color(0.72, 0.74, 0.8))
+
+
+func _rand_target_pos(ymin: float, ymax: float) -> Vector3:
+	# vor der Startbahn (Flieger schaut nach -Z), gut erreichbar
+	return Vector3(randf_range(-380.0, 380.0), randf_range(ymin, ymax), randf_range(-750.0, -30.0))
+
+
+func _make_target(kind: String, pos: Vector3, col: Color) -> void:
+	var t := Target.new()
+	targets_root.add_child(t)
+	t.setup(kind, pos, col)
+	t.killed.connect(_on_target_killed)
+
+
+func _on_target_killed(reward: int, _pos: Vector3) -> void:
+	if game != null:
+		game.add_money(reward)
+	_toast("💥 Abschuss! +%d 🪙" % reward)
+	# Nachschub: nach kurzer Zeit einen neuen Ballon einfliegen lassen
+	var tmr := get_tree().create_timer(7.0)
+	tmr.timeout.connect(_respawn_balloon)
+
+
+func _respawn_balloon() -> void:
+	if targets_root == null:
+		return
+	_make_target("balloon", _rand_target_pos(40.0, 210.0), _TARGET_COLORS[randi() % _TARGET_COLORS.size()])
 
 
 # ===========================================================================

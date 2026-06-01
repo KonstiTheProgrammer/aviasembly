@@ -84,9 +84,22 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 - **Antrieb:** Propeller, großer Propeller, Düsentriebwerk, **eckiges Düsentriebwerk** (2D-Düse), Hilfstriebwerk
 - **Fahrwerk (4 Varianten mit Traglast):** Leicht (~450 kg) · Standard (~850 kg) ·
   Schwer (~1750 kg) · **Einziehfahrwerk (~1050 kg, Taste G)**
+- **Bewaffnung (feuerbar!):** Bordkanone (Schnellfeuer, **Leertaste**) · Zielsuchrakete
+  (homing, **Leertaste**) · Bombe (Freifall, **Taste B**)
 
 *Mit `tools/build_jet.gd` gibt's einen vorgebauten zweimotorigen Delta-Canard-Jet
 (zwei eckige Triebwerke) im Speicherstand.*
+
+## 🎈 Luftkampf
+
+Am Himmel schweben **Luftballons** und **Luftschiffe** (Zeppeline) zum Abschießen.
+Bau Waffen an dein Flugzeug, ziel mit dem Fadenkreuz und feuere:
+
+- **Leertaste** — Bordkanone (geradeaus) + Zielsuchraketen (steuern selbst aufs nächste Ziel)
+- **Taste B** — Bombe abwerfen
+
+Jeder Abschuss gibt **Geld** (Ballon +120, Luftschiff +600) → so verdienst du im Survival.
+Abgeschossene Ballons werden nach kurzer Zeit durch neue ersetzt.
 
 Mehr/größere **Steuerflächen** → mehr Wendigkeit. Mehr **Flügelfläche** → mehr
 Auftrieb (langsameres Abheben). Mehr **Schub** → bessere Beschleunigung.
