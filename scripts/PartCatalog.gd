@@ -149,10 +149,28 @@ static func _build() -> void:
 		"desc": "Schnellfeuer-Kanone (LEERTASTE). Vorne montieren — schießt geradeaus.",
 	})
 	_add({
+		"id": "rocket", "name": "Ungelenkte Rakete", "category": CAT_WEAPON,
+		"mass": 70.0, "color": Color(0.7, 0.55, 0.3), "shape": "missile", "weapon": "rocket",
+		"size": Vector3(0.3, 0.3, 2.0), "metal": 0.4, "rough": 0.5,
+		"desc": "Dumme Rakete (LEERTASTE) — fliegt schnell GERADEAUS, kein Suchkopf.",
+	})
+	_add({
+		"id": "rocket_pod", "name": "Raketenwerfer", "category": CAT_WEAPON,
+		"mass": 140.0, "color": Color(0.35, 0.37, 0.4), "shape": "cannon", "weapon": "salvo",
+		"size": Vector3(0.6, 0.6, 1.5), "metal": 0.6, "rough": 0.4,
+		"desc": "Salve aus 3 ungelenkten Raketen auf einmal (LEERTASTE), leicht gefächert.",
+	})
+	_add({
 		"id": "missile", "name": "Zielsuchrakete", "category": CAT_WEAPON,
 		"mass": 95.0, "color": Color(0.85, 0.86, 0.9), "shape": "missile", "weapon": "missile",
 		"size": Vector3(0.34, 0.34, 2.4), "metal": 0.5, "rough": 0.4,
-		"desc": "Lenkrakete (LEERTASTE) — sucht das nächste Ziel und steuert hin.",
+		"desc": "Heat-Seeker (LEERTASTE) — fliegt geradeaus und kurvt aufs Ziel, sobald eins in die Nähe kommt.",
+	})
+	_add({
+		"id": "missile_heavy", "name": "Schwere Lenkrakete", "category": CAT_WEAPON,
+		"mass": 190.0, "color": Color(0.78, 0.8, 0.85), "shape": "missile", "weapon": "missile_heavy",
+		"size": Vector3(0.46, 0.46, 3.2), "metal": 0.5, "rough": 0.4,
+		"desc": "Großer Suchkopf + großer Knall, größere Reichweite, träger. (LEERTASTE)",
 	})
 	_add({
 		"id": "bomb", "name": "Bombe", "category": CAT_WEAPON,

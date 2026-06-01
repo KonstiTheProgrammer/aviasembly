@@ -8,6 +8,9 @@ var vel := Vector3.ZERO
 var life := 2.5
 var damage := 1.0
 var turn := 3.0               # Lenkrate der Rakete (rad/s grob)
+var guided := false           # Suchkopf aktiv? (sonst rein geradeaus)
+var seek_range := 70.0        # Reichweite, ab der ein Ziel angeflogen wird
+const SEEK_CONE := 0.2        # nur Ziele grob voraus erfassen (dot vel·Richtung)
 var _target: Node3D = null
 
 
@@ -22,7 +25,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if kind == "bomb":
 		vel.y -= 24.0 * delta
-	elif kind == "missile":
+	elif kind == "missile" and guided:
 		_home(delta)
 	var a := global_position
 	global_position += vel * delta
@@ -44,7 +47,9 @@ func _physics_process(delta: float) -> void:
 
 
 func _home(delta: float) -> void:
-	if not is_instance_valid(_target):
+	# Suchkopf: nur lenken, wenn ein Ziel im Suchradius UND grob voraus ist.
+	# Sonst fliegt die Rakete geradeaus weiter.
+	if not _in_seek(_target):
 		_target = _nearest()
 	if is_instance_valid(_target):
 		var dir: Vector3 = (_target.global_position - global_position).normalized()
@@ -53,13 +58,27 @@ func _home(delta: float) -> void:
 			vel = cur.slerp(dir, clampf(turn * delta, 0.0, 1.0)) * vel.length()
 
 
+func _in_seek(t: Node3D) -> bool:
+	if not is_instance_valid(t):
+		return false
+	var to: Vector3 = t.global_position - global_position
+	if to.length() > seek_range:
+		return false
+	return to.normalized().dot(vel.normalized()) > SEEK_CONE
+
+
+# Nächstes Ziel im Suchradius + Suchkegel (null = nichts -> geradeaus).
 func _nearest() -> Node3D:
 	var best: Node3D = null
-	var bd := 1e12
+	var bd := seek_range
+	var vd := vel.normalized()
 	for t in get_tree().get_nodes_in_group("target"):
-		var dd: float = global_position.distance_squared_to(t.global_position)
-		if dd < bd:
-			bd = dd
+		if not is_instance_valid(t):
+			continue
+		var to: Vector3 = t.global_position - global_position
+		var d := to.length()
+		if d < bd and to.normalized().dot(vd) > SEEK_CONE:
+			bd = d
 			best = t
 	return best
 

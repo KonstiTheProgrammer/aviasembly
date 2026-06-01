@@ -84,8 +84,10 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 - **Antrieb:** Propeller, großer Propeller, Düsentriebwerk, **eckiges Düsentriebwerk** (2D-Düse), Hilfstriebwerk
 - **Fahrwerk (4 Varianten mit Traglast):** Leicht (~450 kg) · Standard (~850 kg) ·
   Schwer (~1750 kg) · **Einziehfahrwerk (~1050 kg, Taste G)**
-- **Bewaffnung (feuerbar!):** Bordkanone (Schnellfeuer, **Leertaste**) · Zielsuchrakete
-  (homing, **Leertaste**) · Bombe (Freifall, **Taste B**)
+- **Bewaffnung (feuerbar!):** Bordkanone (Schnellfeuer) · **Ungelenkte Rakete** (fliegt
+  geradeaus) · **Raketenwerfer** (3er-Salve) · **Zielsuchrakete** (Heat-Seeker) ·
+  **Schwere Lenkrakete** (große Reichweite, viel Schaden) · Bombe (Freifall, **Taste B**) —
+  alles außer Bombe feuert per **Leertaste**
 
 *Mit `tools/build_jet.gd` gibt's einen vorgebauten zweimotorigen Delta-Canard-Jet
 (zwei eckige Triebwerke) im Speicherstand.*
@@ -95,7 +97,9 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 Am Himmel schweben **Luftballons** und **Luftschiffe** (Zeppeline) zum Abschießen.
 Bau Waffen an dein Flugzeug, ziel mit dem Fadenkreuz und feuere:
 
-- **Leertaste** — Bordkanone (geradeaus) + Zielsuchraketen (steuern selbst aufs nächste Ziel)
+- **Leertaste** — feuert alle montierten Rohrwaffen: Kanone (geradeaus), ungelenkte
+  Raketen & Salven (geradeaus) sowie Lenkraketen. **Heat-Seeker fliegen erst geradeaus
+  und kurven erst dann aufs Ziel, wenn eines in ihre Nähe kommt** — also vorher grob zielen.
 - **Taste B** — Bombe abwerfen
 
 Jeder Abschuss gibt **Geld** (Ballon +120, Luftschiff +600) → so verdienst du im Survival.
