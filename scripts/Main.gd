@@ -69,6 +69,10 @@ var fly_money_label: Label         # Flug-HUD
 var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
 var upgrade_box: VBoxContainer     # Upgrade-Panel
 var mode_overlay: Control          # Modus-Auswahl-Overlay
+var sel_panel: Control             # Kontext-Panel für ausgewähltes Teil
+var sel_title: Label
+var sel_scale_label: Label
+var sel_delete_btn: Button
 
 # Ziele zum Abschießen (Luftballons/Luftschiffe) + Geschosse
 var targets_root: Node3D           # Container in fly_world für Ziele + Geschosse
@@ -347,6 +351,7 @@ func _setup_controllers() -> void:
 	add_child(build_ctrl)
 	build_ctrl.set_camera(camera)
 	build_ctrl.design_changed.connect(_on_design_changed)
+	build_ctrl.selection_changed.connect(_on_selection_changed)
 
 	flight_ctrl = FlightController.new()
 	add_child(flight_ctrl)
@@ -466,7 +471,7 @@ func _build_hangar_ui() -> void:
 	move_btn.pressed.connect(_on_move_tool)
 	vb.add_child(move_btn)
 	var transform_btn := Button.new()
-	transform_btn.text = "✥  Transformieren (ziehen & skalieren)"
+	transform_btn.text = "✦  Auswählen & Bearbeiten"
 	transform_btn.pressed.connect(_on_transform_tool)
 	vb.add_child(transform_btn)
 	var erase_btn := Button.new()
@@ -566,6 +571,8 @@ func _build_hangar_ui() -> void:
 	sv.add_child(stats_label)
 	var legend := _lbl("● Schwerpunkt   ● Auftriebspunkt", 11, Color(0.85, 0.85, 0.85))
 	sv.add_child(legend)
+
+	_build_selection_panel()
 
 	# --- Hinweisleiste unten ---
 	var hint := _lbl("Teil ziehen = setzen/verschieben  ·  leerer Raum/Rechtsmaus = drehen  ·  Zoom: Mausrad / + − / Pinch / Zwei-Finger  ·  X: löschen  ·  R: drehen  ·  M: Symmetrie  ·  Strg+Z/Y: Undo  ·  F: Ansicht", 13, Color(0.9, 0.9, 0.9))
@@ -799,6 +806,80 @@ func _on_transform_tool() -> void:
 	_refresh_tool_ui()
 
 
+# --- Kontext-Panel fürs ausgewählte Teil ----------------------------------
+func _build_selection_panel() -> void:
+	sel_panel = _panel(Color(0, 0, 0, 0.55))
+	_rect(sel_panel, 1, 0, 1, 0, -300, 266, -10, 566)
+	build_root.add_child(sel_panel)
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 8
+	v.offset_top = 8
+	v.offset_right = -8
+	v.offset_bottom = -8
+	v.add_theme_constant_override("separation", 4)
+	sel_panel.add_child(v)
+	sel_title = _lbl("✦ Ausgewählt", 15, Color(0.55, 1.0, 0.7))
+	v.add_child(sel_title)
+	sel_scale_label = _lbl("", 12, Color(0.8, 0.85, 0.95))
+	v.add_child(sel_scale_label)
+	v.add_child(_lbl("Größe ändern (oder farbige Würfel ziehen):", 11, Color(0.82, 0.82, 0.88)))
+	var axis_names := ["Breite", "Höhe", "Länge"]
+	for i in 3:
+		var row := HBoxContainer.new()
+		v.add_child(row)
+		var lbl := _lbl(axis_names[i], 12)
+		lbl.custom_minimum_size = Vector2(78, 0)
+		row.add_child(lbl)
+		var minus := Button.new()
+		minus.text = "  −  "
+		minus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		minus.pressed.connect(build_ctrl.nudge_scale.bind(i, 1.0 / 1.18))
+		row.add_child(minus)
+		var plus := Button.new()
+		plus.text = "  +  "
+		plus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		plus.pressed.connect(build_ctrl.nudge_scale.bind(i, 1.18))
+		row.add_child(plus)
+	var row2 := HBoxContainer.new()
+	v.add_child(row2)
+	var rot := Button.new()
+	rot.text = "↻ Drehen"
+	rot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rot.pressed.connect(build_ctrl.rotate_selected)
+	row2.add_child(rot)
+	var tilt := Button.new()
+	tilt.text = "⤡ Kippen"
+	tilt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tilt.pressed.connect(build_ctrl.tilt_selected)
+	row2.add_child(tilt)
+	var rst := Button.new()
+	rst.text = "⟲ Größe zurücksetzen"
+	rst.pressed.connect(build_ctrl.reset_selected_scale)
+	v.add_child(rst)
+	sel_delete_btn = Button.new()
+	sel_delete_btn.text = "🗑  Löschen"
+	sel_delete_btn.add_theme_color_override("font_color", Color(1, 0.6, 0.55))
+	sel_delete_btn.pressed.connect(build_ctrl.delete_selected)
+	v.add_child(sel_delete_btn)
+	sel_panel.visible = false
+
+
+func _on_selection_changed(info: Dictionary) -> void:
+	if sel_panel == null:
+		return
+	if info.is_empty():
+		sel_panel.visible = false
+		return
+	sel_panel.visible = true
+	sel_title.text = "✦ %s" % info.get("name", "Teil")
+	var s: Vector3 = info.get("scale", Vector3.ONE)
+	sel_scale_label.text = "Größe: %.2f × %.2f × %.2f" % [s.x, s.y, s.z]
+	var is_root: bool = info.get("is_root", false)
+	sel_delete_btn.disabled = is_root
+	sel_delete_btn.tooltip_text = "Das Cockpit ist die Basis und kann nicht gelöscht werden." if is_root else ""
+
+
 func _on_erase_tool() -> void:
 	build_ctrl.set_erase_mode(true)
 	_refresh_tool_ui()
@@ -838,7 +919,7 @@ func _refresh_tool_ui() -> void:
 	for pid in part_buttons:
 		part_buttons[pid].set_pressed_no_signal(pid == sel)
 	if build_ctrl.transform_mode:
-		tool_label.text = "Werkzeug: ✥ Transformieren – Teil klicken, farbige Griffe ziehen (skalieren), Teil ziehen (verschieben)"
+		tool_label.text = "Werkzeug: ✦ Bearbeiten – Teil anklicken zum Auswählen (dann skalieren/drehen/löschen im Panel)"
 	elif build_ctrl.erase_mode:
 		tool_label.text = "Werkzeug: 🧹 Abriss – Teil anklicken zum Löschen"
 	elif build_ctrl.paint_mode:

@@ -5,6 +5,7 @@ class_name BuildController
 extends Node3D
 
 signal design_changed(stats: Dictionary)
+signal selection_changed(info: Dictionary)   # {} = nichts gewählt; sonst {name, scale, is_root}
 
 const BUILD_LAYER := 2
 const HANDLE_LAYER := 8       # Transform-Griffe (eigener Raycast-Layer)
@@ -322,6 +323,7 @@ func _axis_vec(i: int) -> Vector3:
 func _select_part(part: Node3D) -> void:
 	selected_part = part
 	_build_handles()
+	_emit_selection()
 
 
 func _deselect() -> void:
@@ -329,6 +331,72 @@ func _deselect() -> void:
 	_drag_handle = null
 	_moving_sel = false
 	_clear_handles()
+	selection_changed.emit({})
+
+
+func _emit_selection() -> void:
+	if selected_part == null:
+		selection_changed.emit({})
+		return
+	var p := PartCatalog.get_part(selected_part.get_meta("part_id"))
+	selection_changed.emit({
+		"name": p.get("name", selected_part.get_meta("part_id")),
+		"scale": selected_part.get_meta("pscale", Vector3.ONE),
+		"is_root": selected_part.get_meta("is_root", false),
+	})
+
+
+# --- Aktionen auf das ausgewählte Teil (vom UI-Panel aufgerufen) -----------
+func nudge_scale(axis: int, factor: float) -> void:
+	if selected_part == null:
+		return
+	var sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+	var v := [sc.x, sc.y, sc.z]
+	v[axis] = clampf(float(v[axis]) * factor, 0.25, 6.0)
+	_apply_sel_transform(selected_part.transform.basis, selected_part.position,
+		Vector3(v[0], v[1], v[2]))
+	_emit_selection()
+	_push_history()
+
+
+func reset_selected_scale() -> void:
+	if selected_part == null:
+		return
+	_apply_sel_transform(selected_part.transform.basis, selected_part.position, Vector3.ONE)
+	_emit_selection()
+	_push_history()
+
+
+func rotate_selected() -> void:
+	if selected_part == null:
+		return
+	var b := selected_part.transform.basis * Basis(Vector3.UP, deg_to_rad(90.0))
+	_apply_sel_transform(b.orthonormalized(), selected_part.position,
+		selected_part.get_meta("pscale", Vector3.ONE))
+	_push_history()
+
+
+func tilt_selected() -> void:
+	if selected_part == null:
+		return
+	var b := selected_part.transform.basis * Basis(Vector3(0, 0, 1), deg_to_rad(45.0))
+	_apply_sel_transform(b.orthonormalized(), selected_part.position,
+		selected_part.get_meta("pscale", Vector3.ONE))
+	_push_history()
+
+
+func delete_selected() -> void:
+	if selected_part == null or selected_part.get_meta("is_root", false):
+		return
+	var part := selected_part
+	_deselect()
+	if part.has_meta("mirror"):
+		var m = part.get_meta("mirror")
+		if is_instance_valid(m):
+			m.free()
+	part.free()
+	_push_history()
+	_notify_changed()
 
 
 func _clear_handles() -> void:

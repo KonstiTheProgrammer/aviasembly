@@ -187,12 +187,15 @@ Querruder, kein Auftrieb.
 **Hangar:** Teil ziehen=setzen/verschieben · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
 `Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · Tab=Testflug.
-**Transformieren-Werkzeug** (`set_transform_mode`): Teil klicken=auswählen → 6 farbige
-Flächen-Griffe (X=rot Breite, Y=grün Höhe, Z=blau Länge); Griff ziehen=Achse strecken
-(Gegenfläche verankert), Body ziehen=verschieben (Bildschirmebene). Pro-Teil-Skalierung
-(`pscale`, Vector3) wird in get/load_design persistiert; `_apply_part_scale` skaliert
-Visual+Pickbox; FlightController/compute_stats skalieren Masse~Volumen, Schub~Volumen, Fläche~x·z,
-Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl), Move: Ebene.
+**Bearbeiten-Werkzeug „✦ Auswählen & Bearbeiten"** (`set_transform_mode`): Teil klicken =
+**auswählen** → 6 farbige Flächen-Griffe (X=rot Breite, Y=grün Höhe, Z=blau Länge; Griff
+ziehen = Achse strecken/Gegenfläche verankert, Body ziehen = verschieben) **UND** ein
+Kontext-Panel rechts (Main `_build_selection_panel`/`_on_selection_changed`, via Signal
+`selection_changed`): pro-Achse −/+ (`nudge_scale`), `rotate_selected`/`tilt_selected`,
+`reset_selected_scale`, **🗑 `delete_selected`** (Cockpit/Root nicht löschbar). Pro-Teil-
+Skalierung (`pscale`, Vector3) in get/load_design persistiert; `_apply_part_scale` skaliert
+Visual+Pickbox; FlightController/compute_stats skalieren Masse~Volumen, Schub~Volumen,
+Fläche~x·z, Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl).
 **Flug:** **Maus/Touchpad = Umschauen** (Orbit-Kamera, Maus im Flug `MOUSE_MODE_CAPTURED`,
 schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in FlightController) ·
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
