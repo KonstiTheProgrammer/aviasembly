@@ -176,38 +176,140 @@ func toggle_invert() -> void:
 
 
 # Flügel physisch abreißen — mit allem, was darauf montiert ist (Trümmer)
+# Flugmodell aus den NICHT gebrochenen Teilen neu zusammenrechnen (nach Bruch/Build).
+func recompute_aero() -> void:
+	var tm := 0.0
+	var com := Vector3.ZERO
+	var wa := 0.0
+	var ars := 0.0
+	var lifts := 0.0
+	var pa := 0.0
+	var ra := 0.0
+	var ya := 0.0
+	var wc := 0.0
+	var da := 0.0
+	var thr := 0.0
+	var eng: Array = []
+	var prp: Array = []
+	var gi: Array = []
+	var gc := 0.0
+	for pi in parts:
+		if pi.get("broken", false):
+			continue
+		var m: float = pi["mass"]
+		tm += m
+		com += m * pi["pos"]
+		da += pi["drag"]
+		if pi["is_wing"]:
+			var lp: float = pi["lift_part"]
+			wa += lp
+			ars += lp * float(pi["ar"])
+			lifts += lp * float(pi["lift_coef"])
+			wc += pi["wing_cap"]
+			pa += pi["pitch_a"]
+			ra += pi["roll_a"]
+			ya += pi["yaw_a"]
+		if float(pi["thrust"]) > 0.0:
+			eng.append({"pos": pi["pos"], "thrust": pi["thrust"], "jet": pi["jet"]})
+			thr += pi["thrust"]
+			if pi["prop"] != null and is_instance_valid(pi["prop"]):
+				prp.append(pi["prop"])
+		if float(pi["gear_cap"]) > 0.0:
+			gc += pi["gear_cap"]
+			gi.append({"vis": pi["vis"], "cs": pi["cs"], "retract": pi["retract"], "base": pi["xform"]})
+	wing_area = wa
+	eff_ar = (ars / wa) if wa > 0.0 else 4.0
+	lift_scale = (lifts / wa) if wa > 0.0 else 1.0
+	pitch_area = pa
+	roll_area = ra
+	yaw_area = ya
+	wing_capacity = wc
+	drag_area = da
+	total_thrust = thr
+	engines = eng
+	props = prp
+	gear_items = gi
+	gear_capacity = gc
+	gear_overloaded = gc > 0.0 and tm > gc
+	mass = maxf(tm, 1.0)
+	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
+	center_of_mass = (com / tm) if tm > 0.0 else Vector3.ZERO
+
+
+# Verbindungs-Baum ab dem Cockpit (BFS über Box-Nachbarschaft). parent[i] = Träger.
+func _build_parents() -> Array:
+	var n := parts.size()
+	var parent: Array = []
+	var adj: Array = []
+	for i in n:
+		parent.append(-1)
+		adj.append([])
+	for i in n:
+		for j in range(i + 1, n):
+			if _attached(parts[i], parts[j]) or _attached(parts[j], parts[i]):
+				adj[i].append(j)
+				adj[j].append(i)
+	var root := 0
+	for i in n:
+		if parts[i].get("is_root", false):
+			root = i
+			break
+	var seen := {root: true}
+	var queue := [root]
+	while not queue.is_empty():
+		var cur = queue.pop_front()
+		for nb in adj[cur]:
+			if not seen.has(nb):
+				seen[nb] = true
+				parent[nb] = cur
+				queue.append(nb)
+	return parent
+
+
 func _break_wings() -> void:
 	if parts.is_empty():
 		return
-	var brk := {}
+	# Hauptflügel (keine Steuerflächen) als Bruch-Wurzeln
+	var roots: Array = []
 	for i in parts.size():
 		if parts[i]["is_wing"] and String(parts[i]["control"]) == "":
-			brk[i] = true
-	if brk.is_empty():
+			roots.append(i)
+	if roots.is_empty():
 		for i in parts.size():
 			if parts[i]["is_wing"]:
+				roots.append(i)
+	if roots.is_empty():
+		return
+	# Nur den Teilbaum AUSWÄRTS der Flügel abreißen (Rumpf/Träger bleibt dran).
+	var parent := _build_parents()
+	var rset := {}
+	for r in roots:
+		rset[r] = true
+	var brk := {}
+	for i in parts.size():
+		var c = i
+		var guard := 0
+		while c >= 0 and guard < 256:
+			if rset.has(c):
 				brk[i] = true
+				break
+			c = parent[c]
+			guard += 1
+	for i in parts.size():
+		if parts[i].get("is_root", false):
+			brk.erase(i)
 	if brk.is_empty():
 		return
-	# transitiv: alles, dessen Ursprung auf einem brechenden Teil sitzt, kommt mit
-	for _pass in 3:
-		for i in parts.size():
-			if brk.has(i):
-				continue
-			var o: Vector3 = parts[i]["xform"].origin
-			for j in brk.keys():
-				if _origin_in_part(o, parts[j]):
-					brk[i] = true
-					break
 	var par := get_parent()
 	if par == null:
 		return
+	# Trümmer-Körper mit den abgerissenen Teilen
 	var debris := RigidBody3D.new()
 	debris.add_to_group("debris")
 	debris.collision_layer = 8
 	debris.collision_mask = 1          # nur Boden
-	debris.mass = 80.0
 	debris.angular_damp = 0.1
+	var dmass := 0.0
 	par.add_child(debris)
 	debris.global_transform = global_transform
 	debris.linear_velocity = linear_velocity
@@ -218,22 +320,31 @@ func _break_wings() -> void:
 			cs.disabled = true
 		var vis = parts[i]["vis"]
 		if is_instance_valid(vis):
-			vis.reparent(debris, true)   # Weltposition beibehalten
+			vis.reparent(debris, true)   # Weltposition beibehalten (Teil fällt mit ab)
+		dmass += float(parts[i]["mass"])
+		parts[i]["broken"] = true        # raus aus dem Flugmodell
+	debris.mass = clampf(dmass, 20.0, 4000.0)
 	var box := BoxShape3D.new()
 	box.size = Vector3(3.5, 0.5, 2.0)
 	var dcs := CollisionShape3D.new()
 	dcs.shape = box
 	debris.add_child(dcs)
-	var tmr := get_tree().create_timer(8.0)
+	var tmr := get_tree().create_timer(9.0)
 	tmr.timeout.connect(debris.queue_free)
+	# Flugmodell aus dem Rest neu berechnen (fehlender Schub/Flügel/Gewicht zählt!)
+	recompute_aero()
 
 
-func _origin_in_part(point: Vector3, p: Dictionary) -> bool:
-	var xf: Transform3D = p["xform"]
-	var center: Vector3 = xf * p["coffset"]
+# Sitzt Teil "ci" auf Teil "pj"? (Box-Nachbarschaft in pj-Achsen, inkl. ci-Größe)
+func _attached(ci: Dictionary, pj: Dictionary) -> bool:
+	var xf: Transform3D = pj["xform"]
+	var center: Vector3 = xf * pj["coffset"]
 	var b := xf.basis.orthonormalized()
-	var local := b.transposed() * (point - center)
-	var half: Vector3 = p["csize"] * 0.5 + Vector3(0.3, 0.3, 0.3)
+	var cc: Vector3 = ci["xform"] * ci["coffset"]
+	var local := b.transposed() * (cc - center)
+	var ch: Vector3 = ci["csize"] * 0.5
+	var pad: float = maxf(maxf(ch.x, ch.y), ch.z) + 0.2
+	var half: Vector3 = pj["csize"] * 0.5 + Vector3(pad, pad, pad)
 	return absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z
 
 
@@ -341,8 +452,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			landing_msg = "💥 FLÜGEL ÜBERLASTET — abgerissen!"
 			_land_timer = 4.0
 		if wings_broken:
-			cl *= 0.12          # kaum noch Auftrieb
-			cd += 0.6           # viel Widerstand (Trümmer)
+			cd += 0.25          # zerfetzte Struktur -> mehr Widerstand
 			lift_mag = q * wing_area * cl
 		var f_b := Vector3(-sin(beta) * q * wing_area * SIDE, lift_mag, 0.0)
 		f_b += -v_b.normalized() * (q * wing_area * cd)

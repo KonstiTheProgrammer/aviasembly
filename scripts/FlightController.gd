@@ -55,23 +55,8 @@ func build_from_design(d: Array) -> void:
 	body.collision_layer = AIRCRAFT_LAYER
 	body.collision_mask = GROUND_LAYER
 
-	var total_mass := 0.0
-	var com := Vector3.ZERO
-	var engines: Array = []
-	var props: Array = []
-	var thrust_total := 0.0
 	var min_y := INF
-	var wing_area := 0.0
-	var ar_sum := 0.0
-	var lift_sum := 0.0
-	var pitch_area := 0.0
-	var roll_area := 0.0
-	var yaw_area := 0.0
-	var gear_items: Array = []
-	var gear_cap := 0.0
-	var wing_cap := 0.0
-	var drag_area := 0.0
-	var part_infos: Array = []
+	var part_infos: Array = []   # je Teil: alle Aero-Beiträge (für Neuberechnung nach Bruch)
 
 	for item in d:
 		var id: String = item.get("id", "")
@@ -89,8 +74,6 @@ func build_from_design(d: Array) -> void:
 		vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
 		var prop := vis.find_child("Prop", true, false)
-		if prop:
-			props.append(prop)
 
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
@@ -105,10 +88,6 @@ func build_from_design(d: Array) -> void:
 			ori.x = -ori.x
 		cs.transform = Transform3D(ori, center_local)
 		body.add_child(cs)
-		part_infos.append({
-			"vis": vis, "cs": cs, "xform": xf, "csize": box.size, "coffset": cob,
-			"is_wing": p.get("is_wing", false), "control": p.get("control", ""),
-		})
 		# tiefsten Punkt fürs Aufsetzen auf der Bahn ermitteln
 		var ext: Vector3 = box.size * 0.5
 		for sx in [-1.0, 1.0]:
@@ -117,66 +96,44 @@ func build_from_design(d: Array) -> void:
 					var corner: Vector3 = xf * (cob + Vector3(sx * ext.x, sy * ext.y, sz * ext.z))
 					min_y = minf(min_y, corner.y)
 
-		var m: float = p.get("mass", 0.0) * vol
-		total_mass += m
-		com += m * xf.origin
-
-		drag_area += PartCatalog.part_drag(p) * psc.x * psc.y   # Stirnfläche skaliert
-		if p.get("is_wing", false):
-			var a: float = p.get("area", 0.0) * psc.x * psc.z   # Planform skaliert
+		# Alle Aero-Beiträge pro Teil vorberechnen -> AircraftBody kann nach einem
+		# Bruch das Modell aus den ÜBRIGEN Teilen neu zusammenrechnen.
+		var pinfo := {
+			"vis": vis, "cs": cs, "xform": xf, "csize": box.size, "coffset": cob,
+			"pos": xf.origin, "prop": prop, "broken": false,
+			"is_root": p.get("root", false),
+			"is_wing": p.get("is_wing", false), "control": String(p.get("control", "")),
+			"mass": p.get("mass", 0.0) * vol,
+			"drag": PartCatalog.part_drag(p) * psc.x * psc.y,
+			"lift_part": 0.0, "ar": 4.0, "lift_coef": 1.0, "wing_cap": 0.0,
+			"pitch_a": 0.0, "roll_a": 0.0, "yaw_a": 0.0,
+			"thrust": p.get("thrust", 0.0), "jet": p.get("jet", false),
+			"gear_cap": p.get("gear_capacity", 0.0) * vol, "retract": p.get("retract", false),
+		}
+		if pinfo["is_wing"]:
+			var a: float = p.get("area", 0.0) * psc.x * psc.z
 			var span: float = p.get("span", sqrt(maxf(a, 0.01))) * psc.x
-			var ar: float = clampf(span * span / maxf(a, 0.01), 0.6, 10.0)
-			wing_cap += a * PartCatalog.WING_STRESS   # volle Fläche zählt strukturell
-			# Orientierung: nur der waagerechte Anteil erzeugt Auftrieb;
-			# der gekippte/senkrechte Anteil wirkt als Rollsteuerung.
 			var up_align: float = clampf(absf(xf.basis.y.dot(Vector3.UP)), 0.0, 1.0)
-			var lift_part: float = a * up_align
+			pinfo["ar"] = clampf(span * span / maxf(a, 0.01), 0.6, 10.0)
+			pinfo["lift_coef"] = p.get("lift", 1.0)
+			pinfo["wing_cap"] = a * PartCatalog.WING_STRESS
+			pinfo["lift_part"] = a * up_align
 			var ctrl_part: float = a * (1.0 - up_align)
-			wing_area += lift_part
-			ar_sum += lift_part * ar
-			lift_sum += lift_part * p.get("lift", 1.0)
-			match p.get("control", ""):
-				"pitch": pitch_area += a
-				"roll": roll_area += a
-				"yaw": yaw_area += a
-				_: roll_area += ctrl_part            # gekippter Normalflügel hilft rollen
-		var thr: float = p.get("thrust", 0.0)
-		if thr > 0.0:
-			engines.append({"pos": xf.origin, "thrust": thr, "jet": p.get("jet", false)})
-			thrust_total += thr
-		var cap: float = p.get("gear_capacity", 0.0) * vol   # größeres Fahrwerk trägt mehr
-		if cap > 0.0:
-			gear_cap += cap
-			gear_items.append({"vis": vis, "cs": cs, "retract": p.get("retract", false), "base": xf})
-
-	if total_mass > 0.0:
-		com /= total_mass
+			match pinfo["control"]:
+				"pitch": pinfo["pitch_a"] = a
+				"roll": pinfo["roll_a"] = a
+				"yaw": pinfo["yaw_a"] = a
+				_: pinfo["roll_a"] = ctrl_part
+		part_infos.append(pinfo)
 
 	# Spawn-Höhe so, dass der tiefste Punkt knapp über der Bahn liegt
 	if min_y == INF:
 		min_y = -1.0
 	spawn_height = 0.3 - min_y
 
-	body.mass = max(total_mass, 1.0)
-	body.center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
-	body.center_of_mass = com
-	body.wing_area = wing_area
-	body.eff_ar = (ar_sum / wing_area) if wing_area > 0.0 else 4.0
-	body.lift_scale = (lift_sum / wing_area) if wing_area > 0.0 else 1.0
-	body.pitch_area = pitch_area
-	body.roll_area = roll_area
-	body.yaw_area = yaw_area
-	body.engines = engines
-	body.props = props
-	body.total_thrust = thrust_total
-	body.gear_items = gear_items
-	body.gear_capacity = gear_cap
-	body.gear_overloaded = gear_cap > 0.0 and total_mass > gear_cap
-	body.wing_capacity = wing_cap
-	body.drag_area = drag_area
 	body.parts = part_infos
-
 	add_child(body)
+	body.recompute_aero()        # Masse/COM/Flächen/Schub/Fahrwerk aus den Teilen
 	aircraft = body
 	throttle = 0.0
 	_place_at_spawn()

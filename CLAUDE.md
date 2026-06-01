@@ -119,10 +119,16 @@ Spawn: Startbahn `(0, spawn_height, 40)`, `spawn_height = 0.3 − tiefster Punkt
   angezeigt; im Flug knickt's weg (Kollision aus, Bauchlandung, mehr Widerstand).
 - **Harte Landung:** Sinkrate beim Aufsetzen (`get_contact_count()>0` + letztes `v.y`):
   >3 m/s = Warnung, >7 m/s = **Fahrwerk bricht**.
-- **Flügelbruch:** zu viel Auftrieb (G) > `wing_capacity` → Flügel **reißen physisch ab**
-  als Trümmer-RigidBody und nehmen **alles geometrisch darauf Sitzende** mit
-  (transitiv via `_origin_in_part`). Abriss/Reparenting wird in `_process` gemacht
-  (NICHT in `_integrate_forces`!).
+- **Flügelbruch:** zu viel Auftrieb (G) > `wing_capacity` → Hauptflügel **reißen physisch
+  ab** als Trümmer-RigidBody und nehmen **alles auswärts darauf Montierte mit** (Triebwerke,
+  Winglets …). Welche Teile mitkommen, bestimmt ein **Verbindungs-Baum** (`_build_parents`,
+  BFS ab Cockpit über Box-Nachbarschaft `_attached`): nur der **Teilbaum auswärts** der Flügel
+  bricht — der Rumpf/Träger (Vorfahr) bleibt dran. Danach wird das **Flugmodell aus den
+  übrigen Teilen NEU berechnet** (`recompute_aero`): fehlender Schub/fehlende Flügelfläche/
+  Gewicht/COM zählen sofort. Dafür trägt jedes `parts`-Element seine Aero-Beiträge
+  (mass, drag, lift_part, ar, lift_coef, wing_cap, pitch/roll/yaw_a, thrust, jet, prop,
+  gear_cap, pos, is_root). Abriss/Reparenting in `_process` (NICHT `_integrate_forces`),
+  via `_break_pending`-Flag. `build_from_design` ruft `recompute_aero` auch beim Bau.
 - **Reset (Enter)** ruft `build_from_design(design)` neu auf → repariert alles.
 
 ### Flügel-Orientierung bestimmt Funktion
