@@ -10,11 +10,17 @@ const AIRCRAFT_LAYER := 4
 const GROUND_LAYER := 1
 const SPAWN := Vector3(0, 2.2, 35.0)
 
+const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
+const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
+
 var camera: Camera3D
 var aircraft: AircraftBody
 var design: Array = []
 var throttle := 0.0
 var spawn_height := 2.0
+var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
+var look_pitch := 0.0           # vertikal
+var _mouse_idle := 0.0
 
 
 func _ready() -> void:
@@ -31,7 +37,11 @@ func set_active(active: bool) -> void:
 	set_process(active)
 	set_physics_process(active)
 	set_process_unhandled_input(active)
+	# Maus im Flug fangen (frei umschauen), im Hangar normal sichtbar.
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if active else Input.MOUSE_MODE_VISIBLE
 	if active and aircraft:
+		look_yaw = 0.0
+		look_pitch = 0.0
 		_snap_camera()
 
 
@@ -225,11 +235,11 @@ func _physics_process(delta: float) -> void:
 		roll += 1.0
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
 		roll -= 1.0
-	# Yaw (C = rechts, Z = links) — Q ist jetzt der Invertieren-Schalter
+	# Gieren / Seitenleitwerk (E oder C = rechts, Q oder Z = links)
 	var yaw := 0.0
-	if Input.is_physical_key_pressed(KEY_C):
+	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_C):
 		yaw += 1.0
-	if Input.is_physical_key_pressed(KEY_Z):
+	if Input.is_physical_key_pressed(KEY_Q) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
 
 	aircraft.throttle = throttle
@@ -241,6 +251,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		# Umschauen: Kamera frei um das Flugzeug schwenken
+		look_yaw = clampf(look_yaw - event.relative.x * LOOK_SENS, -PI, PI)
+		look_pitch = clampf(look_pitch - event.relative.y * LOOK_SENS, -1.2, 1.35)
+		_mouse_idle = 0.0
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ENTER or event.keycode == KEY_BACKSPACE or event.keycode == KEY_KP_ENTER:
 			_reset_to_runway()
@@ -248,7 +264,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			aircraft.assist = not aircraft.assist
 		elif event.keycode == KEY_G and is_instance_valid(aircraft):
 			aircraft.toggle_gear()
-		elif event.keycode == KEY_Q and is_instance_valid(aircraft):
+		elif event.keycode == KEY_I and is_instance_valid(aircraft):
 			aircraft.toggle_invert()
 
 
@@ -258,17 +274,34 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if camera == null or not is_instance_valid(aircraft):
 		return
+	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
+	_mouse_idle += delta
+	if _mouse_idle > LOOK_RECENTER:
+		var k := clampf(delta * 2.2, 0.0, 1.0)
+		look_yaw = lerpf(look_yaw, 0.0, k)
+		look_pitch = lerpf(look_pitch, 0.0, k)
 	var t := aircraft.global_transform
-	var desired := t.origin + t.basis.z.normalized() * 11.0 + Vector3.UP * 3.8
-	camera.global_position = camera.global_position.lerp(desired, clamp(delta * 4.0, 0.0, 1.0))
+	var desired := t.origin + _cam_offset(t)
+	camera.global_position = camera.global_position.lerp(desired, clamp(delta * 6.0, 0.0, 1.0))
 	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
+
+
+# Kamera-Versatz hinter dem Flugzeug, per Umschau-Winkeln (look_yaw/pitch) gedreht.
+# look=0 -> klassische Verfolgeransicht.
+func _cam_offset(t: Transform3D) -> Vector3:
+	var base: Vector3 = t.basis.z.normalized() * 11.0 + Vector3.UP * 3.8
+	var off: Vector3 = Basis(Vector3.UP, look_yaw) * base
+	var rightax: Vector3 = off.cross(Vector3.UP)
+	if rightax.length() > 0.01:
+		off = Basis(rightax.normalized(), look_pitch) * off
+	return off
 
 
 func _snap_camera() -> void:
 	if camera == null or not is_instance_valid(aircraft):
 		return
 	var t := aircraft.global_transform
-	camera.global_position = t.origin + t.basis.z.normalized() * 11.0 + Vector3.UP * 3.8
+	camera.global_position = t.origin + _cam_offset(t)
 	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
 
 

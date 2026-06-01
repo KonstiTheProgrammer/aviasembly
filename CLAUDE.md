@@ -173,10 +173,12 @@ Querruder, kein Auftrieb.
 **Hangar:** Teil ziehen=setzen/verschieben · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
 `Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · Tab=Testflug.
-**Flug:** `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
-`A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Z`/`C` gieren ·
-`Q` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist an/aus ·
-`Enter` Reset/Reparatur · `Tab` Hangar.
+**Flug:** **Maus/Touchpad = Umschauen** (Orbit-Kamera, Maus im Flug `MOUSE_MODE_CAPTURED`,
+schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in FlightController) ·
+`Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
+`A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Q`/`E` gieren (Seitenleitwerk;
+auch `Z`/`C`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist an/aus ·
+`Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 

@@ -39,12 +39,13 @@ das Flugzeug längsstabil.
 ### Flug-Modus
 | Eingabe | Aktion |
 |---|---|
+| **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
 | **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) |
-| **Z / C** | nach links / rechts gieren |
+| **Q / E** | nach links / rechts gieren (Seitenleitwerk) — auch **Z / C** |
 | **G** | Einziehfahrwerk ein-/ausfahren |
-| **Q** | Steuerung umkehren (alles in die andere Richtung) |
+| **I** | Steuerung umkehren (alles in die andere Richtung) |
 | **T** | Assist an/aus (an = ruhig, aus = direkter „Pro"-Modus) |
 | **Enter** | Reset auf die Startbahn (repariert auch gebrochenes Fahrwerk) |
 | **Tab** | zurück in den Hangar |
