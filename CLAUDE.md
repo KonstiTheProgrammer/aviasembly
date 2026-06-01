@@ -229,10 +229,10 @@ thrust, jet, gear_capacity, retract, shape, size, col_size/col_offset, orient_no
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
 
-## Modi, Geld & Missionen (`scripts/GameState.gd`)
+## Modi, Geld & Upgrades (`scripts/GameState.gd`)
 - **GameState** (Node, in Main als `game` erzeugt + `load_state()`): hält `mode`
-  (NONE/SANDBOX/SURVIVAL), `money`, `unlocked` (Teil-IDs), `upgrades` (thrust/wing/light),
-  `missions_done`. Persistiert nach `user://aviassembly_progress.json`. Signal `changed`.
+  (NONE/SANDBOX/SURVIVAL), `money`, `unlocked` (Teil-IDs), `upgrades` (thrust/wing/light).
+  Persistiert nach `user://aviassembly_progress.json`. Signal `changed`.
 - **Modus-Auswahl** beim ersten Start (Overlay `_show_mode_select`, falls `mode==NONE`):
   **Sandbox** = alles frei (`start_mode` unlockt alle, money ∞); **Survival** = Starter-Teile
   (`STARTER`) + `START_MONEY=1500`.
@@ -242,10 +242,10 @@ thrust, jet, gear_capacity, retract, shape, size, col_size/col_offset, orient_no
 - **Upgrades** (`_build_upgrades_ui`, Hangar): Triebwerk +15%/Lv, Flügel +30%/Lv, Leichtbau
   −8%/Lv (max 3, 600·(Lv+1) 🪙). Wirken im Flug: Main setzt `flight_ctrl.thrust/wing/mass_mult`
   → `AircraftBody.recompute_aero` wendet sie an (überleben auch den Flügelbruch).
-- **Missionen** (`missions` in Main, Erkennung in `_check_missions` aus HUD-Telemetrie +
-  `_process` für Ringe): Erstflug (Höhe), Speed, Höhenflug, Saubere Landung, **Ring-Parcours**
-  (5 Torus-Checkpoints in `fly_world`, der Reihe nach durchfliegen; `_reset_rings` beim
-  Flugstart, leuchten grün beim Passieren). Belohnung via `game.complete_mission` → 🪙.
+- Geld-Anzeige im Hangar (`money_label`) + Flug (`fly_money_label`).
+  HINWEIS: Missionen wurden auf Wunsch wieder entfernt — Survival hat aktuell keine
+  laufende Einnahmequelle (nur Startgeld). `GameState` hat noch ungenutzte Mission-Hooks
+  (`missions_done`/`complete_mission`), falls man Missionen später wieder einbaut.
 - **Persistenz Design** (`_save_design`/`_load_design`): serialisiert id/xform/color/**scale**.
 
 ## Status & nächste Schritte

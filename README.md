@@ -136,26 +136,16 @@ Speicherstand: `user://aircraft_design.json` (Buttons **Speichern/Laden** im Han
 
 ---
 
-## 🎮 Spielmodi, Geld & Missionen
+## 🎮 Spielmodi, Geld & Upgrades
 
 Beim ersten Start wählst du einen **Modus**:
 
 - **🧰 Sandbox** — alle Teile frei, unbegrenzt bauen & fliegen, kein Geld-Stress.
-- **🪖 Survival** — du startest mit **🪙 1500** und nur Basis-Teilen. Erfülle **Missionen**,
-  verdiene Geld, **kaufe** weitere Teile (Schloss-Symbol + Preis in der Palette) und
-  **upgrade** dein Flugzeug (Triebwerks-Tuning, verstärkte Flügel, Leichtbau).
+- **🪖 Survival** — du startest mit **🪙 1500** und nur Basis-Teilen. **Kaufe** weitere
+  Teile (Schloss-Symbol + Preis in der Palette) und **upgrade** dein Flugzeug
+  (Triebwerks-Tuning, verstärkte Flügel, Leichtbau).
 
-**Missionen** (Belohnung in 🪙):
-
-| Mission | Ziel | Belohnung |
-|---|---|---|
-| Erstflug | 60 m Höhe erreichen | 400 |
-| Ring-Parcours | alle 5 Ringe durchfliegen | 2000 |
-| Speed-Dämon | 250 km/h erreichen | 800 |
-| Höhenflug | 400 m Höhe erreichen | 1100 |
-| Saubere Landung | nach echtem Flug sauber landen | 1000 |
-
-Fortschritt (Geld, Freischaltungen, Upgrades, erledigte Missionen) wird in
+Fortschritt (Geld, Freischaltungen, Upgrades) wird in
 `user://aviassembly_progress.json` gespeichert.
 
 ---
