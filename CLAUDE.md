@@ -113,7 +113,8 @@ Kraftspikes). Das gebündelte Modell ist stabil und trotzdem physikalisch fundie
 ### Tuning-Konstanten (AircraftBody, oben in der Datei)
 `LIFT_K=2.9` (globaler Auftrieb/Spielgefühl, früh abheben), `INCIDENCE≈0.075`,
 `STALL_A=0.27`, `CL_MAX=1.5`, `CD0=0.03`, `OSWALD=0.75`, `SIDE=0.5`,
-`PITCH_STAB=0.5`/`YAW_STAB=0.6`, `PROP_VMAX=170`, `DRAG_K=1.0`, `MAX_ANGVEL=8`,
+`PITCH_STAB=0.5`/`YAW_STAB=0.6`, `PROP_VMAX=170`, `DRAG_K=0.5`, `MAX_ANGVEL=8`,
+Kraft-Limit `tf=mass·130`/`tt=mass·90` (nur Sicherung),
 Direktsteuerung: Autorität `CTRL_PITCH=2.2`(+`3.5`·Fläche)/`CTRL_YAW=1.5`(+`3.0`)/
 `CTRL_ROLL=9.0`(+`6.0`), Dämpfung `DAMP_PITCH=5.5`/`DAMP_YAW=3.2`/`DAMP_ROLL=2.5`
 (Assist ×1.6 nur Nick/Gier), `LEVEL_K=1.0`, `qfac=clamp(q/180,0.04,2.0)`,
