@@ -198,9 +198,13 @@ schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_tog
 Rumpf (Cockpit=Wurzel, Segmente, Nase/Heck, Tank) · 8 Tragflächen (gerade, Trapez,
 Pfeil, Delta, Stummel, Segler, Canard, Winglet) · Leitwerk/Steuerung (Höhen-, Seiten-
 leitwerk, Querruder) · 4 Triebwerke (Propeller, groß, Jet, Hilfstriebwerk) · 4 Fahrwerke
-(leicht/Standard/schwer/**Einziehfahrwerk**, je mit `gear_capacity`).
-Wichtige Part-Felder: `is_wing, area, span, lift, control("pitch"/"roll"/"yaw"/""),
-thrust, jet, gear_capacity, retract, shape, size, col_size/col_offset, orient_normal`.
+(leicht/Standard/schwer/**Einziehfahrwerk**, je mit `gear_capacity`) · **Bewaffnung**
+(`CAT_WEAPON`): Lenkrakete, Schwere Rakete, Bombe, Bordkanone, Zusatztank — prozedurale
+Shapes `missile`/`bomb`/`cannon` (kein glTF nötig, reines Gewicht+Widerstand, feuern (noch)
+nicht). Wichtige Part-Felder: `is_wing, area, span, lift, control("pitch"/"roll"/"yaw"/""),
+thrust, jet, gear_capacity, retract, shape, size, col_size/col_offset, orient_normal, cost`.
+**Vorgebauter Kampfjet:** `tools/build_jet.gd` (headless) setzt einen Delta-Canard-Jet
+zusammen (Symmetrie via BuildController) und schreibt ihn nach `user://aircraft_design.json`.
 
 ## GDScript-/Godot-Stolpersteine (gelernt)
 - `:=` nur für NEUE lokale Variablen; Member mit `=` zuweisen.

@@ -84,6 +84,9 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 - **Antrieb:** Propeller, großer Propeller, Düsentriebwerk, Hilfstriebwerk
 - **Fahrwerk (4 Varianten mit Traglast):** Leicht (~450 kg) · Standard (~850 kg) ·
   Schwer (~1750 kg) · **Einziehfahrwerk (~1050 kg, Taste G)**
+- **Bewaffnung (Kampfjet):** Lenkrakete · Schwere Rakete · Bombe · Bordkanone · Zusatztank
+  *(reines Gewicht/Widerstand — feuern noch nicht; mit `tools/build_jet.gd` gibt's einen
+  vorgebauten Delta-Canard-Kampfjet im Speicherstand)*
 
 Mehr/größere **Steuerflächen** → mehr Wendigkeit. Mehr **Flügelfläche** → mehr
 Auftrieb (langsameres Abheben). Mehr **Schub** → bessere Beschleunigung.
