@@ -98,15 +98,15 @@ func _build_balloon(col: Color) -> void:
 	knot.position = Vector3(0, -1.55, 0)
 	knot.material_override = _mat(col.darkened(0.3))
 	add_child(knot)
-	var str := MeshInstance3D.new()
+	var cord := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
 	cm.top_radius = 0.03
 	cm.bottom_radius = 0.03
 	cm.height = 2.0
-	str.mesh = cm
-	str.position = Vector3(0, -2.7, 0)
-	str.material_override = _mat(Color(0.15, 0.15, 0.15))
-	add_child(str)
+	cord.mesh = cm
+	cord.position = Vector3(0, -2.7, 0)
+	cord.material_override = _mat(Color(0.15, 0.15, 0.15))
+	add_child(cord)
 
 
 func _build_airship(col: Color) -> void:
@@ -135,6 +135,7 @@ func _build_airship(col: Color) -> void:
 		var fb := BoxMesh.new()
 		fb.size = Vector3(0.25, 3.2, 2.0)
 		fin.mesh = fb
+		fin.material_override = fmat
 		var h := Node3D.new()
 		h.rotation = Vector3(0, 0, deg_to_rad(45.0 + 90.0 * i))
 		h.add_child(fin)
