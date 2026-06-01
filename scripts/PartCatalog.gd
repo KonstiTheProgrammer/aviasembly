@@ -195,18 +195,22 @@ static func parts_in(cat: String) -> Array:
 const WING_STRESS := 3600.0
 
 ## Parasitärer Luftwiderstand eines Teils (cW·A in m²), grob aus Stirnfläche+Form
+# Form-Widerstandsbeiwert (cd) eines Teils — eine Quelle für Flug & Windkanal.
+static func part_cd(p: Dictionary) -> float:
+	match p.get("shape", "box"):
+		"nose": return 0.10
+		"wing": return 0.06
+		"cockpit": return 0.30
+		"cyl", "jet", "prop": return 0.32
+		"wheel": return 0.65
+		"box": return 0.55
+	return 0.5
+
+
 static func part_drag(p: Dictionary) -> float:
 	var s: Vector3 = col_size(p)
 	var frontal: float = s.x * s.y      # Querschnitt in Flugrichtung (-Z)
-	var cd := 0.5
-	match p.get("shape", "box"):
-		"nose": cd = 0.10
-		"wing": cd = 0.06
-		"cockpit": cd = 0.30
-		"cyl", "jet", "prop": cd = 0.32
-		"wheel": cd = 0.65
-		"box": cd = 0.55
-	return frontal * cd
+	return frontal * part_cd(p)
 
 
 static func col_size(p: Dictionary) -> Vector3:

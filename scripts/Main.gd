@@ -665,9 +665,8 @@ func _on_design_changed(stats: Dictionary) -> void:
 	if stats.get("has_wings", false):
 		wingload = "bis ~%.1f g" % stats["max_g"]
 	var drag_line := "Luftwiderstand cW·A: %.2f m²" % stats.get("drag_area", 0.0)
-	var worst: String = stats.get("drag_worst", "")
-	if worst != "":
-		drag_line += "\n  ↳ Hotspot: %s" % worst
+	if build_ctrl != null and build_ctrl.wind_tunnel and build_ctrl.wind_worst != "":
+		drag_line += "\n  ↳ Hotspot: %s" % build_ctrl.wind_worst
 	stats_label.text = "Teile: %d\nMasse: %d kg\nFlügelfläche: %.1f m²\nSchub: %d N\nSchub/Gewicht: %.2f\n%s\nLängsstabilität: %s\nMax. Flügellast: %s\nFahrwerk-Last: %s" % [
 		int(stats["parts"]), int(stats["mass"]), stats["area"],
 		int(stats["thrust"]), stats["tw"], drag_line,

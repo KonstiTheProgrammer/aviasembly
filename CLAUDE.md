@@ -118,16 +118,23 @@ Querruder, kein Auftrieb.
 - **Werkzeuge:** Bewegen / Abriss / Lackieren (Farbpalette, Farbe wird im Design +
   Save gespeichert). **Undo/Redo** (`_history`, Strg+Z/Y). **R** dreht Box-Teile (90°)
   bzw. kippt Flügel (Bank). **M** Symmetrie. **F** Kamera zentrieren.
-- **Windkanal-Ansicht** (`set_wind_tunnel`): Pro-Teil-**Widerstands-Heatmap**. Für jedes
-  Teil wird der Flug-Widerstand `PartCatalog.part_drag(p)` berechnet und relativ zum
-  größten Wert im Design eingefärbt — grün (wenig) → gelb → rot (viel), via
-  `_apply_drag_heatmap`/`_drag_color`/`_tint` (unshaded `material_override`; heiße Teile
-  glühen leicht). Nenner = `maxf(max_drag, 0.6)` → schlanke Flieger bleiben grün, nur echte
-  Bluff-Körper (Rumpf-Box, Räder) werden rot. Der schlimmste Teilname → `wind_worst`
-  (Toast + Statistik „Hotspot“). Dazu CPUParticles-Strömungslinien (von −Z über das Modell
-  nach +Z). Aufheben via `_clear_wind_tunnel` → `_recolor` baut jedes Visual neu auf
-  (Original-Material zurück). Konsistent mit dem Flugmodell, das dieselbe `part_drag`-Summe
-  als `drag_area` nutzt — Visualisierung = tatsächlicher Sim-Widerstand.
+- **Windkanal-Ansicht** (`set_wind_tunnel`): Pro-Teil-**Druckwiderstands-Heatmap mit
+  VERDECKUNG** (physikalisch korrekt). Der Wind kommt von vorne (−Z). In
+  `_apply_drag_heatmap` wird ein **Strahlengitter** aus −Z über die Modell-AABB
+  (`_model_aabb_world`) gecastet (gegen die Teil-Pick-Bodies auf `BUILD_LAYER`,
+  `intersect_ray`); der **erste** Treffer pro Strahl = windzugewandte Fläche. So sammelt
+  jedes Teil nur seine **exponierte** Stirnfläche — Teile im **Windschatten** (hinter
+  anderen) bekommen ~0 und bleiben grün. Druckwiderstand je Teil = exponierte Fläche ×
+  `PartCatalog.part_cd(p)` (Formbeiwert; eine Quelle für Flug + Windkanal). Einfärbung
+  relativ zum größten Wert, Nenner `maxf(max_d, 0.45)` → schlanke Flieger grün, nur echte
+  vorne-anliegende Bluff-Körper rot (`_drag_color` grün→gelb→rot, `_tint` unshaded
+  `material_override`, heiße Teile glühen). Schlimmstes Teil → `wind_worst` (Toast +
+  Statistik-„Hotspot“, nur wenn Windkanal an). Dazu CPUParticles-Strömungslinien (−Z→+Z).
+  Aufheben via `_clear_wind_tunnel` → `_recolor` baut jedes Visual neu (Original zurück).
+  `set_wind_tunnel` feuert `design_changed`, damit die Statistik sofort refresht.
+  Verifiziert mit `tools/occlusion_test.gd` (zwei Boxen hintereinander → Heck im Schatten).
+  Hinweis: Das Flugmodell nutzt weiter die einfache `part_drag`-Summe als `drag_area`
+  (verdeckungs-frei) — die Heatmap ist die verfeinerte, anschauliche Pro-Teil-Sicht.
 - **Zoom:** Mausrad + Tastatur `+`/`−` + Trackpad-Pinch (`InputEventMagnifyGesture`) +
   Zwei-Finger-Scroll (`InputEventPanGesture`). Bereich `orbit_dist` 2.5–110.
 - **Blauer Blueprint-Raum** im Bau-Modus (eigenes Environment + Gitter-Shader), im Flug

@@ -390,6 +390,7 @@ func set_wind_tunnel(b: bool) -> void:
 		_build_wind_tunnel()
 	else:
 		_clear_wind_tunnel()
+	design_changed.emit(compute_stats())   # Statistik (Hotspot) sofort aktualisieren
 
 
 func _build_wind_tunnel() -> void:
@@ -424,27 +425,86 @@ func _build_wind_tunnel() -> void:
 	design_root.add_child(_tunnel_particles)
 
 
-# Färbt jedes Teil nach seinem Flug-Widerstand: grün (wenig) -> rot (viel).
-# Bezug = größter Wert im Design (mit Untergrenze), damit ein sauberes
-# Flugzeug grün bleibt und nur echte Problemteile rot werden.
+# Färbt jedes Teil nach seinem ECHTEN Flug-Widerstand: grün (wenig) -> rot (viel).
+# Der Wind kommt von vorne (-Z). Per Strahlengitter wird ermittelt, welche Fläche
+# jedes Teil der Anströmung TATSÄCHLICH zuwendet — verdeckte Teile (im Windschatten
+# hinter anderen) fangen keinen Wind und bleiben grün. Druck-Widerstand pro Teil =
+# exponierte Stirnfläche × Formbeiwert. So leuchtet nur das wirklich störende,
+# vorne-anliegende Teil rot, nicht ein Heckteil im Schatten.
 func _apply_drag_heatmap() -> void:
-	var max_d := 0.0
 	wind_worst = ""
+	var parts: Array = []
 	for child in design_root.get_children():
-		if not child.is_in_group("part"):
-			continue
-		var p := PartCatalog.get_part(child.get_meta("part_id"))
-		var dd: float = PartCatalog.part_drag(p)
-		if dd > max_d:
-			max_d = dd
-			wind_worst = p.get("name", "")
-	var denom := maxf(max_d, 0.6)
-	for child in design_root.get_children():
-		if not child.is_in_group("part"):
-			continue
-		var dd: float = PartCatalog.part_drag(PartCatalog.get_part(child.get_meta("part_id")))
-		var frac := clampf(dd / denom, 0.0, 1.0)
-		_tint(child.get_node_or_null("Visual"), _drag_color(frac), frac)
+		if child.is_in_group("part"):
+			parts.append(child)
+	if parts.is_empty():
+		return
+	var space := get_viewport().get_world_3d().direct_space_state
+	if space == null:
+		return
+	# 1) exponierte Fläche je Teil per Raycast aus -Z einsammeln
+	var exposed := {}
+	for pt in parts:
+		exposed[pt] = 0.0
+	var aabb := _model_aabb_world(parts)
+	var w: float = maxf(aabb.size.x, 0.1)
+	var h: float = maxf(aabb.size.y, 0.1)
+	var nx: int = clampi(int(ceil(w / 0.2)), 6, 60)
+	var ny: int = clampi(int(ceil(h / 0.2)), 4, 40)
+	var cell: float = (w / float(nx)) * (h / float(ny))
+	var z0: float = aabb.position.z - 3.0
+	var z1: float = aabb.position.z + aabb.size.z + 3.0
+	var q := PhysicsRayQueryParameters3D.create(Vector3.ZERO, Vector3.ZERO)
+	q.collision_mask = BUILD_LAYER
+	q.collide_with_areas = false
+	for i in nx:
+		var x: float = aabb.position.x + (float(i) + 0.5) / float(nx) * w
+		for j in ny:
+			var y: float = aabb.position.y + (float(j) + 0.5) / float(ny) * h
+			q.from = Vector3(x, y, z0)
+			q.to = Vector3(x, y, z1)
+			var hit := space.intersect_ray(q)     # erster Treffer = windzugewandt
+			if hit.is_empty():
+				continue
+			var pt := _part_from_hit(hit)
+			if pt != null and exposed.has(pt):
+				exposed[pt] += cell
+	# 2) Druckwiderstand = exponierte Fläche × Formbeiwert; stärkstes Teil merken
+	var drag := {}
+	var max_d := 0.0
+	for pt in parts:
+		var cd: float = PartCatalog.part_cd(PartCatalog.get_part(pt.get_meta("part_id")))
+		var dv: float = exposed[pt] * cd
+		drag[pt] = dv
+		if dv > max_d:
+			max_d = dv
+			wind_worst = PartCatalog.get_part(pt.get_meta("part_id")).get("name", "")
+	# 3) einfärben — Bezug = größter Wert (mit Untergrenze: schlanke Flieger bleiben grün)
+	var denom := maxf(max_d, 0.45)
+	for pt in parts:
+		var frac := clampf(drag[pt] / denom, 0.0, 1.0)
+		_tint(pt.get_node_or_null("Visual"), _drag_color(frac), frac)
+
+
+# Welt-AABB aller Teil-Kollisionsboxen (für das Strahlengitter).
+func _model_aabb_world(parts: Array) -> AABB:
+	var aabb := AABB()
+	var first := true
+	for pt in parts:
+		var p := PartCatalog.get_part(pt.get_meta("part_id"))
+		var ext: Vector3 = PartCatalog.col_size(p) * 0.5
+		var off: Vector3 = PartCatalog.col_offset(p)
+		var xf: Transform3D = pt.global_transform
+		for sx in [-1.0, 1.0]:
+			for sy in [-1.0, 1.0]:
+				for sz in [-1.0, 1.0]:
+					var corner: Vector3 = xf * (off + Vector3(sx * ext.x, sy * ext.y, sz * ext.z))
+					if first:
+						aabb = AABB(corner, Vector3.ZERO)
+						first = false
+					else:
+						aabb = aabb.expand(corner)
+	return aabb
 
 
 func _drag_color(f: float) -> Color:
@@ -711,8 +771,6 @@ func compute_stats() -> Dictionary:
 	var gear_cap := 0.0
 	var wing_cap := 0.0
 	var drag_area := 0.0
-	var drag_worst := ""
-	var drag_worst_v := 0.0
 	var com := Vector3.ZERO
 	var col := Vector3.ZERO
 	var col_w := 0.0
@@ -725,11 +783,7 @@ func compute_stats() -> Dictionary:
 		n += 1
 		thrust += p.get("thrust", 0.0)
 		gear_cap += p.get("gear_capacity", 0.0)
-		var pd: float = PartCatalog.part_drag(p)
-		drag_area += pd
-		if pd > drag_worst_v:
-			drag_worst_v = pd
-			drag_worst = p.get("name", "")
+		drag_area += PartCatalog.part_drag(p)
 		com += m * child.position
 		if p.get("is_wing", false):
 			var a: float = p.get("area", 0.0)
@@ -748,7 +802,6 @@ func compute_stats() -> Dictionary:
 		"tw": tw, "com": com, "col": col, "col_valid": col_w > 0.0,
 		"gear_cap": gear_cap, "gear_overload": gear_cap > 0.0 and mass > gear_cap,
 		"has_gear": gear_cap > 0.0, "drag_area": drag_area,
-		"drag_worst": drag_worst,
 		"max_g": max_g, "has_wings": wing_cap > 0.0,
 	}
 
