@@ -162,6 +162,8 @@ Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetr
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Z`/`C` gieren ·
 `Q` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist an/aus ·
 `Enter` Reset/Reparatur · `Tab` Hangar.
+**Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
+schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 
 ## Bauteile (PartCatalog)
 Rumpf (Cockpit=Wurzel, Segmente, Nase/Heck, Tank) · 8 Tragflächen (gerade, Trapez,

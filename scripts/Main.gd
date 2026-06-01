@@ -357,9 +357,28 @@ func _set_mode(m: int) -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_TAB:
-		_set_mode(Mode.FLY if mode == Mode.BUILD else Mode.BUILD)
-		get_viewport().set_input_as_handled()
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_TAB:
+			_set_mode(Mode.FLY if mode == Mode.BUILD else Mode.BUILD)
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_F11 or (event.keycode == KEY_ENTER and event.alt_pressed):
+			_toggle_fullscreen()
+			get_viewport().set_input_as_handled()
+		elif event.keycode == KEY_ESCAPE:
+			# Esc: Vollbild verlassen (Fenster), sonst Spiel beenden
+			if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			else:
+				get_tree().quit()
+			get_viewport().set_input_as_handled()
+
+
+func _toggle_fullscreen() -> void:
+	var win := DisplayServer.WINDOW_MODE_WINDOWED if \
+		DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN \
+		else DisplayServer.WINDOW_MODE_FULLSCREEN
+	DisplayServer.window_set_mode(win)
+	_toast("Vollbild: " + ("AN  (F11 / Esc zum Verlassen)" if win == DisplayServer.WINDOW_MODE_FULLSCREEN else "aus"))
 
 
 # ===========================================================================
