@@ -108,6 +108,12 @@ static func _build() -> void:
 		"mass": 95.0, "color": C_ENGINE, "shape": "jet", "thrust": 4200.0, "jet": true,
 		"size": Vector3(0.8, 0.8, 1.4), "metal": 0.8, "rough": 0.25,
 	})
+	_add({
+		"id": "jet_square", "name": "Eckiges Düsentriebwerk", "category": CAT_PROP,
+		"mass": 320.0, "color": C_ENGINE, "shape": "jet", "thrust": 22000.0, "jet": true,
+		"size": Vector3(1.3, 1.1, 2.8), "metal": 0.8, "rough": 0.3,
+		"desc": "Rechteckiges Stealth-Triebwerk mit flacher 2D-Düse. Kräftig.",
+	})
 
 	# --- Fahrwerk (mit Traglast in kg; Summe muss das Gewicht tragen) ------
 	_add({
