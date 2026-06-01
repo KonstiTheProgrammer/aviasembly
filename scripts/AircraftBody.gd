@@ -25,14 +25,22 @@ const SIDE := 0.5             # Seitenkraft (Kurvenflug)
 const PITCH_STAB := 0.5       # statische Nick-Stabilität (Wetterfahne)
 const YAW_STAB := 0.6         # statische Gier-Stabilität (Wetterfahne)
 const PROP_VMAX := 170.0      # Speed, bei der Propellerschub -> 0
-const MAX_ANGVEL := 7.0
-const LEVEL_K := 2.0          # sanftes Querlage-Ausnivellieren (Assist)
+const MAX_ANGVEL := 8.0
+const LEVEL_K := 1.0          # sanftes Querlage-Ausnivellieren (nur Assist)
 
-# Fly-by-Wire-Ratenregler (mit T umschaltbar: Assist an = ruhig, aus = direkter)
-var assist := true
-const PITCH_RATE := 0.85
-const YAW_RATE := 0.6
-const ROLL_RATE := 2.1
+# Direkte Steuerflächen-Steuerung (wie SimplePlanes): Eingabe = Auslenkung,
+# Drehmoment ~ Staudruck × Steuerfläche. Aerodynamische Dämpfung sorgt für satte,
+# nicht-überschwingende Reaktion (statt Raten-Halte-Autopilot).
+var assist := true            # T: an = mehr Dämpfung + Querlage-Hilfe, aus = roh/direkt
+const CTRL_PITCH := 2.2       # Nick-Autorität (Basis + pro Steuerfläche)
+const CTRL_PITCH_A := 3.5
+const CTRL_YAW := 1.5
+const CTRL_YAW_A := 3.0
+const CTRL_ROLL := 9.0        # Rollen immer knackig (auch ohne Querruder)
+const CTRL_ROLL_A := 6.0
+const DAMP_PITCH := 5.5       # aerodynamische Drehdämpfung (verhindert Überdrehen)
+const DAMP_YAW := 3.2
+const DAMP_ROLL := 2.5
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
@@ -488,19 +496,21 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		if gd > 0.0:
 			tf += -v_lin.normalized() * (0.5 * rho * sp * sp * gd * 0.06)
 
-	# --- Fly-by-Wire-Ratenregler (Steuerung + Dämpfung) --------------------
+	# --- Direkte Steuerflächen-Steuerung (SimplePlanes-Feel) ---------------
 	var wb := xf.basis.transposed() * v_ang
-	var spf := clampf(airspeed / 20.0, 0.25, 1.8)
 	var inv := -1.0 if inverted else 1.0
-	var want := Vector3(in_pitch * inv * PITCH_RATE, in_yaw * inv * YAW_RATE, in_roll * inv * ROLL_RATE)
-	var gain := Vector3(
-		mass * (0.8 + 1.6 * pitch_area),
-		mass * (0.6 + 1.2 * yaw_area),
-		mass * (1.0 + 1.4 * roll_area))
-	if not assist:
-		gain *= 0.55   # "Pro"-Modus: weniger künstliche Hilfe
-	var rerr := want - wb
-	tt += xf.basis * (Vector3(rerr.x * gain.x, rerr.y * gain.y, rerr.z * gain.z) * spf)
+	# Steuer-Autorität skaliert mit Staudruck: langsam teigig, schnell knackig
+	var qfac := clampf(0.5 * rho * airspeed * airspeed / 180.0, 0.04, 2.0)
+	var cmd := Vector3(
+		in_pitch * inv * (CTRL_PITCH + CTRL_PITCH_A * pitch_area),
+		in_yaw * inv * (CTRL_YAW + CTRL_YAW_A * yaw_area),
+		in_roll * inv * (CTRL_ROLL + CTRL_ROLL_A * roll_area))
+	tt += xf.basis * (cmd * qfac * mass)
+	# Aerodynamische Drehdämpfung (gegen Schwingen) — wächst mit Tempo.
+	# Assist verstärkt NUR Nick/Gier (Stabilität); Rollen bleibt knackig.
+	var dfac := (0.35 + qfac) * mass
+	var apq := 1.6 if assist else 1.0
+	tt += xf.basis * (-Vector3(wb.x * DAMP_PITCH * apq, wb.y * DAMP_YAW * apq, wb.z * DAMP_ROLL) * dfac)
 	# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist)
 	if assist and absf(in_roll) < 0.05 and airspeed > 6.0:
 		tt += xf.basis.z * (-xf.basis.x.y * LEVEL_K * mass)

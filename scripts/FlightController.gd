@@ -211,12 +211,20 @@ func _physics_process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
 
+	# Weiches Eingabe-Ramping (analoges Gefühl auf Tastatur, nicht ruckartig ±1).
+	# Schnelles Aufbauen, etwas langsameres Zurückzentrieren.
 	aircraft.throttle = throttle
-	aircraft.in_pitch = pitch
-	aircraft.in_roll = roll
-	aircraft.in_yaw = yaw
+	aircraft.in_pitch = _ramp(aircraft.in_pitch, pitch, delta, 4.0, 6.0)
+	aircraft.in_roll = _ramp(aircraft.in_roll, roll, delta, 7.0, 9.0)
+	aircraft.in_yaw = _ramp(aircraft.in_yaw, yaw, delta, 4.0, 6.0)
 
 	_emit_hud()
+
+
+# Eingabe sanft Richtung Ziel führen (rise = drücken, fall = loslassen/zentrieren).
+func _ramp(cur: float, target: float, delta: float, rise: float, fall: float) -> float:
+	var rate := rise if absf(target) > absf(cur) else fall
+	return move_toward(cur, target, rate * delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:

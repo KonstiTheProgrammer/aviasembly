@@ -96,10 +96,13 @@ Kraftspikes). Das gebündelte Modell ist stabil und trotzdem physikalisch fundie
   **Negativer Schub = Bremse** (Luftbremse + am Boden Radbremse).
 - **Statische Stabilität:** kleine Wetterfahnen-Momente (Nase folgt Anströmung),
   skaliert mit Leitwerksfläche (`pitch_area`/`yaw_area`).
-- **Steuerung = Fly-by-Wire-Ratenregler (PID-artig):** Eingabe kommandiert Drehraten,
-  ohne Eingabe wird die Lage gehalten + Querlage sanft ausnivelliert (LEVEL_K). Mit
-  **T** abschaltbar („Pro"-Modus, weniger Hilfe). Integralanteil (`GAIN_I`) tilgt
-  Trimm-Abweichung. Liegt ÜBER der echten Aero (die Performance/Stall bestimmt).
+- **Steuerung = DIREKTE Steuerflächen (SimplePlanes-Feel):** Eingabe = Auslenkung →
+  Drehmoment `cmd · qfac · mass` (Autorität skaliert mit Staudruck `qfac`: langsam teigig,
+  schnell knackig). Dazu aerodynamische **Drehdämpfung** `−ω_body · DAMP · (0.35+qfac)`
+  gegen Überschwingen + statische Stabilität (Wetterfahne). KEIN Raten-Halte-Autopilot.
+  **Roll immer knackig** (hohe Basis-`CTRL_ROLL`, von Assist-Dämpfung ausgenommen). **T**:
+  Assist an = mehr Nick/Gier-Dämpfung + sanftes Querlage-Ausnivellieren (`LEVEL_K`), aus =
+  roh/direkt. Eingabe wird im FlightController weich gerampt (`_ramp`, analoges Gefühl).
 - **Luftdichte** sinkt mit Höhe: `ρ = RHO0·e^(−h/SCALE_H)`.
 - **Sicherheit:** Kräfte werden auf `mass·60`/`mass·90` begrenzt, NaN-Werte verworfen,
   Drehrate auf `MAX_ANGVEL` geklemmt.
@@ -107,9 +110,10 @@ Kraftspikes). Das gebündelte Modell ist stabil und trotzdem physikalisch fundie
 ### Tuning-Konstanten (AircraftBody, oben in der Datei)
 `LIFT_K=2.9` (globaler Auftrieb/Spielgefühl, früh abheben), `INCIDENCE≈0.075`,
 `STALL_A=0.27`, `CL_MAX=1.5`, `CD0=0.03`, `OSWALD=0.75`, `SIDE=0.5`,
-`PITCH_STAB=0.5`/`YAW_STAB=0.6`, `PROP_VMAX=170`, `DRAG_K=0.45`, `MAX_ANGVEL=7`,
-Ratenregler: `PITCH_RATE=0.85`/`YAW_RATE=0.6`/`ROLL_RATE=2.1`,
-`GAIN_P=7`/`GAIN_Y=4`/`GAIN_R=7.5`/`GAIN_I=12`, `LEVEL_K=2`,
+`PITCH_STAB=0.5`/`YAW_STAB=0.6`, `PROP_VMAX=170`, `DRAG_K=1.0`, `MAX_ANGVEL=8`,
+Direktsteuerung: Autorität `CTRL_PITCH=2.2`(+`3.5`·Fläche)/`CTRL_YAW=1.5`(+`3.0`)/
+`CTRL_ROLL=9.0`(+`6.0`), Dämpfung `DAMP_PITCH=5.5`/`DAMP_YAW=3.2`/`DAMP_ROLL=2.5`
+(Assist ×1.6 nur Nick/Gier), `LEVEL_K=1.0`, `qfac=clamp(q/180,0.04,2.0)`,
 Landung: `HARD_LAND=3`/`BREAK_LAND=7` m/s. Reifenreibung `friction=0.05`.
 `PartCatalog.WING_STRESS=3600` N/m² (Flügel-Belastbarkeit).
 Spawn: Startbahn `(0, spawn_height, 40)`, `spawn_height = 0.3 − tiefster Punkt`.
