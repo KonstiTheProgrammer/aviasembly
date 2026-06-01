@@ -59,6 +59,8 @@ var tool_label: Label
 var toast_label: Label
 var drag_view_btn: Button
 var part_buttons: Dictionary = {}
+var _part_group: ButtonGroup       # exklusive Auswahl der Teil-Kacheln
+var _cat_open: Dictionary = {}     # Kategorie -> auf-/zugeklappt
 
 
 func _ready() -> void:
@@ -524,19 +526,188 @@ func _build_hangar_ui() -> void:
 
 
 func _fill_part_list(list: VBoxContainer) -> void:
+	_part_group = ButtonGroup.new()
+	_part_group.allow_unpress = true
 	for cat in PartCatalog.categories():
-		var header := _lbl(cat.to_upper(), 14, Color(1.0, 0.78, 0.35))
-		header.add_theme_constant_override("line_spacing", 2)
+		var parts := PartCatalog.parts_in(cat)
+		if parts.is_empty():
+			continue
+		if not _cat_open.has(cat):
+			_cat_open[cat] = true
+		# --- aufklappbare Kategorie-Überschrift ---
+		var header := Button.new()
+		header.toggle_mode = true
+		header.button_pressed = _cat_open[cat]
+		header.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		header.add_theme_font_size_override("font_size", 13)
+		header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var hb := StyleBoxFlat.new()
+		hb.bg_color = Color(1.0, 0.78, 0.35, 0.16)
+		hb.set_corner_radius_all(4)
+		hb.content_margin_left = 6
+		hb.content_margin_top = 3
+		hb.content_margin_bottom = 3
+		header.add_theme_stylebox_override("normal", hb)
+		header.add_theme_stylebox_override("hover", hb)
+		header.add_theme_stylebox_override("pressed", hb)
+		header.add_theme_color_override("font_color", Color(1.0, 0.82, 0.45))
 		list.add_child(header)
-		for p in PartCatalog.parts_in(cat):
-			var b := Button.new()
-			b.text = "  %s   (%d kg)" % [p["name"], int(p["mass"])]
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.tooltip_text = p.get("desc", p["name"])
-			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			b.pressed.connect(_on_pick_part.bind(p["id"]))
-			list.add_child(b)
-			part_buttons[p["id"]] = b
+		# --- Grid mit Vorschau-Kacheln ---
+		var grid := GridContainer.new()
+		grid.columns = 2
+		grid.add_theme_constant_override("h_separation", 5)
+		grid.add_theme_constant_override("v_separation", 5)
+		grid.visible = _cat_open[cat]
+		list.add_child(grid)
+		header.text = ("▾  " if _cat_open[cat] else "▸  ") + cat.to_upper() + "   (%d)" % parts.size()
+		header.toggled.connect(func(on: bool) -> void:
+			grid.visible = on
+			_cat_open[cat] = on
+			header.text = ("▾  " if on else "▸  ") + cat.to_upper() + "   (%d)" % parts.size()
+		)
+		for p in parts:
+			grid.add_child(_make_part_tile(p))
+
+
+# Eine Bauteil-Kachel: 3D-Vorschau + Name + Masse, klickbar (exklusiv markiert).
+func _make_part_tile(p: Dictionary) -> Button:
+	var id: String = p["id"]
+	var tile := Button.new()
+	tile.toggle_mode = true
+	tile.button_group = _part_group
+	tile.custom_minimum_size = Vector2(0, 116)
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile.tooltip_text = p.get("desc", p["name"])
+	tile.clip_contents = true
+	_style_tile(tile)
+	tile.pressed.connect(_on_pick_part.bind(id))
+
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 4
+	box.offset_top = 4
+	box.offset_right = -4
+	box.offset_bottom = -4
+	box.add_theme_constant_override("separation", 0)
+	tile.add_child(box)
+
+	var preview := _make_preview(p)
+	preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(preview)
+
+	var nm := Label.new()
+	nm.text = p["name"]
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.add_theme_font_size_override("font_size", 10)
+	box.add_child(nm)
+
+	var mass := Label.new()
+	mass.text = "%d kg" % int(p["mass"])
+	mass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mass.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mass.add_theme_font_size_override("font_size", 9)
+	mass.add_theme_color_override("font_color", Color(0.72, 0.8, 0.92))
+	box.add_child(mass)
+
+	part_buttons[id] = tile
+	return tile
+
+
+# Kleines 3D-Vorschaubild eines Bauteils in eigenem SubViewport (rendert einmal).
+func _make_preview(p: Dictionary) -> SubViewportContainer:
+	var svc := SubViewportContainer.new()
+	svc.stretch = false
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	svc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var vp := SubViewport.new()
+	vp.size = Vector2i(124, 74)
+	vp.own_world_3d = true
+	vp.transparent_bg = false
+	vp.msaa_3d = Viewport.MSAA_4X
+	vp.gui_disable_input = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	svc.add_child(vp)
+
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.09, 0.12, 0.17)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.62, 0.68, 0.8)
+	env.ambient_light_energy = 0.8
+	var we := WorldEnvironment.new()
+	we.environment = env
+	vp.add_child(we)
+
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-42, -38, 0)
+	key.light_energy = 1.25
+	vp.add_child(key)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(18, 130, 0)
+	fill.light_energy = 0.45
+	vp.add_child(fill)
+
+	var vis := PartCatalog.build_visual(p)
+	vp.add_child(vis)
+
+	# Kamera so setzen, dass das Teil formatfüllend im 3/4-Winkel sitzt
+	var aabb := _visual_aabb(vis)
+	var center: Vector3 = aabb.get_center()
+	var radius: float = maxf(aabb.size.length() * 0.5, 0.4)
+	var cam := Camera3D.new()
+	cam.fov = 36.0
+	var dist: float = radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.18
+	var dir: Vector3 = Vector3(0.82, 0.58, 1.0).normalized()
+	var pos: Vector3 = center + dir * dist
+	# look_at() braucht den Baum — hier noch nicht eingehängt, daher from_position:
+	cam.look_at_from_position(pos, center, Vector3.UP)
+	cam.current = true
+	vp.add_child(cam)
+	return svc
+
+
+# Kombinierte AABB aller Mesh-Kinder eines Visuals (im lokalen Raum).
+func _visual_aabb(vis: Node3D) -> AABB:
+	var acc := {"box": AABB(), "has": false}
+	_accum_aabb(vis, Transform3D.IDENTITY, acc)
+	return acc["box"] if acc["has"] else AABB(Vector3(-0.5, -0.5, -0.5), Vector3.ONE)
+
+
+func _accum_aabb(node: Node, xf: Transform3D, acc: Dictionary) -> void:
+	var t := xf
+	if node is Node3D:
+		t = xf * (node as Node3D).transform
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var b: AABB = t * (node as MeshInstance3D).mesh.get_aabb()
+		if acc["has"]:
+			acc["box"] = (acc["box"] as AABB).merge(b)
+		else:
+			acc["box"] = b
+			acc["has"] = true
+	for ch in node.get_children():
+		_accum_aabb(ch, t, acc)
+
+
+func _style_tile(btn: Button) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.12, 0.15, 0.21, 0.85)
+	normal.set_corner_radius_all(5)
+	normal.set_border_width_all(1)
+	normal.border_color = Color(0.3, 0.36, 0.46)
+	var hover := normal.duplicate()
+	hover.bg_color = Color(0.18, 0.22, 0.30, 0.95)
+	hover.border_color = Color(0.5, 0.6, 0.75)
+	var pressed := normal.duplicate()
+	pressed.bg_color = Color(0.16, 0.30, 0.20, 0.95)
+	pressed.set_border_width_all(2)
+	pressed.border_color = Color(0.4, 1.0, 0.55)
+	btn.add_theme_stylebox_override("normal", normal)
+	btn.add_theme_stylebox_override("hover", hover)
+	btn.add_theme_stylebox_override("pressed", pressed)
+	btn.add_theme_stylebox_override("focus", pressed)
 
 
 func _on_pick_part(id: String) -> void:
@@ -586,8 +757,9 @@ func _on_drag_view(on: bool) -> void:
 
 
 func _refresh_tool_ui() -> void:
+	var sel := "" if (build_ctrl.erase_mode or build_ctrl.paint_mode) else build_ctrl.brush_id
 	for pid in part_buttons:
-		part_buttons[pid].modulate = Color(1, 1, 1)
+		part_buttons[pid].set_pressed_no_signal(pid == sel)
 	if build_ctrl.erase_mode:
 		tool_label.text = "Werkzeug: 🧹 Abriss – Teil anklicken zum Löschen"
 	elif build_ctrl.paint_mode:
@@ -597,8 +769,6 @@ func _refresh_tool_ui() -> void:
 	else:
 		var p := PartCatalog.get_part(build_ctrl.brush_id)
 		tool_label.text = "Werkzeug: %s – ziehen & loslassen zum Setzen" % p.get("name", build_ctrl.brush_id)
-		if part_buttons.has(build_ctrl.brush_id):
-			part_buttons[build_ctrl.brush_id].modulate = Color(0.6, 1.0, 0.7)
 
 
 func _build_flight_ui() -> void:

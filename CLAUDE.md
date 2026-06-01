@@ -41,7 +41,15 @@ project.godot            Godot 4.6, Hauptszene res://scenes/Main.tscn, forward_p
 scenes/Main.tscn         nur ein Node3D-Wurzelknoten + Main.gd
 scripts/Main.gd          Welt (Licht/Himmel + blauer Blueprint-Raum), Modus BUILD<->FLY,
                          gesamtes UI (Bau-Panel links, Flug-HUD), Speichern/Laden
-                         (user://aircraft_design.json), Start-Flugzeug (_default_design)
+                         (user://aircraft_design.json), Start-Flugzeug (_default_design).
+                         Teile-Palette: aufklappbare Kategorie-Sektionen (▾/▸) mit Grid aus
+                         3D-Vorschau-Kacheln. Jede Kachel = eigener SubViewport (own_world_3d,
+                         eigene Cam+Licht+Environment, UPDATE_ONCE) der das Teil-Visual rendert.
+                         Helfer: _make_part_tile/_make_preview/_visual_aabb/_style_tile.
+                         Auswahl exklusiv via ButtonGroup (_part_group), aktiv = grüner Rahmen
+                         (_refresh_tool_ui setzt button_pressed). STOLPERFALLE: Kamera ist beim
+                         Bauen noch nicht im Baum -> look_at() schlägt fehl, daher
+                         look_at_from_position() nutzen.
 scripts/PartCatalog.gd   class_name PartCatalog (statisch). Alle Bauteile als Dicts +
                          prozedurale Meshes (build_visual), Airfoil-Flügel-Mesh,
                          Materialien, part_drag(), WING_STRESS-Konstante
