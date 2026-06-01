@@ -39,6 +39,11 @@ func _process(_d: float) -> bool:
 	P("v_stab", Vector3(0, 0.55, 6.9), ny, MIL)               # Seitenleitwerk (Mitte)
 	P("h_stab", Vector3(0.55, 0.0, 7.0), nx, MIL)             # Höhenleitwerk (spiegelt)
 
+	# --- Bewaffnung (feuerbar) ---
+	P("cannon", Vector3(0, -0.42, -1.2))                     # Bordkanone unter der Nase
+	P("missile", Vector3(1.6, -0.45, 4.4))                   # Zielsuchraketen unter den Flügeln (spiegeln)
+	P("missile", Vector3(2.6, -0.45, 4.7))
+
 	# --- Fahrwerk (Bugrad + 2 Hauptfahrwerke) ---
 	P("wheel_heavy", Vector3(0, -0.85, -0.7))
 	P("wheel_heavy", Vector3(0.9, -0.8, 3.2))
