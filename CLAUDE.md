@@ -52,7 +52,17 @@ scripts/Main.gd          Welt (Licht/Himmel + blauer Blueprint-Raum), Modus BUIL
                          look_at_from_position() nutzen.
 scripts/PartCatalog.gd   class_name PartCatalog (statisch). Alle Bauteile als Dicts +
                          prozedurale Meshes (build_visual), Airfoil-Flügel-Mesh,
-                         Materialien, part_drag(), WING_STRESS-Konstante
+                         Materialien, part_drag()/part_cd(), WING_STRESS-Konstante.
+                         Aufgewertete Modelle via _revolve() (Rotationskörper um Z,
+                         outward-Wicklung, gedeckelt; Einheitsform r<=0.5/z[-0.5,0.5],
+                         per Node-Scale auf size gezogen): Rumpf=ellipt. Tubus,
+                         Nase/Heck=Ogive (_ogive_profile), Tank=Kapsel (_capsule_profile),
+                         Cockpit=Rumpf+Glas-Blasenkanzel, Prop=Tubus+Ogiven-Spinner+
+                         getwistete Blätter, Jet=Tubus+Torus-Einlauflippe+Schubdüse+
+                         Nachbrenner, Rad=Torus-Reifen+Felge+Nabe+Federbein. Helfer
+                         _mi(mesh,mat,pos,rot,scl). build_visual bleibt drop-in (Root-
+                         Node3D mit MeshInstance3D-Kindern; "Prop"-Node für Flugrotation;
+                         col = Hauptfarbe -> Lackieren/Recolor + Windkanal-Shader gehen weiter).
 scripts/BuildController.gd  class_name BuildController. Hangar-Editor: Orbit-Kamera,
                          Drag&Snap (flächenbündig), Werkzeuge (Setzen/Bewegen/Abriss/
                          Lackieren), R-Drehen/Kippen, Symmetrie, Undo/Redo, Windkanal-

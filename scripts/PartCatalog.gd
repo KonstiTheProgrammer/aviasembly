@@ -248,6 +248,19 @@ static func glow_material(c: Color, energy := 1.0) -> StandardMaterial3D:
 	return m
 
 
+# MeshInstance3D mit Material + Transform in einem Rutsch (gegen Boilerplate).
+static func _mi(mesh: Mesh, mat: Material, pos := Vector3.ZERO, rot := Vector3.ZERO,
+		scl := Vector3.ONE) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	m.mesh = mesh
+	if mat != null:
+		m.material_override = mat
+	m.position = pos
+	m.rotation = rot
+	m.scale = scl
+	return m
+
+
 # ---------------------------------------------------------------------------
 # Visuelle Erzeugung — gibt einen Node3D zurück (kann mehrere Meshes enthalten)
 # ---------------------------------------------------------------------------
@@ -263,12 +276,13 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> No
 
 	match shape:
 		"box":
-			var mi := MeshInstance3D.new()
-			var bm := BoxMesh.new()
-			bm.size = size
-			mi.mesh = bm
-			mi.material_override = make_material(col, metal, rough)
-			root.add_child(mi)
+			# Rumpfsegment als glatter, leicht abgerundeter Tubus (elliptischer
+			# Querschnitt). Enden flach -> Segmente docken nahtlos aneinander.
+			var tube := _revolve([
+				Vector2(-0.5, 0.49), Vector2(-0.46, 0.5), Vector2(0.46, 0.5), Vector2(0.5, 0.49)
+			], 18)
+			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
+				Vector3.ZERO, size))
 
 		"wing":
 			var mi := MeshInstance3D.new()
@@ -278,171 +292,155 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> No
 			root.add_child(mi)
 
 		"cyl":
-			var mi := MeshInstance3D.new()
-			var cm := CylinderMesh.new()
-			cm.top_radius = size.x * 0.5
-			cm.bottom_radius = size.x * 0.5
-			cm.height = size.z
-			cm.radial_segments = 20
-			mi.mesh = cm
-			mi.rotation = Vector3(PI * 0.5, 0, 0) # Achse Y -> Z
-			mi.material_override = make_material(col, metal, rough)
-			root.add_child(mi)
+			# Tank mit gewölbten Enden (Kapselprofil), schön metallisch.
+			var tank := _revolve(_capsule_profile(), 22)
+			root.add_child(_mi(tank, make_material(col, metal, rough), Vector3.ZERO,
+				Vector3.ZERO, size))
 
 		"nose":
-			var mi := MeshInstance3D.new()
-			var cm := CylinderMesh.new()
-			cm.top_radius = size.x * 0.5
-			cm.bottom_radius = 0.04
-			cm.height = size.z
-			cm.radial_segments = 20
-			mi.mesh = cm
-			# Standard: Spitze zeigt nach vorne (-Z). reverse = Spitze nach hinten.
-			if p.get("reverse", false):
-				mi.rotation = Vector3(-PI * 0.5, 0, 0)
-			else:
-				mi.rotation = Vector3(PI * 0.5, 0, 0)
-			mi.material_override = make_material(col, metal, rough)
-			root.add_child(mi)
+			# Glatte paraboloide Ogive. Standard: Spitze nach vorne (-Z),
+			# reverse = Spitze nach hinten (Heckkonus).
+			var og := _revolve(_ogive_profile(p.get("reverse", false)), 24)
+			root.add_child(_mi(og, make_material(col, metal, rough), Vector3.ZERO,
+				Vector3.ZERO, size))
 
 		"cockpit":
-			var body := MeshInstance3D.new()
-			var bm := BoxMesh.new()
-			bm.size = size
-			body.mesh = bm
-			body.material_override = make_material(col, metal, rough)
-			root.add_child(body)
-			# Kanzel (Glas)
-			var canopy := MeshInstance3D.new()
-			var cb := BoxMesh.new()
-			cb.size = Vector3(size.x * 0.7, size.y * 0.55, size.z * 0.6)
-			canopy.mesh = cb
-			canopy.position = Vector3(0, size.y * 0.5, -size.z * 0.12)
-			var glass := make_material(Color(0.12, 0.22, 0.38), 0.0, 0.05)
+			# Runder Rumpf-Körper, vorne leicht verjüngt (verrundet).
+			var cbody := _revolve([
+				Vector2(-0.5, 0.4), Vector2(-0.42, 0.48), Vector2(-0.2, 0.5),
+				Vector2(0.46, 0.5), Vector2(0.5, 0.49)
+			], 20)
+			root.add_child(_mi(cbody, make_material(col, metal, rough), Vector3.ZERO,
+				Vector3.ZERO, size))
+			# Blasen-Kanzel (halb eingelassene Glaskuppel).
+			var sm := SphereMesh.new()
+			sm.radius = 0.5
+			sm.height = 1.0
+			sm.radial_segments = 24
+			sm.rings = 12
+			var glass := make_material(Color(0.13, 0.24, 0.4), 0.1, 0.05)
 			glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			glass.albedo_color.a = 0.55
-			canopy.material_override = glass
-			root.add_child(canopy)
+			glass.albedo_color.a = 0.6
+			glass.rim_enabled = true
+			glass.rim = 0.6
+			root.add_child(_mi(sm, glass, Vector3(0, size.y * 0.32, -size.z * 0.06),
+				Vector3.ZERO, Vector3(size.x * 0.62, size.y * 0.7, size.z * 0.92)))
 
 		"prop":
-			# Gondel
-			var nac := MeshInstance3D.new()
-			var cm := CylinderMesh.new()
-			cm.top_radius = size.x * 0.34
-			cm.bottom_radius = size.x * 0.34
-			cm.height = size.z * 0.7
-			cm.radial_segments = 18
-			nac.mesh = cm
-			nac.rotation = Vector3(PI * 0.5, 0, 0)
-			nac.position = Vector3(0, 0, size.z * 0.1)
-			nac.material_override = make_material(col, metal, rough)
-			root.add_child(nac)
-			# Spinner vorne
-			var spin := MeshInstance3D.new()
-			var sc := CylinderMesh.new()
-			sc.top_radius = size.x * 0.18
-			sc.bottom_radius = 0.02
-			sc.height = size.x * 0.4
-			spin.mesh = sc
-			spin.rotation = Vector3(PI * 0.5, 0, 0)
-			spin.position = Vector3(0, 0, -size.z * 0.42)
-			spin.material_override = make_material(Color(0.7, 0.1, 0.1), 0.5, 0.4)
-			root.add_child(spin)
-			# Propeller (dreht sich im Flug)
+			# Gondel als runder Tubus, hinten verrundet.
+			var nac := _revolve([
+				Vector2(-0.5, 0.5), Vector2(0.34, 0.5), Vector2(0.46, 0.42), Vector2(0.5, 0.28)
+			], 20)
+			root.add_child(_mi(nac, make_material(col, metal, rough), Vector3(0, 0, size.z * 0.08),
+				Vector3.ZERO, Vector3(size.x * 0.68, size.x * 0.68, size.z * 0.72)))
+			# Spinner vorne (glatte Ogive, Spitze nach -Z).
+			var spin := _revolve(_ogive_profile(false), 20)
+			root.add_child(_mi(spin, make_material(Color(0.72, 0.12, 0.1), 0.5, 0.4),
+				Vector3(0, 0, -size.z * 0.44), Vector3.ZERO,
+				Vector3(size.x * 0.36, size.x * 0.36, size.x * 0.55)))
+			# Propeller (dreht sich im Flug) — getwistete, sich verjüngende Blätter.
 			var prop := Node3D.new()
 			prop.name = "Prop"
-			prop.position = Vector3(0, 0, -size.z * 0.5)
-			var blade_mat := make_material(Color(0.08, 0.08, 0.09), 0.2, 0.5)
+			prop.position = Vector3(0, 0, -size.z * 0.52)
+			var blade_mat := make_material(Color(0.08, 0.08, 0.09), 0.25, 0.5)
 			var blade_len: float = size.x * 1.05
 			for i in 3:
 				var holder := Node3D.new()
 				holder.rotation = Vector3(0, 0, deg_to_rad(120.0 * i))
-				var blade := MeshInstance3D.new()
+				# Blatt: lang in Y (radial), dünn, mit Anstellwinkel (Twist um Y).
 				var bbm := BoxMesh.new()
-				bbm.size = Vector3(0.07, blade_len, 0.2)
-				blade.mesh = bbm
-				blade.position = Vector3(0, blade_len * 0.5, 0)
-				blade.material_override = blade_mat
+				bbm.size = Vector3(0.055, blade_len, 0.18)
+				var blade := _mi(bbm, blade_mat, Vector3(0, blade_len * 0.5, 0),
+					Vector3(0, deg_to_rad(22), 0))
 				holder.add_child(blade)
 				prop.add_child(holder)
 			root.add_child(prop)
 			# durchscheinende Propeller-Scheibe (Bewegungsunschärfe-Look)
-			var disc := MeshInstance3D.new()
 			var dm := CylinderMesh.new()
 			dm.top_radius = blade_len
 			dm.bottom_radius = blade_len
 			dm.height = 0.02
 			dm.radial_segments = 24
-			disc.mesh = dm
-			disc.rotation = Vector3(PI * 0.5, 0, 0)
-			disc.position = Vector3(0, 0, -size.z * 0.52)
 			var dmat := make_material(Color(0.5, 0.5, 0.55), 0.1, 0.6)
 			dmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			dmat.albedo_color.a = 0.12
 			dmat.cull_mode = BaseMaterial3D.CULL_DISABLED
-			disc.mesh.material = dmat
-			root.add_child(disc)
+			dm.material = dmat
+			root.add_child(_mi(dm, null, Vector3(0, 0, -size.z * 0.54), Vector3(PI * 0.5, 0, 0)))
 
 		"jet":
-			var nac := MeshInstance3D.new()
-			var cm := CylinderMesh.new()
-			cm.top_radius = size.x * 0.5
-			cm.bottom_radius = size.x * 0.46
-			cm.height = size.z
-			cm.radial_segments = 22
-			nac.mesh = cm
-			nac.rotation = Vector3(PI * 0.5, 0, 0)
-			nac.material_override = make_material(col, metal, rough)
-			root.add_child(nac)
-			# dunkler Einlassring vorne
-			var intake := MeshInstance3D.new()
-			var ic := CylinderMesh.new()
-			ic.top_radius = size.x * 0.52
-			ic.bottom_radius = size.x * 0.52
-			ic.height = size.z * 0.12
-			intake.mesh = ic
-			intake.rotation = Vector3(PI * 0.5, 0, 0)
-			intake.position = Vector3(0, 0, -size.z * 0.46)
-			intake.material_override = make_material(Color(0.05, 0.05, 0.06), 0.3, 0.6)
-			root.add_child(intake)
-			# Auspuff (leuchtet leicht)
-			var ex := MeshInstance3D.new()
-			var ec := CylinderMesh.new()
-			ec.top_radius = size.x * 0.3
-			ec.bottom_radius = size.x * 0.42
-			ec.height = size.z * 0.18
-			ex.mesh = ec
-			ex.rotation = Vector3(PI * 0.5, 0, 0)
-			ex.position = Vector3(0, 0, size.z * 0.5)
-			var em := make_material(Color(0.6, 0.25, 0.08), 0.4, 0.4)
+			# Triebwerksgondel als runder Tubus (vorne/hinten leicht verrundet).
+			var jbody := _revolve([
+				Vector2(-0.5, 0.45), Vector2(-0.44, 0.5), Vector2(0.4, 0.5), Vector2(0.5, 0.42)
+			], 22)
+			root.add_child(_mi(jbody, make_material(col, metal, rough), Vector3.ZERO,
+				Vector3.ZERO, Vector3(size.x, size.x, size.z)))
+			# Einlauf-Lippe (Torus) vorne
+			var lip := TorusMesh.new()
+			lip.inner_radius = size.x * 0.4
+			lip.outer_radius = size.x * 0.52
+			lip.rings = 26
+			lip.ring_segments = 12
+			root.add_child(_mi(lip, make_material(Color(0.2, 0.21, 0.24), 0.75, 0.3),
+				Vector3(0, 0, -size.z * 0.5), Vector3(PI * 0.5, 0, 0)))
+			# dunkler Einlauf-Innenraum
+			var face := CylinderMesh.new()
+			face.top_radius = size.x * 0.4
+			face.bottom_radius = size.x * 0.4
+			face.height = 0.04
+			root.add_child(_mi(face, make_material(Color(0.03, 0.03, 0.04), 0.2, 0.7),
+				Vector3(0, 0, -size.z * 0.45), Vector3(PI * 0.5, 0, 0)))
+			# Schubdüse hinten (konvergent)
+			var noz := _revolve([
+				Vector2(-0.5, 0.5), Vector2(0.2, 0.46), Vector2(0.5, 0.34)
+			], 20)
+			root.add_child(_mi(noz, make_material(Color(0.22, 0.22, 0.24), 0.7, 0.3),
+				Vector3(0, 0, size.z * 0.5), Vector3.ZERO,
+				Vector3(size.x, size.x, size.z * 0.22)))
+			# Nachbrenner-Glühen
+			var glow := CylinderMesh.new()
+			glow.top_radius = size.x * 0.3
+			glow.bottom_radius = size.x * 0.3
+			glow.height = 0.04
+			var em := make_material(Color(0.7, 0.3, 0.1), 0.3, 0.4)
 			em.emission_enabled = true
-			em.emission = Color(1.0, 0.4, 0.1)
-			em.emission_energy_multiplier = 0.6
-			ex.material_override = em
-			root.add_child(ex)
+			em.emission = Color(1.0, 0.45, 0.12)
+			em.emission_energy_multiplier = 1.3
+			root.add_child(_mi(glow, em, Vector3(0, 0, size.z * 0.6), Vector3(PI * 0.5, 0, 0)))
 
 		"wheel":
-			# Rad (Achse entlang X)
-			var wheel := MeshInstance3D.new()
-			var wc := CylinderMesh.new()
+			# Reifen als runder Torus (Achse entlang X), Felge + Nabe + Federbein.
 			var r: float = size.z * 0.5
-			wc.top_radius = r
-			wc.bottom_radius = r
-			wc.height = size.x * 0.6
-			wc.radial_segments = 18
-			wheel.mesh = wc
-			wheel.rotation = Vector3(0, 0, PI * 0.5) # Achse Y -> X
-			wheel.position = Vector3(0, -size.y * 0.5 + r, 0)
-			wheel.material_override = make_material(col, 0.1, 0.85)
-			root.add_child(wheel)
-			# Strebe
-			var strut := MeshInstance3D.new()
-			var sb := BoxMesh.new()
-			sb.size = Vector3(0.14, size.y * 0.55, 0.14)
-			strut.mesh = sb
-			strut.position = Vector3(0, size.y * 0.12, 0)
-			strut.material_override = make_material(Color(0.5, 0.5, 0.55), 0.7, 0.4)
-			root.add_child(strut)
+			var wpos := Vector3(0, -size.y * 0.5 + r, 0)
+			var tire_w: float = size.x * 0.5
+			var tire := TorusMesh.new()
+			tire.inner_radius = r * 0.52
+			tire.outer_radius = r
+			tire.rings = 24
+			tire.ring_segments = 14
+			# Torus liegt in XZ (Loch-Achse Y); 90° um Z -> Loch-Achse X (Raddrehachse).
+			root.add_child(_mi(tire, make_material(col, 0.05, 0.9),
+				wpos, Vector3(0, 0, PI * 0.5)))
+			# Felge/Radscheibe (metallisch)
+			var rim := CylinderMesh.new()
+			rim.top_radius = r * 0.56
+			rim.bottom_radius = r * 0.56
+			rim.height = tire_w * 0.7
+			rim.radial_segments = 20
+			root.add_child(_mi(rim, make_material(Color(0.7, 0.72, 0.78), 0.85, 0.3),
+				wpos, Vector3(0, 0, PI * 0.5)))
+			# Nabe
+			var hub := CylinderMesh.new()
+			hub.top_radius = r * 0.2
+			hub.bottom_radius = r * 0.2
+			hub.height = tire_w * 1.02
+			root.add_child(_mi(hub, make_material(Color(0.3, 0.31, 0.34), 0.8, 0.35),
+				wpos, Vector3(0, 0, PI * 0.5)))
+			# Federbein (rundes Standrohr) + Achsschenkel
+			var leg := _revolve(_capsule_profile(), 12)
+			root.add_child(_mi(leg, make_material(Color(0.55, 0.57, 0.62), 0.8, 0.35),
+				Vector3(0, size.y * 0.12, 0), Vector3(PI * 0.5, 0, 0),
+				Vector3(0.16, 0.16, size.y * 0.72)))
 
 		_:
 			var mi := MeshInstance3D.new()
@@ -504,3 +502,66 @@ static func _wing_mesh(span: float, rc: float, tc: float, sweep: float, _thick: 
 static func _airfoil_y(f: float, t: float) -> float:
 	f = clampf(f, 0.0, 1.0)
 	return (t / 0.2) * (0.2969 * sqrt(f) - 0.1260 * f - 0.3516 * f * f + 0.2843 * f * f * f - 0.1015 * f * f * f * f)
+
+
+# ---------------------------------------------------------------------------
+# Rotationskörper um die Z-Achse. profile = Array[Vector2(z, radius)], radius>=0.
+# Enden mit radius>0 werden flach gedeckelt. Outward gewickelt, glatte Normalen.
+# Als EINHEITSform gedacht (r<=0.5, z in [-0.5,0.5]) und per Node-Skalierung gezogen.
+# ---------------------------------------------------------------------------
+static func _revolve(profile: Array, segs := 24) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := profile.size()
+	var stride := segs + 1
+	for ring in n:
+		var z: float = profile[ring].x
+		var rad: float = profile[ring].y
+		for s in stride:
+			var a: float = TAU * float(s) / float(segs)
+			st.add_vertex(Vector3(cos(a) * rad, sin(a) * rad, z))
+	for ring in n - 1:
+		for s in segs:
+			var i0 := ring * stride + s
+			var i1 := ring * stride + s + 1
+			var i2 := (ring + 1) * stride + s
+			var i3 := (ring + 1) * stride + s + 1
+			st.add_index(i0); st.add_index(i1); st.add_index(i2)
+			st.add_index(i1); st.add_index(i3); st.add_index(i2)
+	var verts := n * stride
+	if float(profile[0].y) > 0.001:                  # vorderer Deckel (-Z)
+		st.add_vertex(Vector3(0, 0, profile[0].x))
+		var c0 := verts
+		verts += 1
+		for s in segs:
+			st.add_index(c0); st.add_index(s + 1); st.add_index(s)
+	if float(profile[n - 1].y) > 0.001:              # hinterer Deckel (+Z)
+		st.add_vertex(Vector3(0, 0, profile[n - 1].x))
+		var cn := verts
+		var rb := (n - 1) * stride
+		for s in segs:
+			st.add_index(cn); st.add_index(rb + s); st.add_index(rb + s + 1)
+	st.generate_normals()
+	return st.commit()
+
+
+# Ogiven-/Paraboloid-Nasenprofil (Spitze bei -Z). reverse -> Spitze bei +Z.
+static func _ogive_profile(reverse: bool) -> Array:
+	var pts: Array = []
+	var steps := 10
+	for i in steps + 1:
+		var t: float = float(i) / float(steps)        # 0 = Spitze .. 1 = Basis
+		var z: float = -0.5 + t
+		var r: float = 0.5 * sqrt(t)                   # paraboloide Rundung
+		pts.append(Vector2(z if not reverse else -z, r))
+	if reverse:
+		pts.reverse()                                  # z wieder aufsteigend
+	return pts
+
+
+# Tank-/Kapselprofil mit gewölbten Enden (Einheits-Radius 0.5, z in [-0.5,0.5]).
+static func _capsule_profile() -> Array:
+	return [
+		Vector2(-0.5, 0.0), Vector2(-0.47, 0.3), Vector2(-0.42, 0.45), Vector2(-0.34, 0.5),
+		Vector2(0.34, 0.5), Vector2(0.42, 0.45), Vector2(0.47, 0.3), Vector2(0.5, 0.0),
+	]

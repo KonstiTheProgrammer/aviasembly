@@ -678,7 +678,7 @@ func _make_preview(p: Dictionary) -> SubViewportContainer:
 	var radius: float = maxf(aabb.size.length() * 0.5, 0.4)
 	var cam := Camera3D.new()
 	cam.fov = 36.0
-	var dist: float = radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.18
+	var dist: float = radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.06
 	var dir: Vector3 = Vector3(0.82, 0.58, 1.0).normalized()
 	var pos: Vector3 = center + dir * dist
 	# look_at() braucht den Baum — hier noch nicht eingehängt, daher from_position:
