@@ -39,9 +39,10 @@ var camera: Camera3D
 var build_ctrl: BuildController
 var flight_ctrl: FlightController
 
-var runway: Node3D
+var fly_world: Node3D
 var ground_mesh: MeshInstance3D
 var blueprint_grid: MeshInstance3D
+var airfields: Array = []
 var world_env: WorldEnvironment
 var env_sky: Environment
 var env_blueprint: Environment
@@ -61,6 +62,8 @@ var part_buttons: Dictionary = {}
 
 
 func _ready() -> void:
+	# Höhere Physikrate gegen Ruckeln auf 120-Hz-Displays (ProMotion)
+	Engine.physics_ticks_per_second = 120
 	_setup_world()
 	_setup_camera()
 	_setup_controllers()
@@ -91,7 +94,7 @@ func _setup_world() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.74, 0.82, 0.92)
-	env.fog_density = 0.0006
+	env.fog_density = 0.00012   # dünn, damit ferne Flugplätze sichtbar bleiben
 	env_sky = env
 
 	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum)
@@ -115,7 +118,7 @@ func _setup_world() -> void:
 	sun.directional_shadow_max_distance = 300.0
 	add_child(sun)
 
-	# Boden (unendliche Ebene als Kollision + große Sichtfläche)
+	# Boden-Kollision (unendliche Ebene)
 	var ground_body := StaticBody3D.new()
 	ground_body.collision_layer = 1
 	ground_body.collision_mask = 0
@@ -124,41 +127,31 @@ func _setup_world() -> void:
 	ground_body.add_child(gcs)
 	add_child(ground_body)
 
+	# Flug-Welt: Boden, Landschaft, Flugplätze (nur im Flug sichtbar)
+	fly_world = Node3D.new()
+	add_child(fly_world)
+
 	ground_mesh = MeshInstance3D.new()
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(6000, 6000)
+	pm.size = Vector2(12000, 12000)
 	ground_mesh.mesh = pm
-	var gmat := StandardMaterial3D.new()
-	gmat.albedo_color = Color(0.34, 0.5, 0.3)
-	gmat.roughness = 1.0
-	ground_mesh.material_override = gmat
-	add_child(ground_mesh)
+	ground_mesh.material_override = _flat_mat(Color(0.34, 0.5, 0.3), 1.0)
+	fly_world.add_child(ground_mesh)
 
-	# Startbahn
-	runway = Node3D.new()
-	add_child(runway)
-	var strip := MeshInstance3D.new()
-	var sm := BoxMesh.new()
-	sm.size = Vector3(18, 0.12, 340)
-	strip.mesh = sm
-	strip.position = Vector3(0, 0.06, -100)
-	var smat := StandardMaterial3D.new()
-	smat.albedo_color = Color(0.17, 0.17, 0.19)
-	smat.roughness = 0.95
-	strip.material_override = smat
-	runway.add_child(strip)
-	var line := MeshInstance3D.new()
-	var lm := BoxMesh.new()
-	lm.size = Vector3(0.5, 0.04, 300)
-	line.mesh = lm
-	line.position = Vector3(0, 0.13, -100)
-	var lmat := StandardMaterial3D.new()
-	lmat.albedo_color = Color(0.9, 0.9, 0.85)
-	lmat.emission_enabled = true
-	lmat.emission = Color(0.8, 0.8, 0.7)
-	lmat.emission_energy_multiplier = 0.2
-	line.material_override = lmat
-	runway.add_child(line)
+	# Flugplätze (Name, Position, Ausrichtung, Farbe)
+	airfields = [
+		{"name": "HEIMAT", "pos": Vector3(0, 0, -100), "heading": 0.0, "color": Color(0.9, 0.9, 0.95)},
+		{"name": "NORDFELD", "pos": Vector3(-1500, 0, -2000), "heading": 0.7, "color": Color(0.95, 0.75, 0.3)},
+		{"name": "OSTHAFEN", "pos": Vector3(2200, 0, -250), "heading": -1.15, "color": Color(0.45, 0.75, 0.98)},
+		{"name": "BERGPISTE", "pos": Vector3(900, 0, 2000), "heading": 2.3, "color": Color(0.95, 0.5, 0.45)},
+	]
+
+	# Landschaft (nur Optik): See + Berge als Orientierung
+	_build_lake(Vector3(-1000, 0, 700), 650.0)
+	for hp in [Vector3(1300, 0, 1500), Vector3(-2000, 0, -600), Vector3(700, 0, -2100), Vector3(-300, 0, 2600), Vector3(2600, 0, 1400)]:
+		_build_mountain(hp)
+	for af in airfields:
+		_build_airfield(af)
 
 	# Blueprint-Gitter (nur im Bau-Modus sichtbar)
 	blueprint_grid = MeshInstance3D.new()
@@ -175,10 +168,152 @@ func _setup_world() -> void:
 	blueprint_grid.visible = false
 
 
+func _flat_mat(c: Color, rough: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	m.roughness = rough
+	return m
+
+
+func _emit_mat(c: Color, e: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	m.emission_enabled = true
+	m.emission = c
+	m.emission_energy_multiplier = e
+	return m
+
+
+func _build_airfield(af: Dictionary) -> void:
+	var node := Node3D.new()
+	node.position = af["pos"]
+	node.rotation.y = af["heading"]
+	fly_world.add_child(node)
+	# Bahn
+	var strip := MeshInstance3D.new()
+	var sm := BoxMesh.new()
+	sm.size = Vector3(20, 0.14, 300)
+	strip.mesh = sm
+	strip.position = Vector3(0, 0.07, 0)
+	strip.material_override = _flat_mat(Color(0.17, 0.17, 0.19), 0.95)
+	node.add_child(strip)
+	# gestrichelte Mittellinie
+	for i in range(-6, 7):
+		var d := MeshInstance3D.new()
+		var dm := BoxMesh.new()
+		dm.size = Vector3(0.6, 0.04, 10)
+		d.mesh = dm
+		d.position = Vector3(0, 0.15, i * 22.0)
+		d.material_override = _emit_mat(Color(0.9, 0.9, 0.85), 0.25)
+		node.add_child(d)
+	# Schwellen-Markierungen an den Enden
+	for zz in [-142.0, 142.0]:
+		for x in [-7.0, -3.5, 0.0, 3.5, 7.0]:
+			var th := MeshInstance3D.new()
+			var tm := BoxMesh.new()
+			tm.size = Vector3(2.0, 0.04, 12)
+			th.mesh = tm
+			th.position = Vector3(x, 0.15, zz)
+			th.material_override = _emit_mat(Color(0.95, 0.95, 0.9), 0.2)
+			node.add_child(th)
+	# Hangars + Tower
+	_add_hangar(node, Vector3(-24, 0, -70), af["color"])
+	_add_hangar(node, Vector3(26, 0, -55), af["color"])
+	_add_tower(node, Vector3(-28, 0, 50))
+	# Namensschild hoch oben (immer sichtbar)
+	var lbl := Label3D.new()
+	lbl.text = af["name"]
+	lbl.font_size = 130
+	lbl.pixel_size = 0.22
+	lbl.position = Vector3(0, 60, 0)
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.modulate = af["color"]
+	lbl.outline_size = 26
+	lbl.outline_modulate = Color(0, 0, 0, 0.9)
+	node.add_child(lbl)
+
+
+func _add_hangar(parent: Node3D, pos: Vector3, col: Color) -> void:
+	var h := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = Vector3(16, 7, 12)
+	h.mesh = b
+	h.position = pos + Vector3(0, 3.5, 0)
+	h.material_override = _flat_mat(col, 0.7)
+	parent.add_child(h)
+	var roof := MeshInstance3D.new()
+	var pr := PrismMesh.new()
+	pr.size = Vector3(16.6, 3, 12)
+	roof.mesh = pr
+	roof.position = pos + Vector3(0, 8.5, 0)
+	roof.material_override = _flat_mat(col.darkened(0.3), 0.7)
+	parent.add_child(roof)
+
+
+func _add_tower(parent: Node3D, pos: Vector3) -> void:
+	var t := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = Vector3(5, 22, 5)
+	t.mesh = b
+	t.position = pos + Vector3(0, 11, 0)
+	t.material_override = _flat_mat(Color(0.82, 0.82, 0.86), 0.6)
+	parent.add_child(t)
+	var cab := MeshInstance3D.new()
+	var cb := BoxMesh.new()
+	cb.size = Vector3(8, 4, 8)
+	cab.mesh = cb
+	cab.position = pos + Vector3(0, 23, 0)
+	var cm := _flat_mat(Color(0.2, 0.35, 0.5), 0.2)
+	cm.metallic = 0.4
+	cab.material_override = cm
+	parent.add_child(cab)
+
+
+func _build_mountain(pos: Vector3) -> void:
+	var c := CylinderMesh.new()
+	c.bottom_radius = randf_range(240, 380)
+	c.top_radius = 8.0
+	c.height = randf_range(320, 560)
+	c.radial_segments = 6
+	var m := MeshInstance3D.new()
+	m.mesh = c
+	m.position = pos + Vector3(0, c.height * 0.5, 0)
+	m.material_override = _flat_mat(Color(0.33, 0.3, 0.27), 1.0)
+	fly_world.add_child(m)
+	var sc := CylinderMesh.new()
+	sc.bottom_radius = 75.0
+	sc.top_radius = 8.0
+	sc.height = c.height * 0.26
+	sc.radial_segments = 6
+	var snow := MeshInstance3D.new()
+	snow.mesh = sc
+	snow.position = pos + Vector3(0, c.height - sc.height * 0.5, 0)
+	snow.material_override = _flat_mat(Color(0.92, 0.94, 0.98), 0.85)
+	fly_world.add_child(snow)
+
+
+func _build_lake(pos: Vector3, r: float) -> void:
+	var c := CylinderMesh.new()
+	c.top_radius = r
+	c.bottom_radius = r
+	c.height = 0.5
+	c.radial_segments = 40
+	var lake := MeshInstance3D.new()
+	lake.mesh = c
+	lake.position = pos + Vector3(0, 0.2, 0)
+	var lm := StandardMaterial3D.new()
+	lm.albedo_color = Color(0.2, 0.45, 0.7)
+	lm.metallic = 0.7
+	lm.roughness = 0.08
+	lake.material_override = lm
+	fly_world.add_child(lake)
+
+
 func _setup_camera() -> void:
 	camera = Camera3D.new()
 	camera.fov = 64.0
-	camera.far = 6000.0
+	camera.far = 9000.0
 	camera.current = true
 	add_child(camera)
 
@@ -206,11 +341,10 @@ func _set_mode(m: int) -> void:
 	build_root.visible = building
 	flight_root.visible = not building
 
-	# Blueprint-Raum im Bau-Modus, Himmel/Boden/Bahn im Flug
+	# Blueprint-Raum im Bau-Modus, Himmel + Flug-Welt im Flug
 	world_env.environment = env_blueprint if building else env_sky
 	blueprint_grid.visible = building
-	ground_mesh.visible = not building
-	runway.visible = not building
+	fly_world.visible = not building
 
 	if building:
 		flight_ctrl.set_active(false)
@@ -441,7 +575,14 @@ func _on_reset_view() -> void:
 
 func _on_drag_view(on: bool) -> void:
 	build_ctrl.set_wind_tunnel(on)
-	_toast("Windkanal: " + ("AN — Luftströmung über das Modell" if on else "aus"))
+	if on:
+		var worst: String = build_ctrl.wind_worst
+		var tip := "grün = wenig, rot = viel Widerstand"
+		if worst != "":
+			tip = "rot = größter Widerstand: %s" % worst
+		_toast("🌬 Windkanal AN — " + tip)
+	else:
+		_toast("Windkanal aus")
 
 
 func _refresh_tool_ui() -> void:
@@ -523,9 +664,13 @@ func _on_design_changed(stats: Dictionary) -> void:
 	var wingload := "—"
 	if stats.get("has_wings", false):
 		wingload = "bis ~%.1f g" % stats["max_g"]
-	stats_label.text = "Teile: %d\nMasse: %d kg\nFlügelfläche: %.1f m²\nSchub: %d N\nSchub/Gewicht: %.2f\nLuftwiderstand cW·A: %.2f m²\nLängsstabilität: %s\nMax. Flügellast: %s\nFahrwerk-Last: %s" % [
+	var drag_line := "Luftwiderstand cW·A: %.2f m²" % stats.get("drag_area", 0.0)
+	var worst: String = stats.get("drag_worst", "")
+	if worst != "":
+		drag_line += "\n  ↳ Hotspot: %s" % worst
+	stats_label.text = "Teile: %d\nMasse: %d kg\nFlügelfläche: %.1f m²\nSchub: %d N\nSchub/Gewicht: %.2f\n%s\nLängsstabilität: %s\nMax. Flügellast: %s\nFahrwerk-Last: %s" % [
 		int(stats["parts"]), int(stats["mass"]), stats["area"],
-		int(stats["thrust"]), stats["tw"], stats.get("drag_area", 0.0),
+		int(stats["thrust"]), stats["tw"], drag_line,
 		stab, wingload, gear]
 
 
@@ -536,10 +681,11 @@ func _on_hud_changed(d: Dictionary) -> void:
 	var inv_txt: String = "INVERTIERT ⚠" if d.get("inverted", false) else "normal"
 	var thr_pct := int(round(d["throttle"] * 100.0))
 	var thr_txt := ("🛑 Bremse %d%%" % absi(thr_pct)) if thr_pct < 0 else ("Schub %d%%" % thr_pct)
-	hud_label.text = "%s\nSpeed:  %d km/h  (%d m/s)\nHöhe:   %d m\nSteig:  %+.1f m/s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nSteuerung (Q): %s\nAssist (T): %s" % [
+	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
+	hud_label.text = "%s\nSpeed:  %d km/h  (%d m/s)\nHöhe:   %d m\nSteig:  %+.1f m/s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nSteuerung (Q): %s\nAssist (T): %s\n➤ %s" % [
 		thr_txt, int(d["kmh"]), int(d["speed"]),
 		int(d["alt"]), d["climb"], int(d["aoa"]), d.get("gforce", 1.0),
-		d.get("wings", "ok"), d.get("gear", "—"), inv_txt, assist_txt]
+		d.get("wings", "ok"), d.get("gear", "—"), inv_txt, assist_txt, nav]
 	stall_label.visible = d.get("stall", false) and d.get("speed", 0.0) > 4.0
 	if land_label:
 		var lm: String = d.get("land_msg", "")
@@ -550,6 +696,25 @@ func _on_hud_changed(d: Dictionary) -> void:
 			land_label.add_theme_color_override("font_color", Color(1, 0.75, 0.25))
 		else:
 			land_label.add_theme_color_override("font_color", Color(0.5, 1, 0.6))
+
+
+# Nächster Flugplatz: Name, Entfernung (km), Kompasskurs (Nord = -Z = 0°)
+func _nearest_airfield(pos: Vector3) -> String:
+	if airfields.is_empty():
+		return "—"
+	var best: Dictionary = airfields[0]
+	var bestd := INF
+	for af in airfields:
+		var ap: Vector3 = af["pos"]
+		var dd := Vector2(pos.x - ap.x, pos.z - ap.z).length()
+		if dd < bestd:
+			bestd = dd
+			best = af
+	var bp: Vector3 = best["pos"]
+	var brg := rad_to_deg(atan2(bp.x - pos.x, -(bp.z - pos.z)))
+	if brg < 0.0:
+		brg += 360.0
+	return "%s   %.1f km   %03d°" % [best["name"], bestd / 1000.0, int(round(brg))]
 
 
 # --- Button-/UI-Aktionen ---------------------------------------------------

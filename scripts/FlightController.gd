@@ -293,4 +293,5 @@ func _emit_hud() -> void:
 		"wings": aircraft.wing_status,
 		"inverted": aircraft.inverted,
 		"land_msg": aircraft.landing_msg,
+		"pos": aircraft.global_position,
 	})

@@ -118,8 +118,16 @@ Querruder, kein Auftrieb.
 - **Werkzeuge:** Bewegen / Abriss / Lackieren (Farbpalette, Farbe wird im Design +
   Save gespeichert). **Undo/Redo** (`_history`, Strg+Z/Y). **R** dreht Box-Teile (90°)
   bzw. kippt Flügel (Bank). **M** Symmetrie. **F** Kamera zentrieren.
-- **Windkanal-Ansicht:** backt alle Teile via `SurfaceTool.append_from` zu EINEM Mesh
-  und zeigt CPUParticles-Strömungslinien (von −Z über das Modell nach +Z).
+- **Windkanal-Ansicht** (`set_wind_tunnel`): Pro-Teil-**Widerstands-Heatmap**. Für jedes
+  Teil wird der Flug-Widerstand `PartCatalog.part_drag(p)` berechnet und relativ zum
+  größten Wert im Design eingefärbt — grün (wenig) → gelb → rot (viel), via
+  `_apply_drag_heatmap`/`_drag_color`/`_tint` (unshaded `material_override`; heiße Teile
+  glühen leicht). Nenner = `maxf(max_drag, 0.6)` → schlanke Flieger bleiben grün, nur echte
+  Bluff-Körper (Rumpf-Box, Räder) werden rot. Der schlimmste Teilname → `wind_worst`
+  (Toast + Statistik „Hotspot“). Dazu CPUParticles-Strömungslinien (von −Z über das Modell
+  nach +Z). Aufheben via `_clear_wind_tunnel` → `_recolor` baut jedes Visual neu auf
+  (Original-Material zurück). Konsistent mit dem Flugmodell, das dieselbe `part_drag`-Summe
+  als `drag_area` nutzt — Visualisierung = tatsächlicher Sim-Widerstand.
 - **Zoom:** Mausrad + Tastatur `+`/`−` + Trackpad-Pinch (`InputEventMagnifyGesture`) +
   Zwei-Finger-Scroll (`InputEventPanGesture`). Bereich `orbit_dist` 2.5–110.
 - **Blauer Blueprint-Raum** im Bau-Modus (eigenes Environment + Gitter-Shader), im Flug

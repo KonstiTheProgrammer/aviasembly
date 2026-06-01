@@ -1,5 +1,10 @@
 ; Engine configuration file.
-; Aviassembly — 3D Plane Builder (Godot 4.6)
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -24,6 +29,5 @@ window/stretch/aspect="expand"
 
 [rendering]
 
-renderer/rendering_method="forward_plus"
 anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.55, 0.72, 0.92, 1)

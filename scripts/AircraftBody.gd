@@ -53,7 +53,7 @@ var wing_status := "ok"
 var parts: Array = []         # [{vis, cs, xform, csize, coffset, is_wing, control}]
 var _break_pending := false
 var _broke_done := false
-const DRAG_K := 0.45          # wie stark der Modell-Widerstand die Leistung bremst
+const DRAG_K := 1.0           # wie stark der Modell-Widerstand die Leistung bremst (höher = langsamer)
 
 # Fahrwerk
 var gear_items: Array = []    # [{vis, cs, retract, base}]

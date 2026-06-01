@@ -36,8 +36,8 @@ var _carry_had_mirror := false
 # Lackieren & Undo/Redo
 var paint_mode := false
 var paint_color := Color(0.86, 0.22, 0.20)
-var wind_tunnel := false     # Windkanal-Ansicht (gebackenes Modell + Luftströmung)
-var _tunnel_model: MeshInstance3D
+var wind_tunnel := false     # Windkanal-Ansicht (Pro-Teil-Heatmap + Luftströmung)
+var wind_worst := ""         # Teil mit dem höchsten Flug-Widerstand
 var _tunnel_particles: CPUParticles3D
 var _history: Array = []
 var _hist_i := -1
@@ -383,7 +383,7 @@ func reset_camera() -> void:
 	_update_camera()
 
 
-# --- Windkanal-Ansicht: Modell zu EINEM Mesh backen + Luftströmung ---------
+# --- Windkanal-Ansicht: Pro-Teil-Widerstands-Heatmap + Luftströmung --------
 func set_wind_tunnel(b: bool) -> void:
 	wind_tunnel = b
 	if b:
@@ -393,42 +393,14 @@ func set_wind_tunnel(b: bool) -> void:
 
 
 func _build_wind_tunnel() -> void:
-	_clear_wind_tunnel()
-	# 1) Alle Einzelteil-Meshes in EIN Mesh zusammenbacken
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var inv := design_root.global_transform.affine_inverse()
-	var any := false
-	for child in design_root.get_children():
-		if not child.is_in_group("part"):
-			continue
-		var vis := child.get_node_or_null("Visual")
-		if vis == null:
-			continue
-		var meshes: Array = []
-		_collect_meshes(vis, meshes)
-		for mi in meshes:
-			if mi.mesh == null:
-				continue
-			var xf: Transform3D = inv * mi.global_transform
-			for s in mi.mesh.get_surface_count():
-				st.append_from(mi.mesh, s, xf)
-				any = true
-		vis.visible = false
-	if any:
-		_tunnel_model = MeshInstance3D.new()
-		_tunnel_model.mesh = st.commit()
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.86, 0.87, 0.92)
-		m.metallic = 0.1
-		m.roughness = 0.55
-		_tunnel_model.material_override = m
-		design_root.add_child(_tunnel_model)
+	_apply_drag_heatmap()
 	if com_marker:
 		com_marker.visible = false
 	if col_marker:
 		col_marker.visible = false
-	# 2) Luftstrom-Linien (von vorne -Z über das Modell nach +Z)
+	if is_instance_valid(_tunnel_particles):
+		return  # Strömung läuft schon (z. B. nur Heatmap neu)
+	# Luftstrom-Linien (von vorne -Z über das Modell nach +Z)
 	_tunnel_particles = CPUParticles3D.new()
 	_tunnel_particles.amount = 280
 	_tunnel_particles.lifetime = 2.2
@@ -444,7 +416,7 @@ func _build_wind_tunnel() -> void:
 	var streak := BoxMesh.new()
 	streak.size = Vector3(0.04, 0.04, 0.8)
 	var sm := StandardMaterial3D.new()
-	sm.albedo_color = Color(0.5, 0.85, 1.0, 0.6)
+	sm.albedo_color = Color(0.55, 0.85, 1.0, 0.55)
 	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	streak.material = sm
@@ -452,27 +424,61 @@ func _build_wind_tunnel() -> void:
 	design_root.add_child(_tunnel_particles)
 
 
+# Färbt jedes Teil nach seinem Flug-Widerstand: grün (wenig) -> rot (viel).
+# Bezug = größter Wert im Design (mit Untergrenze), damit ein sauberes
+# Flugzeug grün bleibt und nur echte Problemteile rot werden.
+func _apply_drag_heatmap() -> void:
+	var max_d := 0.0
+	wind_worst = ""
+	for child in design_root.get_children():
+		if not child.is_in_group("part"):
+			continue
+		var p := PartCatalog.get_part(child.get_meta("part_id"))
+		var dd: float = PartCatalog.part_drag(p)
+		if dd > max_d:
+			max_d = dd
+			wind_worst = p.get("name", "")
+	var denom := maxf(max_d, 0.6)
+	for child in design_root.get_children():
+		if not child.is_in_group("part"):
+			continue
+		var dd: float = PartCatalog.part_drag(PartCatalog.get_part(child.get_meta("part_id")))
+		var frac := clampf(dd / denom, 0.0, 1.0)
+		_tint(child.get_node_or_null("Visual"), _drag_color(frac), frac)
+
+
+func _drag_color(f: float) -> Color:
+	if f < 0.5:
+		return Color(0.18, 0.85, 0.30).lerp(Color(0.97, 0.86, 0.15), f * 2.0)
+	return Color(0.97, 0.86, 0.15).lerp(Color(0.97, 0.16, 0.12), (f - 0.5) * 2.0)
+
+
+func _tint(node: Node, c: Color, emis: float) -> void:
+	if node == null:
+		return
+	for ch in node.get_children():
+		_tint(ch, c, emis)
+	if node is MeshInstance3D:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = c
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		if emis > 0.55:                       # heiße Teile glühen leicht -> stechen heraus
+			m.emission_enabled = true
+			m.emission = c
+			m.emission_energy_multiplier = (emis - 0.55) * 2.2
+		node.material_override = m
+
+
 func _clear_wind_tunnel() -> void:
-	if is_instance_valid(_tunnel_model):
-		_tunnel_model.queue_free()
-	_tunnel_model = null
 	if is_instance_valid(_tunnel_particles):
 		_tunnel_particles.queue_free()
 	_tunnel_particles = null
+	wind_worst = ""
 	for child in design_root.get_children():
 		if child.is_in_group("part"):
-			var vis := child.get_node_or_null("Visual")
-			if vis:
-				vis.visible = true
+			_recolor(child, child.get_meta("color", Color(0, 0, 0, 0)))
 	if com_marker:
 		com_marker.visible = true
-
-
-func _collect_meshes(node: Node, arr: Array) -> void:
-	if node is MeshInstance3D:
-		arr.append(node)
-	for ch in node.get_children():
-		_collect_meshes(ch, arr)
 
 
 # Platziert ein Teil (mit Symmetrie, falls aktiv und außermittig)
@@ -705,6 +711,8 @@ func compute_stats() -> Dictionary:
 	var gear_cap := 0.0
 	var wing_cap := 0.0
 	var drag_area := 0.0
+	var drag_worst := ""
+	var drag_worst_v := 0.0
 	var com := Vector3.ZERO
 	var col := Vector3.ZERO
 	var col_w := 0.0
@@ -717,7 +725,11 @@ func compute_stats() -> Dictionary:
 		n += 1
 		thrust += p.get("thrust", 0.0)
 		gear_cap += p.get("gear_capacity", 0.0)
-		drag_area += PartCatalog.part_drag(p)
+		var pd: float = PartCatalog.part_drag(p)
+		drag_area += pd
+		if pd > drag_worst_v:
+			drag_worst_v = pd
+			drag_worst = p.get("name", "")
 		com += m * child.position
 		if p.get("is_wing", false):
 			var a: float = p.get("area", 0.0)
@@ -736,6 +748,7 @@ func compute_stats() -> Dictionary:
 		"tw": tw, "com": com, "col": col, "col_valid": col_w > 0.0,
 		"gear_cap": gear_cap, "gear_overload": gear_cap > 0.0 and mass > gear_cap,
 		"has_gear": gear_cap > 0.0, "drag_area": drag_area,
+		"drag_worst": drag_worst,
 		"max_g": max_g, "has_wings": wing_cap > 0.0,
 	}
 
@@ -748,7 +761,7 @@ func _notify_changed() -> void:
 		col_marker.position = stats["col"]
 		col_marker.visible = stats["col_valid"]
 	if wind_tunnel:
-		_build_wind_tunnel()
+		_apply_drag_heatmap()
 	design_changed.emit(stats)
 
 
