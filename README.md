@@ -81,12 +81,12 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 - **Rumpf:** Cockpit (Basis), Rumpfsegmente, Nasen-/Heckkonus, Treibstofftank
 - **Tragflächen:** Gerade · Trapez · Pfeil · Delta · Stummel · Segler (lang) · Canard · Winglet
 - **Leitwerk & Steuerung:** Höhenleitwerk (Pitch), Seitenleitwerk (Yaw), Querruder (Roll), kleines Höhenruder
-- **Antrieb:** Propeller, großer Propeller, Düsentriebwerk, Hilfstriebwerk
+- **Antrieb:** Propeller, großer Propeller, Düsentriebwerk, **eckiges Düsentriebwerk** (2D-Düse), Hilfstriebwerk
 - **Fahrwerk (4 Varianten mit Traglast):** Leicht (~450 kg) · Standard (~850 kg) ·
   Schwer (~1750 kg) · **Einziehfahrwerk (~1050 kg, Taste G)**
-- **Bewaffnung (Kampfjet):** Lenkrakete · Schwere Rakete · Bombe · Bordkanone · Zusatztank
-  *(reines Gewicht/Widerstand — feuern noch nicht; mit `tools/build_jet.gd` gibt's einen
-  vorgebauten Delta-Canard-Kampfjet im Speicherstand)*
+
+*Mit `tools/build_jet.gd` gibt's einen vorgebauten zweimotorigen Delta-Canard-Jet
+(zwei eckige Triebwerke) im Speicherstand.*
 
 Mehr/größere **Steuerflächen** → mehr Wendigkeit. Mehr **Flügelfläche** → mehr
 Auftrieb (langsameres Abheben). Mehr **Schub** → bessere Beschleunigung.

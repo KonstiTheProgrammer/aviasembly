@@ -30,19 +30,14 @@ func _process(_d: float) -> bool:
 	P("nose", Vector3(0, 0, -2.0), Basis(), MIL)
 	P("fuselage", Vector3(0, 0, 2.1), Basis(), MIL)
 	P("fuselage_long", Vector3(0, 0, 4.7), Basis(), MIL)
-	P("jet_engine", Vector3(0, 0, 7.7), Basis(), DARK)
+	# Zwei ECKIGE Triebwerke hinten nebeneinander (Symmetrie spiegelt)
+	P("jet_square", Vector3(0.7, 0, 7.5), Basis(), DARK)
 
 	# --- Tragwerk ---
 	P("wing_delta", Vector3(0.62, -0.1, 4.6), nx, MIL)        # Deltaflügel (spiegelt)
 	P("canard", Vector3(0.62, 0.05, -0.6), nx, MIL)           # Canards vorne (spiegelt)
 	P("v_stab", Vector3(0, 0.55, 6.9), ny, MIL)               # Seitenleitwerk (Mitte)
 	P("h_stab", Vector3(0.55, 0.0, 7.0), nx, MIL)             # Höhenleitwerk (spiegelt)
-
-	# --- Bewaffnung ---
-	P("cannon", Vector3(0, -0.42, -1.1))                      # Bordkanone unter Nase
-	P("missile", Vector3(1.5, -0.5, 4.4))                     # Raketen unter Flügel (spiegeln)
-	P("missile", Vector3(2.5, -0.5, 4.7))
-	P("drop_tank", Vector3(0, -0.78, 4.6))                    # Zusatztank Mitte
 
 	# --- Fahrwerk (Bugrad + 2 Hauptfahrwerke) ---
 	P("wheel_heavy", Vector3(0, -0.85, -0.7))

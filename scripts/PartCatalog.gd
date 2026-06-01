@@ -11,9 +11,8 @@ const CAT_WING := "Tragflächen"
 const CAT_CTRL := "Leitwerk & Steuerung"
 const CAT_PROP := "Antrieb"
 const CAT_GEAR := "Fahrwerk"
-const CAT_WEAPON := "Bewaffnung"
 
-const CATEGORY_ORDER := [CAT_BODY, CAT_WING, CAT_CTRL, CAT_PROP, CAT_GEAR, CAT_WEAPON]
+const CATEGORY_ORDER := [CAT_BODY, CAT_WING, CAT_CTRL, CAT_PROP, CAT_GEAR]
 
 # Farben (klassisches Flugzeug-Look)
 const C_BODY := Color(0.80, 0.82, 0.85)
@@ -22,7 +21,6 @@ const C_WING := Color(0.84, 0.28, 0.24)
 const C_CTRL := Color(0.95, 0.62, 0.15)
 const C_ENGINE := Color(0.26, 0.28, 0.32)
 const C_GEAR := Color(0.10, 0.10, 0.12)
-const C_WEAPON := Color(0.32, 0.34, 0.38)
 
 static var _parts: Dictionary = {}
 static var _order: Array = []
@@ -141,37 +139,6 @@ static func _build() -> void:
 		"desc": "Im Flug mit G einfahren -> weniger Widerstand. ~1050 kg.",
 	})
 
-	# --- Bewaffnung (Kampfjet) --------------------------------------------
-	_add({
-		"id": "missile", "name": "Lenkrakete", "category": CAT_WEAPON,
-		"mass": 90.0, "color": Color(0.85, 0.86, 0.9), "shape": "missile",
-		"size": Vector3(0.34, 0.34, 2.4), "metal": 0.5, "rough": 0.4,
-		"desc": "Luft-Luft-Rakete. Unter Flügel/Rumpf montieren.",
-	})
-	_add({
-		"id": "missile_big", "name": "Schwere Rakete", "category": CAT_WEAPON,
-		"mass": 180.0, "color": Color(0.8, 0.81, 0.86), "shape": "missile",
-		"size": Vector3(0.46, 0.46, 3.2), "metal": 0.5, "rough": 0.4,
-		"desc": "Große Lenkwaffe — mehr Wumms, mehr Gewicht.",
-	})
-	_add({
-		"id": "bomb", "name": "Bombe", "category": CAT_WEAPON,
-		"mass": 240.0, "color": Color(0.28, 0.34, 0.3), "shape": "bomb",
-		"size": Vector3(0.5, 0.5, 1.9), "metal": 0.3, "rough": 0.6,
-		"desc": "Freifallbombe. Schwer — Schwerpunkt beachten.",
-	})
-	_add({
-		"id": "cannon", "name": "Bordkanone", "category": CAT_WEAPON,
-		"mass": 120.0, "color": C_WEAPON, "shape": "cannon",
-		"size": Vector3(0.42, 0.42, 1.6), "metal": 0.7, "rough": 0.35,
-		"desc": "Maschinenkanone. Vorne an Rumpf/Nase montieren.",
-	})
-	_add({
-		"id": "drop_tank", "name": "Zusatztank", "category": CAT_WEAPON,
-		"mass": 150.0, "color": Color(0.6, 0.62, 0.66), "shape": "missile",
-		"size": Vector3(0.52, 0.52, 2.6), "metal": 0.5, "rough": 0.35,
-		"desc": "Abwerfbarer Außentank — mehr Reichweite, mehr Widerstand.",
-	})
 
 
 static func _add(p: Dictionary) -> void:
@@ -242,9 +209,6 @@ static func part_cd(p: Dictionary) -> float:
 		"wing": return 0.06
 		"cockpit": return 0.30
 		"cyl", "jet", "prop": return 0.32
-		"missile": return 0.10
-		"bomb": return 0.16
-		"cannon": return 0.40
 		"wheel": return 0.65
 		"box": return 0.55
 	return 0.5
@@ -505,51 +469,6 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> No
 			root.add_child(_mi(leg, make_material(Color(0.55, 0.57, 0.62), 0.8, 0.35),
 				Vector3(0, size.y * 0.12, 0), Vector3(PI * 0.5, 0, 0),
 				Vector3(0.16, 0.16, size.y * 0.72)))
-
-		"missile":
-			# Schlanker Körper (Spitze nach -Z) + 4 Heckflossen
-			var body := _revolve([
-				Vector2(-0.5, 0.0), Vector2(-0.42, 0.26), Vector2(-0.3, 0.42),
-				Vector2(-0.12, 0.5), Vector2(0.42, 0.5), Vector2(0.5, 0.4)
-			], 18)
-			root.add_child(_mi(body, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, size))
-			var fmat := make_material(col.darkened(0.3), metal, rough)
-			for i in 4:
-				var fin := BoxMesh.new()
-				fin.size = Vector3(size.x * 0.5, 0.03, size.z * 0.2)
-				var holder := Node3D.new()
-				holder.rotation = Vector3(0, 0, deg_to_rad(90.0 * i))
-				holder.add_child(_mi(fin, fmat, Vector3(size.x * 0.42, 0, size.z * 0.38)))
-				root.add_child(holder)
-
-		"bomb":
-			# Tropfenform + Heckleitwerk
-			var bb := _revolve([
-				Vector2(-0.5, 0.12), Vector2(-0.4, 0.36), Vector2(-0.2, 0.5),
-				Vector2(0.18, 0.5), Vector2(0.4, 0.32), Vector2(0.5, 0.14)
-			], 18)
-			root.add_child(_mi(bb, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, size))
-			var bfmat := make_material(col.darkened(0.25), metal, rough)
-			for i in 4:
-				var fin := BoxMesh.new()
-				fin.size = Vector3(size.x * 0.55, 0.03, size.z * 0.22)
-				var holder := Node3D.new()
-				holder.rotation = Vector3(0, 0, deg_to_rad(45.0 + 90.0 * i))
-				holder.add_child(_mi(fin, bfmat, Vector3(size.x * 0.4, 0, size.z * 0.42)))
-				root.add_child(holder)
-
-		"cannon":
-			# Gehäuse (Box) + vorstehender Lauf (-Z)
-			var house := BoxMesh.new()
-			house.size = Vector3(size.x, size.y, size.z * 0.7)
-			root.add_child(_mi(house, make_material(col, metal, rough), Vector3(0, 0, size.z * 0.12)))
-			var barrel := CylinderMesh.new()
-			barrel.top_radius = size.x * 0.16
-			barrel.bottom_radius = size.x * 0.16
-			barrel.height = size.z * 0.6
-			barrel.radial_segments = 14
-			root.add_child(_mi(barrel, make_material(Color(0.12, 0.12, 0.14), 0.8, 0.3),
-				Vector3(0, 0, -size.z * 0.3), Vector3(PI * 0.5, 0, 0)))
 
 		_:
 			var mi := MeshInstance3D.new()
