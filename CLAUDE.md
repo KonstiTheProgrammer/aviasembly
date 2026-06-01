@@ -10,8 +10,10 @@ Kleinen). Im **Hangar** baust du aus Modulen ein Flugzeug, per **Tab** wechselst
 in den **Testflug** mit echter (arcade-tauglicher, aber physikalisch fundierter)
 Flugphysik. Wie du baust, bestimmt wie es fliegt.
 
-- **Engine:** Godot **4.6.2** (Forward+/Metal). Alles ist **prozedural** erzeugt
-  (Meshes, Materialien, UI) — keine externen Assets.
+- **Engine:** Godot **4.6.2** (Forward+/Metal). UI/Welt/Flügel weiterhin **prozedural**;
+  die Bauteil-Modelle für **Rumpf, Triebwerke, Fahrwerk** sind **in Blender modelliert**
+  (glTF in `res://models/*.glb`, via MCP-Blender erzeugt). Flügel/Leitwerk bleiben
+  prozedural (Airfoil-Loft). Siehe Abschnitt „Bauteil-Modelle (Blender/glTF)".
 - **Projektpfad (dieses Gerät):** `/Users/konstantinkanzler/Downloads/aviasembly`
 - **Sprache der UI/Kommentare:** Deutsch.
 
@@ -51,9 +53,12 @@ scripts/Main.gd          Welt (Licht/Himmel + blauer Blueprint-Raum), Modus BUIL
                          Bauen noch nicht im Baum -> look_at() schlägt fehl, daher
                          look_at_from_position() nutzen.
 scripts/PartCatalog.gd   class_name PartCatalog (statisch). Alle Bauteile als Dicts +
-                         prozedurale Meshes (build_visual), Airfoil-Flügel-Mesh,
-                         Materialien, part_drag()/part_cd(), WING_STRESS-Konstante.
-                         Aufgewertete Modelle via _revolve() (Rotationskörper um Z,
+                         build_visual(): lädt zuerst ein BLENDER-glTF-Modell
+                         (res://models/<id>.glb) falls vorhanden (has_model/_attach_model),
+                         sonst prozedural. Lackieren via _recolor_model (überschreibt nur
+                         Material-Slots in PAINT_MATS = body/cockpit_body/tankmetal/engine).
+                         part_drag()/part_cd(), WING_STRESS-Konstante.
+                         Prozeduraler Fallback (Flügel + falls glTF fehlt) via _revolve() (Rotationskörper um Z,
                          outward-Wicklung, gedeckelt; Einheitsform r<=0.5/z[-0.5,0.5],
                          per Node-Scale auf size gezogen): Rumpf=ellipt. Tubus,
                          Nase/Heck=Ogive (_ogive_profile), Tank=Kapsel (_capsule_profile),
@@ -190,6 +195,25 @@ thrust, jet, gear_capacity, retract, shape, size, col_size/col_offset, orient_no
   verschieben (Flügelbruch nutzt `_break_pending`-Flag).
 - `contact_monitor=true` + `max_contacts_reported>0` nötig für `get_contact_count()`.
 - Gespiegelte (det<0) Basis nur für Visuals ok; für Kollision proper machen.
+
+## Bauteil-Modelle (Blender/glTF)
+- **14 Teile** (Rumpf, Nase/Heck, Tank, Cockpit, 2 Prop, 2 Jet, 4 Fahrwerke) sind in
+  **Blender 5.1** modelliert und als `res://models/<id>.glb` exportiert (+ `.glb.import`).
+  Erzeugt **per Blender-MCP** (`execute_blender_code`, bpy): glatte Tubus-/Lathe-Formen
+  (`bmesh.ops.spin`), Bevel, Smooth-Shading, Multi-Material (genannte Materialien:
+  body, cockpit_body, tankmetal, engine, glass, spinner, dark, rubber, rim, hub, strut).
+- **Achsen-Konvention (empirisch verifiziert):** glTF-Export `+Y up` ⇒
+  Blender X→Godot X, Blender Z→Godot Y(oben), **Blender +Y → Godot −Z (VORNE)**.
+  Also Nasenspitze/Spinner in Blender bei **+Y** bauen; Teildim. Blender (X=sx, Y=sz, Z=sy).
+  Geometrie auf Objekt-Origin = Box-Mitte zentrieren (Location vor Join applien); Rad sitzt
+  unten (Reifen bei Blender −Z). Prop-Blätter als Kind-Objekt **„Prop"** (auf Mittelachse
+  vorne) — `FlightController` dreht es mit `rotate_z`.
+- **Verifikation ohne Sicht:** Blender-Renders via `render_viewport_to_path` → mit Read
+  ansehen; in Godot AABB/Orientierung per `GLTFDocument.append_from_file` headless prüfen;
+  Hangar-Screenshot via `get_viewport().get_texture().get_image().save_png()` (echtes Fenster).
+- **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
+  das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
+  Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
 
 ## Status & nächste Schritte
 - **Git:** lokal initialisiert, Branch `main`, alles committet (`.godot/` ignoriert).

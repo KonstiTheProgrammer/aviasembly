@@ -264,8 +264,22 @@ static func _mi(mesh: Mesh, mat: Material, pos := Vector3.ZERO, rot := Vector3.Z
 # ---------------------------------------------------------------------------
 # Visuelle Erzeugung — gibt einen Node3D zurück (kann mehrere Meshes enthalten)
 # ---------------------------------------------------------------------------
+const MODEL_DIR := "res://models/"
+# Materialnamen aus den Blender-glTF-Modellen, die beim Lackieren umgefärbt werden.
+const PAINT_MATS := ["body", "cockpit_body", "tankmetal", "engine"]
+
+
+static func has_model(id: String) -> bool:
+	return id != "" and ResourceLoader.exists(MODEL_DIR + id + ".glb")
+
+
 static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> Node3D:
 	var root := Node3D.new()
+	# Hochwertiges Blender-Modell (glTF), falls vorhanden — sonst prozedural.
+	var pid: String = p.get("id", "")
+	if has_model(pid):
+		_attach_model(root, pid, col_override)
+		return root
 	var shape: String = p.get("shape", "box")
 	var col: Color = p.get("color", Color.WHITE)
 	if col_override.a > 0.0:   # Lackierung überschreibt die Standardfarbe
@@ -451,6 +465,35 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> No
 			root.add_child(mi)
 
 	return root
+
+
+# Lädt ein Blender-glTF-Modell und hängt es unter root. Beim Lackieren werden
+# die Haupt-Materialien (PAINT_MATS) auf die Wunschfarbe gesetzt; Akzente (Glas,
+# Spinner, Gummi, Auspuff-Glühen ...) bleiben. Der "Prop"-Knoten bleibt erhalten
+# (FlightController dreht ihn im Flug).
+static func _attach_model(root: Node3D, id: String, col_override: Color) -> void:
+	var ps: Resource = load(MODEL_DIR + id + ".glb")
+	if ps == null or not (ps is PackedScene):
+		return
+	var inst: Node = (ps as PackedScene).instantiate()
+	root.add_child(inst)
+	if col_override.a > 0.0:                 # nur bei Lackierung umfärben
+		_recolor_model(inst, col_override)
+
+
+static func _recolor_model(node: Node, col: Color) -> void:
+	for ch in node.get_children():
+		_recolor_model(ch, col)
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh == null:
+			return
+		for i in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(i)
+			if m is StandardMaterial3D and PAINT_MATS.has(m.resource_name):
+				var dup: StandardMaterial3D = m.duplicate()
+				dup.albedo_color = col
+				mi.set_surface_override_material(i, dup)
 
 
 # ---------------------------------------------------------------------------
