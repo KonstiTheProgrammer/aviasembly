@@ -577,9 +577,9 @@ func _on_drag_view(on: bool) -> void:
 	build_ctrl.set_wind_tunnel(on)
 	if on:
 		var worst: String = build_ctrl.wind_worst
-		var tip := "grün = wenig, rot = viel Widerstand"
+		var tip := "nur angeströmte Teile gefärbt (grau = Windschatten)"
 		if worst != "":
-			tip = "rot = größter Widerstand: %s" % worst
+			tip = "rot = größter Widerstand: %s (grau = Windschatten)" % worst
 		_toast("🌬 Windkanal AN — " + tip)
 	else:
 		_toast("Windkanal aus")

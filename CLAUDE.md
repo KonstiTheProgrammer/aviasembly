@@ -128,7 +128,10 @@ Querruder, kein Auftrieb.
   `PartCatalog.part_cd(p)` (Formbeiwert; eine Quelle für Flug + Windkanal). Einfärbung
   relativ zum größten Wert, Nenner `maxf(max_d, 0.45)` → schlanke Flieger grün, nur echte
   vorne-anliegende Bluff-Körper rot (`_drag_color` grün→gelb→rot, `_tint` unshaded
-  `material_override`, heiße Teile glühen). Schlimmstes Teil → `wind_worst` (Toast +
+  `material_override`, heiße Teile glühen). **Nur tatsächlich angeströmte Teile werden
+  gefärbt** (`exposed ≥ maxf(0.04, max_exp·0.05)`); Teile im Windschatten → neutral grau
+  (`_neutral`, schattierter Clay-Look), damit der Hotspot heraussticht (CFD-Optik).
+  Schlimmstes Teil → `wind_worst` (Toast +
   Statistik-„Hotspot“, nur wenn Windkanal an). Dazu CPUParticles-Strömungslinien (−Z→+Z).
   Aufheben via `_clear_wind_tunnel` → `_recolor` baut jedes Visual neu (Original zurück).
   `set_wind_tunnel` feuert `design_changed`, damit die Statistik sofort refresht.

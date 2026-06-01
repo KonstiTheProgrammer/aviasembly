@@ -469,21 +469,29 @@ func _apply_drag_heatmap() -> void:
 			var pt := _part_from_hit(hit)
 			if pt != null and exposed.has(pt):
 				exposed[pt] += cell
-	# 2) Druckwiderstand = exponierte Fläche × Formbeiwert; stärkstes Teil merken
+	# 2) Druckwiderstand = exponierte Fläche × Formbeiwert; stärkstes Teil + max. Exposition
 	var drag := {}
 	var max_d := 0.0
+	var max_exp := 0.0
 	for pt in parts:
 		var cd: float = PartCatalog.part_cd(PartCatalog.get_part(pt.get_meta("part_id")))
 		var dv: float = exposed[pt] * cd
 		drag[pt] = dv
+		max_exp = maxf(max_exp, exposed[pt])
 		if dv > max_d:
 			max_d = dv
 			wind_worst = PartCatalog.get_part(pt.get_meta("part_id")).get("name", "")
-	# 3) einfärben — Bezug = größter Wert (mit Untergrenze: schlanke Flieger bleiben grün)
+	# 3) NUR windbeeinflusste Teile einfärben (grün->rot). Teile im Windschatten
+	#    (kaum/keine exponierte Fläche) werden neutral grau -> der Hotspot sticht heraus.
 	var denom := maxf(max_d, 0.45)
+	var wind_min := maxf(0.04, max_exp * 0.05)   # darunter = praktisch kein Wind
 	for pt in parts:
-		var frac := clampf(drag[pt] / denom, 0.0, 1.0)
-		_tint(pt.get_node_or_null("Visual"), _drag_color(frac), frac)
+		var vis: Node = pt.get_node_or_null("Visual")
+		if exposed[pt] < wind_min:
+			_neutral(vis)
+		else:
+			var frac := clampf(drag[pt] / denom, 0.0, 1.0)
+			_tint(vis, _drag_color(frac), frac)
 
 
 # Welt-AABB aller Teil-Kollisionsboxen (für das Strahlengitter).
@@ -526,6 +534,21 @@ func _tint(node: Node, c: Color, emis: float) -> void:
 			m.emission_enabled = true
 			m.emission = c
 			m.emission_energy_multiplier = (emis - 0.55) * 2.2
+		node.material_override = m
+
+
+# Neutral-grau für Teile, die NICHT im Wind liegen (inerter Klay-Look, schattiert),
+# damit die eingefärbten windbeeinflussten Teile klar herausstechen.
+func _neutral(node: Node) -> void:
+	if node == null:
+		return
+	for ch in node.get_children():
+		_neutral(ch)
+	if node is MeshInstance3D:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.62, 0.65, 0.72)
+		m.metallic = 0.0
+		m.roughness = 0.85
 		node.material_override = m
 
 
