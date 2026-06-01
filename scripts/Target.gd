@@ -63,8 +63,9 @@ func hit(dmg: float) -> void:
 
 
 func _die() -> void:
-	killed.emit(reward, global_position)
-	_boom()
+	var pos := global_position if is_inside_tree() else position
+	killed.emit(reward, pos)
+	_boom(pos)
 	queue_free()
 
 
@@ -143,9 +144,9 @@ func _build_airship(col: Color) -> void:
 		add_child(h)
 
 
-func _boom() -> void:
+func _boom(pos: Vector3) -> void:
 	var par := get_parent()
-	if par == null:
+	if par == null or not par.is_inside_tree():
 		return
 	var p := CPUParticles3D.new()
 	p.emitting = true
@@ -153,7 +154,6 @@ func _boom() -> void:
 	p.amount = 40 if kind == "balloon" else 90
 	p.lifetime = 1.0
 	p.explosiveness = 0.95
-	p.global_position = global_position
 	p.direction = Vector3.UP
 	p.spread = 180.0
 	p.initial_velocity_min = 6.0
@@ -170,6 +170,6 @@ func _boom() -> void:
 	mesh.material = mm
 	p.mesh = mesh
 	par.add_child(p)
-	p.global_position = global_position
+	p.global_position = pos
 	var tmr := p.get_tree().create_timer(2.0)
 	tmr.timeout.connect(p.queue_free)

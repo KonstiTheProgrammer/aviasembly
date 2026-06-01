@@ -107,8 +107,9 @@ func _build_visual() -> void:
 
 func _boom() -> void:
 	var par := get_parent()
-	if par == null:
+	if par == null or not is_inside_tree() or not par.is_inside_tree():
 		return
+	var pos := global_position
 	var big := kind == "bomb"
 	var p := CPUParticles3D.new()
 	p.emitting = true
@@ -132,6 +133,6 @@ func _boom() -> void:
 	mesh.material = mm
 	p.mesh = mesh
 	par.add_child(p)
-	p.global_position = global_position
+	p.global_position = pos
 	var tmr := p.get_tree().create_timer(1.5)
 	tmr.timeout.connect(p.queue_free)
