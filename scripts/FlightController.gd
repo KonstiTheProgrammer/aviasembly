@@ -79,9 +79,12 @@ func build_from_design(d: Array) -> void:
 			continue
 		var p := PartCatalog.get_part(id)
 		var xf: Transform3D = item.get("xform", Transform3D())
+		var psc: Vector3 = item.get("scale", Vector3.ONE)
+		var vol: float = psc.x * psc.y * psc.z      # Volumen-Faktor (Masse/Traglast)
 
 		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)))
 		vis.transform = xf
+		vis.scale = psc                              # Pro-Teil-Skalierung (Editor-Transform)
 		body.add_child(vis)
 		var prop := vis.find_child("Prop", true, false)
 		if prop:
@@ -89,11 +92,11 @@ func build_from_design(d: Array) -> void:
 
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = PartCatalog.col_size(p)
+		box.size = PartCatalog.col_size(p) * psc
 		cs.shape = box
 		# Korrekte (ggf. gespiegelte) Box-Mitte, aber mit proper Orientierung
 		# (det > 0), sonst wird der Trägheitstensor fehlerhaft -> Physik-Explosion.
-		var cob: Vector3 = PartCatalog.col_offset(p)
+		var cob: Vector3 = PartCatalog.col_offset(p) * psc
 		var center_local: Vector3 = xf * cob
 		var ori := xf.basis.orthonormalized()
 		if ori.determinant() < 0.0:
@@ -112,14 +115,14 @@ func build_from_design(d: Array) -> void:
 					var corner: Vector3 = xf * (cob + Vector3(sx * ext.x, sy * ext.y, sz * ext.z))
 					min_y = minf(min_y, corner.y)
 
-		var m: float = p.get("mass", 0.0)
+		var m: float = p.get("mass", 0.0) * vol
 		total_mass += m
 		com += m * xf.origin
 
-		drag_area += PartCatalog.part_drag(p)
+		drag_area += PartCatalog.part_drag(p) * psc.x * psc.y   # Stirnfläche skaliert
 		if p.get("is_wing", false):
-			var a: float = p.get("area", 0.0)
-			var span: float = p.get("span", sqrt(maxf(a, 0.01)))
+			var a: float = p.get("area", 0.0) * psc.x * psc.z   # Planform skaliert
+			var span: float = p.get("span", sqrt(maxf(a, 0.01))) * psc.x
 			var ar: float = clampf(span * span / maxf(a, 0.01), 0.6, 10.0)
 			wing_cap += a * PartCatalog.WING_STRESS   # volle Fläche zählt strukturell
 			# Orientierung: nur der waagerechte Anteil erzeugt Auftrieb;
@@ -139,7 +142,7 @@ func build_from_design(d: Array) -> void:
 		if thr > 0.0:
 			engines.append({"pos": xf.origin, "thrust": thr, "jet": p.get("jet", false)})
 			thrust_total += thr
-		var cap: float = p.get("gear_capacity", 0.0)
+		var cap: float = p.get("gear_capacity", 0.0) * vol   # größeres Fahrwerk trägt mehr
 		if cap > 0.0:
 			gear_cap += cap
 			gear_items.append({"vis": vis, "cs": cs, "retract": p.get("retract", false), "base": xf})

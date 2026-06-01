@@ -433,6 +433,10 @@ func _build_hangar_ui() -> void:
 	move_btn.text = "✋  Bewegen / Greifen"
 	move_btn.pressed.connect(_on_move_tool)
 	vb.add_child(move_btn)
+	var transform_btn := Button.new()
+	transform_btn.text = "✥  Transformieren (ziehen & skalieren)"
+	transform_btn.pressed.connect(_on_transform_tool)
+	vb.add_child(transform_btn)
 	var erase_btn := Button.new()
 	erase_btn.text = "🧹  Abriss-Modus"
 	erase_btn.pressed.connect(_on_erase_tool)
@@ -735,9 +739,15 @@ func _on_pick_part(id: String) -> void:
 
 
 func _on_move_tool() -> void:
+	build_ctrl.set_transform_mode(false)
 	build_ctrl.set_erase_mode(false)
 	build_ctrl.set_paint_mode(false)
 	build_ctrl.set_brush("")
+	_refresh_tool_ui()
+
+
+func _on_transform_tool() -> void:
+	build_ctrl.set_transform_mode(true)
 	_refresh_tool_ui()
 
 
@@ -779,7 +789,9 @@ func _refresh_tool_ui() -> void:
 	var sel := "" if (build_ctrl.erase_mode or build_ctrl.paint_mode) else build_ctrl.brush_id
 	for pid in part_buttons:
 		part_buttons[pid].set_pressed_no_signal(pid == sel)
-	if build_ctrl.erase_mode:
+	if build_ctrl.transform_mode:
+		tool_label.text = "Werkzeug: ✥ Transformieren – Teil klicken, farbige Griffe ziehen (skalieren), Teil ziehen (verschieben)"
+	elif build_ctrl.erase_mode:
 		tool_label.text = "Werkzeug: 🧹 Abriss – Teil anklicken zum Löschen"
 	elif build_ctrl.paint_mode:
 		tool_label.text = "Werkzeug: 🎨 Lackieren – Teil anklicken zum Umfärben"
