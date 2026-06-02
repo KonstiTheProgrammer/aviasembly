@@ -76,6 +76,7 @@ var sel_panel: Control             # Kontext-Panel für ausgewähltes Teil
 var sel_title: Label
 var sel_scale_label: Label
 var sel_delete_btn: Button
+var sel_mode_btns: Array = []      # [Bewegen, Drehen, Skalieren] zum Hervorheben des aktiven Modus
 
 # Ziele zum Abschießen (Luftballons/Luftschiffe) + Geschosse
 var targets_root: Node3D           # Container in fly_world für Ziele + Geschosse
@@ -134,7 +135,7 @@ func _setup_world() -> void:
 	env_blueprint.background_color = Color(0.04, 0.13, 0.30)
 	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env_blueprint.ambient_light_color = Color(0.62, 0.76, 0.96)
-	env_blueprint.ambient_light_energy = 1.1
+	env_blueprint.ambient_light_energy = 1.5
 	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 
 	world_env = WorldEnvironment.new()
@@ -148,6 +149,14 @@ func _setup_world() -> void:
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 300.0
 	add_child(sun)
+
+	# Fülllicht von UNTEN (kein Schatten) -> Flugzeug-Unterseite ist nicht mehr stockdunkel,
+	# man sieht es auch von unten. Etwas seitlich für plastischere Optik.
+	var underfill := DirectionalLight3D.new()
+	underfill.rotation_degrees = Vector3(62, 130, 0)
+	underfill.light_energy = 0.55
+	underfill.shadow_enabled = false
+	add_child(underfill)
 
 	# Boden-Kollision (unendliche Ebene)
 	var ground_body := StaticBody3D.new()
@@ -439,7 +448,7 @@ func _setup_ui() -> void:
 func _build_hangar_ui() -> void:
 	# --- Linkes Teile-Panel ---
 	var panel := _panel(Color(0, 0, 0, 0.5))
-	_rect(panel, 0, 0, 0, 1, 10, 10, 308, -10)
+	_rect(panel, 0, 0, 0, 1, 10, 10, 248, -10)
 	build_root.add_child(panel)
 
 	var vb := VBoxContainer.new()
@@ -634,7 +643,7 @@ func _fill_part_list(list: VBoxContainer) -> void:
 func _make_part_tile(p: Dictionary) -> Button:
 	var id: String = p["id"]
 	var tile := Button.new()
-	tile.custom_minimum_size = Vector2(0, 116)
+	tile.custom_minimum_size = Vector2(0, 94)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tile.tooltip_text = "%s — in den Bauraum ziehen zum Setzen" % p.get("desc", p["name"])
 	tile.clip_contents = true
@@ -808,7 +817,7 @@ func _on_move_tool() -> void:
 # --- Kontext-Panel fürs ausgewählte Teil ----------------------------------
 func _build_selection_panel() -> void:
 	sel_panel = _panel(Color(0, 0, 0, 0.55))
-	_rect(sel_panel, 1, 0, 1, 0, -300, 266, -10, 566)
+	_rect(sel_panel, 1, 0, 1, 0, -290, 200, -10, 624)
 	build_root.add_child(sel_panel)
 	var v := VBoxContainer.new()
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -822,7 +831,21 @@ func _build_selection_panel() -> void:
 	v.add_child(sel_title)
 	sel_scale_label = _lbl("", 12, Color(0.8, 0.85, 0.95))
 	v.add_child(sel_scale_label)
-	v.add_child(_lbl("Größe ändern (oder farbige Würfel ziehen):", 11, Color(0.82, 0.82, 0.88)))
+	# --- Modus-Umschaltung (Blender-artig: Bewegen/Drehen/Skalieren, Tasten G/R/S) ---
+	v.add_child(_lbl("Werkzeug (G / R / S):", 11, Color(0.82, 0.82, 0.88)))
+	var mrow := HBoxContainer.new()
+	v.add_child(mrow)
+	sel_mode_btns.clear()
+	var modes := [["↔ Bewegen", 0], ["↻ Drehen", 1], ["⤢ Skalieren", 2]]
+	for md in modes:
+		var mb := Button.new()
+		mb.text = md[0]
+		mb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		mb.add_theme_font_size_override("font_size", 11)
+		mb.pressed.connect(build_ctrl.set_gizmo_mode.bind(md[1]))
+		mrow.add_child(mb)
+		sel_mode_btns.append(mb)
+	v.add_child(_lbl("Pfeile/Würfel im 3D-Raum ziehen · Drehen: Teil ziehen · 90°-Schritte unten:", 10, Color(0.7, 0.74, 0.82)))
 	var axis_names := ["Breite", "Höhe", "Länge"]
 	for i in 3:
 		var row := HBoxContainer.new()
@@ -877,6 +900,10 @@ func _on_selection_changed(info: Dictionary) -> void:
 	var is_root: bool = info.get("is_root", false)
 	sel_delete_btn.disabled = is_root
 	sel_delete_btn.tooltip_text = "Das Cockpit ist die Basis und kann nicht gelöscht werden." if is_root else ""
+	# aktiven Werkzeug-Modus hervorheben
+	var gm: int = info.get("gizmo", 0)
+	for i in sel_mode_btns.size():
+		sel_mode_btns[i].modulate = Color(0.5, 1.0, 0.6) if i == gm else Color(1, 1, 1)
 
 
 func _on_erase_tool() -> void:

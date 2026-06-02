@@ -15,14 +15,15 @@ Der Bau passiert in einem blauen 3D-Blueprint-Raster. Du baust per **Drag & Snap
 
 | Eingabe | Aktion |
 |---|---|
-| **Teil im Menü wählen → in den Raum ziehen & loslassen** | Neues Teil setzen (rastet flächenbündig an) |
-| **Vorhandenes Teil anklicken** (kein Menü-Teil gewählt) | **Auswählen** → Griffe + Panel: skalieren, drehen, löschen |
-| **Ausgewähltes Teil am Körper ziehen** | Verschieben · **farbige Griffe ziehen** = strecken (Breite/Höhe/Länge) |
+| **Teil im Menü packen → in den Bauraum ziehen & loslassen** | Neues Teil setzen (Drag&Drop aus dem Inventar, rastet flächenbündig an) |
+| **Vorhandenes Teil anklicken** | **Auswählen** → Blender-artiges Gizmo + Panel |
+| **G / R / S** (oder Panel-Buttons) | Werkzeug: **Bewegen** (Achsen-Pfeile) / **Drehen** (Teil ziehen) / **Skalieren** (Würfel) |
+| **Pfeile / Würfel ziehen** | Entlang Achse verschieben bzw. Achse strecken · **Körper ziehen** = frei verschieben/drehen |
 | **Linke Maus auf leeren Raum ziehen** | Ums Flugzeug drehen (Blueprint-Orbit) |
 | **Rechte Maus ziehen** | Ebenfalls Orbit |
 | **Mausrad** | Zoom |
 | **Mittlere Maus ziehen** | Ansicht verschieben |
-| **✦ Auswählen/Bewegen** / **🧹 Abriss** (Buttons) | Zum Bearbeiten zurück / Abriss umschalten |
+| **✋ Bewegen/Greifen** / **🧹 Abriss** (Buttons) | Werkzeug ablegen / Abriss umschalten |
 | **🎨 Farbe wählen → Teil klicken** | Teil lackieren (Farbe wird gespeichert) |
 | **↶ Undo / ↷ Redo** bzw. **Strg+Z / Strg+Y** | Schritt zurück / vor |
 | **🎯 Ansicht** bzw. **F** | Kamera zentrieren |

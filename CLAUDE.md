@@ -189,15 +189,21 @@ Querruder, kein Auftrieb.
 (Griffe+Panel: skalieren/drehen/löschen), **Body ziehen=verschieben** · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
 `Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · Tab=Testflug.
-**Bearbeiten ist der DEFAULT** (kein separater Modus mehr): wenn kein Palette-Teil/Abriss/
-Lackieren aktiv ist (`brush_id==""`), wird in `_on_left_press` direkt `_transform_left_press`
-aufgerufen — Teil klicken = **auswählen** → 6 farbige Flächen-Griffe (X=rot Breite, Y=grün
-Höhe, Z=blau Länge; Griff ziehen = Achse strecken, Body ziehen = verschieben) **UND** ein
-Kontext-Panel rechts (Main `_build_selection_panel`/`_on_selection_changed`, via Signal
-`selection_changed`): pro-Achse −/+ (`nudge_scale`), `rotate_selected`/`tilt_selected`,
-`reset_selected_scale`, **🗑 `delete_selected`** (Cockpit/Root nicht löschbar). Ein Palette-Teil
-wählen = Bauen, `clear_tools()`/Esc = zurück zum Bearbeiten. (`set_transform_mode` und der
-„Bewegen/Greifen"-Carry sind entfernt; History nur bei echter Änderung via `_edit_xf0/_edit_sc0`-Snapshot.)
+**Bauen = Drag&Drop aus dem Inventar:** Druck auf eine (freigeschaltete) Teile-Kachel ruft
+`begin_drag_from_palette` → Ghost folgt der Maus, **in den Bauraum ziehen & loslassen** = gesetzt
+(rastet flächenbündig an). Loslassen über UI = verworfen (`gui_get_hovered_control`). Release per
+Polling in `_process` erkannt (Druck ging an die UI). Gesperrte Kacheln: Klick kauft.
+**Vorhandenes Teil anklicken = AUSWÄHLEN** (`_on_left_press`→`_transform_left_press`) → **Blender-
+artiges Gizmo** je `gizmo_mode` (Tasten **G/R/S** oder Panel-Buttons): **Bewegen** = 3 Achsen-Pfeile
+(`_build_move_handles`, ziehen = entlang Achse verschieben) + Body ziehen = frei verschieben;
+**Drehen** = Body ziehen dreht (`_begin_rotate`: horiz=Gier, vert=Nick) + 90°/45°-Buttons;
+**Skalieren** = 6 Flächenwürfel (`_build_scale_handles`, ziehen = Achse strecken). Gizmo-Mats mit
+`no_depth_test` (immer sichtbar). Kontext-Panel rechts (`_build_selection_panel`/`_on_selection_changed`,
+Signal `selection_changed` inkl. `gizmo`): Modus-Buttons, pro-Achse −/+ (`nudge_scale`),
+`rotate_selected`/`tilt_selected`, `reset_selected_scale`, **🗑 `delete_selected`** (Root nicht löschbar).
+History nur bei echter Änderung (`_edit_xf0/_edit_sc0`-Snapshot). **Beleuchtung:** zweites
+DirectionalLight von unten (`underfill`, kein Schatten) + mehr Ambient → Unterseite sichtbar.
+Linkes Teile-Panel schmaler (≈238 px).
 **Skalieren ohne Spalt:** Griff-Ziehen verschiebt den Mittelpunkt um die VOLLE Größenänderung
 (`moved = base·new_s·0.5 − half0`, kein `·0.5`) → Gegenfläche bleibt fix. Panel +/-
 (`nudge_scale`) verankert via `_scale_anchor_origin` die zur Wurzel (0,0,0) NÄHERE Fläche →
