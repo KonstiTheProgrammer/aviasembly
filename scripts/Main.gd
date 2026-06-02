@@ -55,6 +55,9 @@ var stats_label: Label
 var hud_label: Label
 var stall_label: Label
 var land_label: Label
+var center_cross: Label             # statisches Fadenkreuz (im Maus-Flug aus)
+var aim_marker: Label               # Maus-Flug: Steuermarker (Cursor)
+var nose_marker: Label              # Maus-Flug: aktuelle Nasenrichtung
 var tool_label: Label
 var toast_label: Label
 var drag_view_btn: Button
@@ -965,18 +968,35 @@ func _build_flight_ui() -> void:
 	back_btn.pressed.connect(_on_hangar_pressed)
 	flight_root.add_child(back_btn)
 
-	# Fadenkreuz (Mitte)
-	var cross := _lbl("✛", 26, Color(1, 1, 1, 0.7))
-	cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_rect(cross, 0.5, 0.5, 0.5, 0.5, -16, -18, 16, 18)
-	flight_root.add_child(cross)
+	# Fadenkreuz (Mitte) — im Maus-Flug ausgeblendet (dann zeigt der Nasenmarker)
+	center_cross = _lbl("✛", 26, Color(1, 1, 1, 0.7))
+	center_cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	center_cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_rect(center_cross, 0.5, 0.5, 0.5, 0.5, -16, -18, 16, 18)
+	flight_root.add_child(center_cross)
+
+	# Maus-Flug-Marker (frei positioniert; werden in _on_hud_changed gesetzt)
+	aim_marker = _make_marker("⊕", 34, Color(0.3, 1.0, 0.45, 0.95))
+	flight_root.add_child(aim_marker)
+	nose_marker = _make_marker("◇", 26, Color(1.0, 0.88, 0.3, 0.95))
+	flight_root.add_child(nose_marker)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Umschauen · Schub: Shift/Strg · Nase: W/S · Rollen: A/D · Gieren: Q/E · 🔫 LEERTASTE: Kanone/Rakete · 💣 B: Bombe · G: Fahrwerk · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Umschauen · M: Maus-Flug (Cursor lenkt) · Schub: Shift/Strg · Nase: W/S · Rollen: A/D · Gieren: Q/E · 🔫 LEERTASTE: Kanone/Rakete · 💣 B: Bombe · G: Fahrwerk · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
+
+
+# Frei positionierbarer HUD-Marker (fixe Box, mittig ausgerichtet -> Position = Mittelpunkt).
+func _make_marker(glyph: String, size: int, color: Color) -> Label:
+	var m := _lbl(glyph, size, color)
+	m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	m.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	m.size = Vector2(48, 48)
+	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m.visible = false
+	return m
 
 
 # ===========================================================================
@@ -1017,13 +1037,26 @@ func _on_hud_changed(d: Dictionary) -> void:
 		return
 	var assist_txt: String = "AN" if d.get("assist", true) else "AUS (Pro)"
 	var inv_txt: String = "INVERTIERT ⚠" if d.get("inverted", false) else "normal"
+	var mf: bool = d.get("mouse_fly", false)
+	var mf_txt: String = "🖱 AN (Cursor lenkt)" if mf else "AUS (Umschauen)"
 	var thr_pct := int(round(d["throttle"] * 100.0))
 	var thr_txt := ("🛑 Bremse %d%%" % absi(thr_pct)) if thr_pct < 0 else ("Schub %d%%" % thr_pct)
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
-	hud_label.text = "%s\nSpeed:  %d km/h  (%d m/s)\nHöhe:   %d m\nSteig:  %+.1f m/s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nSteuerung (I): %s\nAssist (T): %s\n➤ %s" % [
+	hud_label.text = "%s\nSpeed:  %d km/h  (%d m/s)\nHöhe:   %d m\nSteig:  %+.1f m/s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n➤ %s" % [
 		thr_txt, int(d["kmh"]), int(d["speed"]),
 		int(d["alt"]), d["climb"], int(d["aoa"]), d.get("gforce", 1.0),
-		d.get("wings", "ok"), d.get("gear", "—"), inv_txt, assist_txt, nav]
+		d.get("wings", "ok"), d.get("gear", "—"), inv_txt, assist_txt, mf_txt, nav]
+	# Maus-Flug-Marker: Steuermarker (Cursor) + Nasenrichtung; statisches Kreuz aus
+	if center_cross:
+		center_cross.visible = not mf
+	if aim_marker:
+		aim_marker.visible = mf
+		if mf:
+			aim_marker.position = (d.get("aim", Vector2.ZERO) as Vector2) - aim_marker.size * 0.5
+	if nose_marker:
+		nose_marker.visible = mf
+		if mf:
+			nose_marker.position = (d.get("nose", Vector2.ZERO) as Vector2) - nose_marker.size * 0.5
 	stall_label.visible = d.get("stall", false) and d.get("speed", 0.0) > 4.0
 	if land_label:
 		var lm: String = d.get("land_msg", "")

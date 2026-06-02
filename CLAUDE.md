@@ -201,7 +201,18 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
-`Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
+`M` **Maus-Flug** umschalten · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
+**Maus-Flug (War-Thunder-Stil, `mouse_fly`, Taste `M`):** Statt Umschauen bewegt die Maus
+einen **Steuermarker** (`_aim`, normiert auf Einheitskreis, integriert aus `event.relative`
+× `AIM_SENS`). In `_physics_process` wird er **additiv zur Tastatur** in Nick/Roll/Gier
+übersetzt (Marker oben→Nase hoch `-_aim.y·AIM_PITCH`, seitlich→Bank in die Kurve
+`_aim.x·AIM_ROLL` + leicht koordiniert gieren `·AIM_YAW`), läuft durch dasselbe `_ramp`.
+Die Kamera bleibt dabei hinter dem Flieger (look=0). HUD (`_update_markers`→`_emit_hud`):
+**Steuermarker** ⊕ (grün, = Cursor/Wunschrichtung) + **Nasenmarker** ◇ (gelb, via
+`camera.unproject_position` 150 m voraus) zeigen, wo man hinzeigt vs. wohin die Nase zeigt;
+statisches Fadenkreuz ist dann aus (Main `_make_marker`/`_on_hud_changed`, `center_cross`/
+`aim_marker`/`nose_marker`). Vorzeichen passen zur Tastatur-Konvention (A=rechts etc.),
+verifiziert mit Headless-Test (Marker oben-rechts → in_pitch+, in_roll+, in_yaw+, Flieger dreht).
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 

@@ -13,6 +13,13 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 
+# --- Maus-Flug (War-Thunder-Stil): Cursor zeigt wohin, Nase folgt -----------
+const AIM_SENS := 0.0019        # Maus -> Steuermarker
+const AIM_RADIUS_F := 0.32      # Marker-Bewegungsradius (Anteil kürzerer Bildkante)
+const AIM_PITCH := 1.5          # Marker hoch/runter -> Nick-Auslenkung
+const AIM_ROLL := 1.8           # Marker seitlich -> Roll (Bank in die Kurve)
+const AIM_YAW := 0.55           # + leicht koordiniert gieren
+
 var camera: Camera3D
 var aircraft: AircraftBody
 var design: Array = []
@@ -21,6 +28,10 @@ var spawn_height := 2.0
 var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
 var _mouse_idle := 0.0
+var mouse_fly := false          # Maus-Flug an? (Cursor lenkt, statt umzuschauen)
+var _aim := Vector2.ZERO        # Steuermarker, normiert (-1..1) ums Bildzentrum
+var aim_screen := Vector2.ZERO  # Pixelposition Steuermarker (fürs HUD)
+var nose_screen := Vector2.ZERO # Pixelposition der aktuellen Nasenrichtung
 # Survival-Upgrade-Multiplikatoren (von Main aus GameState gesetzt)
 var thrust_mult := 1.0
 var wing_mult := 1.0
@@ -219,6 +230,14 @@ func _physics_process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
 
+	# Maus-Flug: Steuermarker (Cursor) lenkt die Nase. Marker oben -> Nase hoch,
+	# Marker seitlich -> in die Kurve rollen + leicht koordiniert gieren. Additiv
+	# zur Tastatur, damit beide Eingaben zusammenspielen.
+	if mouse_fly:
+		pitch = clampf(pitch - _aim.y * AIM_PITCH, -1.0, 1.0)
+		roll = clampf(roll + _aim.x * AIM_ROLL, -1.0, 1.0)
+		yaw = clampf(yaw + _aim.x * AIM_YAW, -1.0, 1.0)
+
 	# Weiches Eingabe-Ramping (analoges Gefühl auf Tastatur, nicht ruckartig ±1).
 	# Schnelles Aufbauen, etwas langsameres Zurückzentrieren.
 	aircraft.throttle = throttle
@@ -308,20 +327,36 @@ func _ramp(cur: float, target: float, delta: float, rise: float, fall: float) ->
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		# Umschauen: Kamera frei um das Flugzeug schwenken
-		look_yaw = clampf(look_yaw - event.relative.x * LOOK_SENS, -PI, PI)
-		look_pitch = clampf(look_pitch - event.relative.y * LOOK_SENS, -1.2, 1.35)
-		_mouse_idle = 0.0
+		if mouse_fly:
+			# Maus-Flug: Cursor bewegt den Steuermarker (auf Einheitskreis begrenzt)
+			_aim += event.relative * AIM_SENS
+			if _aim.length() > 1.0:
+				_aim = _aim.normalized()
+		else:
+			# Umschauen: Kamera frei um das Flugzeug schwenken
+			look_yaw = clampf(look_yaw - event.relative.x * LOOK_SENS, -PI, PI)
+			look_pitch = clampf(look_pitch - event.relative.y * LOOK_SENS, -1.2, 1.35)
+			_mouse_idle = 0.0
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ENTER or event.keycode == KEY_BACKSPACE or event.keycode == KEY_KP_ENTER:
 			_reset_to_runway()
+		elif event.keycode == KEY_M:
+			_toggle_mouse_fly()
 		elif event.keycode == KEY_T and is_instance_valid(aircraft):
 			aircraft.assist = not aircraft.assist
 		elif event.keycode == KEY_G and is_instance_valid(aircraft):
 			aircraft.toggle_gear()
 		elif event.keycode == KEY_I and is_instance_valid(aircraft):
 			aircraft.toggle_invert()
+
+
+# Maus-Flug umschalten: Cursor lenkt die Nase (an) <-> freies Umschauen (aus).
+func _toggle_mouse_fly() -> void:
+	mouse_fly = not mouse_fly
+	_aim = Vector2.ZERO
+	look_yaw = 0.0
+	look_pitch = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -364,10 +399,28 @@ func _snap_camera() -> void:
 # ---------------------------------------------------------------------------
 # HUD
 # ---------------------------------------------------------------------------
+func _update_markers() -> void:
+	# Steuermarker = Bildmitte + normierter Maus-Versatz; Nasenmarker = wohin die
+	# Nase aktuell zeigt (150 m voraus auf den Schirm projiziert).
+	var vp := get_viewport().get_visible_rect().size
+	var ctr := vp * 0.5
+	var radius := minf(vp.x, vp.y) * AIM_RADIUS_F
+	aim_screen = ctr + _aim * radius
+	if camera != null and camera.is_inside_tree():
+		var npt := aircraft.global_position - aircraft.global_transform.basis.z * 150.0
+		nose_screen = ctr if camera.is_position_behind(npt) else camera.unproject_position(npt)
+	else:
+		nose_screen = ctr
+
+
 func _emit_hud() -> void:
 	if not is_instance_valid(aircraft):
 		return
+	_update_markers()
 	hud_changed.emit({
+		"mouse_fly": mouse_fly,
+		"aim": aim_screen,
+		"nose": nose_screen,
 		"throttle": throttle,
 		"speed": aircraft.airspeed,
 		"kmh": aircraft.airspeed * 3.6,

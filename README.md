@@ -40,6 +40,7 @@ das Flugzeug längsstabil.
 | Eingabe | Aktion |
 |---|---|
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
+| **M** | **Maus-Flug** an/aus (War-Thunder-Stil — siehe unten) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
 | **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) |
@@ -49,6 +50,13 @@ das Flugzeug längsstabil.
 | **T** | Assist an/aus (an = ruhig, aus = direkter „Pro"-Modus) |
 | **Enter** | Reset auf die Startbahn (repariert auch gebrochenes Fahrwerk) |
 | **Tab** | zurück in den Hangar |
+
+**🖱 Maus-Flug (Taste M) — wie in War Thunder:** Statt umzuschauen lenkst du mit der Maus.
+Ein **grüner Steuermarker** ⊕ folgt dem Cursor — das Flugzeug richtet seine Nase **dorthin
+aus** (rollt automatisch in die Kurve und zieht). Ein **gelber Nasenmarker** ◇ zeigt, wohin
+die Nase gerade zeigt. Marker oben rechts halten → das Flugzeug zieht eine Rechtskurve nach
+oben; Marker zur Mitte → Geradeausflug. Tastatur (W/S/A/D/Q/E) funktioniert weiterhin
+zusätzlich. Nochmal **M** schaltet zurück auf freies Umschauen.
 
 **Landung & Schaden:** Sinkrate beim Aufsetzen zählt — sanft = „Saubere Landung ✓",
 zu schnell (>3 m/s) = „Harte Landung ⚠", sehr hart (>7 m/s) = **Fahrwerk bricht**
