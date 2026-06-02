@@ -35,6 +35,8 @@ var _carry_existing := false # vorhandenes Teil aufgenommen (vs. neues aus Palet
 var _carry_orig := Transform3D()
 var _carry_scale := Vector3.ONE
 var _carry_color := Color(0, 0, 0, 0)
+var _carry_from_tile := false  # Drag wurde aus der Teile-Liste (Inventar) gestartet
+var _lmb_was_down := false     # linke Maustaste letzten Frame gedrückt? (Release-Erkennung)
 
 # Lackieren & Undo/Redo
 var paint_mode := false
@@ -110,6 +112,26 @@ func _active_id() -> String:
 	return carry_id if _carrying else brush_id
 
 
+# Drag aus der Teile-Liste (Inventar) gestartet: Teil "in die Hand nehmen", Ghost folgt der
+# Maus. Loslassen über dem 3D-Raum platziert (in _process erkannt), über der UI verworfen.
+func begin_drag_from_palette(id: String) -> void:
+	if _carrying or id == "":
+		return
+	erase_mode = false
+	paint_mode = false
+	brush_id = id
+	carry_id = id
+	_carry_existing = false
+	_carry_scale = Vector3.ONE
+	_carry_color = Color(0, 0, 0, 0)
+	_carrying = true
+	_carry_from_tile = true
+	_lmb_was_down = true
+	ghost_rot = 0
+	_deselect()
+	_rebuild_ghost()
+
+
 # ---------------------------------------------------------------------------
 # Kamera & Vorschau
 # ---------------------------------------------------------------------------
@@ -119,6 +141,15 @@ func _process(delta: float) -> void:
 		orbit_dist -= 28.0 * delta
 	if Input.is_key_pressed(KEY_MINUS) or Input.is_key_pressed(KEY_KP_SUBTRACT):
 		orbit_dist += 28.0 * delta
+	# Loslassen robust per Polling erkennen (deckt auch ab: Inventar-Drag, dessen Druck an die
+	# UI ging, und Teile, die über der UI losgelassen werden -> sonst "klebt" das Teil).
+	if _carrying:
+		var down := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+		if _lmb_was_down and not down:
+			_on_left_release()   # platziert am Mauspunkt (oder verwirft, wenn über UI/ungültig)
+		_lmb_was_down = down
+	else:
+		_lmb_was_down = false
 	_update_camera()
 
 
@@ -224,9 +255,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				symmetry = not symmetry
 
 
-# Linke Maustaste gedrückt: Palette-Teil platzieren / Abriss / Lackieren / Bearbeiten.
-# Ohne Palette-Teil (und ohne Abriss/Lackieren) = BEARBEITEN: Teil auswählen (Griffe + Panel),
-# Body ziehen verschiebt. So ist die "Auswählen & Bearbeiten"-Funktion im Normalmodus drin.
+# Linke Maus im 3D-Raum: Abriss / Lackieren / vorhandenes Teil packen & ziehen / Kamera drehen.
+# Neue Teile kommen NICHT von hier, sondern per Drag&Drop aus der Teile-Liste (begin_drag_from_palette).
 func _on_left_press() -> void:
 	var hit := _raycast_mouse()
 	if erase_mode:
@@ -235,35 +265,48 @@ func _on_left_press() -> void:
 	if paint_mode:
 		_paint_hovered(hit)
 		return
-	if brush_id != "":
-		# Neues Teil aus der Palette: bei gültigem Snap "in die Hand nehmen"
-		if _compute_snap_for(brush_id, hit).get("valid", false):
-			carry_id = brush_id
-			_carry_existing = false
-			_carry_scale = Vector3.ONE
-			_carry_color = Color(0, 0, 0, 0)
-			_carrying = true
-			_rebuild_ghost()
-		else:
-			_left_orbit = true   # auf leeren Raum geklickt -> drehen
-		return
-	# Kein Palette-Teil -> Bearbeiten (auswählen / Griffe / verschieben)
-	_transform_left_press()
+	# Vorhandenes Teil packen & ziehen (verschieben), sonst Kamera drehen.
+	var part := _part_from_hit(hit)
+	if part != null and not part.get_meta("is_root", false):
+		carry_id = part.get_meta("part_id")
+		_carry_existing = true
+		_carry_from_tile = false
+		_carry_orig = part.transform
+		_carry_scale = part.get_meta("pscale", Vector3.ONE)
+		_carry_color = part.get_meta("color", Color(0, 0, 0, 0))
+		if part.has_meta("mirror"):
+			var m = part.get_meta("mirror")
+			if is_instance_valid(m):
+				m.free()
+		part.free()
+		_carrying = true
+		_lmb_was_down = true
+		_rebuild_ghost()
+		_notify_changed()
+	else:
+		_left_orbit = true
 
 
 func _on_left_release() -> void:
 	if _carrying:
+		var over_ui := get_viewport().gui_get_hovered_control() != null
 		var placed := false
-		var snap := _compute_snap_for(carry_id, _raycast_mouse())
-		if snap.get("valid", false):
-			_place_id(carry_id, snap["xform"], _carry_scale, _carry_color)
-			placed = true
-		elif _carry_existing:
-			_place_id(carry_id, _carry_orig, _carry_scale, _carry_color)  # ungültig -> zurück
-			placed = true
+		if over_ui:
+			# Über der UI losgelassen: neues Teil verwerfen, vorhandenes an alte Stelle zurück.
+			if _carry_existing:
+				_place_id(carry_id, _carry_orig, _carry_scale, _carry_color)
+		else:
+			var snap := _compute_snap_for(carry_id, _raycast_mouse())
+			if snap.get("valid", false):
+				_place_id(carry_id, snap["xform"], _carry_scale, _carry_color)
+				placed = true
+			elif _carry_existing:
+				_place_id(carry_id, _carry_orig, _carry_scale, _carry_color)  # ungültig -> zurück
 		_carrying = false
 		_carry_existing = false
+		_carry_from_tile = false
 		carry_id = ""
+		brush_id = ""        # nach Inventar-Drop zurück in den Greif-/Verschiebe-Modus
 		_rebuild_ghost()
 		if placed:
 			_push_history()
@@ -278,7 +321,9 @@ func _cancel_carry() -> void:
 		_place_id(carry_id, _carry_orig, _carry_scale, _carry_color)
 	_carrying = false
 	_carry_existing = false
+	_carry_from_tile = false
 	carry_id = ""
+	brush_id = ""
 	_rebuild_ghost()
 	_notify_changed()
 

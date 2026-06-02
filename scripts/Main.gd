@@ -470,7 +470,7 @@ func _build_hangar_ui() -> void:
 
 	vb.add_child(HSeparator.new())
 	var move_btn := Button.new()
-	move_btn.text = "✦  Auswählen / Bewegen"
+	move_btn.text = "✋  Bewegen / Greifen"
 	move_btn.pressed.connect(_on_move_tool)
 	vb.add_child(move_btn)
 	var erase_btn := Button.new()
@@ -634,13 +634,13 @@ func _fill_part_list(list: VBoxContainer) -> void:
 func _make_part_tile(p: Dictionary) -> Button:
 	var id: String = p["id"]
 	var tile := Button.new()
-	tile.toggle_mode = true
-	tile.button_group = _part_group
 	tile.custom_minimum_size = Vector2(0, 116)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tile.tooltip_text = p.get("desc", p["name"])
+	tile.tooltip_text = "%s — in den Bauraum ziehen zum Setzen" % p.get("desc", p["name"])
 	tile.clip_contents = true
 	_style_tile(tile)
+	# Drag&Drop aus dem Inventar: Drücken startet den Drag, Klick (auf gesperrt) kauft.
+	tile.button_down.connect(_on_tile_down.bind(id))
 	tile.pressed.connect(_on_pick_part.bind(id))
 
 	var box := VBoxContainer.new()
@@ -778,6 +778,8 @@ func _style_tile(btn: Button) -> void:
 	btn.add_theme_stylebox_override("focus", pressed)
 
 
+# Klick auf eine Kachel: nur fürs KAUFEN gesperrter Teile. Freigeschaltete Teile werden
+# per Drag&Drop gesetzt (siehe _on_tile_down) — ein reiner Klick tut nichts.
 func _on_pick_part(id: String) -> void:
 	if game != null and not game.is_unlocked(id):
 		var p := PartCatalog.get_part(id)
@@ -787,13 +789,18 @@ func _on_pick_part(id: String) -> void:
 			_rebuild_palette()
 		else:
 			_toast("Zu teuer: %s kostet %d 🪙 (du hast %d)" % [p.get("name", id), cost, game.money])
-		return
-	build_ctrl.set_brush(id)
+
+
+# Drücken auf eine Kachel startet das Drag&Drop aus dem Inventar (nur freigeschaltete Teile).
+func _on_tile_down(id: String) -> void:
+	if game != null and not game.is_unlocked(id):
+		return   # gesperrt -> nur Kaufen per Klick (_on_pick_part)
+	build_ctrl.begin_drag_from_palette(id)
 	_refresh_tool_ui()
 
 
 func _on_move_tool() -> void:
-	# Zurück in den Bearbeiten-Default (auswählen/skalieren/verschieben).
+	# Abriss/Lackieren ablegen -> vorhandene Teile packen & ziehen / Liste droppen.
 	build_ctrl.clear_tools()
 	_refresh_tool_ui()
 
@@ -915,7 +922,7 @@ func _refresh_tool_ui() -> void:
 	elif build_ctrl.paint_mode:
 		tool_label.text = "Werkzeug: 🎨 Lackieren – Teil anklicken zum Umfärben"
 	elif build_ctrl.brush_id == "":
-		tool_label.text = "✦ Bearbeiten: Teil anklicken = auswählen (skalieren/drehen/löschen) · Body ziehen = verschieben · leerer Raum = drehen"
+		tool_label.text = "Teil aus der Liste in den Bauraum ZIEHEN zum Setzen · vorhandenes Teil packen & ziehen = verschieben · leerer Raum = drehen"
 	else:
 		var p := PartCatalog.get_part(build_ctrl.brush_id)
 		tool_label.text = "Werkzeug: %s – ziehen & loslassen zum Setzen" % p.get("name", build_ctrl.brush_id)
