@@ -12,7 +12,7 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
-const CAM_LOOK_ABOVE := 3.6     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tiefer im Bild (unteres Drittel)
+const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
@@ -41,6 +41,7 @@ var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
 var _mouse_idle := 0.0
 var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase folgt)
+var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, nur im Maus-Flug)
 var _aim_smooth := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr -> smoother)
 var _nose_px := Vector2.ZERO    # geglättete Nasenmarker-Pixelposition
 var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
@@ -251,8 +252,11 @@ func _physics_process(delta: float) -> void:
 	# Vertikalfehler -> Nick; Zug proportional zum Horizontalfehler zieht durch die Kurve.
 	if mouse_fly:
 		var b := aircraft.global_transform.basis
+		aircraft.aim_world = _aim_dir()   # Arcade-Lenkung (AircraftBody) nutzt die rohe Zielrichtung
 		# Geglättete Zielrichtung -> der Regler folgt nicht jedem Maus-Ruckeln (smoother Flugweg).
-		_aim_smooth = _aim_smooth.slerp(_aim_dir(), clampf(delta * AIM_SMOOTH, 0.0, 1.0))
+		# lerp+normalize statt Vector3.slerp: slerp wirft bei fast-parallelen Vektoren
+		# "axis must be normalized" (interne Achse aus ~0-Kreuzprodukt). lerp ist robust.
+		_aim_smooth = _aim_smooth.lerp(_aim_dir(), clampf(delta * AIM_SMOOTH, 0.0, 1.0)).normalized()
 		var e := b.transposed() * _aim_smooth     # Zielrichtung im Körpersystem (Nase = -Z)
 		var horiz := atan2(e.x, -e.z)             # Horizontalwinkel zum Ziel: +rechts, ±π hinten
 		var vert := atan2(e.y, sqrt(e.x * e.x + e.z * e.z))  # Vertikalwinkel: +oben
@@ -282,6 +286,7 @@ func _physics_process(delta: float) -> void:
 		yaw = clampf(yaw + yaw_cmd, -1.0, 1.0)
 
 	aircraft.mouse_fly = mouse_fly   # Body schaltet damit das Auto-Leveling im Maus-Flug ab
+	aircraft.arcade = arcade         # Arcade-Lenkung (kinematisch) im Body aktivieren
 	aircraft.throttle = throttle
 	if mouse_fly:
 		# Maus-Flug: Befehle kommen aus dem (schon glatten) Regler -> DIREKT anwenden.
@@ -394,6 +399,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_reset_to_runway()
 		elif event.keycode == KEY_M:
 			_toggle_mouse_fly()
+		elif event.keycode == KEY_J:
+			_toggle_arcade()
 		elif event.keycode == KEY_T and is_instance_valid(aircraft):
 			aircraft.assist = not aircraft.assist
 		elif event.keycode == KEY_G and is_instance_valid(aircraft):
@@ -414,6 +421,13 @@ func _toggle_mouse_fly() -> void:
 	else:
 		look_yaw = 0.0
 		look_pitch = 0.0
+
+
+# Arcade-Lenkung umschalten. Braucht den Maus-Flug -> ggf. mit einschalten.
+func _toggle_arcade() -> void:
+	arcade = not arcade
+	if arcade and not mouse_fly:
+		_toggle_mouse_fly()
 
 
 # Zielrichtung (Weltkoordinaten) aus look_yaw/look_pitch. yaw=0,pitch=0 -> -Z (vorne/Nord).
@@ -506,6 +520,7 @@ func _emit_hud() -> void:
 	_update_markers()
 	hud_changed.emit({
 		"mouse_fly": mouse_fly,
+		"arcade": arcade,
 		"aim": aim_screen,
 		"nose": nose_screen,
 		"aim_vis": aim_visible,

@@ -57,7 +57,9 @@ func _home(delta: float) -> void:
 		var dir: Vector3 = (_target.global_position - global_position).normalized()
 		var cur: Vector3 = vel.normalized()
 		if cur.length() > 0.01 and dir.length() > 0.01:
-			vel = cur.slerp(dir, clampf(turn * delta, 0.0, 1.0)) * vel.length()
+			# lerp+normalize statt Vector3.slerp (slerp wirft bei fast-parallel "axis must be normalized")
+			var nd: Vector3 = cur.lerp(dir, clampf(turn * delta, 0.0, 1.0)).normalized()
+			vel = nd * vel.length()
 
 
 func _in_seek(t: Node3D) -> bool:

@@ -41,6 +41,7 @@ das Flugzeug längsstabil.
 |---|---|
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
 | **M** | **Maus-Flug** an/aus (War-Thunder-Stil — siehe unten) |
+| **J** | **Arcade-Lenkung** an/aus (super-smooth, schnappt sofort aufs Ziel; aktiviert Maus-Flug) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
 | **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) |
@@ -58,6 +59,12 @@ auch steil hoch/runter). Ein **grüner Zielmarker** ⊕ zeigt, wohin du zielst, 
 Nasenmarker** ◇ zeigt, wohin die Nase gerade weist — decken sie sich, fliegst du genau aufs
 Ziel. Kurven (Rollen + Ziehen) werden automatisch koordiniert. Tastatur (W/S/A/D/Q/E) wirkt
 zusätzlich. Nochmal **M** schaltet zurück auf freies Umschauen.
+
+**🎮 Arcade-Lenkung (Taste J):** Für maximal smoothes, direktes Handling. Die Nase folgt der
+Maus **butterweich und sofort** (schnappt in ~0,3–0,4 s auf jede Richtung, auch 180°),
+ohne Stall/Strömungsabriss und ohne G-Grenze (keine Flügelbrüche). Ideal, wenn du einfach
+fix dahin fliegen willst, wo du hinschaust. **J** schaltet wieder auf die physikalische
+Maus-Steuerung zurück.
 
 **Landung & Schaden:** Sinkrate beim Aufsetzen zählt — sanft = „Saubere Landung ✓",
 zu schnell (>3 m/s) = „Harte Landung ⚠", sehr hart (>7 m/s) = **Fahrwerk bricht**

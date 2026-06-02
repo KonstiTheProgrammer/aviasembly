@@ -982,7 +982,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(nose_marker)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Umschauen · M: Maus-Flug (Cursor lenkt) · Schub: Shift/Strg · Nase: W/S · Rollen: A/D · Gieren: Q/E · 🔫 LEERTASTE: Kanone/Rakete · 💣 B: Bombe · G: Fahrwerk · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Umschauen · M: Maus-Flug · J: Arcade-Lenkung (smooth) · Schub: Shift/Strg · Nase: W/S · Rollen: A/D · Gieren: Q/E · 🔫 LEERTASTE · 💣 B · G: Fahrwerk · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
@@ -1038,7 +1038,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 	var assist_txt: String = "AN" if d.get("assist", true) else "AUS (Pro)"
 	var inv_txt: String = "INVERTIERT ⚠" if d.get("inverted", false) else "normal"
 	var mf: bool = d.get("mouse_fly", false)
-	var mf_txt: String = "🖱 AN (Cursor lenkt)" if mf else "AUS (Umschauen)"
+	var arc: bool = d.get("arcade", false)
+	var mf_txt: String = ("🖱 AN — ARCADE 🎮" if arc else "🖱 AN (Cursor lenkt)") if mf else "AUS (Umschauen)"
 	var thr_pct := int(round(d["throttle"] * 100.0))
 	var thr_txt := ("🛑 Bremse %d%%" % absi(thr_pct)) if thr_pct < 0 else ("Schub %d%%" % thr_pct)
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))

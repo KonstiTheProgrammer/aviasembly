@@ -42,6 +42,8 @@ const DAMP_PITCH := 5.5       # aerodynamische Drehdämpfung (verhindert Überdr
 const DAMP_YAW := 3.2
 const DAMP_ROLL := 2.5
 const MOUSE_AUTH := 1.4       # Maus-Flug: mehr Steuer-Autorität -> Soll-Raten schneller (Obergrenze: darüber überzieht/stallt der Nick)
+const ARCADE_RESP := 6.0      # Arcade: wie schnell/smooth die Orientierung aufs Ziel slerpt (1/s) — exponentiell, kein Überschwingen
+const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase folgt (fliegt wohin sie zeigt, kein Schlittern)
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
@@ -83,6 +85,8 @@ var in_roll := 0.0
 var in_yaw := 0.0
 var inverted := false         # Q: Steuerung umkehren
 var mouse_fly := false        # Maus-Flug aktiv? (dann kein Assist-Auto-Leveling — Bank-Regler nivelliert selbst)
+var arcade := false           # Arcade-Lenkung? (kinematisch: Nase dreht super-smooth aufs Ziel, keine Stall-/G-Grenze)
+var aim_world := Vector3(0, 0, -1)  # Zielrichtung (Welt), vom FlightController im Arcade-Modus gesetzt
 
 # Landung / Schaden
 var landing_msg := ""
@@ -462,7 +466,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5
 		var lift_mag := q * wing_area * cl
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
-		if not wings_broken and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
+		if not wings_broken and not arcade and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
 			wings_broken = true
 			_break_pending = true   # Abtrennen erst im _process (nicht im Physik-Schritt)
 			landing_msg = "💥 FLÜGEL ÜBERLASTET — abgerissen!"
@@ -500,26 +504,27 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		if gd > 0.0:
 			tf += -v_lin.normalized() * (0.5 * rho * sp * sp * gd * 0.06)
 
-	# --- Direkte Steuerflächen-Steuerung (SimplePlanes-Feel) ---------------
-	var wb := xf.basis.transposed() * v_ang
-	var inv := -1.0 if inverted else 1.0
-	# Steuer-Autorität skaliert mit Staudruck: langsam teigig, schnell knackig
-	var qfac := clampf(0.5 * rho * airspeed * airspeed / 180.0, 0.04, 2.0)
-	var cmd := Vector3(
-		in_pitch * inv * (CTRL_PITCH + CTRL_PITCH_A * pitch_area),
-		in_yaw * inv * (CTRL_YAW + CTRL_YAW_A * yaw_area),
-		in_roll * inv * (CTRL_ROLL + CTRL_ROLL_A * roll_area))
-	tt += xf.basis * (cmd * qfac * mass * (MOUSE_AUTH if mouse_fly else 1.0))
-	# Aerodynamische Drehdämpfung (gegen Schwingen) — wächst mit Tempo.
-	# Assist verstärkt NUR Nick/Gier (Stabilität); Rollen bleibt knackig.
-	var dfac := (0.35 + qfac) * mass
-	var apq := 1.6 if assist else 1.0
-	tt += xf.basis * (-Vector3(wb.x * DAMP_PITCH * apq, wb.y * DAMP_YAW * apq, wb.z * DAMP_ROLL) * dfac)
-	# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist).
-	# Im Maus-Flug NICHT: dort regelt der Bank-to-turn-Regler die Querlage selbst,
-	# das Auto-Leveling würde dagegen kämpfen (Pendeln in der Kurve).
-	if assist and not mouse_fly and absf(in_roll) < 0.05 and airspeed > 6.0:
-		tt += xf.basis.z * (-xf.basis.x.y * LEVEL_K * mass)
+	# --- Steuerung: Arcade (kinematisch) ODER Steuerflächen-Torque ---------
+	var arcade_steer := arcade and mouse_fly
+	if not arcade_steer:
+		var wb := xf.basis.transposed() * v_ang
+		var inv := -1.0 if inverted else 1.0
+		# Steuer-Autorität skaliert mit Staudruck: langsam teigig, schnell knackig
+		var qfac := clampf(0.5 * rho * airspeed * airspeed / 180.0, 0.04, 2.0)
+		var cmd := Vector3(
+			in_pitch * inv * (CTRL_PITCH + CTRL_PITCH_A * pitch_area),
+			in_yaw * inv * (CTRL_YAW + CTRL_YAW_A * yaw_area),
+			in_roll * inv * (CTRL_ROLL + CTRL_ROLL_A * roll_area))
+		tt += xf.basis * (cmd * qfac * mass * (MOUSE_AUTH if mouse_fly else 1.0))
+		# Aerodynamische Drehdämpfung (gegen Schwingen) — wächst mit Tempo.
+		# Assist verstärkt NUR Nick/Gier (Stabilität); Rollen bleibt knackig.
+		var dfac := (0.35 + qfac) * mass
+		var apq := 1.6 if assist else 1.0
+		tt += xf.basis * (-Vector3(wb.x * DAMP_PITCH * apq, wb.y * DAMP_YAW * apq, wb.z * DAMP_ROLL) * dfac)
+		# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist).
+		# Im Maus-Flug NICHT: dort regelt der Bank-to-turn-Regler die Querlage selbst.
+		if assist and not mouse_fly and absf(in_roll) < 0.05 and airspeed > 6.0:
+			tt += xf.basis.z * (-xf.basis.x.y * LEVEL_K * mass)
 
 	# --- Sicherheit & Anwenden ---------------------------------------------
 	if not tf.is_finite():
@@ -529,8 +534,45 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	tf = tf.limit_length(mass * 130.0)   # nur NaN-/Runaway-Sicherung, klippt normale Aero nicht mehr
 	tt = tt.limit_length(mass * 90.0)
 	state.apply_central_force(tf)
-	state.apply_torque(tt)
+	if arcade_steer:
+		_arcade_steer(state)   # kinematische, butterweiche Lenkung (keine Stall-/G-Grenze)
+	else:
+		state.apply_torque(tt)
+		if state.angular_velocity.length() > MAX_ANGVEL:
+			state.angular_velocity = state.angular_velocity.normalized() * MAX_ANGVEL
 
 	gforce = tf.length() / maxf(mass * 9.81, 1.0)
-	if state.angular_velocity.length() > MAX_ANGVEL:
-		state.angular_velocity = state.angular_velocity.normalized() * MAX_ANGVEL
+
+
+# Arcade-Lenkung: dreht die Orientierung kinematisch (per Slerp) super-smooth Richtung
+# Zielrichtung und lässt die Geschwindigkeit der Nase folgen. Unabhängig von Ruder-
+# Autorität/Stall/G -> butterweiches, direktes Lenken (kein Trudeln, kein Überschwingen).
+func _arcade_steer(state: PhysicsDirectBodyState3D) -> void:
+	var cur_basis := state.transform.basis
+	var fwd := aim_world
+	if fwd.length() < 0.01:
+		return
+	fwd = fwd.normalized()
+	# Soll-Querlage (kosmetisch): in die Kurve lehnen, proportional zum Horizontalfehler
+	var e := cur_basis.transposed() * fwd
+	var bank := clampf(atan2(e.x, -e.z) * 0.9, -1.15, 1.15)
+	# Ziel-Basis: Nase (-Z) auf fwd, um fwd gebankt
+	var up0 := Vector3.UP
+	if absf(fwd.dot(up0)) > 0.985:
+		up0 = cur_basis.y
+	var right0 := fwd.cross(up0).normalized()
+	var up1 := right0.cross(fwd).normalized()
+	var tb := Basis(right0.rotated(fwd, bank), up1.rotated(fwd, bank), -fwd).orthonormalized()
+	# Orientierung smooth (exponentiell) zum Ziel slerpen -> reagiert sofort, ohne zu zappeln
+	var k := clampf(ARCADE_RESP * state.step, 0.0, 1.0)
+	var nb := Basis(cur_basis.get_rotation_quaternion().slerp(tb.get_rotation_quaternion(), k))
+	# WICHTIG: ganzen Transform zuweisen (state.transform.basis=… schreibt nicht zurück — Godot-Falle)
+	var xform := state.transform
+	xform.basis = nb
+	state.transform = xform
+	state.angular_velocity = Vector3.ZERO
+	# Geschwindigkeit der Nase nachführen (fliegt wohin sie zeigt) — Betrag bleibt, Schub/Schwerkraft wirken weiter
+	var spd := state.linear_velocity.length()
+	if spd > 1.0:
+		var nd := -nb.z
+		state.linear_velocity = state.linear_velocity.lerp(nd * spd, clampf(ARCADE_VEL * state.step, 0.0, 1.0))

@@ -238,6 +238,17 @@ Zurückschwenken. HUD: **Zielmarker** ⊕ grün (`unproject` von `pos+aim·400`)
 ◇ gelb (`pos−basis.z·400`); decken sie sich, fliegt es genau aufs Ziel. Sichtbarkeit via
 `is_position_behind` (`aim_vis`/`nose_vis`). Headless verifiziert: Nase konvergiert in alle
 Richtungen aufs Ziel (vorne/rechts/180°-hinten/oben, align≈1.0), stabil (maxAngVel<2).
+- **Arcade-Lenkung (`arcade`, Taste `J`, nur im Maus-Flug):** maximal smoothe, direkte
+  Lenkung. Statt Steuer-Torque dreht `AircraftBody._arcade_steer` die Orientierung
+  **kinematisch per Quaternion-Slerp** (`ARCADE_RESP`) auf die Ziel-Basis (Nase=`aim_world`,
+  in die Kurve gebankt) und führt die Geschwindigkeit der Nase nach (`ARCADE_VEL`).
+  Unabhängig von Ruder-Autorität/Stall/G → schnappt in ~0.3–0.4 s auf jede Richtung (auch
+  180°), exponentiell = **kein Überschwingen/Trudeln**; Flügelbruch im Arcade aus. **Godot-
+  Falle:** `state.transform.basis = …` schreibt NICHT zurück → ganzen `state.transform`
+  neu zuweisen. FlightController setzt `aircraft.arcade`/`aircraft.aim_world` (roh) je Frame;
+  `_toggle_arcade` (J) schaltet ggf. den Maus-Flug mit ein. HUD zeigt „ARCADE 🎮".
+- **Kamera-Framing:** look_at-Punkt `+UP·CAM_LOOK_ABOVE` (6.5) → Flieger sitzt **tief im
+  unteren Bildbereich** (~0.78), nicht mittig.
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 
