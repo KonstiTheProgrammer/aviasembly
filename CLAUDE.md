@@ -204,15 +204,24 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `M` **Maus-Flug** umschalten · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
 **Maus-Flug (War-Thunder-Stil, `mouse_fly`, Taste `M`):** Statt Umschauen bewegt die Maus
 einen **Steuermarker** (`_aim`, normiert auf Einheitskreis, integriert aus `event.relative`
-× `AIM_SENS`). In `_physics_process` wird er **additiv zur Tastatur** in Nick/Roll/Gier
-übersetzt (Marker oben→Nase hoch `-_aim.y·AIM_PITCH`, seitlich→Bank in die Kurve
-`_aim.x·AIM_ROLL` + leicht koordiniert gieren `·AIM_YAW`), läuft durch dasselbe `_ramp`.
-Die Kamera bleibt dabei hinter dem Flieger (look=0). HUD (`_update_markers`→`_emit_hud`):
-**Steuermarker** ⊕ (grün, = Cursor/Wunschrichtung) + **Nasenmarker** ◇ (gelb, via
-`camera.unproject_position` 150 m voraus) zeigen, wo man hinzeigt vs. wohin die Nase zeigt;
-statisches Fadenkreuz ist dann aus (Main `_make_marker`/`_on_hud_changed`, `center_cross`/
-`aim_marker`/`nose_marker`). Vorzeichen passen zur Tastatur-Konvention (A=rechts etc.),
-verifiziert mit Headless-Test (Marker oben-rechts → in_pitch+, in_roll+, in_yaw+, Flieger dreht).
+× `AIM_SENS`). **Bank-to-turn statt Roll-Rate** (sonst rollt es endlos/trudelt!): der
+seitliche Marker gibt eine **Soll-Querlage** vor (`target_bank = -_aim.x·AIM_BANK_MAX`),
+ein **Kaskadenregler** regelt darauf: Querlage-Fehler → *begrenzte* Soll-Rollrate
+(`AIM_BANK_P`, gekappt auf `AIM_ROLL_RATE_MAX` ⇒ kein Hochschaukeln) → Roll-Auslenkung
+(`AIM_ROLL_P`·Ratenfehler). So legt sich der Flieger auf eine feste Schräglage und **hält**
+sie (fliegt die Kurve), beim Zentrieren richtet er **selbst** auf. Nick = `-_aim.y·AIM_PITCH`
+(+ etwas `AIM_TURN_PULL`·sin(bank) Kurvenzug), Gier leicht koordiniert. **Wichtig:**
+(1) Querlage als `asin(basis.x.y)` messen — **gleiches Vorzeichen wie `in_roll`**, sonst
+Mitkopplung→Aufschaukeln. (2) Roll-/Gier-Achsen sind hier „vertauscht" (in_roll>0 dreht
+physikalisch links, vgl. Tastatur A=rechts) ⇒ Marker-Vorzeichen negiert, damit Marker
+rechts→Rechtskurve. (3) Im Maus-Flug Befehle **direkt** (kein `_ramp`) anwenden — sonst
+verzögert das Glätten den Brems-Befehl → Überschwingen. (4) `AircraftBody.mouse_fly`-Flag
+schaltet das Assist-Auto-Leveling ab (sonst kämpft es gegen die gehaltene Querlage).
+Kamera bleibt hinter dem Flieger (look=0). HUD (`_update_markers`→`_emit_hud`): **Steuermarker**
+⊕ grün (Cursor/Wunschrichtung) + **Nasenmarker** ◇ gelb (`camera.unproject_position`, 150 m
+voraus); statisches Fadenkreuz aus (Main `_make_marker`/`_on_hud_changed`, `center_cross`/
+`aim_marker`/`nose_marker`). Headless verifiziert: stabil (max ~0.74 rad, kein Überschwingen),
+Marker rechts→rechts / links→links, richtet beim Zentrieren auf.
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 

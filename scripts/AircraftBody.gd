@@ -81,6 +81,7 @@ var in_pitch := 0.0
 var in_roll := 0.0
 var in_yaw := 0.0
 var inverted := false         # Q: Steuerung umkehren
+var mouse_fly := false        # Maus-Flug aktiv? (dann kein Assist-Auto-Leveling — Bank-Regler nivelliert selbst)
 
 # Landung / Schaden
 var landing_msg := ""
@@ -513,8 +514,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var dfac := (0.35 + qfac) * mass
 	var apq := 1.6 if assist else 1.0
 	tt += xf.basis * (-Vector3(wb.x * DAMP_PITCH * apq, wb.y * DAMP_YAW * apq, wb.z * DAMP_ROLL) * dfac)
-	# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist)
-	if assist and absf(in_roll) < 0.05 and airspeed > 6.0:
+	# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist).
+	# Im Maus-Flug NICHT: dort regelt der Bank-to-turn-Regler die Querlage selbst,
+	# das Auto-Leveling würde dagegen kämpfen (Pendeln in der Kurve).
+	if assist and not mouse_fly and absf(in_roll) < 0.05 and airspeed > 6.0:
 		tt += xf.basis.z * (-xf.basis.x.y * LEVEL_K * mass)
 
 	# --- Sicherheit & Anwenden ---------------------------------------------

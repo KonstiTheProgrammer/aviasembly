@@ -16,9 +16,13 @@ const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft z
 # --- Maus-Flug (War-Thunder-Stil): Cursor zeigt wohin, Nase folgt -----------
 const AIM_SENS := 0.0019        # Maus -> Steuermarker
 const AIM_RADIUS_F := 0.32      # Marker-Bewegungsradius (Anteil kürzerer Bildkante)
-const AIM_PITCH := 1.5          # Marker hoch/runter -> Nick-Auslenkung
-const AIM_ROLL := 1.8           # Marker seitlich -> Roll (Bank in die Kurve)
-const AIM_YAW := 0.55           # + leicht koordiniert gieren
+const AIM_PITCH := 1.3          # Marker hoch/runter -> Nick-Auslenkung
+const AIM_BANK_MAX := 1.05      # Marker ganz seitlich -> Soll-Querlage (~60°)
+const AIM_BANK_P := 3.0         # Querlage-Fehler -> Soll-Rollrate
+const AIM_ROLL_RATE_MAX := 1.8  # max. Rollrate (rad/s) -> verhindert Hochschaukeln/Überschwingen
+const AIM_ROLL_P := 1.1         # Rollraten-Fehler -> Roll-Auslenkung
+const AIM_TURN_PULL := 0.22     # etwas Höhenruder-Zug in der Kurve (hält die Nase oben)
+const AIM_YAW := 0.35           # leicht koordiniert in Kurvenrichtung gieren
 
 var camera: Camera3D
 var aircraft: AircraftBody
@@ -230,20 +234,45 @@ func _physics_process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
 
-	# Maus-Flug: Steuermarker (Cursor) lenkt die Nase. Marker oben -> Nase hoch,
-	# Marker seitlich -> in die Kurve rollen + leicht koordiniert gieren. Additiv
-	# zur Tastatur, damit beide Eingaben zusammenspielen.
+	# Maus-Flug: Steuermarker (Cursor) lenkt die Nase. Bank-to-turn -> der seitliche
+	# Marker gibt eine SOLL-QUERLAGE vor, der Roll regelt nur die DIFFERENZ zur aktuellen
+	# Querlage. So legt sich das Flugzeug auf eine feste Schräglage und HÄLT sie (fliegt die
+	# Kurve) statt endlos zu rollen. Marker oben/unten = ziehen/drücken. Additiv zur Tastatur.
 	if mouse_fly:
-		pitch = clampf(pitch - _aim.y * AIM_PITCH, -1.0, 1.0)
-		roll = clampf(roll + _aim.x * AIM_ROLL, -1.0, 1.0)
-		yaw = clampf(yaw + _aim.x * AIM_YAW, -1.0, 1.0)
+		var b := aircraft.global_transform.basis
+		# Querlage MUSS gleiches Vorzeichen wie in_roll haben (in_roll>0 lässt basis.x.y
+		# steigen), sonst Mitkopplung -> Aufschaukeln/Trudeln. Marker rechts -> target>0
+		# -> roll_cmd>0 -> deckt sich mit Tastatur (A=rechts).
+		var current_bank := asin(clampf(b.x.y, -1.0, 1.0))
+		var roll_rate := (b.transposed() * aircraft.angular_velocity).z   # aktuelle Rollrate
+		# Marker rechts -> Rechtskurve. Da die Roll-/Gier-Achsen hier "vertauscht" sind
+		# (in_roll>0 dreht physikalisch links, vgl. Tastatur A=rechts), zeigt der Marker
+		# mit umgekehrtem Vorzeichen auf die Soll-Querlage/Gier.
+		var target_bank := -_aim.x * AIM_BANK_MAX
+		# Kaskaden-Regler: Querlage-Fehler -> BEGRENZTE Soll-Rollrate -> Roll-Auslenkung.
+		# Die Ratenbegrenzung verhindert, dass die Rollrate hochschaukelt -> kein
+		# Überschwingen/Trudeln; das Flugzeug legt sich sauber auf die Querlage und hält sie.
+		var desired_rate := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
+		var roll_cmd := clampf((desired_rate - roll_rate) * AIM_ROLL_P, -1.0, 1.0)
+		var pitch_cmd := clampf(-_aim.y * AIM_PITCH + absf(sin(current_bank)) * AIM_TURN_PULL, -1.0, 1.0)
+		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
+		roll = clampf(roll + roll_cmd, -1.0, 1.0)
+		yaw = clampf(yaw - _aim.x * AIM_YAW, -1.0, 1.0)
 
-	# Weiches Eingabe-Ramping (analoges Gefühl auf Tastatur, nicht ruckartig ±1).
-	# Schnelles Aufbauen, etwas langsameres Zurückzentrieren.
+	aircraft.mouse_fly = mouse_fly   # Body schaltet damit das Auto-Leveling im Maus-Flug ab
 	aircraft.throttle = throttle
-	aircraft.in_pitch = _ramp(aircraft.in_pitch, pitch, delta, 4.0, 6.0)
-	aircraft.in_roll = _ramp(aircraft.in_roll, roll, delta, 7.0, 9.0)
-	aircraft.in_yaw = _ramp(aircraft.in_yaw, yaw, delta, 4.0, 6.0)
+	if mouse_fly:
+		# Maus-Flug: Befehle kommen aus dem (schon glatten) Regler -> DIREKT anwenden.
+		# Das _ramp würde den Brems-Befehl verzögern und Überschwingen verursachen.
+		aircraft.in_pitch = pitch
+		aircraft.in_roll = roll
+		aircraft.in_yaw = yaw
+	else:
+		# Weiches Eingabe-Ramping (analoges Gefühl auf Tastatur, nicht ruckartig ±1).
+		# Schnelles Aufbauen, etwas langsameres Zurückzentrieren.
+		aircraft.in_pitch = _ramp(aircraft.in_pitch, pitch, delta, 4.0, 6.0)
+		aircraft.in_roll = _ramp(aircraft.in_roll, roll, delta, 7.0, 9.0)
+		aircraft.in_yaw = _ramp(aircraft.in_yaw, yaw, delta, 4.0, 6.0)
 
 	# --- Waffen (Cooldown pro Waffe) ------------------------------------
 	for w in weapons:
