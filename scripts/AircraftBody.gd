@@ -41,6 +41,7 @@ const CTRL_ROLL_A := 6.0
 const DAMP_PITCH := 5.5       # aerodynamische Drehdämpfung (verhindert Überdrehen)
 const DAMP_YAW := 3.2
 const DAMP_ROLL := 2.5
+const MOUSE_AUTH := 1.4       # Maus-Flug: mehr Steuer-Autorität -> Soll-Raten schneller (Obergrenze: darüber überzieht/stallt der Nick)
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
@@ -508,7 +509,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		in_pitch * inv * (CTRL_PITCH + CTRL_PITCH_A * pitch_area),
 		in_yaw * inv * (CTRL_YAW + CTRL_YAW_A * yaw_area),
 		in_roll * inv * (CTRL_ROLL + CTRL_ROLL_A * roll_area))
-	tt += xf.basis * (cmd * qfac * mass)
+	tt += xf.basis * (cmd * qfac * mass * (MOUSE_AUTH if mouse_fly else 1.0))
 	# Aerodynamische Drehdämpfung (gegen Schwingen) — wächst mit Tempo.
 	# Assist verstärkt NUR Nick/Gier (Stabilität); Rollen bleibt knackig.
 	var dfac := (0.35 + qfac) * mass

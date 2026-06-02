@@ -216,10 +216,17 @@ oben). Regler in `_physics_process`: Zielrichtung ins Körpersystem (`e = basis.
   `AIM_PITCH_RATE_MAX`, dann `(d_pitch−wb.x)·AIM_PITCH_RATE_P`, **gedämpft**) + `|horiz|·AIM_TURN_PULL`.
 - **Gier** koordiniert `−horiz·AIM_YAW_K` **−`wb.y·AIM_YAW_D`** (gedämpft).
 - **Anti-Zittern/smoother Flugweg:** Regler folgt einer **geglätteten** Zielrichtung
-  (`_aim_smooth.slerp(_aim_dir(), δ·AIM_SMOOTH)`), kleiner **Totbereich** `AIM_DEADZONE` auf
-  horiz/vert killt den Limit-Cycle, Pitch/Yaw sind **gedämpft** (Raten-Terme `wb.x`/`wb.y`),
-  Nasenmarker zusätzlich pixelgeglättet (`AIM_MARK_SMOOTH`). Headless: eingeschwungen
-  Schwankung <0.002, Restdrehrate <0.03 (kein Jagen).
+  (`_aim_smooth.slerp(_aim_dir(), δ·AIM_SMOOTH)`, wenig Lag), kleiner **Totbereich**
+  `AIM_DEADZONE` auf horiz/vert killt den Limit-Cycle, Pitch/Yaw sind **gedämpft**
+  (Raten-Terme `wb.x`/`wb.y`), Nasenmarker zusätzlich pixelgeglättet (`AIM_MARK_SMOOTH`).
+- **Robustheit/Speed:** Querlage als **`atan2(basis.x.y, basis.y.y)`** (voller Bereich,
+  kippt nicht bei 90° wie `asin` → kein Überbank-Taumeln). `AircraftBody.MOUSE_AUTH` (×1.4)
+  gibt im Maus-Flug mehr Steuer-Autorität → Soll-Raten schneller erreicht; **Obergrenze
+  ~1.4** — darüber überzieht der Nick (Stall/Loop) bzw. tumbled. Einrollen ist bewusst
+  schnell (`AIM_ROLL_RATE_MAX/AIM_BANK_P` hoch, kostet keine G), der Kurvenzug `AIM_TURN_PULL`
+  greift erst gebankt (`·|sin(bank)|`). Turn-Zeit ist sonst **airframe-limitiert**
+  (~1.4 s für 90° bei ~90 m/s; bei dem Tempo stall-/G-Grenze). Headless: eingeschwungen
+  Schwankung <0.001, Restdrehrate <0.03, monotone Annäherung (kein Überschwingen).
 **Wichtig:** (1) Roll-/Gier-Achsen sind „vertauscht" (in_roll>0 dreht physikalisch links,
 vgl. Tastatur A=rechts) ⇒ horiz-Vorzeichen negiert, damit Ziel-rechts=Rechtskurve.
 (2) Befehle **direkt** anwenden (kein `_ramp` im Maus-Flug → sonst Brems-Verzug→Überschwingen).

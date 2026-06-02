@@ -16,20 +16,20 @@ const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft z
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
 const AIM_LOOK_SENS := 0.005    # Maus -> Blick-/Zielrichtung (rad pro Pixel)
-const AIM_SMOOTH := 10.0        # Glättung der Zielrichtung, der der Regler folgt (1/s) -> smoother Flugweg
-const AIM_DEADZONE := 0.012     # Totbereich (rad) am Ziel -> kein Marker-Zittern (Limit-Cycle)
-const AIM_BANK_MAX := 1.2       # max. Querlage in Kurven (~69°)
-const AIM_BANK_K := 1.7         # Horizontal-Zielfehler (rad) -> Soll-Querlage
-const AIM_BANK_P := 3.0         # Querlage-Fehler -> Soll-Rollrate
-const AIM_ROLL_RATE_MAX := 2.4  # max. Rollrate (rad/s) -> kein Hochschaukeln
-const AIM_ROLL_P := 1.1         # Rollraten-Fehler -> Roll-Auslenkung
-const AIM_PITCH_K := 1.6        # Vertikal-Zielfehler (rad) -> Soll-Nickrate
-const AIM_PITCH_RATE_MAX := 1.7 # max. Nickrate (rad/s)
-const AIM_PITCH_RATE_P := 1.0   # Nickraten-Fehler -> Auslenkung (gedämpft, kein Jagen)
-const AIM_TURN_PULL := 0.75     # Höhenruder-Zug proportional zum Horizontalfehler (zieht durch die Kurve)
-const AIM_YAW_K := 0.3          # leichte Ruderkoordination Richtung Ziel
-const AIM_YAW_D := 0.25         # Gier-Dämpfung
-const AIM_MARK_SMOOTH := 0.4    # Nasenmarker-Pixelglättung (Lerp/Frame)
+const AIM_SMOOTH := 24.0        # nur LEICHTE Glättung der Zielrichtung (kaum Lag) -> reaktionsschnell
+const AIM_DEADZONE := 0.01      # Totbereich (rad) am Ziel -> kein Marker-Zittern (Limit-Cycle)
+const AIM_BANK_MAX := 1.25      # max. Querlage in Kurven (~72°, sicherer Abstand zu 90°)
+const AIM_BANK_K := 2.4         # Horizontal-Zielfehler (rad) -> Soll-Querlage (stark in die Kurve)
+const AIM_BANK_P := 6.5         # Querlage-Fehler -> Soll-Rollrate (schnelles Einrollen, kostet keine G)
+const AIM_ROLL_RATE_MAX := 5.5  # max. Rollrate (rad/s) -> sehr zügiges Einrollen (atan2-Messung -> kein Überbank-Taumeln)
+const AIM_ROLL_P := 2.0         # Rollraten-Fehler -> Roll-Auslenkung (straffe Ratenführung)
+const AIM_PITCH_K := 2.2        # Vertikal-Zielfehler (rad) -> Soll-Nickrate
+const AIM_PITCH_RATE_MAX := 2.3 # max. Nickrate (rad/s) -> schnell, aber unter Stall
+const AIM_PITCH_RATE_P := 1.5   # Nickraten-Fehler -> Auslenkung (gut gedämpft, kein Überziehen)
+const AIM_TURN_PULL := 0.7      # Höhenruder-Zug proportional zum Horizontalfehler (zieht durch die Kurve, getapert)
+const AIM_YAW_K := 0.5          # Ruderkoordination Richtung Ziel (direkteres Anvisieren)
+const AIM_YAW_D := 0.3          # Gier-Dämpfung
+const AIM_MARK_SMOOTH := 0.5    # Nasenmarker-Pixelglättung (Lerp/Frame)
 
 var camera: Camera3D
 var aircraft: AircraftBody
@@ -264,14 +264,16 @@ func _physics_process(delta: float) -> void:
 		# Roll: Bank-to-turn-Kaskade. Achsen "vertauscht" (in_roll>0 dreht physikalisch links),
 		# daher Vorzeichen negiert -> Ziel rechts = Rechtskurve. Querlage als asin(basis.x.y)
 		# (gleiches Vorzeichen wie in_roll, sonst Mitkopplung).
-		var current_bank := asin(clampf(b.x.y, -1.0, 1.0))
+		# Querlage als atan2 (voller Bereich, kippt nicht bei 90° wie asin -> kein Taumeln).
+		var current_bank := atan2(b.x.y, b.y.y)
 		var target_bank := clampf(-horiz * AIM_BANK_K, -AIM_BANK_MAX, AIM_BANK_MAX)
 		var d_roll := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
 		var roll_cmd := clampf((d_roll - wb.z) * AIM_ROLL_P, -1.0, 1.0)
-		# Nick: Vertikalfehler -> BEGRENZTE Soll-Nickrate -> GEDÄMPFTE Auslenkung (kein Jagen);
-		# dazu Kurvenzug proportional zum Horizontalfehler (zieht durch die Kurve).
+		# Nick: Vertikalfehler -> BEGRENZTE Soll-Nickrate -> GEDÄMPFTE Auslenkung (kein Jagen).
+		# Kurvenzug NUR wenn gebankt (·|sin(bank)|): sonst zieht die Nase vor dem Einrollen
+		# nutzlos nach oben -> Zeitverlust. So rollt es erst zügig ein und zieht dann durch.
 		var d_pitch := clampf(vert * AIM_PITCH_K, -AIM_PITCH_RATE_MAX, AIM_PITCH_RATE_MAX)
-		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL, -1.0, 1.0)
+		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL * absf(sin(current_bank)), -1.0, 1.0)
 		# Gier: leicht koordiniert Richtung Ziel + gedämpft (vertauscht -> negiert).
 		var yaw_cmd := clampf(-horiz * AIM_YAW_K - wb.y * AIM_YAW_D, -1.0, 1.0)
 		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
