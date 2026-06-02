@@ -470,13 +470,9 @@ func _build_hangar_ui() -> void:
 
 	vb.add_child(HSeparator.new())
 	var move_btn := Button.new()
-	move_btn.text = "✋  Bewegen / Greifen"
+	move_btn.text = "✦  Auswählen / Bewegen"
 	move_btn.pressed.connect(_on_move_tool)
 	vb.add_child(move_btn)
-	var transform_btn := Button.new()
-	transform_btn.text = "✦  Auswählen & Bearbeiten"
-	transform_btn.pressed.connect(_on_transform_tool)
-	vb.add_child(transform_btn)
 	var erase_btn := Button.new()
 	erase_btn.text = "🧹  Abriss-Modus"
 	erase_btn.pressed.connect(_on_erase_tool)
@@ -797,15 +793,8 @@ func _on_pick_part(id: String) -> void:
 
 
 func _on_move_tool() -> void:
-	build_ctrl.set_transform_mode(false)
-	build_ctrl.set_erase_mode(false)
-	build_ctrl.set_paint_mode(false)
-	build_ctrl.set_brush("")
-	_refresh_tool_ui()
-
-
-func _on_transform_tool() -> void:
-	build_ctrl.set_transform_mode(true)
+	# Zurück in den Bearbeiten-Default (auswählen/skalieren/verschieben).
+	build_ctrl.clear_tools()
 	_refresh_tool_ui()
 
 
@@ -921,14 +910,12 @@ func _refresh_tool_ui() -> void:
 	var sel := "" if (build_ctrl.erase_mode or build_ctrl.paint_mode) else build_ctrl.brush_id
 	for pid in part_buttons:
 		part_buttons[pid].set_pressed_no_signal(pid == sel)
-	if build_ctrl.transform_mode:
-		tool_label.text = "Werkzeug: ✦ Bearbeiten – Teil anklicken zum Auswählen (dann skalieren/drehen/löschen im Panel)"
-	elif build_ctrl.erase_mode:
+	if build_ctrl.erase_mode:
 		tool_label.text = "Werkzeug: 🧹 Abriss – Teil anklicken zum Löschen"
 	elif build_ctrl.paint_mode:
 		tool_label.text = "Werkzeug: 🎨 Lackieren – Teil anklicken zum Umfärben"
 	elif build_ctrl.brush_id == "":
-		tool_label.text = "Werkzeug: ✋ Bewegen – Teil ziehen verschiebt, leerer Raum dreht"
+		tool_label.text = "✦ Bearbeiten: Teil anklicken = auswählen (skalieren/drehen/löschen) · Body ziehen = verschieben · leerer Raum = drehen"
 	else:
 		var p := PartCatalog.get_part(build_ctrl.brush_id)
 		tool_label.text = "Werkzeug: %s – ziehen & loslassen zum Setzen" % p.get("name", build_ctrl.brush_id)

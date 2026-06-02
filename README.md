@@ -16,12 +16,13 @@ Der Bau passiert in einem blauen 3D-Blueprint-Raster. Du baust per **Drag & Snap
 | Eingabe | Aktion |
 |---|---|
 | **Teil im Menü wählen → in den Raum ziehen & loslassen** | Neues Teil setzen (rastet flächenbündig an) |
-| **Teil greifen & ziehen** (ohne Werkzeug) | Vorhandenes Teil verschieben (loslassen = einrasten) |
+| **Vorhandenes Teil anklicken** (kein Menü-Teil gewählt) | **Auswählen** → Griffe + Panel: skalieren, drehen, löschen |
+| **Ausgewähltes Teil am Körper ziehen** | Verschieben · **farbige Griffe ziehen** = strecken (Breite/Höhe/Länge) |
 | **Linke Maus auf leeren Raum ziehen** | Ums Flugzeug drehen (Blueprint-Orbit) |
 | **Rechte Maus ziehen** | Ebenfalls Orbit |
 | **Mausrad** | Zoom |
 | **Mittlere Maus ziehen** | Ansicht verschieben |
-| **✋ Bewegen** / **🧹 Abriss** (Buttons) | Werkzeug umschalten |
+| **✦ Auswählen/Bewegen** / **🧹 Abriss** (Buttons) | Zum Bearbeiten zurück / Abriss umschalten |
 | **🎨 Farbe wählen → Teil klicken** | Teil lackieren (Farbe wird gespeichert) |
 | **↶ Undo / ↷ Redo** bzw. **Strg+Z / Strg+Y** | Schritt zurück / vor |
 | **🎯 Ansicht** bzw. **F** | Kamera zentrieren |

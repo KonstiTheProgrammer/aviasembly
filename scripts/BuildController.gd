@@ -33,7 +33,6 @@ var _carrying := false       # gerade wird ein Teil mit der Maus gezogen
 var carry_id := ""
 var _carry_existing := false # vorhandenes Teil aufgenommen (vs. neues aus Palette)
 var _carry_orig := Transform3D()
-var _carry_had_mirror := false
 var _carry_scale := Vector3.ONE
 var _carry_color := Color(0, 0, 0, 0)
 
@@ -55,8 +54,8 @@ var _last_xform := Transform3D()
 var com_marker: MeshInstance3D
 var col_marker: MeshInstance3D
 
-# Transform-Werkzeug (auswählen + Griffe ziehen: Länge/Breite/Höhe + verschieben)
-var transform_mode := false
+# Bearbeiten ist IMMER aktiv, wenn kein Palette-Teil/Abriss/Lackieren gewählt ist
+# (auswählen + Griffe ziehen: Länge/Breite/Höhe + Body ziehen = verschieben).
 var selected_part: Node3D
 var _handles: Array = []          # 6 Flächen-Griffe (StaticBody3D)
 var _drag_handle: Node3D          # gerade gezogener Griff (null = keiner)
@@ -69,6 +68,8 @@ var _drag_origin0 := Vector3.ZERO
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
 var _move_plane := Plane()
 var _move_grab := Vector3.ZERO
+var _edit_xf0 := Transform3D()    # Snapshot bei Drag-Beginn (History nur bei echter Änderung)
+var _edit_sc0 := Vector3.ONE
 
 
 func _ready() -> void:
@@ -174,17 +175,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			MOUSE_BUTTON_LEFT:
 				if event.pressed:
 					_on_left_press()
+				elif _drag_handle != null or _moving_sel:
+					_transform_release()
 				else:
-					if transform_mode:
-						_transform_release()
-					else:
-						_on_left_release()
+					_on_left_release()
 	elif event is InputEventMagnifyGesture:        # Trackpad-Pinch zum Zoomen
 		orbit_dist /= maxf(event.factor, 0.01)
 	elif event is InputEventPanGesture:            # Zwei-Finger-Scroll zum Zoomen
 		orbit_dist += event.delta.y * 0.6
 	elif event is InputEventMouseMotion:
-		if transform_mode and (_drag_handle != null or _moving_sel):
+		if _drag_handle != null or _moving_sel:
 			_update_transform_drag()
 		elif _carrying:
 			pass # Ghost folgt der Maus in _update_ghost()
@@ -212,7 +212,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_F:
 				reset_camera()
 			KEY_ESCAPE:
-				if transform_mode and selected_part != null:
+				if selected_part != null:
 					_deselect()
 				elif _carrying:
 					_cancel_carry()
@@ -224,11 +224,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				symmetry = not symmetry
 
 
-# Linke Maustaste gedrückt: Teil aufnehmen / platzieren / Kamera drehen
+# Linke Maustaste gedrückt: Palette-Teil platzieren / Abriss / Lackieren / Bearbeiten.
+# Ohne Palette-Teil (und ohne Abriss/Lackieren) = BEARBEITEN: Teil auswählen (Griffe + Panel),
+# Body ziehen verschiebt. So ist die "Auswählen & Bearbeiten"-Funktion im Normalmodus drin.
 func _on_left_press() -> void:
-	if transform_mode:
-		_transform_left_press()
-		return
 	var hit := _raycast_mouse()
 	if erase_mode:
 		_delete_hovered()
@@ -248,25 +247,8 @@ func _on_left_press() -> void:
 		else:
 			_left_orbit = true   # auf leeren Raum geklickt -> drehen
 		return
-	# Kein Teil gewählt: vorhandenes Teil greifen, sonst Kamera drehen
-	var part := _part_from_hit(hit)
-	if part != null and not part.get_meta("is_root", false):
-		carry_id = part.get_meta("part_id")
-		_carry_existing = true
-		_carry_orig = part.transform
-		_carry_scale = part.get_meta("pscale", Vector3.ONE)
-		_carry_color = part.get_meta("color", Color(0, 0, 0, 0))
-		_carry_had_mirror = part.has_meta("mirror")
-		if _carry_had_mirror:
-			var m = part.get_meta("mirror")
-			if is_instance_valid(m):
-				m.free()
-		part.free()
-		_carrying = true
-		_rebuild_ghost()
-		_notify_changed()
-	else:
-		_left_orbit = true
+	# Kein Palette-Teil -> Bearbeiten (auswählen / Griffe / verschieben)
+	_transform_left_press()
 
 
 func _on_left_release() -> void:
@@ -305,15 +287,12 @@ func _cancel_carry() -> void:
 # Transform-Werkzeug: Teil auswählen, Flächen-Griffe ziehen (Länge/Breite/Höhe),
 # Body ziehen = verschieben. Wie SimplePlanes/Blender-Transform.
 # ===========================================================================
-func set_transform_mode(b: bool) -> void:
-	transform_mode = b
-	if b:
-		brush_id = ""
-		erase_mode = false
-		paint_mode = false
-		_rebuild_ghost()
-	else:
-		_deselect()
+# In den Bearbeiten-Default zurück (kein Palette-Teil, kein Abriss/Lackieren).
+func clear_tools() -> void:
+	brush_id = ""
+	erase_mode = false
+	paint_mode = false
+	_rebuild_ghost()
 
 
 func _axis_vec(i: int) -> Vector3:
@@ -353,10 +332,28 @@ func nudge_scale(axis: int, factor: float) -> void:
 	var sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
 	var v := [sc.x, sc.y, sc.z]
 	v[axis] = clampf(float(v[axis]) * factor, 0.25, 6.0)
-	_apply_sel_transform(selected_part.transform.basis, selected_part.position,
-		Vector3(v[0], v[1], v[2]))
+	var new_sc := Vector3(v[0], v[1], v[2])
+	# Beim Skalieren die zur Rumpfmitte/Wurzel zeigende Fläche fix lassen -> kein Spalt.
+	var origin := _scale_anchor_origin(selected_part, axis, sc, new_sc)
+	_apply_sel_transform(selected_part.transform.basis, origin, new_sc)
 	_emit_selection()
 	_push_history()
+
+
+# Neue Position beim Skalieren, so dass die zur Wurzel (Rumpfmitte, 0,0,0) NÄHERE Fläche
+# fix bleibt — die Anbindung ans Nachbarteil bleibt bündig, es wächst nach außen.
+func _scale_anchor_origin(part: Node3D, axis_i: int, old_s: Vector3, new_s: Vector3) -> Vector3:
+	var p := PartCatalog.get_part(part.get_meta("part_id"))
+	var bs: Vector3 = PartCatalog.col_size(p)
+	var base: float = [bs.x, bs.y, bs.z][axis_i]
+	var oh: float = base * [old_s.x, old_s.y, old_s.z][axis_i] * 0.5
+	var nh: float = base * [new_s.x, new_s.y, new_s.z][axis_i] * 0.5
+	var wdir: Vector3 = (part.transform.basis * _axis_vec(axis_i)).normalized()
+	var c: Vector3 = part.position
+	# Die näher an der Wurzel liegende der beiden Flächen verankern:
+	if (c - wdir * oh).length() <= (c + wdir * oh).length():
+		return c + wdir * (nh - oh)   # −wdir-Fläche (innen) bleibt fix -> wächst nach außen
+	return c - wdir * (nh - oh)       # +wdir-Fläche bleibt fix
 
 
 func reset_selected_scale() -> void:
@@ -489,11 +486,15 @@ func _begin_handle_drag(handle: Node3D) -> void:
 	var b := selected_part.global_transform.basis
 	_drag_axis_w = (b * _axis_vec(_drag_axis_i)).normalized() * _drag_sign
 	_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
+	_edit_xf0 = selected_part.transform
+	_edit_sc0 = _drag_scale0
 
 
 func _begin_move() -> void:
 	_moving_sel = true
 	_drag_handle = null
+	_edit_xf0 = selected_part.transform
+	_edit_sc0 = selected_part.get_meta("pscale", Vector3.ONE)
 	var n := -camera.global_transform.basis.z      # Kamera-Blickrichtung
 	var o := selected_part.global_position
 	_move_plane = Plane(n, o.dot(n))
@@ -520,7 +521,9 @@ func _update_transform_drag() -> void:
 			sc.y = new_s
 		else:
 			sc.z = new_s
-		var moved: float = (base_i * new_s * 0.5 - half0) * 0.5
+		# Mittelpunkt um die VOLLE Größenänderung verschieben -> die gegenüberliegende
+		# (angeheftete) Fläche bleibt exakt fix -> kein Spalt/Überlappung zum Nachbarteil.
+		var moved: float = base_i * new_s * 0.5 - half0
 		var origin := _drag_origin0 + _drag_axis_w * moved
 		_apply_sel_transform(selected_part.transform.basis, origin, sc)
 	elif _moving_sel:
@@ -566,9 +569,13 @@ func _plane_ray() -> Vector3:
 
 
 func _transform_release() -> void:
-	if _drag_handle != null or _moving_sel:
-		_push_history()
-		_notify_changed()
+	# History nur, wenn sich wirklich was geändert hat (reiner Auswahl-Klick -> kein Undo-Müll).
+	if (_drag_handle != null or _moving_sel) and selected_part != null:
+		var moved_sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+		var changed: bool = selected_part.transform != _edit_xf0 or moved_sc != _edit_sc0
+		if changed:
+			_push_history()
+			_notify_changed()
 	_drag_handle = null
 	_moving_sel = false
 	_left_orbit = false
@@ -582,7 +589,6 @@ func set_brush(id: String) -> void:
 	if id != "":
 		erase_mode = false
 		paint_mode = false
-		transform_mode = false
 		_deselect()
 	ghost_rot = 0
 	_rebuild_ghost()
@@ -593,7 +599,6 @@ func set_erase_mode(b: bool) -> void:
 	if b:
 		brush_id = ""
 		paint_mode = false
-		transform_mode = false
 		_deselect()
 	_rebuild_ghost()
 
@@ -603,7 +608,6 @@ func set_paint_mode(b: bool) -> void:
 	if b:
 		brush_id = ""
 		erase_mode = false
-		transform_mode = false
 		_deselect()
 	_rebuild_ghost()
 
@@ -613,7 +617,6 @@ func set_paint_color(c: Color) -> void:
 	paint_mode = true
 	brush_id = ""
 	erase_mode = false
-	transform_mode = false
 	_deselect()
 	_rebuild_ghost()
 

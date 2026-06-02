@@ -152,8 +152,9 @@ Querruder, kein Auftrieb.
 - **Symmetrie:** spiegelt über X (`_mirror_xform`) → erzeugt eine **improper** Basis
   (det<0). Für **Kollision** wird daraus eine proper Basis gemacht (x-Spalte negieren),
   sonst kaputter Trägheitstensor → Physik-Explosion/NaN.
-- **Werkzeuge:** Bewegen / Abriss / Lackieren (Farbpalette, Farbe wird im Design +
-  Save gespeichert). **Undo/Redo** (`_history`, Strg+Z/Y). **R** dreht Box-Teile (90°)
+- **Werkzeuge:** Bearbeiten (Default — auswählen/skalieren/verschieben) / Abriss / Lackieren
+  (Farbpalette, Farbe wird im Design + Save gespeichert). „✦ Auswählen/Bewegen"-Button
+  (`clear_tools`) = zurück zum Bearbeiten-Default. **Undo/Redo** (`_history`, Strg+Z/Y). **R** dreht Box-Teile (90°)
   bzw. kippt Flügel (Bank). **M** Symmetrie. **F** Kamera zentrieren.
 - **Windkanal-Ansicht** (`set_wind_tunnel`): Pro-Teil-**Druckwiderstands-Heatmap mit
   VERDECKUNG** (physikalisch korrekt). Der Wind kommt von vorne (−Z). In
@@ -184,18 +185,26 @@ Querruder, kein Auftrieb.
   Himmel + Startbahn. Marker: ● gelb = Schwerpunkt, ● blau = Auftriebspunkt.
 
 ## Steuerung
-**Hangar:** Teil ziehen=setzen/verschieben · leerer Raum/Rechtsmaus=drehen ·
+**Hangar:** Palette-Teil wählen → ziehen=setzen · **vorhandenes Teil klicken=auswählen**
+(Griffe+Panel: skalieren/drehen/löschen), **Body ziehen=verschieben** · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
 `Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · Tab=Testflug.
-**Bearbeiten-Werkzeug „✦ Auswählen & Bearbeiten"** (`set_transform_mode`): Teil klicken =
-**auswählen** → 6 farbige Flächen-Griffe (X=rot Breite, Y=grün Höhe, Z=blau Länge; Griff
-ziehen = Achse strecken/Gegenfläche verankert, Body ziehen = verschieben) **UND** ein
+**Bearbeiten ist der DEFAULT** (kein separater Modus mehr): wenn kein Palette-Teil/Abriss/
+Lackieren aktiv ist (`brush_id==""`), wird in `_on_left_press` direkt `_transform_left_press`
+aufgerufen — Teil klicken = **auswählen** → 6 farbige Flächen-Griffe (X=rot Breite, Y=grün
+Höhe, Z=blau Länge; Griff ziehen = Achse strecken, Body ziehen = verschieben) **UND** ein
 Kontext-Panel rechts (Main `_build_selection_panel`/`_on_selection_changed`, via Signal
 `selection_changed`): pro-Achse −/+ (`nudge_scale`), `rotate_selected`/`tilt_selected`,
-`reset_selected_scale`, **🗑 `delete_selected`** (Cockpit/Root nicht löschbar). Pro-Teil-
-Skalierung (`pscale`, Vector3) in get/load_design persistiert; `_apply_part_scale` skaliert
-Visual+Pickbox; FlightController/compute_stats skalieren Masse~Volumen, Schub~Volumen,
-Fläche~x·z, Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl).
+`reset_selected_scale`, **🗑 `delete_selected`** (Cockpit/Root nicht löschbar). Ein Palette-Teil
+wählen = Bauen, `clear_tools()`/Esc = zurück zum Bearbeiten. (`set_transform_mode` und der
+„Bewegen/Greifen"-Carry sind entfernt; History nur bei echter Änderung via `_edit_xf0/_edit_sc0`-Snapshot.)
+**Skalieren ohne Spalt:** Griff-Ziehen verschiebt den Mittelpunkt um die VOLLE Größenänderung
+(`moved = base·new_s·0.5 − half0`, kein `·0.5`) → Gegenfläche bleibt fix. Panel +/-
+(`nudge_scale`) verankert via `_scale_anchor_origin` die zur Wurzel (0,0,0) NÄHERE Fläche →
+Flügel wächst nach außen, Anbindung an die Hülle bleibt bündig. Pro-Teil-Skalierung
+(`pscale`, Vector3) in get/load_design persistiert; `_apply_part_scale` skaliert Visual+Pickbox;
+FlightController/compute_stats skalieren Masse~Volumen, Schub~Volumen, Fläche~x·z,
+Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl).
 **Flug:** **Maus/Touchpad = Umschauen** (Orbit-Kamera, Maus im Flug `MOUSE_MODE_CAPTURED`,
 schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in FlightController) ·
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
