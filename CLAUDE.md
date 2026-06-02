@@ -260,10 +260,11 @@ Richtungen aufs Ziel (vorne/rechts/180°-hinten/oben, align≈1.0), stabil (maxA
   unteren Bildbereich** (~0.78), nicht mittig.
 - **Fass-Roll (`barrel_roll`, A/D lange halten ≥ `BARREL_HOLD`):** FlightController trackt die
   A/D-Haltezeit (`_roll_hold`/`_roll_dir`) und setzt `aircraft.barrel_roll = ±1`. `AircraftBody`
-  rollt dann **kinematisch** um die **Längsachse** (`_barrel_step`: Quaternion um `basis.z`,
-  Rate `BARREL_RATE`) — die Nase liegt auf der Rollachse, **Flugrichtung bleibt erhalten**
-  (sauberer Aileron-/Fass-Roll, kein Trudeln). Überschreibt den normalen Roll-Torque solange
-  gehalten; Flügelbruch dabei aus. Headless: Heading-Abweichung ~0°, Querlage dreht voll durch.
+  rollt dann **physikalisch** (NICHT kinematisch — sonst steif/unnatürlich): der Roll-Befehl
+  wird zum **Raten-Regler** auf `BARREL_RATE` (`rr = (BARREL_RATE·dir − wb.z)·BARREL_GAIN`),
+  die **Roll-Dämpfung ist dabei aus** (sonst kommt die Rolle nicht auf Touren). So gibt's
+  echte Trägheit beim Anrollen und die Nase wandert natürlich (≈ Aileron-Roll), nur die Rate
+  ist begrenzt (~4.5 rad/s gemessen). Flügelbruch dabei aus. Headless: stabil, maxAngVel<8.
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 

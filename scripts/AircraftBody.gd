@@ -44,7 +44,8 @@ const DAMP_ROLL := 2.5
 const MOUSE_AUTH := 1.4       # Maus-Flug: mehr Steuer-Autorität -> Soll-Raten schneller (Obergrenze: darüber überzieht/stallt der Nick)
 const ARCADE_RESP := 6.0      # Arcade: wie schnell/smooth die Orientierung aufs Ziel slerpt (1/s) — exponentiell, kein Überschwingen
 const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase folgt (fliegt wohin sie zeigt, kein Schlittern)
-const BARREL_RATE := 6.5      # Fass-Roll-Rate (rad/s) — ~1 Rolle pro Sekunde, kinematisch um die Längsachse
+const BARREL_RATE := 5.0      # Fass-Roll: Ziel-Rollrate (rad/s) ~ 1 Rolle / 1,25 s (physikalisch geregelt)
+const BARREL_GAIN := 0.9      # Fass-Roll: P-Anteil Rollraten-Regler (sanftes Anrollen)
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
@@ -506,27 +507,33 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		if gd > 0.0:
 			tf += -v_lin.normalized() * (0.5 * rho * sp * sp * gd * 0.06)
 
-	# --- Steuerung: Arcade / Barrel Roll (kinematisch) ODER Steuerflächen-Torque ---------
+	# --- Steuerung: Arcade (kinematisch) ODER Steuerflächen-Torque (inkl. Fass-Roll) ---------
 	var arcade_steer := arcade and mouse_fly
-	var do_barrel := barrel_roll != 0 and not arcade_steer
-	if not arcade_steer and not do_barrel:
+	if not arcade_steer:
 		var wb := xf.basis.transposed() * v_ang
 		var inv := -1.0 if inverted else 1.0
 		# Steuer-Autorität skaliert mit Staudruck: langsam teigig, schnell knackig
 		var qfac := clampf(0.5 * rho * airspeed * airspeed / 180.0, 0.04, 2.0)
+		var roll_cmd := in_roll * inv * (CTRL_ROLL + CTRL_ROLL_A * roll_area)
+		if barrel_roll != 0:
+			# Fass-Roll: Roll als RATENREGLER auf BARREL_RATE -> PHYSIKALISCH (Trägheit beim
+			# Anrollen, Nase wandert leicht = natürlich), aber auf eine kontrollierte Rate begrenzt.
+			var rr := clampf((BARREL_RATE * float(barrel_roll) - wb.z) * BARREL_GAIN, -1.0, 1.0)
+			roll_cmd = rr * (CTRL_ROLL + CTRL_ROLL_A * roll_area)
 		var cmd := Vector3(
 			in_pitch * inv * (CTRL_PITCH + CTRL_PITCH_A * pitch_area),
 			in_yaw * inv * (CTRL_YAW + CTRL_YAW_A * yaw_area),
-			in_roll * inv * (CTRL_ROLL + CTRL_ROLL_A * roll_area))
+			roll_cmd)
 		tt += xf.basis * (cmd * qfac * mass * (MOUSE_AUTH if mouse_fly else 1.0))
 		# Aerodynamische Drehdämpfung (gegen Schwingen) — wächst mit Tempo.
-		# Assist verstärkt NUR Nick/Gier (Stabilität); Rollen bleibt knackig.
+		# Im Fass-Roll die ROLL-Dämpfung aus (sonst kommt die Rolle nicht auf Touren);
+		# Nick/Gier bleiben gedämpft. Assist verstärkt nur Nick/Gier.
 		var dfac := (0.35 + qfac) * mass
 		var apq := 1.6 if assist else 1.0
-		tt += xf.basis * (-Vector3(wb.x * DAMP_PITCH * apq, wb.y * DAMP_YAW * apq, wb.z * DAMP_ROLL) * dfac)
-		# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist).
-		# Im Maus-Flug NICHT: dort regelt der Bank-to-turn-Regler die Querlage selbst.
-		if assist and not mouse_fly and absf(in_roll) < 0.05 and airspeed > 6.0:
+		var roll_d: float = 0.0 if barrel_roll != 0 else wb.z * DAMP_ROLL
+		tt += xf.basis * (-Vector3(wb.x * DAMP_PITCH * apq, wb.y * DAMP_YAW * apq, roll_d) * dfac)
+		# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist; nicht im Fass-Roll).
+		if assist and not mouse_fly and barrel_roll == 0 and absf(in_roll) < 0.05 and airspeed > 6.0:
 			tt += xf.basis.z * (-xf.basis.x.y * LEVEL_K * mass)
 
 	# --- Sicherheit & Anwenden ---------------------------------------------
@@ -539,8 +546,6 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	state.apply_central_force(tf)
 	if arcade_steer:
 		_arcade_steer(state)   # kinematische, butterweiche Lenkung (keine Stall-/G-Grenze)
-	elif do_barrel:
-		_barrel_step(state)    # Fass-Roll: kinematisch um die Längsachse, Nase behält die Richtung
 	else:
 		state.apply_torque(tt)
 		if state.angular_velocity.length() > MAX_ANGVEL:
@@ -583,15 +588,3 @@ func _arcade_steer(state: PhysicsDirectBodyState3D) -> void:
 		state.linear_velocity = state.linear_velocity.lerp(nd * spd, clampf(ARCADE_VEL * state.step, 0.0, 1.0))
 
 
-# Fass-Roll (War-Thunder-Stil): rollt kinematisch um die LÄNGSACHSE (Nase = Rollachse, bleibt
-# also in Flugrichtung), butterweich und ohne Trudeln. Schub/Auftrieb/Schwerkraft wirken weiter.
-func _barrel_step(state: PhysicsDirectBodyState3D) -> void:
-	var b := state.transform.basis
-	# Um +Z (Längsachse, gleiche Achse wie der in_roll-Torque) rollen -> Richtung wie A/D.
-	# Die Nase (−Z) liegt auf der Rollachse -> Flugrichtung bleibt erhalten.
-	var axis := b.z.normalized()
-	var nb := (Basis(Quaternion(axis, BARREL_RATE * float(barrel_roll) * state.step)) * b).orthonormalized()
-	var xform := state.transform
-	xform.basis = nb
-	state.transform = xform
-	state.angular_velocity = Vector3.ZERO
