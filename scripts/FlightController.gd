@@ -12,6 +12,7 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
+const CAM_LOOK_ABOVE := 3.6     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tiefer im Bild (unteres Drittel)
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
@@ -437,7 +438,8 @@ func _process(delta: float) -> void:
 			up_ref = t.basis.y
 		var cam_pos := t.origin - aim * 12.0 + Vector3.UP * 3.2
 		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 6.0, 0.0, 1.0))
-		camera.look_at(t.origin + aim * 30.0, up_ref)
+		# Blickpunkt etwas ÜBER dem Flieger -> Kamera neigt sich hoch -> Flieger sitzt tiefer im Bild
+		camera.look_at(t.origin + aim * 30.0 + Vector3.UP * CAM_LOOK_ABOVE, up_ref)
 		return
 	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
 	_mouse_idle += delta

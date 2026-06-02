@@ -232,7 +232,8 @@ vgl. Tastatur A=rechts) ⇒ horiz-Vorzeichen negiert, damit Ziel-rechts=Rechtsku
 (2) Befehle **direkt** anwenden (kein `_ramp` im Maus-Flug → sonst Brems-Verzug→Überschwingen).
 (3) `AircraftBody.mouse_fly`-Flag schaltet das Assist-Auto-Leveling ab. Beim Einschalten wird
 `look` auf die aktuelle Nasenrichtung gesetzt (kein Ruck). **Kamera** blickt im Maus-Flug in
-die Zielrichtung (`_process`-Zweig: Pos hinter `-aim`, `look_at` entlang `+aim`), kein
+die Zielrichtung (`_process`-Zweig: Pos hinter `-aim`, `look_at` entlang `+aim` **+UP·CAM_LOOK_ABOVE**
+→ Flieger sitzt im **unteren Bilddrittel** ~0.72, nicht mittig), kein
 Zurückschwenken. HUD: **Zielmarker** ⊕ grün (`unproject` von `pos+aim·400`) + **Nasenmarker**
 ◇ gelb (`pos−basis.z·400`); decken sie sich, fliegt es genau aufs Ziel. Sichtbarkeit via
 `is_position_behind` (`aim_vis`/`nose_vis`). Headless verifiziert: Nase konvergiert in alle
