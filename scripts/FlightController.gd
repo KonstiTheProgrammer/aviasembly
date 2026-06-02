@@ -16,14 +16,20 @@ const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft z
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
 const AIM_LOOK_SENS := 0.005    # Maus -> Blick-/Zielrichtung (rad pro Pixel)
+const AIM_SMOOTH := 10.0        # Glättung der Zielrichtung, der der Regler folgt (1/s) -> smoother Flugweg
+const AIM_DEADZONE := 0.012     # Totbereich (rad) am Ziel -> kein Marker-Zittern (Limit-Cycle)
 const AIM_BANK_MAX := 1.2       # max. Querlage in Kurven (~69°)
 const AIM_BANK_K := 1.7         # Horizontal-Zielfehler (rad) -> Soll-Querlage
 const AIM_BANK_P := 3.0         # Querlage-Fehler -> Soll-Rollrate
 const AIM_ROLL_RATE_MAX := 2.4  # max. Rollrate (rad/s) -> kein Hochschaukeln
 const AIM_ROLL_P := 1.1         # Rollraten-Fehler -> Roll-Auslenkung
-const AIM_PITCH_K := 1.3        # Vertikal-Zielfehler (rad) -> Nick (ziehen/drücken)
+const AIM_PITCH_K := 1.6        # Vertikal-Zielfehler (rad) -> Soll-Nickrate
+const AIM_PITCH_RATE_MAX := 1.7 # max. Nickrate (rad/s)
+const AIM_PITCH_RATE_P := 1.0   # Nickraten-Fehler -> Auslenkung (gedämpft, kein Jagen)
 const AIM_TURN_PULL := 0.75     # Höhenruder-Zug proportional zum Horizontalfehler (zieht durch die Kurve)
 const AIM_YAW_K := 0.3          # leichte Ruderkoordination Richtung Ziel
+const AIM_YAW_D := 0.25         # Gier-Dämpfung
+const AIM_MARK_SMOOTH := 0.4    # Nasenmarker-Pixelglättung (Lerp/Frame)
 
 var camera: Camera3D
 var aircraft: AircraftBody
@@ -34,6 +40,8 @@ var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
 var _mouse_idle := 0.0
 var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase folgt)
+var _aim_smooth := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr -> smoother)
+var _nose_px := Vector2.ZERO    # geglättete Nasenmarker-Pixelposition
 var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
 var nose_screen := Vector2.ZERO # Pixelposition der aktuellen Nasenrichtung
 var aim_visible := true         # Zielmarker im Bild?
@@ -242,23 +250,33 @@ func _physics_process(delta: float) -> void:
 	# Vertikalfehler -> Nick; Zug proportional zum Horizontalfehler zieht durch die Kurve.
 	if mouse_fly:
 		var b := aircraft.global_transform.basis
-		var aim := _aim_dir()                     # Zielrichtung in Weltkoordinaten
-		var e := b.transposed() * aim             # Zielrichtung im Körpersystem (Nase = -Z)
+		# Geglättete Zielrichtung -> der Regler folgt nicht jedem Maus-Ruckeln (smoother Flugweg).
+		_aim_smooth = _aim_smooth.slerp(_aim_dir(), clampf(delta * AIM_SMOOTH, 0.0, 1.0))
+		var e := b.transposed() * _aim_smooth     # Zielrichtung im Körpersystem (Nase = -Z)
 		var horiz := atan2(e.x, -e.z)             # Horizontalwinkel zum Ziel: +rechts, ±π hinten
 		var vert := atan2(e.y, sqrt(e.x * e.x + e.z * e.z))  # Vertikalwinkel: +oben
-		# Roll: Soll-Querlage aus Horizontalfehler. Achsen sind "vertauscht" (in_roll>0 dreht
-		# physikalisch links), daher Vorzeichen negiert -> Ziel rechts = Rechtskurve.
-		var current_bank := asin(clampf(b.x.y, -1.0, 1.0))   # gleiches Vorzeichen wie in_roll
-		var roll_rate := (b.transposed() * aircraft.angular_velocity).z
+		# Kleiner Totbereich nahe am Ziel -> kein Mikro-Zittern (Limit-Cycle) der Nase/Marker.
+		if absf(horiz) < AIM_DEADZONE:
+			horiz = 0.0
+		if absf(vert) < AIM_DEADZONE:
+			vert = 0.0
+		var wb := b.transposed() * aircraft.angular_velocity   # Körperraten (x=Nick, y=Gier, z=Roll)
+		# Roll: Bank-to-turn-Kaskade. Achsen "vertauscht" (in_roll>0 dreht physikalisch links),
+		# daher Vorzeichen negiert -> Ziel rechts = Rechtskurve. Querlage als asin(basis.x.y)
+		# (gleiches Vorzeichen wie in_roll, sonst Mitkopplung).
+		var current_bank := asin(clampf(b.x.y, -1.0, 1.0))
 		var target_bank := clampf(-horiz * AIM_BANK_K, -AIM_BANK_MAX, AIM_BANK_MAX)
-		# Kaskade: Querlage-Fehler -> BEGRENZTE Soll-Rollrate -> Auslenkung (kein Überschwingen)
-		var desired_rate := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
-		var roll_cmd := clampf((desired_rate - roll_rate) * AIM_ROLL_P, -1.0, 1.0)
-		# Nick: vertikal aufs Ziel + Zug durch die Kurve (umso mehr, je weiter das Ziel seitlich)
-		var pitch_cmd := clampf(vert * AIM_PITCH_K + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL, -1.0, 1.0)
+		var d_roll := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
+		var roll_cmd := clampf((d_roll - wb.z) * AIM_ROLL_P, -1.0, 1.0)
+		# Nick: Vertikalfehler -> BEGRENZTE Soll-Nickrate -> GEDÄMPFTE Auslenkung (kein Jagen);
+		# dazu Kurvenzug proportional zum Horizontalfehler (zieht durch die Kurve).
+		var d_pitch := clampf(vert * AIM_PITCH_K, -AIM_PITCH_RATE_MAX, AIM_PITCH_RATE_MAX)
+		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL, -1.0, 1.0)
+		# Gier: leicht koordiniert Richtung Ziel + gedämpft (vertauscht -> negiert).
+		var yaw_cmd := clampf(-horiz * AIM_YAW_K - wb.y * AIM_YAW_D, -1.0, 1.0)
 		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
 		roll = clampf(roll + roll_cmd, -1.0, 1.0)
-		yaw = clampf(yaw - horiz * AIM_YAW_K, -1.0, 1.0)
+		yaw = clampf(yaw + yaw_cmd, -1.0, 1.0)
 
 	aircraft.mouse_fly = mouse_fly   # Body schaltet damit das Auto-Leveling im Maus-Flug ab
 	aircraft.throttle = throttle
@@ -389,6 +407,7 @@ func _toggle_mouse_fly() -> void:
 		var f := -aircraft.global_transform.basis.z
 		look_yaw = atan2(f.x, -f.z)
 		look_pitch = asin(clampf(f.y, -1.0, 1.0))
+		_aim_smooth = _aim_dir()
 	else:
 		look_yaw = 0.0
 		look_pitch = 0.0
@@ -467,7 +486,14 @@ func _update_markers() -> void:
 	aim_visible = not camera.is_position_behind(ap)
 	nose_visible = not camera.is_position_behind(np)
 	aim_screen = camera.unproject_position(ap) if aim_visible else ctr
-	nose_screen = camera.unproject_position(np) if nose_visible else ctr
+	# Nasenmarker zusätzlich pixelgeglättet (kleine Restbewegung der Nase nicht sichtbar zittern)
+	if nose_visible:
+		var raw := camera.unproject_position(np)
+		_nose_px = raw if _nose_px == Vector2.ZERO else _nose_px.lerp(raw, AIM_MARK_SMOOTH)
+		nose_screen = _nose_px
+	else:
+		_nose_px = Vector2.ZERO
+		nose_screen = ctr
 
 
 func _emit_hud() -> void:

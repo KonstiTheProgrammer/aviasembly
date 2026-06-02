@@ -212,8 +212,14 @@ oben). Regler in `_physics_process`: Zielrichtung ins Körpersystem (`e = basis.
   (gekappt `AIM_BANK_MAX`) → *ratenbegrenzte* Soll-Rollrate (`AIM_BANK_P`, Cap `AIM_ROLL_RATE_MAX`)
   → `roll_cmd = (desired_rate − roll_rate)·AIM_ROLL_P`. Querlage als `asin(basis.x.y)`
   (gleiches Vorzeichen wie `in_roll`, sonst Mitkopplung→Aufschaukeln).
-- **Nick** = `vert·AIM_PITCH_K + |horiz|·AIM_TURN_PULL` (Zug zieht durch die Kurve).
-- **Gier** leicht koordiniert `−horiz·AIM_YAW_K`.
+- **Nick** = ebenfalls Raten-Kaskade (Vertikalfehler→Soll-Nickrate `AIM_PITCH_K`, Cap
+  `AIM_PITCH_RATE_MAX`, dann `(d_pitch−wb.x)·AIM_PITCH_RATE_P`, **gedämpft**) + `|horiz|·AIM_TURN_PULL`.
+- **Gier** koordiniert `−horiz·AIM_YAW_K` **−`wb.y·AIM_YAW_D`** (gedämpft).
+- **Anti-Zittern/smoother Flugweg:** Regler folgt einer **geglätteten** Zielrichtung
+  (`_aim_smooth.slerp(_aim_dir(), δ·AIM_SMOOTH)`), kleiner **Totbereich** `AIM_DEADZONE` auf
+  horiz/vert killt den Limit-Cycle, Pitch/Yaw sind **gedämpft** (Raten-Terme `wb.x`/`wb.y`),
+  Nasenmarker zusätzlich pixelgeglättet (`AIM_MARK_SMOOTH`). Headless: eingeschwungen
+  Schwankung <0.002, Restdrehrate <0.03 (kein Jagen).
 **Wichtig:** (1) Roll-/Gier-Achsen sind „vertauscht" (in_roll>0 dreht physikalisch links,
 vgl. Tastatur A=rechts) ⇒ horiz-Vorzeichen negiert, damit Ziel-rechts=Rechtskurve.
 (2) Befehle **direkt** anwenden (kein `_ramp` im Maus-Flug → sonst Brems-Verzug→Überschwingen).
