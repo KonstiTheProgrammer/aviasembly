@@ -49,7 +49,9 @@ func _physics_process(delta: float) -> void:
 func _home(delta: float) -> void:
 	# Suchkopf: nur lenken, wenn ein Ziel im Suchradius UND grob voraus ist.
 	# Sonst fliegt die Rakete geradeaus weiter.
-	if not _in_seek(_target):
+	# WICHTIG: _target erst auf Gültigkeit prüfen (Kurzschluss!), sonst wird ein
+	# bereits freigegebenes Ziel an _in_seek(t: Node3D) übergeben -> Typ-Check-Crash.
+	if not is_instance_valid(_target) or not _in_seek(_target):
 		_target = _nearest()
 	if is_instance_valid(_target):
 		var dir: Vector3 = (_target.global_position - global_position).normalized()
