@@ -202,26 +202,28 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
 `M` **Maus-Flug** umschalten · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
-**Maus-Flug (War-Thunder-Stil, `mouse_fly`, Taste `M`):** Statt Umschauen bewegt die Maus
-einen **Steuermarker** (`_aim`, normiert auf Einheitskreis, integriert aus `event.relative`
-× `AIM_SENS`). **Bank-to-turn statt Roll-Rate** (sonst rollt es endlos/trudelt!): der
-seitliche Marker gibt eine **Soll-Querlage** vor (`target_bank = -_aim.x·AIM_BANK_MAX`),
-ein **Kaskadenregler** regelt darauf: Querlage-Fehler → *begrenzte* Soll-Rollrate
-(`AIM_BANK_P`, gekappt auf `AIM_ROLL_RATE_MAX` ⇒ kein Hochschaukeln) → Roll-Auslenkung
-(`AIM_ROLL_P`·Ratenfehler). So legt sich der Flieger auf eine feste Schräglage und **hält**
-sie (fliegt die Kurve), beim Zentrieren richtet er **selbst** auf. Nick = `-_aim.y·AIM_PITCH`
-(+ etwas `AIM_TURN_PULL`·sin(bank) Kurvenzug), Gier leicht koordiniert. **Wichtig:**
-(1) Querlage als `asin(basis.x.y)` messen — **gleiches Vorzeichen wie `in_roll`**, sonst
-Mitkopplung→Aufschaukeln. (2) Roll-/Gier-Achsen sind hier „vertauscht" (in_roll>0 dreht
-physikalisch links, vgl. Tastatur A=rechts) ⇒ Marker-Vorzeichen negiert, damit Marker
-rechts→Rechtskurve. (3) Im Maus-Flug Befehle **direkt** (kein `_ramp`) anwenden — sonst
-verzögert das Glätten den Brems-Befehl → Überschwingen. (4) `AircraftBody.mouse_fly`-Flag
-schaltet das Assist-Auto-Leveling ab (sonst kämpft es gegen die gehaltene Querlage).
-Kamera bleibt hinter dem Flieger (look=0). HUD (`_update_markers`→`_emit_hud`): **Steuermarker**
-⊕ grün (Cursor/Wunschrichtung) + **Nasenmarker** ◇ gelb (`camera.unproject_position`, 150 m
-voraus); statisches Fadenkreuz aus (Main `_make_marker`/`_on_hud_changed`, `center_cross`/
-`aim_marker`/`nose_marker`). Headless verifiziert: stabil (max ~0.74 rad, kein Überschwingen),
-Marker rechts→rechts / links→links, richtet beim Zentrieren auf.
+**Maus-Flug (War-Thunder-Stil, `mouse_fly`, Taste `M`):** Die Maus zeigt frei in eine
+**WELTRICHTUNG** (`look_yaw`/`look_pitch` als absolute Zielrichtung, `_aim_dir()` =
+Einheitsvektor; yaw 360° per `wrapf`), das Flugzeug **dreht seine Nase dorthin** (Pursuit).
+Schaust du nach Westen, fliegt es nach Westen — voll 360° (auch 180° hinten rum, Nase nach
+oben). Regler in `_physics_process`: Zielrichtung ins Körpersystem (`e = basis.transposed()·aim`),
+**Horizontalfehler** `horiz=atan2(e.x,-e.z)` und **Vertikalfehler** `vert=atan2(e.y,…)`.
+- **Roll = Bank-to-turn-Kaskade** (sonst Trudeln): `target_bank = -horiz·AIM_BANK_K`
+  (gekappt `AIM_BANK_MAX`) → *ratenbegrenzte* Soll-Rollrate (`AIM_BANK_P`, Cap `AIM_ROLL_RATE_MAX`)
+  → `roll_cmd = (desired_rate − roll_rate)·AIM_ROLL_P`. Querlage als `asin(basis.x.y)`
+  (gleiches Vorzeichen wie `in_roll`, sonst Mitkopplung→Aufschaukeln).
+- **Nick** = `vert·AIM_PITCH_K + |horiz|·AIM_TURN_PULL` (Zug zieht durch die Kurve).
+- **Gier** leicht koordiniert `−horiz·AIM_YAW_K`.
+**Wichtig:** (1) Roll-/Gier-Achsen sind „vertauscht" (in_roll>0 dreht physikalisch links,
+vgl. Tastatur A=rechts) ⇒ horiz-Vorzeichen negiert, damit Ziel-rechts=Rechtskurve.
+(2) Befehle **direkt** anwenden (kein `_ramp` im Maus-Flug → sonst Brems-Verzug→Überschwingen).
+(3) `AircraftBody.mouse_fly`-Flag schaltet das Assist-Auto-Leveling ab. Beim Einschalten wird
+`look` auf die aktuelle Nasenrichtung gesetzt (kein Ruck). **Kamera** blickt im Maus-Flug in
+die Zielrichtung (`_process`-Zweig: Pos hinter `-aim`, `look_at` entlang `+aim`), kein
+Zurückschwenken. HUD: **Zielmarker** ⊕ grün (`unproject` von `pos+aim·400`) + **Nasenmarker**
+◇ gelb (`pos−basis.z·400`); decken sie sich, fliegt es genau aufs Ziel. Sichtbarkeit via
+`is_position_behind` (`aim_vis`/`nose_vis`). Headless verifiziert: Nase konvergiert in alle
+Richtungen aufs Ziel (vorne/rechts/180°-hinten/oben, align≈1.0), stabil (maxAngVel<2).
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 

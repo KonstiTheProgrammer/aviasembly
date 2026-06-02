@@ -1046,16 +1046,16 @@ func _on_hud_changed(d: Dictionary) -> void:
 		thr_txt, int(d["kmh"]), int(d["speed"]),
 		int(d["alt"]), d["climb"], int(d["aoa"]), d.get("gforce", 1.0),
 		d.get("wings", "ok"), d.get("gear", "—"), inv_txt, assist_txt, mf_txt, nav]
-	# Maus-Flug-Marker: Steuermarker (Cursor) + Nasenrichtung; statisches Kreuz aus
+	# Maus-Flug-Marker: Zielmarker (Maus/Weltrichtung) + Nasenrichtung; statisches Kreuz aus
 	if center_cross:
 		center_cross.visible = not mf
 	if aim_marker:
-		aim_marker.visible = mf
-		if mf:
+		aim_marker.visible = mf and bool(d.get("aim_vis", true))
+		if aim_marker.visible:
 			aim_marker.position = (d.get("aim", Vector2.ZERO) as Vector2) - aim_marker.size * 0.5
 	if nose_marker:
-		nose_marker.visible = mf
-		if mf:
+		nose_marker.visible = mf and bool(d.get("nose_vis", true))
+		if nose_marker.visible:
 			nose_marker.position = (d.get("nose", Vector2.ZERO) as Vector2) - nose_marker.size * 0.5
 	stall_label.visible = d.get("stall", false) and d.get("speed", 0.0) > 4.0
 	if land_label:

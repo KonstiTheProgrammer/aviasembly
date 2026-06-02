@@ -13,16 +13,17 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 
-# --- Maus-Flug (War-Thunder-Stil): Cursor zeigt wohin, Nase folgt -----------
-const AIM_SENS := 0.0019        # Maus -> Steuermarker
-const AIM_RADIUS_F := 0.32      # Marker-Bewegungsradius (Anteil kürzerer Bildkante)
-const AIM_PITCH := 1.3          # Marker hoch/runter -> Nick-Auslenkung
-const AIM_BANK_MAX := 1.05      # Marker ganz seitlich -> Soll-Querlage (~60°)
+# --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
+#     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
+const AIM_LOOK_SENS := 0.005    # Maus -> Blick-/Zielrichtung (rad pro Pixel)
+const AIM_BANK_MAX := 1.2       # max. Querlage in Kurven (~69°)
+const AIM_BANK_K := 1.7         # Horizontal-Zielfehler (rad) -> Soll-Querlage
 const AIM_BANK_P := 3.0         # Querlage-Fehler -> Soll-Rollrate
-const AIM_ROLL_RATE_MAX := 1.8  # max. Rollrate (rad/s) -> verhindert Hochschaukeln/Überschwingen
+const AIM_ROLL_RATE_MAX := 2.4  # max. Rollrate (rad/s) -> kein Hochschaukeln
 const AIM_ROLL_P := 1.1         # Rollraten-Fehler -> Roll-Auslenkung
-const AIM_TURN_PULL := 0.22     # etwas Höhenruder-Zug in der Kurve (hält die Nase oben)
-const AIM_YAW := 0.35           # leicht koordiniert in Kurvenrichtung gieren
+const AIM_PITCH_K := 1.3        # Vertikal-Zielfehler (rad) -> Nick (ziehen/drücken)
+const AIM_TURN_PULL := 0.75     # Höhenruder-Zug proportional zum Horizontalfehler (zieht durch die Kurve)
+const AIM_YAW_K := 0.3          # leichte Ruderkoordination Richtung Ziel
 
 var camera: Camera3D
 var aircraft: AircraftBody
@@ -32,10 +33,11 @@ var spawn_height := 2.0
 var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
 var _mouse_idle := 0.0
-var mouse_fly := false          # Maus-Flug an? (Cursor lenkt, statt umzuschauen)
-var _aim := Vector2.ZERO        # Steuermarker, normiert (-1..1) ums Bildzentrum
-var aim_screen := Vector2.ZERO  # Pixelposition Steuermarker (fürs HUD)
+var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase folgt)
+var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
 var nose_screen := Vector2.ZERO # Pixelposition der aktuellen Nasenrichtung
+var aim_visible := true         # Zielmarker im Bild?
+var nose_visible := true        # Nasenmarker im Bild?
 # Survival-Upgrade-Multiplikatoren (von Main aus GameState gesetzt)
 var thrust_mult := 1.0
 var wing_mult := 1.0
@@ -234,30 +236,29 @@ func _physics_process(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
 
-	# Maus-Flug: Steuermarker (Cursor) lenkt die Nase. Bank-to-turn -> der seitliche
-	# Marker gibt eine SOLL-QUERLAGE vor, der Roll regelt nur die DIFFERENZ zur aktuellen
-	# Querlage. So legt sich das Flugzeug auf eine feste Schräglage und HÄLT sie (fliegt die
-	# Kurve) statt endlos zu rollen. Marker oben/unten = ziehen/drücken. Additiv zur Tastatur.
+	# Maus-Flug: Die Maus zeigt in eine WELTRICHTUNG (look_yaw/look_pitch), das Flugzeug
+	# dreht seine Nase dorthin (Pursuit) — voll 360°. Schaust du nach Westen, fliegt es nach
+	# Westen. Bank-to-turn: Horizontalfehler -> Soll-Querlage (Kaskade, kein Trudeln);
+	# Vertikalfehler -> Nick; Zug proportional zum Horizontalfehler zieht durch die Kurve.
 	if mouse_fly:
 		var b := aircraft.global_transform.basis
-		# Querlage MUSS gleiches Vorzeichen wie in_roll haben (in_roll>0 lässt basis.x.y
-		# steigen), sonst Mitkopplung -> Aufschaukeln/Trudeln. Marker rechts -> target>0
-		# -> roll_cmd>0 -> deckt sich mit Tastatur (A=rechts).
-		var current_bank := asin(clampf(b.x.y, -1.0, 1.0))
-		var roll_rate := (b.transposed() * aircraft.angular_velocity).z   # aktuelle Rollrate
-		# Marker rechts -> Rechtskurve. Da die Roll-/Gier-Achsen hier "vertauscht" sind
-		# (in_roll>0 dreht physikalisch links, vgl. Tastatur A=rechts), zeigt der Marker
-		# mit umgekehrtem Vorzeichen auf die Soll-Querlage/Gier.
-		var target_bank := -_aim.x * AIM_BANK_MAX
-		# Kaskaden-Regler: Querlage-Fehler -> BEGRENZTE Soll-Rollrate -> Roll-Auslenkung.
-		# Die Ratenbegrenzung verhindert, dass die Rollrate hochschaukelt -> kein
-		# Überschwingen/Trudeln; das Flugzeug legt sich sauber auf die Querlage und hält sie.
+		var aim := _aim_dir()                     # Zielrichtung in Weltkoordinaten
+		var e := b.transposed() * aim             # Zielrichtung im Körpersystem (Nase = -Z)
+		var horiz := atan2(e.x, -e.z)             # Horizontalwinkel zum Ziel: +rechts, ±π hinten
+		var vert := atan2(e.y, sqrt(e.x * e.x + e.z * e.z))  # Vertikalwinkel: +oben
+		# Roll: Soll-Querlage aus Horizontalfehler. Achsen sind "vertauscht" (in_roll>0 dreht
+		# physikalisch links), daher Vorzeichen negiert -> Ziel rechts = Rechtskurve.
+		var current_bank := asin(clampf(b.x.y, -1.0, 1.0))   # gleiches Vorzeichen wie in_roll
+		var roll_rate := (b.transposed() * aircraft.angular_velocity).z
+		var target_bank := clampf(-horiz * AIM_BANK_K, -AIM_BANK_MAX, AIM_BANK_MAX)
+		# Kaskade: Querlage-Fehler -> BEGRENZTE Soll-Rollrate -> Auslenkung (kein Überschwingen)
 		var desired_rate := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
 		var roll_cmd := clampf((desired_rate - roll_rate) * AIM_ROLL_P, -1.0, 1.0)
-		var pitch_cmd := clampf(-_aim.y * AIM_PITCH + absf(sin(current_bank)) * AIM_TURN_PULL, -1.0, 1.0)
+		# Nick: vertikal aufs Ziel + Zug durch die Kurve (umso mehr, je weiter das Ziel seitlich)
+		var pitch_cmd := clampf(vert * AIM_PITCH_K + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL, -1.0, 1.0)
 		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
 		roll = clampf(roll + roll_cmd, -1.0, 1.0)
-		yaw = clampf(yaw - _aim.x * AIM_YAW, -1.0, 1.0)
+		yaw = clampf(yaw - horiz * AIM_YAW_K, -1.0, 1.0)
 
 	aircraft.mouse_fly = mouse_fly   # Body schaltet damit das Auto-Leveling im Maus-Flug ab
 	aircraft.throttle = throttle
@@ -357,10 +358,10 @@ func _ramp(cur: float, target: float, delta: float, rise: float, fall: float) ->
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if mouse_fly:
-			# Maus-Flug: Cursor bewegt den Steuermarker (auf Einheitskreis begrenzt)
-			_aim += event.relative * AIM_SENS
-			if _aim.length() > 1.0:
-				_aim = _aim.normalized()
+			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
+			# Nach rechts schauen -> rechts; nach hinten schauen -> Flieger dreht ganz herum.
+			look_yaw = wrapf(look_yaw + event.relative.x * AIM_LOOK_SENS, -PI, PI)
+			look_pitch = clampf(look_pitch - event.relative.y * AIM_LOOK_SENS, -1.45, 1.45)
 		else:
 			# Umschauen: Kamera frei um das Flugzeug schwenken
 			look_yaw = clampf(look_yaw - event.relative.x * LOOK_SENS, -PI, PI)
@@ -380,12 +381,23 @@ func _unhandled_input(event: InputEvent) -> void:
 			aircraft.toggle_invert()
 
 
-# Maus-Flug umschalten: Cursor lenkt die Nase (an) <-> freies Umschauen (aus).
+# Maus-Flug umschalten: Maus = Weltzielrichtung (an) <-> freies Umschauen (aus).
 func _toggle_mouse_fly() -> void:
 	mouse_fly = not mouse_fly
-	_aim = Vector2.ZERO
-	look_yaw = 0.0
-	look_pitch = 0.0
+	if mouse_fly and is_instance_valid(aircraft):
+		# Zielrichtung auf die aktuelle Nasenrichtung setzen -> kein Ruck beim Einschalten.
+		var f := -aircraft.global_transform.basis.z
+		look_yaw = atan2(f.x, -f.z)
+		look_pitch = asin(clampf(f.y, -1.0, 1.0))
+	else:
+		look_yaw = 0.0
+		look_pitch = 0.0
+
+
+# Zielrichtung (Weltkoordinaten) aus look_yaw/look_pitch. yaw=0,pitch=0 -> -Z (vorne/Nord).
+func _aim_dir() -> Vector3:
+	var cp := cos(look_pitch)
+	return Vector3(sin(look_yaw) * cp, sin(look_pitch), -cos(look_yaw) * cp)
 
 
 # ---------------------------------------------------------------------------
@@ -394,13 +406,24 @@ func _toggle_mouse_fly() -> void:
 func _process(delta: float) -> void:
 	if camera == null or not is_instance_valid(aircraft):
 		return
+	var t := aircraft.global_transform
+	if mouse_fly:
+		# Kamera blickt in die ZIELRICHTUNG (Maus), Flugzeug im Vordergrund -> du siehst,
+		# wohin du zeigst und wie die Nase nachzieht. Kein Zurückschwenken (Ziel bleibt stehen).
+		var aim := _aim_dir()
+		var up_ref := Vector3.UP
+		if absf(aim.dot(Vector3.UP)) > 0.97:
+			up_ref = t.basis.y
+		var cam_pos := t.origin - aim * 12.0 + Vector3.UP * 3.2
+		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 6.0, 0.0, 1.0))
+		camera.look_at(t.origin + aim * 30.0, up_ref)
+		return
 	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
 	_mouse_idle += delta
 	if _mouse_idle > LOOK_RECENTER:
 		var k := clampf(delta * 2.2, 0.0, 1.0)
 		look_yaw = lerpf(look_yaw, 0.0, k)
 		look_pitch = lerpf(look_pitch, 0.0, k)
-	var t := aircraft.global_transform
 	var desired := t.origin + _cam_offset(t)
 	camera.global_position = camera.global_position.lerp(desired, clamp(delta * 6.0, 0.0, 1.0))
 	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
@@ -429,17 +452,22 @@ func _snap_camera() -> void:
 # HUD
 # ---------------------------------------------------------------------------
 func _update_markers() -> void:
-	# Steuermarker = Bildmitte + normierter Maus-Versatz; Nasenmarker = wohin die
-	# Nase aktuell zeigt (150 m voraus auf den Schirm projiziert).
+	# Zielmarker = wohin die Maus zeigt (Weltrichtung), Nasenmarker = wohin die Nase zeigt.
+	# Decken sie sich, fliegt das Flugzeug genau aufs Ziel.
 	var vp := get_viewport().get_visible_rect().size
 	var ctr := vp * 0.5
-	var radius := minf(vp.x, vp.y) * AIM_RADIUS_F
-	aim_screen = ctr + _aim * radius
-	if camera != null and camera.is_inside_tree():
-		var npt := aircraft.global_position - aircraft.global_transform.basis.z * 150.0
-		nose_screen = ctr if camera.is_position_behind(npt) else camera.unproject_position(npt)
-	else:
+	if camera == null or not camera.is_inside_tree():
+		aim_screen = ctr
 		nose_screen = ctr
+		aim_visible = false
+		nose_visible = false
+		return
+	var ap := aircraft.global_position + _aim_dir() * 400.0
+	var np := aircraft.global_position - aircraft.global_transform.basis.z * 400.0
+	aim_visible = not camera.is_position_behind(ap)
+	nose_visible = not camera.is_position_behind(np)
+	aim_screen = camera.unproject_position(ap) if aim_visible else ctr
+	nose_screen = camera.unproject_position(np) if nose_visible else ctr
 
 
 func _emit_hud() -> void:
@@ -450,6 +478,8 @@ func _emit_hud() -> void:
 		"mouse_fly": mouse_fly,
 		"aim": aim_screen,
 		"nose": nose_screen,
+		"aim_vis": aim_visible,
+		"nose_vis": nose_visible,
 		"throttle": throttle,
 		"speed": aircraft.airspeed,
 		"kmh": aircraft.airspeed * 3.6,

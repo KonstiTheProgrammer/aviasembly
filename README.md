@@ -51,11 +51,12 @@ das Flugzeug längsstabil.
 | **Enter** | Reset auf die Startbahn (repariert auch gebrochenes Fahrwerk) |
 | **Tab** | zurück in den Hangar |
 
-**🖱 Maus-Flug (Taste M) — wie in War Thunder:** Statt umzuschauen lenkst du mit der Maus.
-Ein **grüner Steuermarker** ⊕ folgt dem Cursor — das Flugzeug richtet seine Nase **dorthin
-aus** (rollt automatisch in die Kurve und zieht). Ein **gelber Nasenmarker** ◇ zeigt, wohin
-die Nase gerade zeigt. Marker oben rechts halten → das Flugzeug zieht eine Rechtskurve nach
-oben; Marker zur Mitte → Geradeausflug. Tastatur (W/S/A/D/Q/E) funktioniert weiterhin
+**🖱 Maus-Flug (Taste M) — wie in War Thunder:** Die Maus zeigt frei in eine **Richtung in
+der Welt** — und das Flugzeug **dreht seine Nase genau dorthin**. Schaust du nach links,
+fliegt es nach links; schaust du nach hinten, dreht es sich **komplett herum** (volle 360°,
+auch steil hoch/runter). Ein **grüner Zielmarker** ⊕ zeigt, wohin du zielst, ein **gelber
+Nasenmarker** ◇ zeigt, wohin die Nase gerade weist — decken sie sich, fliegst du genau aufs
+Ziel. Kurven (Rollen + Ziehen) werden automatisch koordiniert. Tastatur (W/S/A/D/Q/E) wirkt
 zusätzlich. Nochmal **M** schaltet zurück auf freies Umschauen.
 
 **Landung & Schaden:** Sinkrate beim Aufsetzen zählt — sanft = „Saubere Landung ✓",
