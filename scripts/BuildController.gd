@@ -681,17 +681,31 @@ func _update_transform_drag() -> void:
 		_apply_sel_transform(selected_part.transform.basis, newpos, selected_part.get_meta("pscale", Vector3.ONE))
 
 
-# Wendet Basis/Origin/Skalierung auf das gewählte Teil (und ggf. Spiegelteil) an.
+# Wendet Basis/Origin/Skalierung auf das gewählte Teil an und hält die Symmetrie aktuell.
 func _apply_sel_transform(new_basis: Basis, origin: Vector3, sc: Vector3) -> void:
 	selected_part.transform = Transform3D(new_basis, origin)
 	_apply_part_scale(selected_part, sc)
-	if selected_part.has_meta("mirror"):
-		var m = selected_part.get_meta("mirror")
-		if is_instance_valid(m):
-			m.transform = _mirror_xform(selected_part.transform)
-			_apply_part_scale(m, sc)
+	_sync_mirror(selected_part, sc)
 	_update_handles()
 	_notify_changed()
+
+
+# Spiegelteil dynamisch erzeugen/aktualisieren beim Verschieben/Drehen/Skalieren, damit der
+# Symmetrie-Modus auch nachträglich greift (vorher nur beim Platzieren).
+func _sync_mirror(part: Node3D, sc: Vector3) -> void:
+	var m = part.get_meta("mirror") if part.has_meta("mirror") else null
+	var m_valid := is_instance_valid(m)
+	var want: bool = symmetry and not bool(part.get_meta("is_root", false)) and absf(part.position.x) > 0.15
+	if want and not m_valid:
+		# Symmetrie an, Teil außermittig, aber noch kein Spiegel -> neuen erzeugen
+		m = _make_part(part.get_meta("part_id"), _mirror_xform(part.transform),
+			part.get_meta("color", Color(0, 0, 0, 0)), sc)
+		part.set_meta("mirror", m)
+		m.set_meta("mirror", part)
+	elif m_valid:
+		# vorhandenen Spiegel mitziehen (folgt auch bei ausgeschalteter Symmetrie)
+		m.transform = _mirror_xform(part.transform)
+		_apply_part_scale(m, sc)
 
 
 # Parameter t entlang der Achse (lo + t*ld), am nächsten zum Maus-Strahl.
@@ -1260,9 +1274,31 @@ func load_design(arr: Array) -> void:
 			_make_part(id, item.get("xform", Transform3D()),
 				item.get("color", Color(0, 0, 0, 0)), item.get("scale", Vector3.ONE))
 	_ensure_root()
+	_relink_mirrors()
 	if not _suppress_history:
 		_seed_history()
 	_notify_changed()
+
+
+# Nach dem Laden Spiegelpaare wieder verknüpfen (gleiche ID, an −x gespiegelte Position),
+# damit der Symmetrie-Modus beim Verschieben/Drehen/Skalieren wieder greift und keine
+# Duplikate erzeugt werden.
+func _relink_mirrors() -> void:
+	var parts: Array = []
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			parts.append(c)
+	for a in parts:
+		if a.has_meta("mirror") or a.get_meta("is_root", false) or absf(a.position.x) <= 0.15:
+			continue
+		var target: Vector3 = _mirror_xform(a.transform).origin
+		for b in parts:
+			if b == a or b.has_meta("mirror") or b.get_meta("is_root", false):
+				continue
+			if b.get_meta("part_id") == a.get_meta("part_id") and b.position.distance_to(target) < 0.06:
+				a.set_meta("mirror", b)
+				b.set_meta("mirror", a)
+				break
 
 
 func clear_design() -> void:

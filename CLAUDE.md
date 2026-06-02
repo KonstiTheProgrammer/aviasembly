@@ -151,7 +151,10 @@ Querruder, kein Auftrieb.
   greifen/verschieben. Snapping per Raycast auf StaticBody-Pick-Körper (Layer 2).
 - **Symmetrie:** spiegelt über X (`_mirror_xform`) → erzeugt eine **improper** Basis
   (det<0). Für **Kollision** wird daraus eine proper Basis gemacht (x-Spalte negieren),
-  sonst kaputter Trägheitstensor → Physik-Explosion/NaN.
+  sonst kaputter Trägheitstensor → Physik-Explosion/NaN. Symmetrie ist auch beim
+  **Bearbeiten dynamisch** (`_sync_mirror` in `_apply_sel_transform`): Verschieben/Drehen/
+  Skalieren erzeugt/aktualisiert den Spiegel. Nach `load_design` werden Spiegelpaare per
+  `_relink_mirrors` (gleiche ID, an −x gespiegelte Position) neu verknüpft → kein Duplikat.
 - **Werkzeuge:** Bearbeiten (Default — auswählen/skalieren/verschieben) / Abriss / Lackieren
   (Farbpalette, Farbe wird im Design + Save gespeichert). „✦ Auswählen/Bewegen"-Button
   (`clear_tools`) = zurück zum Bearbeiten-Default. **Undo/Redo** (`_history`, Strg+Z/Y). **R** dreht Box-Teile (90°)
@@ -181,7 +184,8 @@ Querruder, kein Auftrieb.
   (verdeckungs-frei) — die Heatmap ist die verfeinerte, anschauliche Pro-Teil-Sicht.
 - **Zoom:** Mausrad + Tastatur `+`/`−` + Trackpad-Pinch (`InputEventMagnifyGesture`) +
   Zwei-Finger-Scroll (`InputEventPanGesture`). Bereich `orbit_dist` 2.5–110.
-- **Blauer Blueprint-Raum** im Bau-Modus (eigenes Environment + Gitter-Shader), im Flug
+- **Blauer Blueprint-Raum** im Bau-Modus (eigenes Environment + Gitter-Shader; Shader
+  `cull_back` → Gitterboden von UNTEN unsichtbar, man sieht das Flugzeug von unten), im Flug
   Himmel + Startbahn. Marker: ● gelb = Schwerpunkt, ● blau = Auftriebspunkt.
 
 ## Steuerung

@@ -10,7 +10,7 @@ const SAVE_PATH := "user://aircraft_design.json"
 # Blueprint-Gitter-Shader (anti-aliased, zum Horizont ausgeblendet)
 const _BLUEPRINT_GRID_SHADER := "
 shader_type spatial;
-render_mode unshaded, cull_disabled;
+render_mode unshaded, cull_back;
 uniform vec3 line_color : source_color = vec3(0.40, 0.74, 1.0);
 uniform vec3 major_color : source_color = vec3(0.78, 0.92, 1.0);
 uniform vec3 bg_color : source_color = vec3(0.04, 0.13, 0.30);
