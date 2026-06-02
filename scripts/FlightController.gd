@@ -13,6 +13,7 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
+const BARREL_HOLD := 0.32       # A/D so lange halten -> Fass-Roll (War-Thunder-Stil)
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
@@ -42,6 +43,8 @@ var look_pitch := 0.0           # vertikal
 var _mouse_idle := 0.0
 var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase folgt)
 var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, nur im Maus-Flug)
+var _roll_hold := 0.0           # wie lange A/D schon gehalten (für Fass-Roll)
+var _roll_dir := 0              # aktuelle Roll-Halterichtung (+1=A, -1=D, 0=keine)
 var _aim_smooth := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr -> smoother)
 var _nose_px := Vector2.ZERO    # geglättete Nasenmarker-Pixelposition
 var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
@@ -245,6 +248,20 @@ func _physics_process(delta: float) -> void:
 		yaw += 1.0
 	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
+
+	# Fass-Roll (War-Thunder-Stil): A oder D LANGE halten -> kinematische 360°-Rolle um die
+	# Längsachse. Kurzes Antippen rollt/bankt normal; ab BARREL_HOLD übernimmt die Fass-Roll.
+	var rdir := 0
+	if Input.is_physical_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+		rdir = 1
+	elif Input.is_physical_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+		rdir = -1
+	if rdir != 0 and rdir == _roll_dir:
+		_roll_hold += delta
+	else:
+		_roll_dir = rdir
+		_roll_hold = delta if rdir != 0 else 0.0
+	aircraft.barrel_roll = rdir if (rdir != 0 and _roll_hold > BARREL_HOLD) else 0
 
 	# Maus-Flug: Die Maus zeigt in eine WELTRICHTUNG (look_yaw/look_pitch), das Flugzeug
 	# dreht seine Nase dorthin (Pursuit) — voll 360°. Schaust du nach Westen, fliegt es nach

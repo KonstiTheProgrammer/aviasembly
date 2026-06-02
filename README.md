@@ -45,7 +45,7 @@ das Flugzeug längsstabil.
 | **J** | **Arcade-Lenkung** an/aus (super-smooth, schnappt sofort aufs Ziel; aktiviert Maus-Flug) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
-| **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) |
+| **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) · **lange halten = 🔄 Barrel Roll** |
 | **Q / E** | nach rechts / links gieren (Seitenleitwerk) — auch **C / Z** |
 | **G** | Einziehfahrwerk ein-/ausfahren |
 | **I** | Steuerung umkehren (alles in die andere Richtung) |

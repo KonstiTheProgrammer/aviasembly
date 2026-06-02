@@ -208,7 +208,7 @@ Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl).
 **Flug:** **Maus/Touchpad = Umschauen** (Orbit-Kamera, Maus im Flug `MOUSE_MODE_CAPTURED`,
 schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in FlightController) ·
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
-`A`/`D` rollen (**vertauscht:** A=rechts, D=links) · `Q`/`E` gieren = **rechts/links**
+`A`/`D` rollen (**vertauscht:** A=rechts, D=links; **lange halten → Fass-Roll**) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
 `M` **Maus-Flug** umschalten · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
 **Maus-Flug (War-Thunder-Stil, `mouse_fly`, Taste `M`):** Die Maus zeigt frei in eine
@@ -258,6 +258,12 @@ Richtungen aufs Ziel (vorne/rechts/180°-hinten/oben, align≈1.0), stabil (maxA
   `_toggle_arcade` (J) schaltet ggf. den Maus-Flug mit ein. HUD zeigt „ARCADE 🎮".
 - **Kamera-Framing:** look_at-Punkt `+UP·CAM_LOOK_ABOVE` (6.5) → Flieger sitzt **tief im
   unteren Bildbereich** (~0.78), nicht mittig.
+- **Fass-Roll (`barrel_roll`, A/D lange halten ≥ `BARREL_HOLD`):** FlightController trackt die
+  A/D-Haltezeit (`_roll_hold`/`_roll_dir`) und setzt `aircraft.barrel_roll = ±1`. `AircraftBody`
+  rollt dann **kinematisch** um die **Längsachse** (`_barrel_step`: Quaternion um `basis.z`,
+  Rate `BARREL_RATE`) — die Nase liegt auf der Rollachse, **Flugrichtung bleibt erhalten**
+  (sauberer Aileron-/Fass-Roll, kein Trudeln). Überschreibt den normalen Roll-Torque solange
+  gehalten; Flügelbruch dabei aus. Headless: Heading-Abweichung ~0°, Querlage dreht voll durch.
 **Global:** Startet im **Vollbild** (`display/window/size/mode=3`). `F11` (oder Alt+Enter)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 
