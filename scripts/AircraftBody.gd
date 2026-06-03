@@ -78,6 +78,7 @@ var wing_status := "ok"
 var parts: Array = []         # [{vis, cs, xform, csize, coffset, is_wing, control}]
 var _break_queue: Array = []  # Teil-Indizes (Bruch-Wurzeln), abgearbeitet im _process (nicht in der Physik!)
 var _detach_queue: Array = []  # Teil-Indizes von verschossener Munition -> Visual entfernen + Aero neu
+var _recoil := Vector3.ZERO   # aufsummierter Rückstoß-Impuls (Waffenfeuer), im _integrate_forces angewandt
 const DRAG_K := 0.5           # parasitärer Modell-Widerstand (niedriger = schneller, v.a. im Sturzflug)
 
 # Fahrwerk
@@ -382,6 +383,12 @@ func _queue_break(roots: Array) -> void:
 func queue_detach(part_index: int) -> void:
 	if part_index >= 0 and not _detach_queue.has(part_index):
 		_detach_queue.append(part_index)
+
+
+# Rückstoß vom Waffenfeuer (Impuls, Weltkoordinaten). Wird im nächsten Physikschritt angewandt.
+func add_recoil(impulse: Vector3) -> void:
+	if impulse.is_finite():
+		_recoil += impulse
 
 
 # Reißt die Wurzel-Teile + ihren Außen-Teilbaum ab (alles, dessen Weg zum Cockpit durch
@@ -887,6 +894,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	tf = tf.limit_length(mass * 130.0)   # nur NaN-/Runaway-Sicherung, klippt normale Aero nicht mehr
 	tt = tt.limit_length(mass * 90.0)
 	state.apply_central_force(tf)
+	# Waffen-Rückstoß als sofortiger Impuls (entgegen der Mündungsrichtung).
+	if _recoil != Vector3.ZERO:
+		state.apply_central_impulse(_recoil)
+		_recoil = Vector3.ZERO
 	if arcade_steer:
 		_arcade_steer(state)   # kinematische, butterweiche Lenkung (keine Stall-/G-Grenze)
 	else:

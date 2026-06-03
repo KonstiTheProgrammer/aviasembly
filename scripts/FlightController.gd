@@ -31,6 +31,12 @@ const CALIBERS := {
 const AMMO := {
 	"rocket": 1, "salvo": 1, "missile": 1, "missile_heavy": 1, "bomb": 1,
 }
+# Rückstoß-Impuls je Schuss (N·s, entgegen der Mündungsrichtung). Bei ~1200 kg ergibt 1200 ≈ 1 m/s
+# Tempoverlust. Schweres Kaliber/Raketen schubsen kräftig, MG nur leicht. Bombe: kein Rückstoß.
+const RECOIL := {
+	"mg": 180.0, "gun": 320.0, "autocannon": 900.0, "heavy": 2200.0,
+	"rocket": 1500.0, "salvo": 3000.0, "missile": 1300.0, "missile_heavy": 2600.0,
+}
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
@@ -418,12 +424,14 @@ func _fire_primary() -> void:
 					mh.seek_range = 110.0
 					w["cd"] = 1.7
 					fired = true
-		# Begrenzte Munition (Raketen/Lenkwaffen) verbrauchen; Geschütze (ammo=-1) nicht.
-		# Bei 0 verschwindet das Bauteil vom Flugzeug (es ist weggeflogen) -> Aero neu.
-		if fired and int(w["ammo"]) > 0:
-			w["ammo"] -= 1
-			if int(w["ammo"]) == 0:
-				aircraft.queue_detach(pidx)
+		if fired:
+			# Rückstoß: Impuls entgegen der Mündungsrichtung (nach hinten = -fwd).
+			aircraft.add_recoil(-fwd * float(RECOIL.get(w["type"], 0.0)))
+			# Begrenzte Munition verbrauchen; bei 0 verschwindet das Bauteil (-> Aero neu).
+			if int(w["ammo"]) > 0:
+				w["ammo"] -= 1
+				if int(w["ammo"]) == 0:
+					aircraft.queue_detach(pidx)
 
 
 func _drop_bomb() -> void:
