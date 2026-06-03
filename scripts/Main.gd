@@ -129,13 +129,24 @@ func _setup_world() -> void:
 	env.fog_density = 0.00012   # dünn, damit ferne Flugplätze sichtbar bleiben
 	env_sky = env
 
-	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum)
+	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum). Hintergrund bleibt dunkel,
+	# aber ein blauer Gradient-Himmel dient als REFLEXIONS- und Ambient-Quelle -> metallische
+	# Teile spiegeln (oben hell, unten dunkel) und das Drehen ändert die Reflexion sichtbar.
+	var sky_bp := Sky.new()
+	var psm_bp := ProceduralSkyMaterial.new()
+	psm_bp.sky_top_color = Color(0.10, 0.26, 0.52)
+	psm_bp.sky_horizon_color = Color(0.40, 0.60, 0.85)
+	psm_bp.ground_horizon_color = Color(0.10, 0.20, 0.36)
+	psm_bp.ground_bottom_color = Color(0.03, 0.08, 0.18)
+	psm_bp.sky_energy_multiplier = 0.9
+	sky_bp.sky_material = psm_bp
 	env_blueprint = Environment.new()
 	env_blueprint.background_mode = Environment.BG_COLOR
 	env_blueprint.background_color = Color(0.04, 0.13, 0.30)
-	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env_blueprint.ambient_light_color = Color(0.62, 0.76, 0.96)
-	env_blueprint.ambient_light_energy = 1.5
+	env_blueprint.sky = sky_bp
+	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env_blueprint.ambient_light_energy = 1.15
+	env_blueprint.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 
 	world_env = WorldEnvironment.new()

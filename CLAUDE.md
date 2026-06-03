@@ -185,7 +185,10 @@ Querruder, kein Auftrieb.
 - **Zoom:** Mausrad + Tastatur `+`/`−` + Trackpad-Pinch (`InputEventMagnifyGesture`) +
   Zwei-Finger-Scroll (`InputEventPanGesture`). Bereich `orbit_dist` 2.5–110.
 - **Blauer Blueprint-Raum** im Bau-Modus (eigenes Environment + Gitter-Shader; Shader
-  `cull_back` → Gitterboden von UNTEN unsichtbar, man sieht das Flugzeug von unten), im Flug
+  `cull_back` → Gitterboden von UNTEN unsichtbar, man sieht das Flugzeug von unten;
+  blauer Gradient-**Himmel als Reflexions-/Ambient-Quelle** (`reflected_light_source=SKY`,
+  Hintergrund bleibt `BG_COLOR` dunkel) → metallische Teile spiegeln, Drehen ändert die
+  Reflexion sichtbar), im Flug
   Himmel + Startbahn. Marker: ● gelb = Schwerpunkt, ● blau = Auftriebspunkt.
 
 ## Steuerung
