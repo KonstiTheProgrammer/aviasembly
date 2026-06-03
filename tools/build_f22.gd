@@ -28,29 +28,27 @@ func _process(_d: float) -> bool:
 	var vfin := Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))   # Flosse: Ruder hinten
 	var vcant := Basis(Vector3(0, 0, 1), deg_to_rad(-26.0)) * vfin             # nach außen gekippt (F-22)
 
-	# --- Rumpf (schlank, lang) ---
-	P("nose", Vector3(0, 0, -2.3))
-	P("fuselage", Vector3(0, 0, 1.9))
-	P("fuselage", Vector3(0, 0, 3.7))
+	# --- Dedizierter gefacetteter Stealth-Rumpf (ein langes Teil, Nase..Heck mit Kanzel) ---
+	P("f22_body", Vector3(0, 0, 0))
 
 	# --- Gepfeilte Delta-Flügel (mittig-tief) ---
-	P("wing_delta", Vector3(0.5, -0.12, 2.0), nx, Vector3(1.3, 1.0, 1.25), GREY)
+	P("wing_delta", Vector3(0.55, -0.28, 0.7), nx, Vector3(1.35, 1.0, 1.3), GREY)
 
 	# --- Zwei eckige Schubdüsen hinten, eng beieinander ---
-	P("jet_square", Vector3(0.42, 0.0, 4.9), Basis(), Vector3(1.0, 1.0, 1.1), DARK)
+	P("jet_square", Vector3(0.4, -0.05, 4.2), Basis(), Vector3(1.0, 1.0, 1.05), DARK)
 
 	# --- Stabilatoren (alle-beweglich) hinten ---
-	P("h_stab", Vector3(0.6, 0.05, 4.7), nx, Vector3(1.05, 1.0, 1.0), GREY)
+	P("h_stab", Vector3(0.6, 0.0, 3.9), nx, Vector3(1.05, 1.0, 1.0), GREY)
 
 	# --- Schräg gestellte Doppel-Seitenleitwerke ---
-	P("v_stab", Vector3(0.55, 0.4, 4.3), vcant, Vector3.ONE, GREY)
+	P("v_stab", Vector3(0.5, 0.32, 3.4), vcant, Vector3.ONE, GREY)
 
-	# --- Bordkanone (M61, rechter Flügelansatz) ---
-	P("cannon", Vector3(0.7, 0.05, -0.5), Basis(), Vector3.ONE, DARK)
+	# --- Bordkanone (M61, vorne rechts) ---
+	P("cannon", Vector3(0.55, 0.05, -2.6), Basis(), Vector3.ONE, DARK)
 
 	# --- Einziehfahrwerk ---
-	P("wheel_retract", Vector3(0, -0.85, -1.2))
-	P("wheel_retract", Vector3(1.1, -0.9, 2.2))
+	P("wheel_retract", Vector3(0, -0.7, -2.4))
+	P("wheel_retract", Vector3(1.0, -0.78, 0.8))
 
 	var floating: int = bc.floating_count()
 	var design := bc.get_design()
