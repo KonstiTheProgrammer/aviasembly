@@ -70,8 +70,7 @@ var drag_area := 0.0          # parasitärer Luftwiderstand cW·A (m²) des Mode
 var wings_broken := false
 var wing_status := "ok"
 var parts: Array = []         # [{vis, cs, xform, csize, coffset, is_wing, control}]
-var _break_pending := false
-var _broke_done := false
+var _break_queue: Array = []  # Teil-Indizes (Bruch-Wurzeln), abgearbeitet im _process (nicht in der Physik!)
 const DRAG_K := 0.5           # parasitärer Modell-Widerstand (niedriger = schneller, v.a. im Sturzflug)
 
 # Fahrwerk
@@ -99,8 +98,11 @@ var landing_msg := ""
 var _land_timer := 0.0
 var _airborne := false
 var _last_vy := 0.0
+var _last_vel := Vector3.ZERO # Geschwindigkeit im letzten Frame in der Luft (für Aufprall-Härte)
 const HARD_LAND := 3.0        # ab hier "harte Landung"
 const BREAK_LAND := 7.0       # ab hier bricht das Fahrwerk
+const CRASH_SPEED := 10.0     # Schließgeschwindigkeit (m/s) entlang Kontaktnormale, ab der ein
+                              # getroffenes (Nicht-Fahrwerk-)Teil + sein Außen-Teilbaum abreißt
 
 # Telemetrie
 var airspeed := 0.0
@@ -128,10 +130,12 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	if _break_pending and not _broke_done:
-		_broke_done = true
-		_break_pending = false
-		_break_wings()
+	# Abreißen/Reparenting NUR hier (nicht in _integrate_forces). Mehrere Brüche nacheinander
+	# möglich (erst Flügelüberlast, später Crash) -> Queue statt einmaligem Flag.
+	if not _break_queue.is_empty():
+		var roots: Array = _break_queue.duplicate()
+		_break_queue.clear()
+		_break_subtree(roots)
 	var spd := 4.0 + throttle * 60.0
 	for p in props:
 		if is_instance_valid(p):
@@ -292,10 +296,8 @@ func _build_parents() -> Array:
 	return parent
 
 
-func _break_wings() -> void:
-	if parts.is_empty():
-		return
-	# Hauptflügel (keine Steuerflächen) als Bruch-Wurzeln
+# Hauptflügel (ohne Steuerflächen) als Bruch-Wurzeln für den Flügel-Überlast-Bruch.
+func _wing_root_indices() -> Array:
 	var roots: Array = []
 	for i in parts.size():
 		if parts[i]["is_wing"] and String(parts[i]["control"]) == "":
@@ -304,15 +306,34 @@ func _break_wings() -> void:
 		for i in parts.size():
 			if parts[i]["is_wing"]:
 				roots.append(i)
-	if roots.is_empty():
+	return roots
+
+
+# Bruch zum nächsten _process vormerken (Node-Umbau NIE in _integrate_forces).
+func _queue_break(roots: Array) -> void:
+	for r in roots:
+		if not _break_queue.has(r):
+			_break_queue.append(r)
+
+
+# Reißt die Wurzel-Teile + ihren Außen-Teilbaum ab (alles, dessen Weg zum Cockpit durch
+# eine Wurzel läuft); das Cockpit (Wurzel) bleibt immer dran. Die abgerissenen Teile werden
+# zu einem Trümmer-RigidBody. Danach wird das Flugmodell (Auftrieb/Widerstand/Schub/Masse/
+# COM) aus den ÜBRIGEN Teilen NEU berechnet -> fehlende Fläche/Schub/Gewicht zählt sofort.
+func _break_subtree(roots: Array) -> void:
+	if parts.is_empty() or roots.is_empty():
 		return
-	# Nur den Teilbaum AUSWÄRTS der Flügel abreißen (Rumpf/Träger bleibt dran).
 	var parent := _build_parents()
 	var rset := {}
 	for r in roots:
-		rset[r] = true
+		if r >= 0 and r < parts.size() and not parts[r].get("broken", false):
+			rset[r] = true
+	if rset.is_empty():
+		return
 	var brk := {}
 	for i in parts.size():
+		if parts[i].get("broken", false):
+			continue
 		var c = i
 		var guard := 0
 		while c >= 0 and guard < 256:
@@ -333,7 +354,7 @@ func _break_wings() -> void:
 	var debris := RigidBody3D.new()
 	debris.add_to_group("debris")
 	debris.collision_layer = 8
-	debris.collision_mask = 1          # nur Boden
+	debris.collision_mask = 1          # nur Boden/Hindernisse
 	debris.angular_damp = 0.1
 	var dmass := 0.0
 	par.add_child(debris)
@@ -357,7 +378,6 @@ func _break_wings() -> void:
 	debris.add_child(dcs)
 	var tmr := get_tree().create_timer(9.0)
 	tmr.timeout.connect(debris.queue_free)
-	# Flugmodell aus dem Rest neu berechnen (fehlender Schub/Flügel/Gewicht zählt!)
 	recompute_aero()
 
 
@@ -374,19 +394,62 @@ func _attached(ci: Dictionary, pj: Dictionary) -> bool:
 	return absf(local.x) <= half.x and absf(local.y) <= half.y and absf(local.z) <= half.z
 
 
-# Landung bewerten: hart -> Warnung, sehr hart -> Fahrwerk bricht
-func _register_landing(descent: float) -> void:
-	if descent > BREAK_LAND:
-		landing_msg = "💥 HARTE LANDUNG — Fahrwerk gebrochen!"
+# Aufprall auswerten (Übergang Luft -> Boden/Hindernis): Landenote, Fahrwerksbruch und —
+# bei hartem Aufprall — Abriss der GETROFFENEN Teile. Härte = Schließgeschwindigkeit entlang
+# der Kontaktnormale, d.h. wie schnell man IN die Fläche fliegt (so zählt "ins Gelände/in eine
+# Wand krachen", aber nicht das harmlose schnelle Entlanggleiten beim Landen). Bricht nur vor.
+func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
+	var descent := maxf(0.0, -_last_vy)         # vertikale Sinkrate (für die Landenote)
+	var n := state.get_contact_count()
+	var crash_roots := {}
+	var gear_hit_hard := false
+	for i in n:
+		var nrm := state.get_contact_local_normal(i)
+		var closing := maxf(0.0, -_last_vel.dot(nrm))   # Tempo IN die getroffene Fläche
+		if closing > CRASH_SPEED:
+			var idx := _nearest_part_index(state.transform, state.get_contact_local_position(i))
+			if idx < 0:
+				continue
+			if float(parts[idx]["gear_cap"]) > 0.0:
+				gear_hit_hard = true            # Rad hart aufgesetzt -> Fahrwerkskollaps (kein Debris)
+			else:
+				crash_roots[idx] = true         # Flügel/Rumpf/Triebwerk … -> abreißen
+	if not crash_roots.is_empty():
+		_queue_break(crash_roots.keys())
+		landing_msg = "💥 CRASH — Teile abgerissen!"
+		_land_timer = 4.0
+	# Fahrwerk: zerstörerische Sinkrate ODER harter Radkontakt -> Kollaps
+	if descent > BREAK_LAND or gear_hit_hard:
 		if not _collapsed and not gear_items.is_empty():
 			_collapse_gear()
-	elif descent > HARD_LAND:
-		landing_msg = "⚠ Harte Landung (%d m/s)" % int(round(descent))
-	elif descent > 0.6:
-		landing_msg = "🛬 Saubere Landung ✓"
-	else:
+		if crash_roots.is_empty():
+			landing_msg = "💥 HARTE LANDUNG — Fahrwerk gebrochen!"
+			_land_timer = 3.5
 		return
-	_land_timer = 3.5
+	# normale Landenoten (nur wenn nichts abgerissen ist)
+	if crash_roots.is_empty():
+		if descent > HARD_LAND:
+			landing_msg = "⚠ Harte Landung (%d m/s)" % int(round(descent))
+			_land_timer = 3.5
+		elif descent > 0.6:
+			landing_msg = "🛬 Saubere Landung ✓"
+			_land_timer = 3.5
+
+
+# Index des Teils, dessen Kollisionsbox-Mitte dem Welt-Kontaktpunkt am nächsten liegt.
+func _nearest_part_index(body_xf: Transform3D, wpos: Vector3) -> int:
+	var best := -1
+	var bestd := INF
+	for i in parts.size():
+		if parts[i].get("broken", false):
+			continue
+		var center_local: Vector3 = parts[i]["xform"] * parts[i]["coffset"]
+		var wc: Vector3 = body_xf * center_local
+		var d := wc.distance_squared_to(wpos)
+		if d < bestd:
+			bestd = d
+			best = i
+	return best
 
 
 # Beim Neustart: Fahrwerk wiederherstellen (außer dauerhaft überlastet)
@@ -434,10 +497,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if on_ground:
 		if _airborne:
 			_airborne = false
-			_register_landing(maxf(0.0, -_last_vy))
+			_evaluate_impact(state)   # Landenote + Fahrwerksbruch + Teile-Abriss bei hartem Aufprall
 	else:
 		_airborne = true
 		_last_vy = v_lin.y
+		_last_vel = v_lin
 
 	var tf := Vector3.ZERO
 	var tt := Vector3.ZERO
@@ -477,7 +541,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
 		if not wings_broken and not arcade and barrel_roll == 0 and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
 			wings_broken = true
-			_break_pending = true   # Abtrennen erst im _process (nicht im Physik-Schritt)
+			_queue_break(_wing_root_indices())   # Abtrennen erst im _process (nicht im Physik-Schritt)
 			landing_msg = "💥 FLÜGEL ÜBERLASTET — abgerissen!"
 			_land_timer = 4.0
 		if wings_broken:

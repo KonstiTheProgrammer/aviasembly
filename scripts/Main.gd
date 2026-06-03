@@ -204,6 +204,7 @@ func _setup_world() -> void:
 		_build_mountain(hp)
 	for af in airfields:
 		_build_airfield(af)
+	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
 
 	# Blueprint-Gitter (nur im Bau-Modus sichtbar)
 	blueprint_grid = MeshInstance3D.new()
@@ -301,6 +302,8 @@ func _add_hangar(parent: Node3D, pos: Vector3, col: Color) -> void:
 	roof.position = pos + Vector3(0, 8.5, 0)
 	roof.material_override = _flat_mat(col.darkened(0.3), 0.7)
 	parent.add_child(roof)
+	# solide Kollision: Box über Gebäude + Dach (man kann reinkrachen)
+	_collider_box(parent, pos + Vector3(0, 5.0, 0), Vector3(16, 11, 12))
 
 
 func _add_tower(parent: Node3D, pos: Vector3) -> void:
@@ -320,6 +323,8 @@ func _add_tower(parent: Node3D, pos: Vector3) -> void:
 	cm.metallic = 0.4
 	cab.material_override = cm
 	parent.add_child(cab)
+	# solide Kollision: Turm + Kanzel
+	_collider_box(parent, pos + Vector3(0, 13.5, 0), Vector3(8, 27, 8))
 
 
 func _build_mountain(pos: Vector3) -> void:
@@ -343,6 +348,18 @@ func _build_mountain(pos: Vector3) -> void:
 	snow.position = pos + Vector3(0, c.height - sc.height * 0.5, 0)
 	snow.material_override = _flat_mat(Color(0.92, 0.94, 0.98), 0.85)
 	fly_world.add_child(snow)
+	# solide Kollision: Zylinder-Kern innerhalb des Sichtkegels (Berg = solides Hindernis)
+	var msb := StaticBody3D.new()
+	msb.collision_layer = 1
+	msb.collision_mask = 0
+	msb.position = pos + Vector3(0, c.height * 0.5, 0)
+	fly_world.add_child(msb)
+	var mcs := CollisionShape3D.new()
+	var mcyl := CylinderShape3D.new()
+	mcyl.radius = c.bottom_radius * 0.62
+	mcyl.height = c.height
+	mcs.shape = mcyl
+	msb.add_child(mcs)
 
 
 func _build_lake(pos: Vector3, r: float) -> void:
@@ -360,6 +377,142 @@ func _build_lake(pos: Vector3, r: float) -> void:
 	lm.roughness = 0.08
 	lake.material_override = lm
 	fly_world.add_child(lake)
+
+
+# --- Hindernisse (solide: kollidieren mit Flugzeug & Trümmern, Layer 1) ---------
+# Reiner Kollisionskörper (unsichtbar) an pos mit Box-Form.
+func _collider_box(parent: Node3D, pos: Vector3, size: Vector3) -> void:
+	var sb := StaticBody3D.new()
+	sb.collision_layer = 1
+	sb.collision_mask = 0
+	sb.position = pos
+	parent.add_child(sb)
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = size
+	cs.shape = bs
+	sb.add_child(cs)
+
+
+# Sichtbarer + solider Quader (Mesh + Box-Kollision), pos = Mitte.
+func _solid_box(parent: Node3D, pos: Vector3, size: Vector3, mat: Material) -> void:
+	var sb := StaticBody3D.new()
+	sb.collision_layer = 1
+	sb.collision_mask = 0
+	sb.position = pos
+	parent.add_child(sb)
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	sb.add_child(mi)
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = size
+	cs.shape = bs
+	sb.add_child(cs)
+
+
+# Sichtbarer + solider Zylinder, pos = Mitte.
+func _solid_cyl(parent: Node3D, pos: Vector3, radius: float, height: float, mat: Material) -> void:
+	var sb := StaticBody3D.new()
+	sb.collision_layer = 1
+	sb.collision_mask = 0
+	sb.position = pos
+	parent.add_child(sb)
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = radius
+	cm.bottom_radius = radius
+	cm.height = height
+	mi.mesh = cm
+	mi.material_override = mat
+	sb.add_child(mi)
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = radius
+	cyl.height = height
+	cs.shape = cyl
+	sb.add_child(cs)
+
+
+# Hindernis-Parcours nahe HEIMAT (Startbahn-Achse = -Z): Pylonen-Slalom, Durchflug-Tore,
+# Findlinge zum Tieffliegen und Sperrballons in der Luft. Alles solide -> harter Kontakt
+# reißt (über AircraftBody._evaluate_impact) die getroffenen Teile ab.
+func _build_obstacles() -> void:
+	var root := Node3D.new()
+	root.name = "Hindernisse"
+	fly_world.add_child(root)
+	var concrete := _flat_mat(Color(0.7, 0.71, 0.73), 0.85)
+	var red := _flat_mat(Color(0.85, 0.2, 0.18), 0.7)
+	var white := _flat_mat(Color(0.92, 0.92, 0.93), 0.7)
+	var rock := _flat_mat(Color(0.4, 0.38, 0.35), 1.0)
+
+	# Slalom-Pylonen abwechselnd links/rechts der Achse (zum Durchweben), Bahn bleibt frei
+	var pyh := 45.0
+	var z := -330.0
+	var side := 1.0
+	for k in range(8):
+		var col: Material = red if (k % 2 == 0) else white
+		_solid_cyl(root, Vector3(side * 18.0, pyh * 0.5, z), 2.2, pyh, col)
+		z -= 80.0
+		side = -side
+
+	# Drei Durchflug-Tore (zwei Pfeiler + Querbalken, Lücke offen) — leicht versetzt = Slalom
+	for g in [Vector3(0, 0, -380), Vector3(28, 0, -560), Vector3(-28, 0, -760)]:
+		_build_gate(root, g, concrete)
+
+	# Findlinge am Boden (zum Tieffliegen / Ausweichen)
+	for b in [Vector3(-55, 0, -180), Vector3(48, 0, -250), Vector3(-42, 0, -440), Vector3(60, 0, -610)]:
+		var rr := randf_range(9.0, 15.0)
+		_solid_cyl(root, b + Vector3(0, rr * 0.35, 0), rr, rr * 0.7, rock)
+
+	# Sperrballons (WWI-Thema) in der Luft — grau, NICHT abschießbar, nur ausweichen
+	for bp in [Vector3(22, 55, -470), Vector3(-32, 72, -680)]:
+		_build_balloon(root, bp)
+
+
+# Durchflug-Tor: zwei Pfeiler + Querbalken oben; man fliegt durch die Lücke.
+func _build_gate(parent: Node3D, pos: Vector3, mat: Material) -> void:
+	var ph := 30.0          # Pfeilerhöhe
+	var gap := 38.0         # lichte Weite zwischen den Pfeilern
+	var pillar := Vector3(4, ph, 4)
+	_solid_box(parent, pos + Vector3(-gap * 0.5, ph * 0.5, 0), pillar, mat)
+	_solid_box(parent, pos + Vector3(gap * 0.5, ph * 0.5, 0), pillar, mat)
+	_solid_box(parent, pos + Vector3(0, ph + 2.0, 0), Vector3(gap + 8, 4, 4), mat)
+
+
+# Sperrballon: dicke Hülle (Kollision) an dünnem Halteseil (nur Optik).
+func _build_balloon(parent: Node3D, pos: Vector3) -> void:
+	var sb := StaticBody3D.new()
+	sb.collision_layer = 1
+	sb.collision_mask = 0
+	sb.position = pos
+	parent.add_child(sb)
+	var mi := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 12.0
+	sphere.height = 24.0
+	mi.mesh = sphere
+	mi.scale = Vector3(1.0, 1.0, 1.4)   # länglich (Zeppelin-artig)
+	mi.material_override = _flat_mat(Color(0.55, 0.55, 0.62), 0.6)
+	sb.add_child(mi)
+	var cs := CollisionShape3D.new()
+	var ss := SphereShape3D.new()
+	ss.radius = 12.0
+	cs.shape = ss
+	sb.add_child(cs)
+	# Halteseil zum Boden (nur Optik)
+	var rope := MeshInstance3D.new()
+	var rm := CylinderMesh.new()
+	rm.top_radius = 0.18
+	rm.bottom_radius = 0.18
+	rm.height = pos.y
+	rope.mesh = rm
+	rope.position = Vector3(0, -pos.y * 0.5, 0)
+	rope.material_override = _flat_mat(Color(0.18, 0.18, 0.2), 1.0)
+	sb.add_child(rope)
 
 
 func _setup_camera() -> void:
