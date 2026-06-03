@@ -75,8 +75,6 @@ var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
 var nose_screen := Vector2.ZERO # Pixelposition der aktuellen Nasenrichtung
 var aim_visible := true         # Zielmarker im Bild?
 var nose_visible := true        # Nasenmarker im Bild?
-var fpm_screen := Vector2.ZERO  # Flight-Path-Marker (Geschwindigkeitsvektor) Pixelpos
-var fpm_visible := false
 # Survival-Upgrade-Multiplikatoren (von Main aus GameState gesetzt)
 var thrust_mult := 1.0
 var wing_mult := 1.0
@@ -595,18 +593,7 @@ func _update_markers() -> void:
 		nose_screen = ctr
 		aim_visible = false
 		nose_visible = false
-		fpm_visible = false
-		fpm_screen = ctr
 		return
-	# Flight-Path-Marker = Projektion des Geschwindigkeitsvektors (wohin es WIRKLICH fliegt)
-	var vlen := aircraft.linear_velocity.length()
-	if vlen > 6.0:
-		var fp := aircraft.global_position + aircraft.linear_velocity / vlen * 400.0
-		fpm_visible = not camera.is_position_behind(fp)
-		fpm_screen = camera.unproject_position(fp) if fpm_visible else ctr
-	else:
-		fpm_visible = false
-		fpm_screen = ctr
 	var ap := aircraft.global_position + _aim_dir() * 400.0
 	var np := aircraft.global_position - aircraft.global_transform.basis.z * 400.0
 	aim_visible = not camera.is_position_behind(ap)
@@ -658,35 +645,6 @@ func _heading_deg() -> float:
 	return fposmod(rad_to_deg(atan2(fwd.x, -fwd.z)), 360.0)
 
 
-# Nicklage (+ = Nase oben) und Querlage (+ = rechts gebankt) in Grad.
-func _pitch_deg() -> float:
-	return rad_to_deg(asin(clampf(-aircraft.global_transform.basis.z.y, -1.0, 1.0)))
-
-
-func _roll_deg() -> float:
-	var b := aircraft.global_transform.basis
-	return rad_to_deg(atan2(-b.x.y, b.y.y))
-
-
-# Bildschirmpositionen sichtbarer Ziele (für Lock-Klammern), die nächsten bis zu 8.
-func _target_screens() -> Array:
-	var out: Array = []
-	if camera == null or not camera.is_inside_tree() or not is_instance_valid(aircraft):
-		return out
-	for t in get_tree().get_nodes_in_group("target"):
-		if not is_instance_valid(t):
-			continue
-		var p: Vector3 = t.global_position
-		if camera.is_position_behind(p):
-			continue
-		if aircraft.global_position.distance_to(p) > 1800.0:
-			continue
-		out.append(camera.unproject_position(p))
-		if out.size() >= 8:
-			break
-	return out
-
-
 func _emit_hud() -> void:
 	if not is_instance_valid(aircraft):
 		return
@@ -700,11 +658,6 @@ func _emit_hud() -> void:
 		"nose_vis": nose_visible,
 		"throttle": throttle,
 		"heading": _heading_deg(),
-		"pitch": _pitch_deg(),
-		"roll": _roll_deg(),
-		"fpm": fpm_screen,
-		"fpm_vis": fpm_visible,
-		"targets": _target_screens(),
 		"speed": aircraft.airspeed,
 		"kmh": aircraft.airspeed * 3.6,
 		"alt": aircraft.altitude,
