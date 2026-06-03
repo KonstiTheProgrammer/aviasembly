@@ -45,6 +45,31 @@ static func _build() -> void:
 		"size": Vector3(1.3, 1.1, 2.2), "root": true,
 		"desc": "Das Herz des Flugzeugs. Hier startet jeder Bau.",
 	})
+	# Cockpit-/Kanzel-Varianten (Blender-glTF, lackierbarer Body + Glas-Kanzel)
+	_add({
+		"id": "cockpit_bubble", "name": "Bubble-Kanzel", "category": CAT_BODY,
+		"mass": 165.0, "color": C_COCKPIT, "shape": "cockpit",
+		"size": Vector3(1.3, 1.3, 2.4),
+		"desc": "Runde Jäger-Bubble-Kanzel mit Rundumsicht.",
+	})
+	_add({
+		"id": "cockpit_jet", "name": "Jet-Kanzel", "category": CAT_BODY,
+		"mass": 150.0, "color": C_COCKPIT, "shape": "cockpit",
+		"size": Vector3(1.1, 1.05, 2.6),
+		"desc": "Flache, schnittige Tropfen-Kanzel für Jets.",
+	})
+	_add({
+		"id": "cockpit_frame", "name": "Rahmen-Kanzel", "category": CAT_BODY,
+		"mass": 185.0, "color": C_COCKPIT, "shape": "cockpit",
+		"size": Vector3(1.3, 1.4, 2.25),
+		"desc": "Klassische Mehrscheiben-Kanzel mit Streben.",
+	})
+	_add({
+		"id": "cockpit_tandem", "name": "Tandem-Kanzel", "category": CAT_BODY,
+		"mass": 220.0, "color": C_COCKPIT, "shape": "cockpit",
+		"size": Vector3(1.2, 1.25, 3.1),
+		"desc": "Zweisitzer mit zwei Kanzeln hintereinander.",
+	})
 	_add({
 		"id": "fuselage", "name": "Rumpfsegment", "category": CAT_BODY,
 		"mass": 120.0, "color": C_BODY, "shape": "box",

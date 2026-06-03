@@ -282,7 +282,9 @@ Richtungen aufs Ziel (vorne/rechts/180°-hinten/oben, align≈1.0), stabil (maxA
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 
 ## Bauteile (PartCatalog)
-Rumpf (Cockpit=Wurzel, Segmente, Nase/Heck, Tank) · 8 Tragflächen (gerade, Trapez,
+Rumpf (Cockpit=Wurzel, Segmente, Nase/Heck, Tank) · **4 Kanzel-Varianten** (Bubble/Jet/
+Rahmen/Tandem, Blender-glTF `cockpit_<v>.glb`, lackierbarer `cockpit_body` + `glass`-Kanzel) ·
+8 Tragflächen (gerade, Trapez,
 Pfeil, Delta, Stummel, Segler, Canard, Winglet) · Leitwerk/Steuerung (Höhen-, Seiten-
 leitwerk, Querruder) · 5 Triebwerke (Propeller, groß, Jet, **Eckiges Düsentriebwerk**
 [`jet_square`, Blender-glTF, rechteckige 2D-Düse, 22000 N], Hilfstriebwerk) · 4 Fahrwerke
@@ -302,7 +304,8 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - Gespiegelte (det<0) Basis nur für Visuals ok; für Kollision proper machen.
 
 ## Bauteil-Modelle (Blender/glTF)
-- **14 Teile** (Rumpf, Nase/Heck, Tank, Cockpit, 2 Prop, 2 Jet, 4 Fahrwerke) sind in
+- **18 Teile** (Rumpf, Nase/Heck, Tank, Cockpit, 4 Kanzel-Varianten [Bubble/Jet/Rahmen/Tandem],
+  2 Prop, 2 Jet, 4 Fahrwerke) sind in
   **Blender 5.1** modelliert und als `res://models/<id>.glb` exportiert (+ `.glb.import`).
   Erzeugt **per Blender-MCP** (`execute_blender_code`, bpy): glatte Tubus-/Lathe-Formen
   (`bmesh.ops.spin`), Bevel, Smooth-Shading, Multi-Material (genannte Materialien:
