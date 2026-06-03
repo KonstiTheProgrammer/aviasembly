@@ -26,6 +26,11 @@ const CALIBERS := {
 	"autocannon": {"speed": 280.0, "dmg": 5.0,  "life": 3.0, "cd": 0.28, "drop": 17.0, "tcol": Color(1.0, 0.60, 0.20), "tscl": 1.4},
 	"heavy":      {"speed": 235.0, "dmg": 11.0, "life": 3.4, "cd": 0.85, "drop": 23.0, "tcol": Color(1.0, 0.45, 0.12), "tscl": 1.9},
 }
+# Munitionsvorrat je montiertem Bomben-/Raketen-Teil (wird pro Schuss aufgebraucht).
+# Geschütze (gun/mg/autocannon/heavy) fehlen hier -> unbegrenzt (ammo = -1).
+const AMMO := {
+	"rocket": 4, "salvo": 4, "missile": 2, "missile_heavy": 1, "bomb": 2,
+}
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
@@ -192,7 +197,8 @@ func build_from_design(d: Array) -> void:
 		part_infos.append(pinfo)
 		var wp := String(p.get("weapon", ""))
 		if wp != "":
-			weapons.append({"type": wp, "off": xf.origin, "cd": 0.0})
+			# ammo = -1 -> unbegrenzt (Geschütze); >0 -> begrenzte Bomben/Raketen
+			weapons.append({"type": wp, "off": xf.origin, "cd": 0.0, "ammo": int(AMMO.get(wp, -1))})
 
 	# Spawn-Höhe so, dass der tiefste Punkt knapp über der Bahn liegt
 	if min_y == INF:
@@ -369,46 +375,57 @@ func _fire_primary() -> void:
 	var fwd := -aircraft.global_transform.basis.z.normalized()
 	var av := aircraft.linear_velocity
 	for w in weapons:
-		if w["cd"] > 0.0:
+		if w["cd"] > 0.0 or int(w["ammo"]) == 0:   # Cooldown läuft ODER aufgebraucht
 			continue
 		var pos: Vector3 = _muzzle(w["off"])
-		# Geschütz-Kaliber (mit Bullet-Drop): einheitlich aus der CALIBERS-Tabelle.
+		var fired := false
+		# Geschütz-Kaliber (mit Bullet-Drop): einheitlich aus der CALIBERS-Tabelle. Unbegrenzt.
 		if CALIBERS.has(w["type"]):
 			var c: Dictionary = CALIBERS[w["type"]]
 			_spawn("bullet", pos + fwd * 1.2, av + fwd * float(c["speed"]),
 				float(c["life"]), float(c["dmg"]), float(c["drop"]), c["tcol"], float(c["tscl"]))
 			w["cd"] = float(c["cd"])
-			continue
-		match w["type"]:
-			"rocket":
-				_spawn("missile", pos, av + fwd * 150.0, 6.0, 4.0)   # geradeaus, ungelenkt
-				w["cd"] = 0.5
-			"salvo":
-				var rgt := aircraft.global_transform.basis.x.normalized()
-				for s in [-1.0, 0.0, 1.0]:                            # 3er-Salve gefächert
-					var d: Vector3 = (fwd + rgt * (float(s) * 0.12)).normalized()
-					_spawn("missile", pos, av + d * 150.0, 6.0, 3.5)
-				w["cd"] = 1.0
-			"missile":
-				var m := _spawn("missile", pos, av + fwd * 120.0, 8.0, 4.0)
-				m.guided = true
-				m.turn = 3.0
-				m.seek_range = 80.0
-				w["cd"] = 1.0
-			"missile_heavy":
-				var mh := _spawn("missile", pos, av + fwd * 100.0, 11.0, 10.0)
-				mh.guided = true
-				mh.turn = 2.0
-				mh.seek_range = 110.0
-				w["cd"] = 1.7
+			fired = true
+		else:
+			match w["type"]:
+				"rocket":
+					_spawn("missile", pos, av + fwd * 150.0, 6.0, 4.0)   # geradeaus, ungelenkt
+					w["cd"] = 0.5
+					fired = true
+				"salvo":
+					var rgt := aircraft.global_transform.basis.x.normalized()
+					for s in [-1.0, 0.0, 1.0]:                            # 3er-Salve gefächert
+						var d: Vector3 = (fwd + rgt * (float(s) * 0.12)).normalized()
+						_spawn("missile", pos, av + d * 150.0, 6.0, 3.5)
+					w["cd"] = 1.0
+					fired = true
+				"missile":
+					var m := _spawn("missile", pos, av + fwd * 120.0, 8.0, 4.0)
+					m.guided = true
+					m.turn = 3.0
+					m.seek_range = 80.0
+					w["cd"] = 1.0
+					fired = true
+				"missile_heavy":
+					var mh := _spawn("missile", pos, av + fwd * 100.0, 11.0, 10.0)
+					mh.guided = true
+					mh.turn = 2.0
+					mh.seek_range = 110.0
+					w["cd"] = 1.7
+					fired = true
+		# Begrenzte Munition (Raketen/Lenkwaffen) verbrauchen; Geschütze (ammo=-1) nicht.
+		if fired and int(w["ammo"]) > 0:
+			w["ammo"] -= 1
 
 
 func _drop_bomb() -> void:
 	var av := aircraft.linear_velocity
 	for w in weapons:
-		if w["type"] == "bomb" and w["cd"] <= 0.0:
+		if w["type"] == "bomb" and w["cd"] <= 0.0 and int(w["ammo"]) != 0:
 			_spawn("bomb", _muzzle(w["off"]), av, 12.0, 6.0, 24.0)   # Bombe fällt (Schwerkraft)
 			w["cd"] = 0.8
+			if int(w["ammo"]) > 0:
+				w["ammo"] -= 1
 
 
 func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float,
@@ -570,6 +587,36 @@ func _update_markers() -> void:
 		nose_screen = ctr
 
 
+# Restmunition der begrenzten Waffen (Raketen/Lenkwaffen/Bomben) je Kategorie summiert.
+func _ammo_text() -> String:
+	var rockets := 0
+	var missiles := 0
+	var bombs := 0
+	var has_r := false
+	var has_m := false
+	var has_b := false
+	for w in weapons:
+		var a: int = int(w["ammo"])
+		match String(w["type"]):
+			"rocket", "salvo":
+				has_r = true
+				rockets += maxi(a, 0)
+			"missile", "missile_heavy":
+				has_m = true
+				missiles += maxi(a, 0)
+			"bomb":
+				has_b = true
+				bombs += maxi(a, 0)
+	var parts: Array = []
+	if has_r:
+		parts.append("🚀 %d" % rockets)
+	if has_m:
+		parts.append("🎯 %d" % missiles)
+	if has_b:
+		parts.append("💣 %d" % bombs)
+	return "   ".join(parts)
+
+
 func _emit_hud() -> void:
 	if not is_instance_valid(aircraft):
 		return
@@ -592,6 +639,7 @@ func _emit_hud() -> void:
 		"thrust": aircraft.total_thrust,
 		"assist": aircraft.assist,
 		"flaps": FLAP_NAMES[_flap_stage],
+		"ammo": _ammo_text(),
 		"gear": aircraft.gear_status,
 		"wings": aircraft.wing_status,
 		"inverted": aircraft.inverted,

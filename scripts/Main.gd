@@ -1290,6 +1290,9 @@ func _on_hud_changed(d: Dictionary) -> void:
 		thr_txt, int(d["kmh"]), int(d["speed"]),
 		int(d["alt"]), d["climb"], int(d["aoa"]), d.get("gforce", 1.0),
 		d.get("wings", "ok"), d.get("gear", "—"), d.get("flaps", "AUS"), inv_txt, assist_txt, mf_txt, nav]
+	var ammo_txt: String = d.get("ammo", "")
+	if ammo_txt != "":
+		hud_label.text += "\nMunition: " + ammo_txt
 	# Maus-Flug-Marker: Zielmarker (Maus/Weltrichtung) + Nasenrichtung; statisches Kreuz aus
 	if center_cross:
 		center_cross.visible = not mf
