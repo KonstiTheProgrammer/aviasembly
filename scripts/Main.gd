@@ -1274,6 +1274,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 	# Primary-Flight-Display füttern (Kompass, Speed/Höhe-Boxen, Zielkreis)
 	if flight_hud:
 		flight_hud.heading = d.get("heading", 0.0)
+		flight_hud.pitch = d.get("pitch", 0.0)
+		flight_hud.roll = d.get("roll", 0.0)
 		flight_hud.speed_kmh = d.get("kmh", 0.0)
 		flight_hud.speed_ms = d.get("speed", 0.0)
 		flight_hud.altitude = d.get("alt", 0.0)
@@ -1286,6 +1288,9 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.aim_vis = mf and bool(d.get("aim_vis", true))
 		flight_hud.nose_pos = d.get("nose", Vector2.ZERO)
 		flight_hud.nose_vis = mf and bool(d.get("nose_vis", true))
+		flight_hud.fpm_pos = d.get("fpm", Vector2.ZERO)
+		flight_hud.fpm_vis = bool(d.get("fpm_vis", false))
+		flight_hud.targets = d.get("targets", [])
 	stall_label.visible = d.get("stall", false) and d.get("speed", 0.0) > 4.0
 	if land_label:
 		var lm: String = d.get("land_msg", "")
