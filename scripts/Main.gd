@@ -1592,7 +1592,8 @@ func _default_design() -> Array:
 	var ht := Transform3D(wb, Vector3(0.55, 0.0, 4.1))
 	col.call("h_stab", ht, red)
 	col.call("h_stab", build_ctrl._mirror_xform(ht), red)
-	col.call("v_stab", Transform3D(build_ctrl._orient_to_normal(Vector3.UP), Vector3(0, 0.55, 4.2)), red)
+	# Seitenflosse: Hinterkante (Ruder) hinten (+Z). _orient_to_normal(UP) dreht die Sehne verkehrt.
+	col.call("v_stab", Transform3D(Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1)), Vector3(0, 0.55, 4.2)), red)
 	# Eine langsame Waffe (MG oben am Rumpf)
 	d.append({"id": "mg", "xform": Transform3D(Basis(), Vector3(0, 0.55, -1.2))})
 	# Festes Fahrwerk: 2 Haupträder + Hecksporn

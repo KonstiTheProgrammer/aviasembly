@@ -24,7 +24,7 @@ func _process(_d: float) -> bool:
 			bc._recolor(c, RED)
 
 	var nx := bc._orient_to_normal(Vector3(1, 0, 0))   # Flügel/Leitwerk: Spannweite +X
-	var ny := bc._orient_to_normal(Vector3(0, 1, 0))   # Seitenflosse nach oben
+	var ny := Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))   # Seitenflosse: Hinterkante (Ruder) hinten
 
 	# --- Rumpf + Rotor ---
 	P("nose", Vector3(0, 0, -2.0), Basis(), RED)

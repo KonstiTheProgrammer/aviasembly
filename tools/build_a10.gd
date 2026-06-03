@@ -24,7 +24,9 @@ func _process(_d: float) -> bool:
 			bc._recolor(c, GREY)
 
 	var nx := bc._orient_to_normal(Vector3(1, 0, 0))   # Flügel/Höhenleitwerk: Spannweite +X
-	var ny := bc._orient_to_normal(Vector3(0, 1, 0))   # Seitenflossen nach oben
+	# Seitenflosse: Spann nach oben, Hinterkante (Ruder) nach HINTEN (+Z). _orient_to_normal(UP)
+	# dreht die Sehne verkehrt herum -> Ruder säße vorne. Daher explizite Basis.
+	var ny := Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))
 
 	# --- Rumpf (lang) ---
 	P("nose", Vector3(0, 0, -2.1))
@@ -32,8 +34,8 @@ func _process(_d: float) -> bool:
 	P("fuselage", Vector3(0, 0, 3.7))
 	P("tailcone", Vector3(0, 0, 5.4))
 
-	# --- GAU-8 Minigun in der Nase (gunmetal -> keine Lackierung) ---
-	P("minigun", Vector3(0, -0.12, -3.4), Basis(), Vector3.ONE, Color(0, 0, 0, 0))
+	# --- GAU-8 Minigun in der Nase (lang, ragt vorne raus; gunmetal -> keine Lackierung) ---
+	P("minigun", Vector3(0, -0.12, -2.6), Basis(), Vector3.ONE, Color(0, 0, 0, 0))
 
 	# --- Gerade Tragflächen, tief angesetzt (groß) ---
 	P("wing_straight", Vector3(0.6, -0.35, 2.0), nx, Vector3(1.35, 1.0, 1.25), GREY)
