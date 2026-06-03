@@ -404,6 +404,7 @@ func _emit_selection() -> void:
 		return
 	var p := PartCatalog.get_part(selected_part.get_meta("part_id"))
 	selection_changed.emit({
+		"id": selected_part.get_meta("part_id"),
 		"name": p.get("name", selected_part.get_meta("part_id")),
 		"scale": selected_part.get_meta("pscale", Vector3.ONE),
 		"is_root": selected_part.get_meta("is_root", false),

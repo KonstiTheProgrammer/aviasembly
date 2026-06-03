@@ -813,12 +813,31 @@ func _fill_part_list(list: VBoxContainer) -> void:
 
 
 # Eine Bauteil-Kachel: 3D-Vorschau + Name + Masse, klickbar (exklusiv markiert).
+# Kompakte Teil-Statistik (für Hover-Tooltips & Auswahl-Panel).
+func _part_stats_text(p: Dictionary) -> String:
+	var lines: Array = []
+	if String(p.get("desc", "")) != "":
+		lines.append(str(p["desc"]))
+	lines.append("Masse: %d kg" % int(p.get("mass", 0.0)))
+	if p.get("is_wing", false) and p.get("area", 0.0) > 0.0:
+		lines.append("Fläche: %.1f m²  ·  Auftrieb ×%.2f" % [p["area"], p.get("lift", 1.0)])
+	if p.get("thrust", 0.0) > 0.0:
+		lines.append("Schub: %d N%s" % [int(p["thrust"]), ("  (Jet)" if p.get("jet", false) else "")])
+	if p.get("gear_capacity", 0.0) > 0.0:
+		lines.append("Traglast: %d kg" % int(p["gear_capacity"]))
+	if String(p.get("weapon", "")) != "":
+		lines.append("Waffe: %s" % String(p["weapon"]))
+	lines.append("Luftwiderstand cW·A: %.2f m²" % PartCatalog.part_drag(p))
+	lines.append("Preis: %d 🪙" % PartCatalog.part_cost(p))
+	return "\n".join(lines)
+
+
 func _make_part_tile(p: Dictionary) -> Button:
 	var id: String = p["id"]
 	var tile := Button.new()
 	tile.custom_minimum_size = Vector2(0, 94)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tile.tooltip_text = "%s — in den Bauraum ziehen zum Setzen" % p.get("desc", p["name"])
+	tile.tooltip_text = _part_stats_text(p) + "\n→ in den Bauraum ziehen zum Setzen"
 	tile.clip_contents = true
 	_style_tile(tile)
 	# Drag&Drop aus dem Inventar: Drücken startet den Drag, Klick (auf gesperrt) kauft.
@@ -856,7 +875,7 @@ func _make_part_tile(p: Dictionary) -> Button:
 		mass.text = "🔒 %d 🪙" % PartCatalog.part_cost(p)
 		mass.add_theme_color_override("font_color", Color(1.0, 0.82, 0.35))
 		tile.modulate = Color(0.68, 0.68, 0.74)   # gesperrt -> ausgegraut
-		tile.tooltip_text = "%s — kosten %d 🪙 (klicken zum Kaufen)" % [p.get("desc", p["name"]), PartCatalog.part_cost(p)]
+		tile.tooltip_text = _part_stats_text(p) + "\n🔒 klicken zum Kaufen"
 	else:
 		mass.text = "%d kg" % int(p["mass"])
 		mass.add_theme_color_override("font_color", Color(0.72, 0.8, 0.92))
@@ -1073,6 +1092,10 @@ func _on_selection_changed(info: Dictionary) -> void:
 		return
 	sel_panel.visible = true
 	sel_title.text = "✦ %s" % info.get("name", "Teil")
+	# Stats des ausgewählten Teils als Tooltip am Titel (Hover zeigt Masse/Auftrieb/Schub/…)
+	var pid: String = String(info.get("id", ""))
+	if pid != "" and PartCatalog.has(pid):
+		sel_title.tooltip_text = _part_stats_text(PartCatalog.get_part(pid))
 	var s: Vector3 = info.get("scale", Vector3.ONE)
 	sel_scale_label.text = "Größe: %.2f × %.2f × %.2f" % [s.x, s.y, s.z]
 	var is_root: bool = info.get("is_root", false)

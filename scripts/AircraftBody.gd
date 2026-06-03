@@ -61,6 +61,7 @@ var props: Array = []
 var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
 var _afterburners: Array = [] # CPUParticles3D an Jet-Düsen (Nachbrennerflamme)
 var _vapor: Array = []        # CPUParticles3D an Flügelspitzen (Wirbelschleppen bei hoher G)
+var _damage_smoke: CPUParticles3D = null  # Rauchfahne, wenn das Flugzeug Teile verloren hat
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
 const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
 const FLAP_RATE := 0.28       # Ausfahr-/Einfahrgeschwindigkeit (1/s): voll ~3.5 s, pro Stufe ~1.8 s (realistisch träge)
@@ -708,8 +709,24 @@ func _rebuild_fx() -> void:
 	for n in _vapor:
 		if is_instance_valid(n):
 			n.queue_free()
+	if is_instance_valid(_damage_smoke):
+		_damage_smoke.queue_free()
+	_damage_smoke = null
 	_afterburners.clear()
 	_vapor.clear()
+	# Schadensrauch: hat das Flugzeug Teile verloren (aber lebt noch) -> qualmt aus der Wunde
+	var wound := Vector3.ZERO
+	var nbroken := 0
+	for pi in parts:
+		if pi.get("broken", false):
+			wound += pi["pos"]
+			nbroken += 1
+	if nbroken > 0 and not exploded:
+		var ds := _fx_make(22, 1.1, 0.0, 2.5, Color(0.2, 0.2, 0.22, 0.75), 0.34, false, 1.2, Vector3(0, 1, 0))
+		add_child(ds)
+		ds.position = wound / float(nbroken)
+		ds.emitting = true
+		_damage_smoke = ds
 	for e in engines:
 		if not e.get("jet", false):
 			continue
