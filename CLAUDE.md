@@ -20,6 +20,9 @@ Flugphysik. Wie du baust, bestimmt wie es fliegt.
 ## Starten, Testen, Iterieren (WICHTIG)
 Godot-Binary (macOS): `/Applications/Godot.app/Contents/MacOS/Godot`
 
+- **AUTOSTART (Wunsch des Nutzers):** Nach jeder abgeschlossenen + verifizierten Änderung
+  (committet) das Spiel AUTOMATISCH via Godot-MCP `run_project` starten — NICHT auf „start an"
+  warten. Laufende Instanz vorher ggf. `stop_project`.
 - **Spiel starten (GUI):** über das Godot-MCP `run_project` / `get_debug_output` /
   `stop_project`, projectPath = Projektordner. (Es gibt keinen Screenshot der
   Godot-Szene — Verifikation läuft über Debug-Output + Headless-Tests.)
