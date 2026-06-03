@@ -174,16 +174,28 @@ static func _build() -> void:
 
 	# --- Bewaffnung (feuerbar: LEERTASTE = Kanone/Raketen, B = Bombe) ------
 	_add({
-		"id": "cannon", "name": "Bordkanone", "category": CAT_WEAPON,
+		"id": "cannon", "name": "Bordkanone (20 mm)", "category": CAT_WEAPON,
 		"mass": 110.0, "color": C_WEAPON, "shape": "cannon", "weapon": "gun",
 		"size": Vector3(0.42, 0.42, 1.6), "metal": 0.7, "rough": 0.35,
-		"desc": "Schnellfeuer-Kanone (LEERTASTE). Vorne montieren — schießt geradeaus.",
+		"desc": "Mittleres Kaliber, Schnellfeuer (LEERTASTE). Flaches Geschoss, wenig Bullet-Drop.",
 	})
 	_add({
-		"id": "mg", "name": "Bord-MG", "category": CAT_WEAPON,
+		"id": "autocannon", "name": "Autokanone (30 mm)", "category": CAT_WEAPON,
+		"mass": 175.0, "color": Color(0.26, 0.27, 0.30), "shape": "cannon", "weapon": "autocannon",
+		"size": Vector3(0.5, 0.5, 1.9), "metal": 0.72, "rough": 0.35,
+		"desc": "Schweres Kaliber (LEERTASTE): langsamere, hart einschlagende Granaten — spürbarer Bullet-Drop, hoher Schaden.",
+	})
+	_add({
+		"id": "heavy_cannon", "name": "Schwere Kanone (37 mm)", "category": CAT_WEAPON,
+		"mass": 260.0, "color": Color(0.22, 0.23, 0.26), "shape": "cannon", "weapon": "heavy",
+		"size": Vector3(0.62, 0.62, 2.3), "metal": 0.7, "rough": 0.4,
+		"desc": "Großkaliber (LEERTASTE): sehr langsame Granate, starker Bullet-Drop, riesiger Schaden — top gegen Luftschiffe. Langsame Kadenz.",
+	})
+	_add({
+		"id": "mg", "name": "Bord-MG (7.9 mm)", "category": CAT_WEAPON,
 		"mass": 55.0, "color": Color(0.2, 0.21, 0.23), "shape": "cannon", "weapon": "mg",
 		"size": Vector3(0.3, 0.3, 1.3), "metal": 0.75, "rough": 0.35,
-		"desc": "Einzelnes MG (LEERTASTE) — schießt langsam geradeaus. Klassiker fürs Doppeldecker-Cockpit.",
+		"desc": "Leichtes Kaliber: schnelles, flaches Geschoss (kaum Bullet-Drop), langsame Kadenz. Klassiker fürs Doppeldecker-Cockpit.",
 	})
 	_add({
 		"id": "rocket", "name": "Ungelenkte Rakete", "category": CAT_WEAPON,

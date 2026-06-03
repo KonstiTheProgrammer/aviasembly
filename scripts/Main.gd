@@ -1183,7 +1183,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(nose_marker)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Umschauen · M: Maus-Flug · J: Arcade · Schub: Shift/Strg · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · 🔫 LEERTASTE · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Umschauen · M: Maus-Flug · J: Arcade · Schub: Shift/Strg · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · 🔫 LEERTASTE (Bullet-Drop — höher zielen!) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)

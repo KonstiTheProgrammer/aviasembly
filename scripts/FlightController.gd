@@ -17,6 +17,15 @@ const BARREL_HOLD := 0.32       # A/D so lange halten -> Fass-Roll (War-Thunder-
 # Landeklappen-Stufen (Taste F): Aus -> Start -> Landung. Wert = Klappenstellung 0..1.
 const FLAP_STAGES := [0.0, 0.5, 1.0]
 const FLAP_NAMES := ["AUS", "Start", "Landung"]
+# Geschütz-Kaliber: Mündungsgeschwindigkeit, Schaden, Lebenszeit, Kadenz (cd),
+# Bullet-Drop (m/s² Schwerkraft aufs Geschoss) und Leuchtspur. Schwereres Kaliber =
+# langsameres Geschoss + mehr Drop + mehr Schaden + dickere/längere Spur.
+const CALIBERS := {
+	"mg":         {"speed": 380.0, "dmg": 1.2,  "life": 2.6, "cd": 0.55, "drop": 9.0,  "tcol": Color(1.0, 0.92, 0.45), "tscl": 0.8},
+	"gun":        {"speed": 330.0, "dmg": 2.2,  "life": 2.8, "cd": 0.10, "drop": 12.0, "tcol": Color(1.0, 0.82, 0.30), "tscl": 1.0},
+	"autocannon": {"speed": 280.0, "dmg": 5.0,  "life": 3.0, "cd": 0.28, "drop": 17.0, "tcol": Color(1.0, 0.60, 0.20), "tscl": 1.4},
+	"heavy":      {"speed": 235.0, "dmg": 11.0, "life": 3.4, "cd": 0.85, "drop": 23.0, "tcol": Color(1.0, 0.45, 0.12), "tscl": 1.9},
+}
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
@@ -350,14 +359,14 @@ func _fire_primary() -> void:
 		if w["cd"] > 0.0:
 			continue
 		var pos: Vector3 = _muzzle(w["off"])
+		# Geschütz-Kaliber (mit Bullet-Drop): einheitlich aus der CALIBERS-Tabelle.
+		if CALIBERS.has(w["type"]):
+			var c: Dictionary = CALIBERS[w["type"]]
+			_spawn("bullet", pos + fwd * 1.2, av + fwd * float(c["speed"]),
+				float(c["life"]), float(c["dmg"]), float(c["drop"]), c["tcol"], float(c["tscl"]))
+			w["cd"] = float(c["cd"])
+			continue
 		match w["type"]:
-			"gun":
-				_spawn("bullet", pos + fwd * 1.2, av + fwd * 350.0, 2.0, 1.0)
-				w["cd"] = 0.09
-			"mg":
-				# Einzel-MG: langsame Kadenz (WWI-Doppeldecker), kräftiger Einzelschuss
-				_spawn("bullet", pos + fwd * 1.2, av + fwd * 320.0, 2.2, 1.5)
-				w["cd"] = 0.55
 			"rocket":
 				_spawn("missile", pos, av + fwd * 150.0, 6.0, 4.0)   # geradeaus, ungelenkt
 				w["cd"] = 0.5
@@ -385,11 +394,12 @@ func _drop_bomb() -> void:
 	var av := aircraft.linear_velocity
 	for w in weapons:
 		if w["type"] == "bomb" and w["cd"] <= 0.0:
-			_spawn("bomb", _muzzle(w["off"]), av, 12.0, 6.0)
+			_spawn("bomb", _muzzle(w["off"]), av, 12.0, 6.0, 24.0)   # Bombe fällt (Schwerkraft)
 			w["cd"] = 0.8
 
 
-func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float) -> Projectile:
+func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float,
+		grav := 0.0, tcol := Color(1.0, 0.85, 0.2), tscl := 1.0) -> Projectile:
 	var root := world_root if world_root != null else get_parent()
 	if root == null:
 		return null
@@ -398,7 +408,10 @@ func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float) -
 	p.vel = vel
 	p.life = life
 	p.damage = dmg
-	root.add_child(p)
+	p.gravity = grav        # Bullet-Drop / Bomben-Fall
+	p.tracer_color = tcol
+	p.tracer_scale = tscl
+	root.add_child(p)       # _ready -> _build_visual nutzt die schon gesetzten Tracer-Werte
 	p.global_position = pos
 	return p
 

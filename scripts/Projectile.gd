@@ -7,6 +7,9 @@ var kind := "bullet"          # bullet | missile | bomb
 var vel := Vector3.ZERO
 var life := 2.5
 var damage := 1.0
+var gravity := 0.0            # Bullet-Drop: m/s² nach unten (0 = schnurgerade). Pro Kaliber gesetzt.
+var tracer_color := Color(1.0, 0.85, 0.2)  # Leuchtspur-Farbe (Kaliber)
+var tracer_scale := 1.0       # Leuchtspur-Größe (größeres Kaliber = dicker/länger)
 var turn := 3.0               # Lenkrate der Rakete (rad/s grob)
 var guided := false           # Suchkopf aktiv? (sonst rein geradeaus)
 var seek_range := 70.0        # Reichweite, ab der ein Ziel angeflogen wird
@@ -23,15 +26,20 @@ func _physics_process(delta: float) -> void:
 	if life <= 0.0:
 		queue_free()
 		return
-	if kind == "bomb":
-		vel.y -= 24.0 * delta
-	elif kind == "missile" and guided:
+	if kind == "missile" and guided:
 		_home(delta)
+	if gravity != 0.0:
+		vel.y -= gravity * delta   # Bullet-Drop / Bomben-Fall (ballistischer Bogen)
 	var a := global_position
 	global_position += vel * delta
 	var b := global_position
-	if kind != "bullet" and vel.length() > 1.0:
-		look_at(b + vel, Vector3.UP)
+	# Auch Geschosse an der Flugbahn ausrichten -> Leuchtspur kippt mit dem Drop-Bogen.
+	# Up-Referenz absichern: ist die Bahn fast senkrecht (parallel zu UP), wirft look_at sonst.
+	if vel.length() > 1.0:
+		var up_ref := Vector3.UP
+		if absf(vel.normalized().dot(Vector3.UP)) > 0.99:
+			up_ref = Vector3.FORWARD
+		look_at(b + vel, up_ref)
 	# Treffer? (Strecke a->b gegen alle Ziele, damit schnelle Kugeln nicht durchtunneln)
 	for t in get_tree().get_nodes_in_group("target"):
 		if not is_instance_valid(t):
@@ -102,12 +110,13 @@ func _build_visual() -> void:
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	if kind == "bullet":
 		var bm := BoxMesh.new()
-		bm.size = Vector3(0.12, 0.12, 0.9)
+		# Kaliber: größeres Kaliber -> dickere & längere Leuchtspur
+		bm.size = Vector3(0.12 * tracer_scale, 0.12 * tracer_scale, 0.9 * (0.7 + 0.5 * tracer_scale))
 		mi.mesh = bm
-		m.albedo_color = Color(1.0, 0.85, 0.2)
+		m.albedo_color = tracer_color
 		m.emission_enabled = true
-		m.emission = Color(1.0, 0.8, 0.2)
-		m.emission_energy_multiplier = 2.0
+		m.emission = tracer_color
+		m.emission_energy_multiplier = 2.2
 	elif kind == "missile":
 		var cm := CylinderMesh.new()
 		cm.top_radius = 0.12
