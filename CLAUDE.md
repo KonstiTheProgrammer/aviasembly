@@ -195,7 +195,12 @@ Querruder, kein Auftrieb.
 **Hangar:** Palette-Teil wählen → ziehen=setzen · **vorhandenes Teil klicken=auswählen**
 (Griffe+Panel: skalieren/drehen/löschen), **Body ziehen=verschieben** · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
-`Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · Tab=Testflug.
+`Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · **`Strg+D` duplizieren** (Klon+Spiegel, `duplicate_selected`) ·
+**Pfeiltasten** = ausgewähltes Teil fein verschieben (`nudge_selected`, 0.25er) ·
+**`1`/`2`/`3` orthografische Blueprint-Ansicht** Front/Seite/Oben, **`4`** frei (`set_view`/`_ortho_view`,
+Kamera `PROJECTION_ORTHOGONAL`; manuelles Drehen → zurück Perspektive) · Tab=Testflug.
+Statistik hat eine **„Fliegt's?"-Ampel** (`_update_ampel`): grün/gelb/rot aus Stabilität
+(col.z−com.z), Schub/Gewicht, Tragflächen & Fahrwerk + kurzer Tipp.
 **Bauen = Drag&Drop aus dem Inventar:** Druck auf eine (freigeschaltete) Teile-Kachel ruft
 `begin_drag_from_palette` → Ghost folgt der Maus, **in den Bauraum ziehen & loslassen** = gesetzt
 (rastet flächenbündig an). Loslassen über UI = verworfen (`gui_get_hovered_control`). Release per

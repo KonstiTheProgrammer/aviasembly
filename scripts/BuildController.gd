@@ -24,6 +24,7 @@ var orbit_yaw := 0.7
 var orbit_pitch := 0.4
 var orbit_dist := 15.0
 var orbit_focus := Vector3(0, 0.0, 0)
+var _ortho_view := 0         # 0=frei (Perspektive), 1=Front, 2=Seite, 3=Oben (orthografisch)
 var _orbiting := false       # rechte Maus
 var _panning := false        # mittlere Maus
 var _left_orbit := false     # linke Maus auf leeren Raum -> drehen
@@ -112,6 +113,9 @@ func set_active(active: bool) -> void:
 		_rebuild_ghost()
 	if not active:
 		_deselect()
+		# Kamera für den Flug wieder auf Perspektive (falls Blueprint-Ortho-Ansicht aktiv war)
+		if camera:
+			camera.projection = Camera3D.PROJECTION_PERSPECTIVE
 	if ghost:
 		ghost.visible = false
 	if active:
@@ -170,14 +174,21 @@ func _physics_process(_delta: float) -> void:
 func _update_camera() -> void:
 	if camera == null:
 		return
-	orbit_pitch = clamp(orbit_pitch, -1.4, 1.4)
+	orbit_pitch = clamp(orbit_pitch, -1.55, 1.55)   # bis fast senkrecht (für Oben-Ansicht)
 	orbit_dist = clamp(orbit_dist, 2.5, 110.0)
 	var dir := Vector3(
 		cos(orbit_pitch) * sin(orbit_yaw),
 		sin(orbit_pitch),
 		cos(orbit_pitch) * cos(orbit_yaw))
 	camera.global_position = orbit_focus + dir * orbit_dist
-	camera.look_at(orbit_focus, Vector3.UP)
+	# Bei einer Blueprint-Ansicht orthografisch (kein Perspektiv-Verzerren beim Ausrichten).
+	if _ortho_view > 0:
+		camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+		camera.size = orbit_dist
+	else:
+		camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	var up := Vector3.UP if _ortho_view != 3 else Vector3(0, 0, -1)  # Oben-Ansicht: Nase nach oben im Bild
+	camera.look_at(orbit_focus, up)
 
 
 func _update_ghost() -> void:
@@ -232,6 +243,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _orbiting or _left_orbit:
 			orbit_yaw -= event.relative.x * 0.01
 			orbit_pitch += event.relative.y * 0.01
+			_ortho_view = 0   # manuelles Drehen -> zurück zur freien Perspektive
 		elif _panning and camera:
 			var cam_b := camera.global_transform.basis
 			var pan_amt := orbit_dist * 0.0016
@@ -246,6 +258,8 @@ func _unhandled_input(event: InputEvent) -> void:
 					undo()
 			elif event.keycode == KEY_Y:
 				redo()
+			elif event.keycode == KEY_D:
+				duplicate_selected()
 			return
 		match event.keycode:
 			KEY_G:
@@ -259,6 +273,28 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_S:
 				if selected_part != null:
 					set_gizmo_mode(GIZ_SCALE)
+			# Pfeiltasten: ausgewähltes Teil fein verschieben (Weltachsen, 0.25er-Schritte)
+			KEY_LEFT:
+				nudge_selected(Vector3(-0.25, 0, 0))
+			KEY_RIGHT:
+				nudge_selected(Vector3(0.25, 0, 0))
+			KEY_UP:
+				nudge_selected(Vector3(0, 0, -0.25))
+			KEY_DOWN:
+				nudge_selected(Vector3(0, 0, 0.25))
+			KEY_PAGEUP:
+				nudge_selected(Vector3(0, 0.25, 0))
+			KEY_PAGEDOWN:
+				nudge_selected(Vector3(0, -0.25, 0))
+			# Blueprint-Ansichten
+			KEY_1:
+				set_view(1)
+			KEY_2:
+				set_view(2)
+			KEY_3:
+				set_view(3)
+			KEY_4:
+				set_view(0)
 			KEY_F:
 				reset_camera()
 			KEY_ESCAPE:
@@ -443,6 +479,50 @@ func delete_selected() -> void:
 	part.free()
 	_push_history()
 	_notify_changed()
+
+
+# Ausgewähltes Teil klonen (mit Spiegel via Symmetrie), seitlich versetzt, und den Klon auswählen.
+func duplicate_selected() -> void:
+	if selected_part == null:
+		return
+	var id: String = selected_part.get_meta("part_id")
+	if id == "":
+		return
+	var xf := selected_part.transform
+	var off := Vector3(1.2, 0.0, 0.0)
+	if camera != null:
+		off = camera.global_transform.basis.x.normalized() * 1.3   # nach Bildschirm-rechts versetzt
+	xf.origin += off
+	var sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+	var cl: Color = selected_part.get_meta("color", Color(0, 0, 0, 0))
+	var np := _place_id(id, xf, sc, cl)
+	_push_history()
+	_notify_changed()
+	if np != null:
+		_select_part(np)
+
+
+# Ausgewähltes Teil um delta (Weltachsen) verschieben (Pfeiltasten-Feinjustage).
+func nudge_selected(delta_world: Vector3) -> void:
+	if selected_part == null:
+		return
+	_apply_sel_transform(selected_part.transform.basis,
+		selected_part.position + delta_world,
+		selected_part.get_meta("pscale", Vector3.ONE))
+	_emit_selection()
+	_push_history()
+
+
+# Blueprint-Ansichten: 0=frei (Perspektive), 1=Front, 2=Seite, 3=Oben (orthografisch).
+func set_view(preset: int) -> void:
+	_ortho_view = preset
+	match preset:
+		1: orbit_yaw = PI; orbit_pitch = 0.0          # von vorne auf die Nase
+		2: orbit_yaw = PI * 0.5; orbit_pitch = 0.0    # Seitenprofil
+		3: orbit_yaw = 0.0; orbit_pitch = 1.55        # von oben
+		_:
+			orbit_yaw = 0.7; orbit_pitch = 0.4        # freie Perspektive
+	_update_camera()
 
 
 func _clear_handles() -> void:
@@ -866,6 +946,7 @@ func reset_camera() -> void:
 	orbit_pitch = 0.4
 	orbit_dist = 15.0
 	orbit_focus = Vector3(0, 0, 0)
+	_ortho_view = 0
 	_update_camera()
 
 
@@ -1059,15 +1140,16 @@ func _clear_wind_tunnel() -> void:
 
 
 # Platziert ein Teil (mit Symmetrie, falls aktiv und außermittig)
-func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0, 0, 0, 0)) -> void:
+func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0, 0, 0, 0)) -> Node3D:
 	if id == "":
-		return
+		return null
 	var part := _make_part(id, t, col, pscale)
 	if symmetry and absf(t.origin.x) > 0.15:
 		var mt := _mirror_xform(t)
 		var mpart := _make_part(id, mt, col, pscale)
 		part.set_meta("mirror", mpart)
 		mpart.set_meta("mirror", part)
+	return part
 
 
 func _delete_hovered() -> void:

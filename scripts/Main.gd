@@ -52,6 +52,7 @@ var ui: CanvasLayer
 var build_root: Control
 var flight_root: Control
 var stats_label: Label
+var ampel_label: Label              # "Fliegt's?"-Ampel (grün/gelb/rot + Tipp)
 var hud_label: Label
 var stall_label: Label
 var land_label: Label
@@ -584,11 +585,14 @@ func _build_hangar_ui() -> void:
 
 	# --- Statistik oben rechts ---
 	var spanel := _panel(Color(0, 0, 0, 0.5))
-	_rect(spanel, 1, 0, 1, 0, -300, 10, -10, 258)
+	_rect(spanel, 1, 0, 1, 0, -290, 10, -10, 290)
 	build_root.add_child(spanel)
 	var sv := VBoxContainer.new()
 	spanel.add_child(sv)
 	sv.add_child(_lbl("📊  STATISTIK", 16, Color(1, 0.9, 0.5)))
+	ampel_label = _lbl("", 14, Color(0.6, 1.0, 0.6))
+	ampel_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sv.add_child(ampel_label)
 	stats_label = _lbl("", 14)
 	sv.add_child(stats_label)
 	var legend := _lbl("● Schwerpunkt   ● Auftriebspunkt", 11, Color(0.85, 0.85, 0.85))
@@ -597,7 +601,7 @@ func _build_hangar_ui() -> void:
 	_build_selection_panel()
 
 	# --- Hinweisleiste unten ---
-	var hint := _lbl("Teil ziehen = setzen/verschieben  ·  leerer Raum/Rechtsmaus = drehen  ·  Zoom: Mausrad / + − / Pinch / Zwei-Finger  ·  X: löschen  ·  R: drehen  ·  M: Symmetrie  ·  Strg+Z/Y: Undo  ·  F: Ansicht", 13, Color(0.9, 0.9, 0.9))
+	var hint := _lbl("Aus Liste ziehen = bauen · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.9, 0.9, 0.9))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 320, -34, -10, -8)
 	build_root.add_child(hint)
@@ -893,6 +897,11 @@ func _build_selection_panel() -> void:
 	rst.text = "⟲ Größe zurücksetzen"
 	rst.pressed.connect(build_ctrl.reset_selected_scale)
 	v.add_child(rst)
+	var dup := Button.new()
+	dup.text = "⧉  Duplizieren  (Strg+D)"
+	dup.add_theme_color_override("font_color", Color(0.6, 0.9, 1.0))
+	dup.pressed.connect(build_ctrl.duplicate_selected)
+	v.add_child(dup)
 	sel_delete_btn = Button.new()
 	sel_delete_btn.text = "🗑  Löschen"
 	sel_delete_btn.add_theme_color_override("font_color", Color(1, 0.6, 0.55))
@@ -1065,6 +1074,43 @@ func _on_design_changed(stats: Dictionary) -> void:
 		int(stats["parts"]), int(stats["mass"]), stats["area"],
 		int(stats["thrust"]), stats["tw"], drag_line,
 		stab, wingload, gear]
+	_update_ampel(stats)
+
+
+# "Fliegt's?"-Ampel: aus Stabilität, Schub/Gewicht, Flügeln und Fahrwerk eine grün/gelb/rote
+# Einschätzung mit kurzem Tipp ableiten.
+func _update_ampel(stats: Dictionary) -> void:
+	if ampel_label == null:
+		return
+	var has_wings: bool = stats.get("has_wings", false)
+	var tw: float = stats.get("tw", 0.0)
+	var d: float = (stats["col"].z - stats["com"].z) if stats.get("col_valid", false) else 0.0
+	var txt: String
+	var col: Color
+	if not has_wings:
+		col = Color(1, 0.45, 0.4); txt = "🔴 Fliegt nicht — keine Tragflächen dran"
+	elif stats.get("gear_overload", false):
+		col = Color(1, 0.45, 0.4); txt = "🔴 Fahrwerk überlastet — kollabiert beim Start"
+	elif tw < 0.12:
+		col = Color(1, 0.45, 0.4); txt = "🔴 Zu wenig Schub zum Abheben"
+	elif stats.get("col_valid", false) and d < -0.5:
+		col = Color(1, 0.45, 0.4); txt = "🔴 Stark kopflastig — überschlägt sich"
+	else:
+		var warns: Array = []
+		if tw < 0.30:
+			warns.append("wenig Schub")
+		if stats.get("col_valid", false) and d < 0.15:
+			warns.append("grenzwertig stabil (Leitwerk/Flügel weiter nach hinten)")
+		if not stats.get("has_gear", false):
+			warns.append("kein Fahrwerk (Bauchlandung)")
+		if has_wings and stats.get("max_g", 9.0) < 3.0:
+			warns.append("Flügel kaum belastbar")
+		if warns.is_empty():
+			col = Color(0.45, 1.0, 0.5); txt = "🟢 Flugbereit!"
+		else:
+			col = Color(1.0, 0.85, 0.3); txt = "🟡 " + ", ".join(warns)
+	ampel_label.add_theme_color_override("font_color", col)
+	ampel_label.text = txt
 
 
 func _on_hud_changed(d: Dictionary) -> void:
