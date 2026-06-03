@@ -152,6 +152,13 @@ static func _build() -> void:
 		"size": Vector3(1.3, 1.1, 2.8), "metal": 0.8, "rough": 0.3,
 		"desc": "Rechteckiges Stealth-Triebwerk mit flacher 2D-Düse. Kräftig.",
 	})
+	_add({
+		"id": "f22_engine", "name": "F-22 2D-Schubvektordüse", "category": CAT_PROP,
+		"mass": 330.0, "color": Color(0.3, 0.31, 0.34), "shape": "jet", "thrust": 21000.0, "jet": true,
+		"size": Vector3(0.62, 0.78, 1.95), "col_size": Vector3(0.6, 0.74, 1.9),
+		"metal": 0.7, "rough": 0.38,
+		"desc": "Rechteckige 2D-Schubvektordüse mit Petals und Nachbrenner-Glühen (F-22). Konstanter Jet-Schub.",
+	})
 
 	# --- Fahrwerk (mit Traglast in kg; Summe muss das Gewicht tragen) ------
 	_add({

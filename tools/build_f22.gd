@@ -34,8 +34,8 @@ func _process(_d: float) -> bool:
 	# --- Gepfeilte Delta-Flügel (mittig-tief) ---
 	P("wing_delta", Vector3(0.55, -0.28, 0.7), nx, Vector3(1.35, 1.0, 1.3), GREY)
 
-	# --- Zwei eckige Schubdüsen hinten, eng beieinander ---
-	P("jet_square", Vector3(0.4, -0.05, 4.2), Basis(), Vector3(1.0, 1.0, 1.05), DARK)
+	# --- Zwei dedizierte 2D-Schubvektordüsen hinten, eng beieinander ---
+	P("f22_engine", Vector3(0.38, -0.05, 4.4), Basis(), Vector3.ONE, Color(0, 0, 0, 0))
 
 	# --- Stabilatoren (alle-beweglich) hinten ---
 	P("h_stab", Vector3(0.6, 0.0, 3.9), nx, Vector3(1.05, 1.0, 1.0), GREY)
@@ -52,6 +52,11 @@ func _process(_d: float) -> bool:
 
 	var floating: int = bc.floating_count()
 	var design := bc.get_design()
+	# Cockpit-Wurzel verstecken (winzig + tief im Rumpf) -> keine zweite Kanzel, f22_body liefert die.
+	for it in design:
+		if String(it.get("id", "")) == "cockpit":
+			it["scale"] = Vector3(0.16, 0.16, 0.16)
+			it["xform"] = Transform3D((it["xform"] as Transform3D).basis, Vector3(0, -0.2, -1.5))
 	_save(design)
 	print("F-22 gespeichert: ", design.size(), " Teile | schwebend: ", floating)
 	if floating > 0:
