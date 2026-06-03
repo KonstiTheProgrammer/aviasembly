@@ -16,6 +16,12 @@ var seek_range := 70.0        # Reichweite, ab der ein Ziel angeflogen wird
 const SEEK_CONE := 0.2        # nur Ziele grob voraus erfassen (dot vel·Richtung)
 var _target: Node3D = null
 
+# Leuchtspur (Tracer): kameragerichtetes Band aus den letzten Weltpositionen, das zum
+# Schweif hin ausblendet -> sichtbarer Schuss-/Drop-Bogen wie echtes Leuchtspurfeuer.
+const TRAIL_LEN := 9          # Anzahl gespeicherter Stützpunkte (länger = längere Spur)
+var _trail_mi: MeshInstance3D = null
+var _trail_pts: PackedVector3Array = PackedVector3Array()
+
 
 func _ready() -> void:
 	_build_visual()
@@ -40,6 +46,12 @@ func _physics_process(delta: float) -> void:
 		if absf(vel.normalized().dot(Vector3.UP)) > 0.99:
 			up_ref = Vector3.FORWARD
 		look_at(b + vel, up_ref)
+	# Leuchtspur fortschreiben (Ringpuffer der letzten Weltpositionen) + neu zeichnen
+	if _trail_mi != null:
+		_trail_pts.push_back(b)
+		while _trail_pts.size() > TRAIL_LEN:
+			_trail_pts.remove_at(0)
+		_update_trail()
 	# Treffer? (Strecke a->b gegen alle Ziele, damit schnelle Kugeln nicht durchtunneln)
 	for t in get_tree().get_nodes_in_group("target"):
 		if not is_instance_valid(t):
@@ -135,6 +147,53 @@ func _build_visual() -> void:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	mi.material_override = m
 	add_child(mi)
+	if kind == "bullet":
+		_make_trail()
+
+
+# Leuchtspur-Band (ImmediateMesh, additiv leuchtend, kameragerichtet, zum Schweif ausblendend).
+func _make_trail() -> void:
+	_trail_mi = MeshInstance3D.new()
+	_trail_mi.mesh = ImmediateMesh.new()
+	_trail_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var tm := StandardMaterial3D.new()
+	tm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	tm.vertex_color_use_as_albedo = true
+	tm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	tm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD          # additiv -> glüht wie Leuchtspur
+	tm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_trail_mi.material_override = tm
+	add_child(_trail_mi)
+
+
+func _update_trail() -> void:
+	var im: ImmediateMesh = _trail_mi.mesh
+	im.clear_surfaces()
+	var n := _trail_pts.size()
+	if n < 2:
+		return
+	var cam := get_viewport().get_camera_3d()
+	var cam_pos: Vector3 = cam.global_position if cam != null else global_position + Vector3.UP * 50.0
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+	for i in n:
+		var wp: Vector3 = _trail_pts[i]
+		var dir: Vector3 = (_trail_pts[i + 1] - wp) if i < n - 1 else (wp - _trail_pts[i - 1])
+		if dir.length() < 1e-4:
+			dir = -basis.z
+		dir = dir.normalized()
+		var side: Vector3 = dir.cross(cam_pos - wp)
+		if side.length() < 1e-4:
+			side = dir.cross(Vector3.UP)
+		side = side.normalized()
+		var frac := float(i) / float(n - 1)               # 0 = Schweif (aus), 1 = Kopf (hell)
+		var w := lerpf(0.015, 0.13 * tracer_scale, frac)  # Band verjüngt sich zum Schweif
+		# RGB mit frac modulieren -> sauberer Fade auch bei additivem Blend
+		var col := Color(tracer_color.r * frac, tracer_color.g * frac, tracer_color.b * frac, frac)
+		im.surface_set_color(col)
+		im.surface_add_vertex(to_local(wp + side * w))
+		im.surface_set_color(col)
+		im.surface_add_vertex(to_local(wp - side * w))
+	im.surface_end()
 
 
 func _boom() -> void:
