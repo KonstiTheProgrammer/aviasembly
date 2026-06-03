@@ -347,6 +347,10 @@ func _fire_primary() -> void:
 			"gun":
 				_spawn("bullet", pos + fwd * 1.2, av + fwd * 350.0, 2.0, 1.0)
 				w["cd"] = 0.09
+			"mg":
+				# Einzel-MG: langsame Kadenz (WWI-Doppeldecker), kräftiger Einzelschuss
+				_spawn("bullet", pos + fwd * 1.2, av + fwd * 320.0, 2.2, 1.5)
+				w["cd"] = 0.55
 			"rocket":
 				_spawn("missile", pos, av + fwd * 150.0, 6.0, 4.0)   # geradeaus, ungelenkt
 				w["cd"] = 0.5

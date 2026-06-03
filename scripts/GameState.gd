@@ -10,8 +10,8 @@ enum GameMode { NONE, SANDBOX, SURVIVAL }
 
 # Im Survival verfügbare Starter-Teile (Rest muss gekauft werden)
 const STARTER := [
-	"cockpit", "fuselage", "nose", "tailcone",
-	"wing_straight", "h_stab", "v_stab", "prop_engine", "wheel",
+	"cockpit", "fuselage", "nose", "tailcone", "strut",
+	"wing_straight", "h_stab", "v_stab", "prop_engine", "wheel", "wheel_light", "mg",
 ]
 const START_MONEY := 1500
 

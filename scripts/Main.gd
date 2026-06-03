@@ -1425,29 +1425,42 @@ func _array_to_xform(a: Array) -> Transform3D:
 # ===========================================================================
 # Start-Flugzeug
 # ===========================================================================
+# Anfangsfahrzeug: WWI-Doppeldecker mit Propeller (Rotor) und einem langsamen MG.
 func _default_design() -> Array:
+	var red := Color(0.62, 0.16, 0.13)
+	var wood := Color(0.34, 0.27, 0.18)
 	var d: Array = []
-	d.append({"id": "cockpit", "xform": Transform3D(Basis(), Vector3(0, 0, 0))})
-	d.append({"id": "nose", "xform": Transform3D(Basis(), Vector3(0, 0, -2.0))})
-	d.append({"id": "fuselage", "xform": Transform3D(Basis(), Vector3(0, 0, 2.1))})
-	d.append({"id": "tailcone", "xform": Transform3D(Basis(), Vector3(0, 0, 4.0))})
-	d.append({"id": "prop_engine", "xform": Transform3D(Basis(), Vector3(0, 0, -3.65))})
+	var col := func(id: String, t: Transform3D, c: Color) -> void:
+		d.append({"id": id, "xform": t, "color": c})
+	# Rumpf + Rotor (Mittellinie)
+	col.call("cockpit", Transform3D(Basis(), Vector3(0, 0, 0)), red)
+	col.call("nose", Transform3D(Basis(), Vector3(0, 0, -2.0)), red)
+	col.call("fuselage", Transform3D(Basis(), Vector3(0, 0, 2.1)), red)
+	col.call("tailcone", Transform3D(Basis(), Vector3(0, 0, 4.0)), red)
+	col.call("prop_engine", Transform3D(Basis(), Vector3(0, 0, -3.65)), red)
 
 	var wb := build_ctrl._orient_to_normal(Vector3.RIGHT)
-	var wt := Transform3D(wb, Vector3(0.65, -0.05, 0.5))
-	d.append({"id": "wing_tapered", "xform": wt})
-	d.append({"id": "wing_tapered", "xform": build_ctrl._mirror_xform(wt)})
-
-	var ht := Transform3D(wb, Vector3(0.6, 0.1, 4.1))
-	d.append({"id": "h_stab", "xform": ht})
-	d.append({"id": "h_stab", "xform": build_ctrl._mirror_xform(ht)})
-
-	var vb := build_ctrl._orient_to_normal(Vector3.UP)
-	d.append({"id": "v_stab", "xform": Transform3D(vb, Vector3(0, 0.55, 4.2))})
-
-	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(1.5, -1.05, 0.8))})
-	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(-1.5, -1.05, 0.8))})
-	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(0, -1.05, -1.8))})
+	# Doppeldecker: untere + obere Tragfläche (je gespiegelt)
+	for yy in [-0.10, 1.40]:
+		var wt := Transform3D(wb, Vector3(0.65, yy, 0.3))
+		col.call("wing_straight", wt, red)
+		col.call("wing_straight", build_ctrl._mirror_xform(wt), red)
+	# Streben verbinden obere & untere Fläche (sonst schwebt die obere frei)
+	for xx in [1.0, 2.2]:
+		var st := Transform3D(Basis(), Vector3(xx, 0.65, 0.3))
+		col.call("strut", st, wood)
+		col.call("strut", build_ctrl._mirror_xform(st), wood)
+	# Leitwerk
+	var ht := Transform3D(wb, Vector3(0.55, 0.0, 4.1))
+	col.call("h_stab", ht, red)
+	col.call("h_stab", build_ctrl._mirror_xform(ht), red)
+	col.call("v_stab", Transform3D(build_ctrl._orient_to_normal(Vector3.UP), Vector3(0, 0.55, 4.2)), red)
+	# Eine langsame Waffe (MG oben am Rumpf)
+	d.append({"id": "mg", "xform": Transform3D(Basis(), Vector3(0, 0.55, -1.2))})
+	# Festes Fahrwerk: 2 Haupträder + Hecksporn
+	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(1.3, -1.05, 0.3))})
+	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(-1.3, -1.05, 0.3))})
+	d.append({"id": "wheel_light", "xform": Transform3D(Basis(), Vector3(0, -0.85, 3.7))})
 	return d
 
 

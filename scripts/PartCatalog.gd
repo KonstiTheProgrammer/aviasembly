@@ -91,6 +91,12 @@ static func _build() -> void:
 		"size": Vector3(1.3, 1.1, 1.8),
 	})
 	_add({
+		"id": "strut", "name": "Tragflächenstrebe", "category": CAT_BODY,
+		"mass": 25.0, "color": Color(0.32, 0.26, 0.18), "shape": "box",
+		"size": Vector3(0.2, 1.5, 0.5), "metal": 0.3, "rough": 0.6,
+		"desc": "Dünne Strebe — verbindet z. B. obere und untere Tragfläche beim Doppeldecker.",
+	})
+	_add({
 		"id": "fueltank", "name": "Treibstofftank", "category": CAT_BODY,
 		"mass": 240.0, "color": Color(0.7, 0.72, 0.75), "shape": "cyl",
 		"size": Vector3(1.2, 1.2, 2.0), "metal": 0.6, "rough": 0.3,
@@ -172,6 +178,12 @@ static func _build() -> void:
 		"mass": 110.0, "color": C_WEAPON, "shape": "cannon", "weapon": "gun",
 		"size": Vector3(0.42, 0.42, 1.6), "metal": 0.7, "rough": 0.35,
 		"desc": "Schnellfeuer-Kanone (LEERTASTE). Vorne montieren — schießt geradeaus.",
+	})
+	_add({
+		"id": "mg", "name": "Bord-MG", "category": CAT_WEAPON,
+		"mass": 55.0, "color": Color(0.2, 0.21, 0.23), "shape": "cannon", "weapon": "mg",
+		"size": Vector3(0.3, 0.3, 1.3), "metal": 0.75, "rough": 0.35,
+		"desc": "Einzelnes MG (LEERTASTE) — schießt langsam geradeaus. Klassiker fürs Doppeldecker-Cockpit.",
 	})
 	_add({
 		"id": "rocket", "name": "Ungelenkte Rakete", "category": CAT_WEAPON,
