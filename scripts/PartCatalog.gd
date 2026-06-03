@@ -290,26 +290,44 @@ static func parts_in(cat: String) -> Array:
 ## Strukturelle Belastbarkeit pro m² Flügelfläche (N) — für die G-Last-Grenze
 const WING_STRESS := 3600.0
 
-## Parasitärer Luftwiderstand eines Teils (cW·A in m²), grob aus Stirnfläche+Form
-# Form-Widerstandsbeiwert (cd) eines Teils — eine Quelle für Flug & Windkanal.
+## Parasitärer Luftwiderstand eines Teils (cW·A in m²), aus Stirnfläche × Füllgrad × Form.
+# Form-Widerstandsbeiwert (cd) — physikalisch: flache/kastige Stirn = hoher Bluff-Widerstand,
+# runde Körper weniger, schlanke/spitze Formen sehr wenig. Eine Quelle für Flug & Windkanal.
 static func part_cd(p: Dictionary) -> float:
 	match p.get("shape", "box"):
-		"nose": return 0.10
-		"wing": return 0.06
-		"cockpit": return 0.30
-		"cyl", "jet", "prop": return 0.32
-		"missile": return 0.10
-		"bomb": return 0.16
-		"cannon": return 0.40
-		"wheel": return 0.65
-		"box": return 0.55
-	return 0.5
+		"nose": return 0.12        # spitze Ogive — sehr windschlüpfrig
+		"wing": return 0.05        # Airfoil-Kante (kaum Stirnwiderstand)
+		"cockpit": return 0.28     # gerundete Kanzel
+		"cyl": return 0.45         # liegender Zylinder (gerundet)
+		"jet": return 0.42
+		"prop": return 0.55
+		"missile": return 0.12     # schlanker Flugkörper
+		"bomb": return 0.16        # tropfenförmig
+		"wheel": return 0.85       # stumpfer Reifen (Bluff-Körper)
+		"cannon": return 0.92      # flache, kastige Geschütz-Stirn
+		"box": return 1.05         # Würfel/Platte — der widerstandsstärkste Bluff-Körper
+	return 0.9
+
+
+# Füllgrad: Anteil der Bounding-Box-Stirnfläche, der tatsächlich Material ist (Rest = Luft).
+# Ein Rad sitzt z.B. an einem DÜNNEN Federbein in einer hohen Box -> nur ~40 % gefüllt,
+# darum war es vorher viel zu widerstandsstark.
+static func _frontal_fill(shape: String) -> float:
+	match shape:
+		"wheel": return 0.42       # dünnes Federbein + kleiner Reifen in hoher Box
+		"prop": return 0.45        # Spinner + dünne Blätter (viel Luft)
+		"cannon": return 0.80      # Gehäuse füllt, Lauf dünn
+		"cockpit": return 0.85
+		"cyl", "jet", "nose", "missile", "bomb": return 0.80   # runder Querschnitt (~π/4)
+		"box", "wing": return 1.0  # füllt die Box / Stirnfläche ist real
+	return 0.85
 
 
 static func part_drag(p: Dictionary) -> float:
 	var s: Vector3 = col_size(p)
-	var frontal: float = s.x * s.y      # Querschnitt in Flugrichtung (-Z)
-	return frontal * part_cd(p)
+	var shape: String = p.get("shape", "box")
+	# echte Stirnfläche ≈ Box-Querschnitt (x·y, Flugrichtung -Z) × Füllgrad, mal Formbeiwert
+	return s.x * s.y * _frontal_fill(shape) * part_cd(p)
 
 
 ## Kaufpreis eines Teils (Survival-Shop), aus Masse/Schub/Fläche/Traglast.
