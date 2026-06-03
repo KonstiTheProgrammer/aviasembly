@@ -201,6 +201,10 @@ Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetr
 Kamera `PROJECTION_ORTHOGONAL`; manuelles Drehen → zurück Perspektive) · Tab=Testflug.
 Statistik hat eine **„Fliegt's?"-Ampel** (`_update_ampel`): grün/gelb/rot aus Stabilität
 (col.z−com.z), Schub/Gewicht, Tragflächen & Fahrwerk + kurzer Tipp.
+**Kein freies Schweben:** `_connected_set` (BFS ab Cockpit über AABB-Nachbarschaft
+`_part_world_aabb.grow(0.12)`) findet nicht verbundene Teile; `has_floating`/`floating_parts`.
+Schwebende Teile bekommen einen **roten Warn-Marker** (`_update_float_markers` in `_notify_changed`),
+die Ampel wird rot, und der **Start ist blockiert** (`_set_mode` → Toast statt Moduswechsel).
 **Bauen = Drag&Drop aus dem Inventar:** Druck auf eine (freigeschaltete) Teile-Kachel ruft
 `begin_drag_from_palette` → Ghost folgt der Maus, **in den Bauraum ziehen & loslassen** = gesetzt
 (rastet flächenbündig an). Loslassen über UI = verworfen (`gui_get_hovered_control`). Release per

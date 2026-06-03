@@ -387,6 +387,10 @@ func _setup_controllers() -> void:
 # MODUS
 # ===========================================================================
 func _set_mode(m: int) -> void:
+	# Nicht starten, wenn Teile frei schweben (nicht mit dem Flugzeug verbunden).
+	if m == Mode.FLY and mode == Mode.BUILD and build_ctrl != null and build_ctrl.has_floating():
+		_toast("⚠ %d Teil(e) hängen frei (rot markiert) — erst verbinden, dann Start" % build_ctrl.floating_count())
+		return
 	mode = m
 	var building := (m == Mode.BUILD)
 	build_ctrl.set_active(building)
@@ -1087,6 +1091,11 @@ func _update_ampel(stats: Dictionary) -> void:
 	var d: float = (stats["col"].z - stats["com"].z) if stats.get("col_valid", false) else 0.0
 	var txt: String
 	var col: Color
+	if build_ctrl != null and build_ctrl.has_floating():
+		col = Color(1, 0.45, 0.4)
+		ampel_label.add_theme_color_override("font_color", col)
+		ampel_label.text = "🔴 %d Teil(e) hängen frei (rot markiert) — verbinden zum Starten" % build_ctrl.floating_count()
+		return
 	if not has_wings:
 		col = Color(1, 0.45, 0.4); txt = "🔴 Fliegt nicht — keine Tragflächen dran"
 	elif stats.get("gear_overload", false):

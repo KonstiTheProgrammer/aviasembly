@@ -56,6 +56,7 @@ var _last_xform := Transform3D()
 
 var com_marker: MeshInstance3D
 var col_marker: MeshInstance3D
+var _float_markers: Array = []   # rote Marker über frei schwebenden (nicht verbundenen) Teilen
 
 # Bearbeiten ist IMMER aktiv, wenn kein Palette-Teil/Abriss/Lackieren gewählt ist
 # (auswählen + Griffe ziehen: Länge/Breite/Höhe + Body ziehen = verschieben).
@@ -1461,7 +1462,83 @@ func _notify_changed() -> void:
 		col_marker.visible = stats["col_valid"]
 	if wind_tunnel:
 		_apply_drag_heatmap()
+	_update_float_markers()
 	design_changed.emit(stats)
+
+
+# --- Verbindungs-Prüfung: kein freies Schweben ----------------------------
+# Welt-AABB der Teil-Box (rotiert), für Nachbarschafts-Test.
+func _part_world_aabb(part: Node3D) -> AABB:
+	var p := PartCatalog.get_part(part.get_meta("part_id"))
+	var psc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+	var half: Vector3 = PartCatalog.col_size(p) * psc * 0.5
+	var t := part.transform
+	var center: Vector3 = t * (PartCatalog.col_offset(p) * psc)
+	var ab := AABB(center, Vector3.ZERO)
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				ab = ab.expand(center + t.basis * Vector3(sx * half.x, sy * half.y, sz * half.z))
+	return ab
+
+
+# Menge der mit dem Cockpit verbundenen Teile (BFS über sich berührende Boxen).
+func _connected_set() -> Dictionary:
+	var parts: Array = []
+	var root: Node3D = null
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			parts.append(c)
+			if c.get_meta("is_root", false):
+				root = c
+	var conn := {}
+	if root == null:
+		return conn
+	var boxes := {}
+	for pp in parts:
+		boxes[pp] = _part_world_aabb(pp).grow(0.12)   # kleiner Spielraum = "berührt"
+	var queue: Array = [root]
+	conn[root] = true
+	while not queue.is_empty():
+		var cur = queue.pop_back()
+		var ca: AABB = boxes[cur]
+		for o in parts:
+			if not conn.has(o) and ca.intersects(boxes[o]):
+				conn[o] = true
+				queue.append(o)
+	return conn
+
+
+func floating_parts() -> Array:
+	var conn := _connected_set()
+	var out: Array = []
+	for c in design_root.get_children():
+		if c.is_in_group("part") and not c.get_meta("is_root", false) and not conn.has(c):
+			out.append(c)
+	return out
+
+
+func has_floating() -> bool:
+	return floating_parts().size() > 0
+
+
+func floating_count() -> int:
+	return floating_parts().size()
+
+
+# Rote Warn-Marker über frei schwebenden Teilen (nicht das Teil selbst einfärben).
+func _update_float_markers() -> void:
+	for m in _float_markers:
+		if is_instance_valid(m):
+			m.queue_free()
+	_float_markers.clear()
+	for fp in floating_parts():
+		var ab := _part_world_aabb(fp)
+		var mk := _make_marker(Color(1.0, 0.25, 0.2))
+		mk.scale = Vector3(1.6, 1.6, 1.6)
+		mk.position = fp.position + Vector3(0, ab.size.y * 0.5 + 0.6, 0)
+		design_root.add_child(mk)
+		_float_markers.append(mk)
 
 
 func _make_markers() -> void:
