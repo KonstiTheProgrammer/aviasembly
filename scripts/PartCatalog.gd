@@ -198,6 +198,12 @@ static func _build() -> void:
 		"desc": "Leichtes Kaliber: schnelles, flaches Geschoss (kaum Bullet-Drop), langsame Kadenz. Klassiker fürs Doppeldecker-Cockpit.",
 	})
 	_add({
+		"id": "minigun", "name": "GAU-8 Gatling (30 mm)", "category": CAT_WEAPON,
+		"mass": 290.0, "color": Color(0.13, 0.13, 0.15), "shape": "cannon", "weapon": "minigun",
+		"size": Vector3(0.5, 0.5, 2.2), "metal": 0.85, "rough": 0.4,
+		"desc": "Rotierende Gatling (LEERTASTE): dreht erst hoch (Spin-up), dann BRRRRT — extreme Feuerrate, kräftiger Rückstoß. Die Kanone des A-10.",
+	})
+	_add({
 		"id": "rocket", "name": "Ungelenkte Rakete", "category": CAT_WEAPON,
 		"mass": 70.0, "color": Color(0.7, 0.55, 0.3), "shape": "missile", "weapon": "rocket",
 		"size": Vector3(0.3, 0.3, 2.0), "metal": 0.4, "rough": 0.5,

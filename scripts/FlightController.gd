@@ -25,7 +25,13 @@ const CALIBERS := {
 	"gun":        {"speed": 330.0, "dmg": 2.2,  "life": 2.8, "cd": 0.10, "drop": 12.0, "tcol": Color(1.0, 0.82, 0.30), "tscl": 1.0},
 	"autocannon": {"speed": 280.0, "dmg": 5.0,  "life": 3.0, "cd": 0.28, "drop": 17.0, "tcol": Color(1.0, 0.60, 0.20), "tscl": 1.4},
 	"heavy":      {"speed": 235.0, "dmg": 11.0, "life": 3.4, "cd": 0.85, "drop": 23.0, "tcol": Color(1.0, 0.45, 0.12), "tscl": 1.9},
+	"minigun":    {"speed": 360.0, "dmg": 2.4,  "life": 2.8, "cd": 0.045, "drop": 11.0, "tcol": Color(1.0, 0.72, 0.25), "tscl": 1.1},
 }
+# Minigun (Gatling): dreht erst hoch, feuert dann sehr schnell. Läufe drehen sichtbar mit.
+const MINIGUN_SPINUP := 0.75    # s bis volle Drehzahl
+const MINIGUN_SPINDOWN := 0.55  # s zum Auslaufen
+const MINIGUN_FIRE_SPIN := 0.82 # ab dieser Drehzahl kommen Schüsse
+const MINIGUN_MAX_RPS := 46.0   # max. Lauf-Drehrate (rad/s)
 # Jede montierte Bombe/Rakete = GENAU 1 Stück. Beim Abfeuern verschwindet das Teil vom Modell
 # (queue_detach -> Aero neu). Mehr Munition = mehr Teile anbauen. Geschütze fehlen -> unbegrenzt.
 const AMMO := {
@@ -34,7 +40,7 @@ const AMMO := {
 # Rückstoß-Impuls je Schuss (N·s, entgegen der Mündungsrichtung). Bei ~1200 kg ergibt 1200 ≈ 1 m/s
 # Tempoverlust. Schweres Kaliber/Raketen schubsen kräftig, MG nur leicht. Bombe: kein Rückstoß.
 const RECOIL := {
-	"mg": 180.0, "gun": 320.0, "autocannon": 900.0, "heavy": 2200.0,
+	"mg": 180.0, "gun": 320.0, "autocannon": 900.0, "heavy": 2200.0, "minigun": 240.0,
 	"rocket": 1500.0, "salvo": 3000.0, "missile": 1300.0, "missile_heavy": 2600.0,
 }
 
@@ -205,8 +211,12 @@ func build_from_design(d: Array) -> void:
 		if wp != "":
 			# ammo = -1 -> unbegrenzt (Geschütze); 1 -> Bombe/Rakete (verschwindet nach Schuss).
 			# part_idx verknüpft die Waffe mit ihrem Bauteil (zum Entfernen beim Abfeuern).
-			weapons.append({"type": wp, "off": xf.origin, "cd": 0.0,
-				"ammo": int(AMMO.get(wp, -1)), "part_idx": part_infos.size() - 1})
+			var went := {"type": wp, "off": xf.origin, "cd": 0.0,
+				"ammo": int(AMMO.get(wp, -1)), "part_idx": part_infos.size() - 1}
+			if wp == "minigun":
+				went["spin"] = 0.0
+				went["barrels"] = vis.find_child("Barrels", true, false)   # rotierendes Laufbündel
+			weapons.append(went)
 
 	# Spawn-Höhe so, dass der tiefste Punkt knapp über der Bahn liegt
 	if min_y == INF:
@@ -364,6 +374,19 @@ func _physics_process(delta: float) -> void:
 	# --- Waffen (Cooldown pro Waffe) ------------------------------------
 	for w in weapons:
 		w["cd"] = maxf(0.0, w["cd"] - delta)
+	# Minigun: Spin-up/Spin-down + Läufe drehen (auch wenn nicht gefeuert wird)
+	var firing := Input.is_physical_key_pressed(KEY_SPACE)
+	for w in weapons:
+		if w["type"] != "minigun":
+			continue
+		var pidx: int = int(w.get("part_idx", -1))
+		var alive: bool = pidx < 0 or pidx >= aircraft.parts.size() or not aircraft.parts[pidx].get("broken", false)
+		var target := 1.0 if (firing and alive) else 0.0
+		var rate := (1.0 / MINIGUN_SPINUP) if target > float(w["spin"]) else (1.0 / MINIGUN_SPINDOWN)
+		w["spin"] = move_toward(float(w["spin"]), target, rate * delta)
+		var b = w.get("barrels")
+		if b != null and is_instance_valid(b):
+			b.rotate_z(float(w["spin"]) * MINIGUN_MAX_RPS * delta)
 	if Input.is_physical_key_pressed(KEY_SPACE):
 		_fire_primary()
 	if Input.is_physical_key_pressed(KEY_B):
@@ -392,6 +415,8 @@ func _fire_primary() -> void:
 		var fired := false
 		# Geschütz-Kaliber (mit Bullet-Drop): einheitlich aus der CALIBERS-Tabelle. Unbegrenzt.
 		if CALIBERS.has(w["type"]):
+			if w["type"] == "minigun" and float(w.get("spin", 0.0)) < MINIGUN_FIRE_SPIN:
+				continue   # Gatling noch nicht auf Drehzahl
 			var c: Dictionary = CALIBERS[w["type"]]
 			_spawn("bullet", pos + fwd * 1.2, av + fwd * float(c["speed"]),
 				float(c["life"]), float(c["dmg"]), float(c["drop"]), c["tcol"], float(c["tscl"]))
