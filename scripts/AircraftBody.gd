@@ -58,6 +58,9 @@ var roll_area := 0.0
 var yaw_area := 0.0
 var engines: Array = []       # [{pos, thrust, jet}]
 var props: Array = []
+var flap_nodes: Array = []    # [{node, sign}] sichtbare Landeklappen (an Hauptflügeln)
+var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
+const FLAP_MAX_DEG := 40.0    # max. sichtbarer Klappenausschlag bei voll Klappen
 var total_thrust := 0.0
 # Survival-Upgrades (Multiplikatoren, vom FlightController gesetzt)
 var thrust_mult := 1.0
@@ -140,6 +143,14 @@ func _process(delta: float) -> void:
 	for p in props:
 		if is_instance_valid(p):
 			p.rotate_z(spd * delta)
+	# Sichtbare Landeklappen smooth aus-/einfahren (Scharnier dreht um lokale X-Achse).
+	_flap_vis = move_toward(_flap_vis, flaps, delta * 2.2)
+	if not flap_nodes.is_empty():
+		var ang := deg_to_rad(_flap_vis * FLAP_MAX_DEG)
+		for f in flap_nodes:
+			var node = f["node"]
+			if is_instance_valid(node):
+				node.rotation.x = float(f["sign"]) * ang
 	# Einziehfahrwerk animieren
 	if not _collapsed:
 		var target := 0.0 if gear_down else 1.0
@@ -219,11 +230,14 @@ func recompute_aero() -> void:
 	var thr := 0.0
 	var eng: Array = []
 	var prp: Array = []
+	var fl: Array = []
 	var gi: Array = []
 	var gc := 0.0
 	for pi in parts:
 		if pi.get("broken", false):
 			continue
+		if pi.get("flap") != null and is_instance_valid(pi["flap"]):
+			fl.append({"node": pi["flap"], "sign": pi.get("flap_sign", 1.0)})
 		var m: float = pi["mass"]
 		tm += m
 		com += m * pi["pos"]
@@ -257,6 +271,7 @@ func recompute_aero() -> void:
 	total_thrust = thr
 	engines = eng
 	props = prp
+	flap_nodes = fl
 	gear_items = gi
 	gear_capacity = gc
 	var tm_eff := tm * mass_mult
@@ -401,39 +416,33 @@ func _attached(ci: Dictionary, pj: Dictionary) -> bool:
 func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
 	var descent := maxf(0.0, -_last_vy)         # vertikale Sinkrate (für die Landenote)
 	var n := state.get_contact_count()
-	var crash_roots := {}
-	var gear_hit_hard := false
+	var break_set := {}
+	var only_gear := true
 	for i in n:
 		var nrm := state.get_contact_local_normal(i)
 		var closing := maxf(0.0, -_last_vel.dot(nrm))   # Tempo IN die getroffene Fläche
-		if closing > CRASH_SPEED:
-			var idx := _nearest_part_index(state.transform, state.get_contact_local_position(i))
-			if idx < 0:
-				continue
-			if float(parts[idx]["gear_cap"]) > 0.0:
-				gear_hit_hard = true            # Rad hart aufgesetzt -> Fahrwerkskollaps (kein Debris)
-			else:
-				crash_roots[idx] = true         # Flügel/Rumpf/Triebwerk … -> abreißen
-	if not crash_roots.is_empty():
-		_queue_break(crash_roots.keys())
-		landing_msg = "💥 CRASH — Teile abgerissen!"
+		if closing <= BREAK_LAND:
+			continue
+		var idx := _nearest_part_index(state.transform, state.get_contact_local_position(i))
+		if idx < 0:
+			continue
+		if float(parts[idx]["gear_cap"]) > 0.0:
+			break_set[idx] = true               # Rad reißt schon bei harter Landung (> BREAK_LAND) AB (Trümmer)
+		elif closing > CRASH_SPEED:
+			break_set[idx] = true               # Struktur reißt erst beim echten Crash (> CRASH_SPEED) ab
+			only_gear = false
+	if not break_set.is_empty():
+		_queue_break(break_set.keys())
+		landing_msg = "💥 RÄDER ABGERISSEN!" if only_gear else "💥 CRASH — Teile abgerissen!"
 		_land_timer = 4.0
-	# Fahrwerk: zerstörerische Sinkrate ODER harter Radkontakt -> Kollaps
-	if descent > BREAK_LAND or gear_hit_hard:
-		if not _collapsed and not gear_items.is_empty():
-			_collapse_gear()
-		if crash_roots.is_empty():
-			landing_msg = "💥 HARTE LANDUNG — Fahrwerk gebrochen!"
-			_land_timer = 3.5
 		return
-	# normale Landenoten (nur wenn nichts abgerissen ist)
-	if crash_roots.is_empty():
-		if descent > HARD_LAND:
-			landing_msg = "⚠ Harte Landung (%d m/s)" % int(round(descent))
-			_land_timer = 3.5
-		elif descent > 0.6:
-			landing_msg = "🛬 Saubere Landung ✓"
-			_land_timer = 3.5
+	# nichts abgerissen -> reine Landenoten
+	if descent > HARD_LAND:
+		landing_msg = "⚠ Harte Landung (%d m/s)" % int(round(descent))
+		_land_timer = 3.5
+	elif descent > 0.6:
+		landing_msg = "🛬 Saubere Landung ✓"
+		_land_timer = 3.5
 
 
 # Index des Teils, dessen Kollisionsbox-Mitte dem Welt-Kontaktpunkt am nächsten liegt.

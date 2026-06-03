@@ -126,6 +126,7 @@ func build_from_design(d: Array) -> void:
 		vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
 		var prop := vis.find_child("Prop", true, false)
+		var flap_node := vis.find_child("FlapHinge", true, false)
 
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
@@ -153,6 +154,7 @@ func build_from_design(d: Array) -> void:
 		var pinfo := {
 			"vis": vis, "cs": cs, "xform": xf, "csize": box.size, "coffset": cob,
 			"pos": xf.origin, "prop": prop, "broken": false,
+			"flap": flap_node, "flap_sign": (-1.0 if xf.basis.determinant() < 0.0 else 1.0),
 			"is_root": p.get("root", false),
 			"is_wing": p.get("is_wing", false), "control": String(p.get("control", "")),
 			"mass": p.get("mass", 0.0) * vol,
