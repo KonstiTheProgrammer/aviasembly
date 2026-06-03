@@ -77,6 +77,7 @@ var wings_broken := false
 var wing_status := "ok"
 var parts: Array = []         # [{vis, cs, xform, csize, coffset, is_wing, control}]
 var _break_queue: Array = []  # Teil-Indizes (Bruch-Wurzeln), abgearbeitet im _process (nicht in der Physik!)
+var _detach_queue: Array = []  # Teil-Indizes von verschossener Munition -> Visual entfernen + Aero neu
 const DRAG_K := 0.5           # parasitärer Modell-Widerstand (niedriger = schneller, v.a. im Sturzflug)
 
 # Fahrwerk
@@ -149,6 +150,22 @@ func _process(delta: float) -> void:
 		var roots: Array = _break_queue.duplicate()
 		_break_queue.clear()
 		_break_subtree(roots)
+	# Verschossene Munition: Teil-Visual entfernen (ist weggeflogen) + Flugmodell neu rechnen.
+	if not _detach_queue.is_empty():
+		var changed := false
+		for idx in _detach_queue:
+			if idx >= 0 and idx < parts.size() and not parts[idx].get("broken", false):
+				parts[idx]["broken"] = true
+				var dcs = parts[idx]["cs"]
+				if is_instance_valid(dcs):
+					dcs.queue_free()
+				var dvis = parts[idx]["vis"]
+				if is_instance_valid(dvis):
+					dvis.queue_free()
+				changed = true
+		_detach_queue.clear()
+		if changed:
+			recompute_aero()   # leichter, weniger Widerstand, COM verschiebt sich
 	var spd := 4.0 + throttle * 60.0
 	for p in props:
 		if is_instance_valid(p):
@@ -359,6 +376,12 @@ func _queue_break(roots: Array) -> void:
 	for r in roots:
 		if not _break_queue.has(r):
 			_break_queue.append(r)
+
+
+# Verschossene Munition vormerken: das Teil (Index in parts) verschwindet im nächsten _process.
+func queue_detach(part_index: int) -> void:
+	if part_index >= 0 and not _detach_queue.has(part_index):
+		_detach_queue.append(part_index)
 
 
 # Reißt die Wurzel-Teile + ihren Außen-Teilbaum ab (alles, dessen Weg zum Cockpit durch

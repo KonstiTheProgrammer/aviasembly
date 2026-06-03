@@ -26,10 +26,10 @@ const CALIBERS := {
 	"autocannon": {"speed": 280.0, "dmg": 5.0,  "life": 3.0, "cd": 0.28, "drop": 17.0, "tcol": Color(1.0, 0.60, 0.20), "tscl": 1.4},
 	"heavy":      {"speed": 235.0, "dmg": 11.0, "life": 3.4, "cd": 0.85, "drop": 23.0, "tcol": Color(1.0, 0.45, 0.12), "tscl": 1.9},
 }
-# Munitionsvorrat je montiertem Bomben-/Raketen-Teil (wird pro Schuss aufgebraucht).
-# Geschütze (gun/mg/autocannon/heavy) fehlen hier -> unbegrenzt (ammo = -1).
+# Jede montierte Bombe/Rakete = GENAU 1 Stück. Beim Abfeuern verschwindet das Teil vom Modell
+# (queue_detach -> Aero neu). Mehr Munition = mehr Teile anbauen. Geschütze fehlen -> unbegrenzt.
 const AMMO := {
-	"rocket": 4, "salvo": 4, "missile": 2, "missile_heavy": 1, "bomb": 2,
+	"rocket": 1, "salvo": 1, "missile": 1, "missile_heavy": 1, "bomb": 1,
 }
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
@@ -197,8 +197,10 @@ func build_from_design(d: Array) -> void:
 		part_infos.append(pinfo)
 		var wp := String(p.get("weapon", ""))
 		if wp != "":
-			# ammo = -1 -> unbegrenzt (Geschütze); >0 -> begrenzte Bomben/Raketen
-			weapons.append({"type": wp, "off": xf.origin, "cd": 0.0, "ammo": int(AMMO.get(wp, -1))})
+			# ammo = -1 -> unbegrenzt (Geschütze); 1 -> Bombe/Rakete (verschwindet nach Schuss).
+			# part_idx verknüpft die Waffe mit ihrem Bauteil (zum Entfernen beim Abfeuern).
+			weapons.append({"type": wp, "off": xf.origin, "cd": 0.0,
+				"ammo": int(AMMO.get(wp, -1)), "part_idx": part_infos.size() - 1})
 
 	# Spawn-Höhe so, dass der tiefste Punkt knapp über der Bahn liegt
 	if min_y == INF:
@@ -377,6 +379,9 @@ func _fire_primary() -> void:
 	for w in weapons:
 		if w["cd"] > 0.0 or int(w["ammo"]) == 0:   # Cooldown läuft ODER aufgebraucht
 			continue
+		var pidx: int = int(w.get("part_idx", -1))
+		if pidx >= 0 and pidx < aircraft.parts.size() and aircraft.parts[pidx].get("broken", false):
+			continue   # Mount/Teil weggebrochen -> nicht feuern
 		var pos: Vector3 = _muzzle(w["off"])
 		var fired := false
 		# Geschütz-Kaliber (mit Bullet-Drop): einheitlich aus der CALIBERS-Tabelle. Unbegrenzt.
@@ -414,18 +419,27 @@ func _fire_primary() -> void:
 					w["cd"] = 1.7
 					fired = true
 		# Begrenzte Munition (Raketen/Lenkwaffen) verbrauchen; Geschütze (ammo=-1) nicht.
+		# Bei 0 verschwindet das Bauteil vom Flugzeug (es ist weggeflogen) -> Aero neu.
 		if fired and int(w["ammo"]) > 0:
 			w["ammo"] -= 1
+			if int(w["ammo"]) == 0:
+				aircraft.queue_detach(pidx)
 
 
 func _drop_bomb() -> void:
 	var av := aircraft.linear_velocity
 	for w in weapons:
-		if w["type"] == "bomb" and w["cd"] <= 0.0 and int(w["ammo"]) != 0:
-			_spawn("bomb", _muzzle(w["off"]), av, 12.0, 6.0, 24.0)   # Bombe fällt (Schwerkraft)
-			w["cd"] = 0.8
-			if int(w["ammo"]) > 0:
-				w["ammo"] -= 1
+		if w["type"] != "bomb" or w["cd"] > 0.0 or int(w["ammo"]) == 0:
+			continue
+		var pidx: int = int(w.get("part_idx", -1))
+		if pidx >= 0 and pidx < aircraft.parts.size() and aircraft.parts[pidx].get("broken", false):
+			continue   # Bombe schon weg/abgerissen
+		_spawn("bomb", _muzzle(w["off"]), av, 12.0, 6.0, 24.0)   # Bombe fällt (Schwerkraft)
+		w["cd"] = 0.8
+		if int(w["ammo"]) > 0:
+			w["ammo"] -= 1
+			if int(w["ammo"]) == 0:
+				aircraft.queue_detach(pidx)   # Bombe verschwindet vom Modell -> Aero neu
 
 
 func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float,
