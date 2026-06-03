@@ -58,9 +58,11 @@ var roll_area := 0.0
 var yaw_area := 0.0
 var engines: Array = []       # [{pos, thrust, jet}]
 var props: Array = []
-var flap_nodes: Array = []    # [{node, sign}] sichtbare Landeklappen (an Hauptflügeln)
+var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
-const FLAP_MAX_DEG := 40.0    # max. sichtbarer Klappenausschlag bei voll Klappen
+const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
+const FLAPERON_DEG := 12.0    # zusätzl. gegensinniger Klappen-Ausschlag bei Roll (Flaperon -> Roll sichtbar)
+const CTRL_DEG := 24.0        # max. Ruderausschlag (Höhe/Seite/Quer)
 var total_thrust := 0.0
 # Survival-Upgrades (Multiplikatoren, vom FlightController gesetzt)
 var thrust_mult := 1.0
@@ -143,14 +145,24 @@ func _process(delta: float) -> void:
 	for p in props:
 		if is_instance_valid(p):
 			p.rotate_z(spd * delta)
-	# Sichtbare Landeklappen smooth aus-/einfahren (Scharnier dreht um lokale X-Achse).
+	# Bewegliche Flächen animieren (Scharnier dreht um lokale X-Achse). dn = Welt-"unten"-Vorzeichen.
+	# Klappe: Landestellung + gegensinniger Roll-Anteil (Flaperon). Ruder folgen Pitch/Yaw/Roll.
 	_flap_vis = move_toward(_flap_vis, flaps, delta * 2.2)
-	if not flap_nodes.is_empty():
-		var ang := deg_to_rad(_flap_vis * FLAP_MAX_DEG)
-		for f in flap_nodes:
-			var node = f["node"]
-			if is_instance_valid(node):
-				node.rotation.x = float(f["sign"]) * ang
+	for s in surfaces:
+		var node = s["node"]
+		if not is_instance_valid(node):
+			continue
+		var defl := 0.0     # Grad, + = Hinterkante nach unten (Welt), über dn ausgerichtet
+		match String(s["role"]):
+			"flap":
+				defl = _flap_vis * FLAP_MAX_DEG + in_roll * float(s["side"]) * FLAPERON_DEG
+			"pitch":
+				defl = -in_pitch * CTRL_DEG                        # Höhenruder hoch beim Ziehen
+			"roll":
+				defl = in_roll * float(s["side"]) * CTRL_DEG       # Querruder gegensinnig
+			"yaw":
+				defl = in_yaw * CTRL_DEG                           # Seitenruder
+		node.rotation.x = float(s["dn"]) * deg_to_rad(defl)
 	# Einziehfahrwerk animieren
 	if not _collapsed:
 		var target := 0.0 if gear_down else 1.0
@@ -236,8 +248,9 @@ func recompute_aero() -> void:
 	for pi in parts:
 		if pi.get("broken", false):
 			continue
-		if pi.get("flap") != null and is_instance_valid(pi["flap"]):
-			fl.append({"node": pi["flap"], "sign": pi.get("flap_sign", 1.0)})
+		if pi.get("surf") != null and is_instance_valid(pi["surf"]):
+			fl.append({"node": pi["surf"], "role": pi.get("surf_role", "flap"),
+				"dn": pi.get("surf_dn", 1.0), "side": pi.get("surf_side", 1.0)})
 		var m: float = pi["mass"]
 		tm += m
 		com += m * pi["pos"]
@@ -271,7 +284,7 @@ func recompute_aero() -> void:
 	total_thrust = thr
 	engines = eng
 	props = prp
-	flap_nodes = fl
+	surfaces = fl
 	gear_items = gi
 	gear_capacity = gc
 	var tm_eff := tm * mass_mult

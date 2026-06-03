@@ -410,10 +410,13 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> No
 				p.get("tip_chord", 1.5), p.get("sweep", 0.0), p.get("thickness", 0.16))
 			mi.material_override = make_material(col, metal, rough, true)
 			root.add_child(mi)
-			# Sichtbare Landeklappe an Hauptflügeln (keine Steuerflächen, große Spannweite).
-			# Im eingefahrenen Zustand bündig in der Hinterkante, fährt im Flug sichtbar aus.
-			if String(p.get("control", "")) == "" and p.get("span", 0.0) >= 2.2:
-				_add_flap(root, p, col, metal, rough)
+			# Bewegliche Hinterkanten-Fläche: Hauptflügel -> Landeklappe (innen),
+			# Steuerflügel -> Ruder (Höhe/Seite/Quer). Eingefahren bündig, im Flug sichtbar.
+			if String(p.get("control", "")) == "":
+				if p.get("span", 0.0) >= 2.2:
+					_trailing_panel(root, p, "FlapHinge", 0.5, 0.33, 0.28, col, metal, rough)
+			else:
+				_trailing_panel(root, p, "CtrlHinge", 0.85, 0.5, 0.42, col, metal, rough)
 
 		"cyl":
 			# Tank mit gewölbten Enden (Kapselprofil), schön metallisch.
@@ -651,26 +654,28 @@ static func _recolor_model(node: Node, col: Color) -> void:
 # ---------------------------------------------------------------------------
 # Tragflächen-Mesh (Trapez mit Pfeilung), Spannweite entlang +X, Sehne entlang Z
 # ---------------------------------------------------------------------------
-# Sichtbare Landeklappe: Scharnier-Node "FlapHinge" an der Hinterkante (lokal +Z), inneres
-# Stück der Spannweite. Schwenkt im Flug um die X-Achse nach unten (AircraftBody animiert es).
-static func _add_flap(root: Node3D, p: Dictionary, col: Color, metal: float, rough: float) -> void:
+# Bewegliche Hinterkanten-Fläche (Klappe/Ruder): Scharnier-Node an der Hinterkante (lokal +Z),
+# schwenkt im Flug um die lokale X-Achse (Spannweite). AircraftBody animiert es.
+#   sfrac = Anteil der Spannweite, cfrac = Mitte (Anteil Spannweite), chfrac = Sehnenanteil.
+static func _trailing_panel(root: Node3D, p: Dictionary, hinge_name: String,
+		sfrac: float, cfrac: float, chfrac: float, col: Color, metal: float, rough: float) -> void:
 	var span: float = p.get("span", 4.0)
 	var rc: float = p.get("root_chord", 1.5)
 	var sweep: float = p.get("sweep", 0.0)
-	var fspan: float = span * 0.5                 # inneres Drittel..Hälfte der Spannweite
-	var fx: float = span * 0.08 + fspan * 0.5     # Mitte des Flaps (innen)
-	var fchord: float = rc * 0.28                 # hinteres ~28 % der Sehne
-	var cz: float = lerpf(0.0, sweep, fx / maxf(span, 0.01))
-	var te: float = cz + rc * 0.5                 # Hinterkante bei x≈fx (innen ~ rc)
+	var ssp: float = span * sfrac
+	var sx: float = span * cfrac
+	var fchord: float = rc * chfrac
+	var cz: float = lerpf(0.0, sweep, sx / maxf(span, 0.01))
+	var te: float = cz + rc * 0.5                 # Hinterkante (lokal +Z)
 	var hinge := Node3D.new()
-	hinge.name = "FlapHinge"
-	hinge.position = Vector3(fx, 0.0, te - fchord)
+	hinge.name = hinge_name
+	hinge.position = Vector3(sx, 0.0, te - fchord)
 	var mi := MeshInstance3D.new()
 	var bm := BoxMesh.new()
-	bm.size = Vector3(fspan, 0.06, fchord)
+	bm.size = Vector3(ssp, 0.06, fchord)
 	mi.mesh = bm
 	mi.position = Vector3(0, 0, fchord * 0.5)     # Panel hinter dem Scharnier (+Z)
-	mi.material_override = make_material(col.darkened(0.12), metal, rough)
+	mi.material_override = make_material(col.darkened(0.14), metal, rough)
 	hinge.add_child(mi)
 	root.add_child(hinge)
 

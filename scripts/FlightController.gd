@@ -126,7 +126,13 @@ func build_from_design(d: Array) -> void:
 		vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
 		var prop := vis.find_child("Prop", true, false)
-		var flap_node := vis.find_child("FlapHinge", true, false)
+		# Bewegliche Fläche: Hauptflügel = "FlapHinge" (Rolle "flap"), Steuerflügel = "CtrlHinge"
+		# (Rolle = control: pitch/roll/yaw). Wird im AircraftBody animiert.
+		var surf_node: Node3D = vis.find_child("FlapHinge", true, false)
+		var surf_role := "flap"
+		if surf_node == null:
+			surf_node = vis.find_child("CtrlHinge", true, false)
+			surf_role = String(p.get("control", ""))
 
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
@@ -154,7 +160,12 @@ func build_from_design(d: Array) -> void:
 		var pinfo := {
 			"vis": vis, "cs": cs, "xform": xf, "csize": box.size, "coffset": cob,
 			"pos": xf.origin, "prop": prop, "broken": false,
-			"flap": flap_node, "flap_sign": (-1.0 if xf.basis.determinant() < 0.0 else 1.0),
+			"surf": surf_node, "surf_role": surf_role,
+			# Welt-"unten"-Vorzeichen aus der Flügel-Oberseite (basis.y.y); kippt bei Spiegelung
+			# NICHT (Mirror negiert nur X) -> beide Seiten schlagen gleich aus. Vertikale Flosse
+			# (y.y≈0) -> Fallback 1. surf_side (x-Seite) für gegensinnige Quer-/Flaperon-Ausschläge.
+			"surf_dn": (1.0 if absf(xf.basis.y.y) < 0.3 else signf(xf.basis.y.y)),
+			"surf_side": (1.0 if xf.origin.x >= 0.0 else -1.0),
 			"is_root": p.get("root", false),
 			"is_wing": p.get("is_wing", false), "control": String(p.get("control", "")),
 			"mass": p.get("mass", 0.0) * vol,
