@@ -14,6 +14,9 @@ const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
 const BARREL_HOLD := 0.32       # A/D so lange halten -> Fass-Roll (War-Thunder-Stil)
+# Landeklappen-Stufen (Taste F): Aus -> Start -> Landung. Wert = Klappenstellung 0..1.
+const FLAP_STAGES := [0.0, 0.5, 1.0]
+const FLAP_NAMES := ["AUS", "Start", "Landung"]
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
@@ -45,6 +48,7 @@ var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase f
 var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, nur im Maus-Flug)
 var _roll_hold := 0.0           # wie lange A/D schon gehalten (für Fass-Roll)
 var _roll_dir := 0              # aktuelle Roll-Halterichtung (+1=A, -1=D, 0=keine)
+var _flap_stage := 0            # Landeklappen-Stufe (Index in FLAP_STAGES), Taste F schaltet weiter
 var _aim_smooth := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr -> smoother)
 var _nose_px := Vector2.ZERO    # geglättete Nasenmarker-Pixelposition
 var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
@@ -205,6 +209,8 @@ func _place_at_spawn() -> void:
 	aircraft.in_pitch = 0.0
 	aircraft.in_roll = 0.0
 	aircraft.in_yaw = 0.0
+	_flap_stage = 0              # Klappen eingefahren auf der Bahn
+	aircraft.flaps = 0.0
 	aircraft.reset_gear()
 	_snap_camera()
 
@@ -305,6 +311,7 @@ func _physics_process(delta: float) -> void:
 	aircraft.mouse_fly = mouse_fly   # Body schaltet damit das Auto-Leveling im Maus-Flug ab
 	aircraft.arcade = arcade         # Arcade-Lenkung (kinematisch) im Body aktivieren
 	aircraft.throttle = throttle
+	aircraft.flaps = FLAP_STAGES[_flap_stage]   # Landeklappen: mehr Auftrieb + Widerstand
 	if mouse_fly:
 		# Maus-Flug: Befehle kommen aus dem (schon glatten) Regler -> DIREKT anwenden.
 		# Das _ramp würde den Brems-Befehl verzögern und Überschwingen verursachen.
@@ -426,6 +433,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			aircraft.assist = not aircraft.assist
 		elif event.keycode == KEY_G and is_instance_valid(aircraft):
 			aircraft.toggle_gear()
+		elif event.keycode == KEY_F:
+			_flap_stage = (_flap_stage + 1) % FLAP_STAGES.size()   # Aus -> Start -> Landung -> Aus
 		elif event.keycode == KEY_I and is_instance_valid(aircraft):
 			aircraft.toggle_invert()
 
@@ -556,6 +565,7 @@ func _emit_hud() -> void:
 		"gforce": aircraft.gforce,
 		"thrust": aircraft.total_thrust,
 		"assist": aircraft.assist,
+		"flaps": FLAP_NAMES[_flap_stage],
 		"gear": aircraft.gear_status,
 		"wings": aircraft.wing_status,
 		"inverted": aircraft.inverted,

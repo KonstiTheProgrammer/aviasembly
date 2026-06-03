@@ -21,6 +21,8 @@ const STALL_W := 0.12         # Stall-Übergangsbreite
 const CL_MAX := 1.5
 const OSWALD := 0.75          # Oswald-Faktor (induzierter Widerstand)
 const CD0 := 0.030            # Parasitärwiderstand
+const FLAP_LIFT := 0.55       # Landeklappen voll: zusätzlicher Auftriebsbeiwert ΔCl (mehr Auftrieb -> langsamer fliegen/abheben)
+const FLAP_DRAG := 0.06       # Landeklappen voll: zusätzlicher Profilwiderstand ΔCd (bremst im Anflug, steileres Sinken)
 const SIDE := 0.5             # Seitenkraft (Kurvenflug)
 const PITCH_STAB := 0.5       # statische Nick-Stabilität (Wetterfahne)
 const YAW_STAB := 0.6         # statische Gier-Stabilität (Wetterfahne)
@@ -85,6 +87,7 @@ var throttle := 0.0
 var in_pitch := 0.0
 var in_roll := 0.0
 var in_yaw := 0.0
+var flaps := 0.0              # Landeklappen 0..1 (vom FlightController, Taste F): mehr Auftrieb + Widerstand
 var inverted := false         # Q: Steuerung umkehren
 var mouse_fly := false        # Maus-Flug aktiv? (dann kein Assist-Auto-Leveling — Bank-Regler nivelliert selbst)
 var arcade := false           # Arcade-Lenkung? (kinematisch: Nase dreht super-smooth aufs Ziel, keine Stall-/G-Grenze)
@@ -466,7 +469,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var cl_a := TAU * eff_ar / (eff_ar + 2.0)
 		var sigma := smoothstep(STALL_A, STALL_A + STALL_W, absf(aoa))
 		var cl := lerpf(clampf(cl_a * aoa, -CL_MAX, CL_MAX), sin(2.0 * aoa), sigma) * lift_scale
-		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5
+		# Landeklappen: heben den Auftriebsbeiwert an (Kamber) -> Abheben/Landen bei weniger Tempo.
+		# NACH der CL_MAX-Klemmung addiert, da Klappen den Maximalauftrieb real anheben.
+		cl += flaps * FLAP_LIFT
+		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5 + flaps * FLAP_DRAG
 		var lift_mag := q * wing_area * cl
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
 		if not wings_broken and not arcade and barrel_roll == 0 and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
