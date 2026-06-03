@@ -133,14 +133,8 @@ func _draw_alt_box() -> void:
 func _draw_reticle() -> void:
 	if mouse_fly:
 		if aim_vis:
-			# großer Zielkreis (Maus/Weltrichtung) — dünn, durchsichtig, grau
-			var rc := Color(0.82, 0.84, 0.88, 0.5)
-			draw_arc(aim_pos, 26.0, 0.0, TAU, 64, rc, 1.5, true)
-			# kleine Kreuz-Ticks am Kreis
-			for a in [0.0, PI * 0.5, PI, PI * 1.5]:
-				var dir := Vector2(cos(a), sin(a))
-				draw_line(aim_pos + dir * 26.0, aim_pos + dir * 32.0, rc, 1.5)
-			draw_circle(aim_pos, 2.0, Color(0.82, 0.84, 0.88, 0.6))
+			# NUR ein Kreis (kein Fadenkreuz): klein, dünn, durchsichtig, grau
+			draw_arc(aim_pos, 18.0, 0.0, TAU, 56, Color(0.82, 0.84, 0.88, 0.5), 1.0, true)
 		if nose_vis:
 			# kleine Raute = aktuelle Nasenrichtung
 			var n := nose_pos
