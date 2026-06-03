@@ -80,10 +80,24 @@ const GIZ_MOVE := 0
 const GIZ_ROTATE := 1
 const GIZ_SCALE := 2
 var gizmo_mode := GIZ_MOVE
-var _drag_kind := "scale"         # "move" (Pfeil) | "scale" (Würfel) — Art des gezogenen Griffs
-var _rotating := false            # Body-Drag im Dreh-Modus
-var _rot_mouse0 := Vector2.ZERO
+var _drag_kind := "scale"         # "move" (Pfeil) | "rotate" (Ring) | "scale" (Würfel)
+var _rotating := false            # (Alt-Pfad, ungenutzt — Drehen läuft jetzt über Ring-Griffe)
 var _rot_b0 := Basis()
+# Welt-ausgerichteter Halter für Bewegen-/Drehen-Griffe (steht NICHT mit der Teil-Rotation,
+# sondern global zur Welt). Skalier-Würfel bleiben am Teil (lokal -> Dimensionen strecken).
+var _gizmo_root: Node3D = null
+var _hover_handle: Node3D = null  # Griff unter der Maus (Hover-Highlight)
+# Ring-Drehung (Drag eines Dreh-Rings)
+var _rot_axis_w := Vector3.UP     # Welt-Drehachse
+var _rot_center := Vector3.ZERO   # Drehzentrum (Teil-Weltposition)
+var _rot_u := Vector3.RIGHT       # Referenzachsen in der Ringebene
+var _rot_v := Vector3.BACK
+var _rot_a0 := 0.0                 # Startwinkel
+# Rechtsklick-Kontextmenü (Bewegen/Drehen/Skalieren/Umdrehen/Löschen)
+var _ctx_menu: PopupMenu = null
+var _rmb_press := Vector2.ZERO
+var _rmb_moved := false
+const RING_MARGIN := 1.1          # Dreh-Ring-Radius = max. Halbgröße + dieser Abstand
 
 
 func _ready() -> void:
@@ -91,6 +105,10 @@ func _ready() -> void:
 	design_root.name = "DesignRoot"
 	add_child(design_root)
 	_make_markers()
+	# Rechtsklick-Kontextmenü auf ein Teil: Werkzeug wählen / umdrehen / löschen
+	_ctx_menu = PopupMenu.new()
+	add_child(_ctx_menu)
+	_ctx_menu.id_pressed.connect(_on_ctx_id)
 	set_process(false)
 	set_physics_process(false)
 	set_process_unhandled_input(false)
@@ -165,6 +183,18 @@ func _process(delta: float) -> void:
 		_lmb_was_down = down
 	else:
 		_lmb_was_down = false
+	# Griff-Hover: Transform-Griff unter der Maus hervorheben (wie in 3D-Programmen) — nicht beim Ziehen.
+	if selected_part != null and _drag_handle == null and not _moving_sel and not _carrying and camera != null:
+		var hov: Node3D = null
+		var hh := _raycast_mouse(HANDLE_LAYER)
+		if not hh.is_empty():
+			var c = hh.get("collider")
+			if c and c.is_in_group("handle"):
+				hov = c
+		if hov != _hover_handle:
+			_set_handle_hl(_hover_handle, false)
+			_hover_handle = hov
+			_set_handle_hl(_hover_handle, true)
 	_update_camera()
 
 
@@ -216,7 +246,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_RIGHT:
-				_orbiting = event.pressed
+				if event.pressed:
+					_orbiting = true
+					_rmb_press = event.position
+					_rmb_moved = false
+				else:
+					_orbiting = false
+					if not _rmb_moved:
+						_on_right_click()   # reiner Rechtsklick (kein Drehen) -> Kontextmenü
 			MOUSE_BUTTON_MIDDLE:
 				_panning = event.pressed
 			MOUSE_BUTTON_WHEEL_UP:
@@ -242,6 +279,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _carrying:
 			pass # Ghost folgt der Maus in _update_ghost()
 		elif _orbiting or _left_orbit:
+			if _orbiting and event.position.distance_to(_rmb_press) > 5.0:
+				_rmb_moved = true   # gedreht -> kein Kontextmenü beim Loslassen
 			orbit_yaw -= event.relative.x * 0.01
 			orbit_pitch += event.relative.y * 0.01
 			_ortho_view = 0   # manuelles Drehen -> zurück zur freien Perspektive
@@ -483,6 +522,47 @@ func delete_selected() -> void:
 	_notify_changed()
 
 
+# Rechtsklick auf ein Teil: auswählen + Kontextmenü (Werkzeug wählen / umdrehen / löschen).
+func _on_right_click() -> void:
+	if erase_mode or paint_mode or _carrying:
+		return
+	var part := _part_from_hit(_raycast_mouse(BUILD_LAYER))
+	if part == null:
+		return
+	if part != selected_part:
+		_select_part(part)
+	var is_root: bool = bool(part.get_meta("is_root", false))
+	_ctx_menu.clear()
+	_ctx_menu.add_item("✥  Bewegen", 0)
+	_ctx_menu.add_item("⟳  Drehen", 1)
+	_ctx_menu.add_item("⤢  Skalieren", 2)
+	_ctx_menu.add_separator()
+	_ctx_menu.add_item("↺  Umdrehen (180°)", 3)
+	_ctx_menu.add_item("🗑  Löschen", 4)
+	_ctx_menu.set_item_disabled(_ctx_menu.get_item_index(4), is_root)
+	_ctx_menu.reset_size()
+	_ctx_menu.popup(Rect2i(Vector2i(get_viewport().get_mouse_position()), Vector2i.ZERO))
+
+
+func _on_ctx_id(id: int) -> void:
+	match id:
+		0: set_gizmo_mode(GIZ_MOVE)
+		1: set_gizmo_mode(GIZ_ROTATE)
+		2: set_gizmo_mode(GIZ_SCALE)
+		3: invert_selected()
+		4: delete_selected()
+
+
+# Ausgewähltes Teil um 180° um die Hochachse umdrehen (z. B. Triebwerk/Flosse herumdrehen).
+func invert_selected() -> void:
+	if selected_part == null:
+		return
+	var nb := (Basis(Vector3.UP, PI) * selected_part.transform.basis).orthonormalized()
+	_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
+	_push_history()
+	_notify_changed()
+
+
 # Ausgewähltes Teil klonen (mit Spiegel via Symmetrie), seitlich versetzt, und den Klon auswählen.
 func duplicate_selected() -> void:
 	if selected_part == null:
@@ -532,6 +612,10 @@ func _clear_handles() -> void:
 		if is_instance_valid(h):
 			h.queue_free()
 	_handles.clear()
+	if is_instance_valid(_gizmo_root):
+		_gizmo_root.queue_free()
+	_gizmo_root = null
+	_hover_handle = null
 
 
 const GIZ_COLS := [Color(0.95, 0.3, 0.3), Color(0.4, 0.95, 0.4), Color(0.4, 0.6, 1.0)]  # X=rot Y=grün Z=blau
@@ -544,21 +628,38 @@ func _build_handles() -> void:
 	if selected_part == null:
 		return
 	if gizmo_mode == GIZ_SCALE:
-		_build_scale_handles()
-	elif gizmo_mode == GIZ_MOVE:
-		_build_move_handles()
+		_build_scale_handles()        # Würfel: bleiben am Teil (lokal -> Dimensionen strecken)
+	else:
+		# Bewegen/Drehen: welt-ausgerichteter Halter (dreht NICHT mit dem Teil)
+		_gizmo_root = Node3D.new()
+		design_root.add_child(_gizmo_root)
+		if gizmo_mode == GIZ_MOVE:
+			_build_move_handles()
+		else:
+			_build_rotate_handles()
 	_update_handles()
 
 
-func _gizmo_mat(c: Color) -> StandardMaterial3D:
+func _gizmo_mat(c: Color, bright := false) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
-	m.albedo_color = c
+	var col: Color = Color(1, 1, 1) if bright else c   # Hover -> weiß/leuchtend
+	m.albedo_color = col
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.emission_enabled = true
-	m.emission = c
-	m.emission_energy_multiplier = 0.4
+	m.emission = col
+	m.emission_energy_multiplier = 1.4 if bright else 0.4
 	m.no_depth_test = true   # Griffe immer sichtbar (auch hinter Geometrie)
 	return m
+
+
+# Griff hervorheben/zurücksetzen (Hover) — alle Mesh-Kinder umfärben.
+func _set_handle_hl(h: Node3D, on: bool) -> void:
+	if not is_instance_valid(h):
+		return
+	var col: Color = h.get_meta("base_col", Color(1, 1, 1))
+	for ch in h.get_children():
+		if ch is MeshInstance3D:
+			ch.material_override = _gizmo_mat(col, on)
 
 
 # 6 Flächenwürfel (Skalieren) — Würfel an den Flächenmitten, ziehen streckt die Achse.
@@ -572,6 +673,7 @@ func _build_scale_handles() -> void:
 			h.set_meta("kind", "scale")
 			h.set_meta("axis", i)
 			h.set_meta("sign", s)
+			h.set_meta("base_col", GIZ_COLS[i])
 			var cs := CollisionShape3D.new()
 			var bs := BoxShape3D.new()
 			bs.size = Vector3(0.5, 0.5, 0.5)
@@ -598,6 +700,7 @@ func _build_move_handles() -> void:
 		h.set_meta("kind", "move")
 		h.set_meta("axis", i)
 		h.set_meta("sign", 1.0)
+		h.set_meta("base_col", GIZ_COLS[i])
 		# Collider entlang der Achse (greifbarer Schaft)
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
@@ -627,8 +730,57 @@ func _build_move_handles() -> void:
 		if i == 0: tip.rotation = Vector3(0, 0, -PI * 0.5)   # Y->X
 		elif i == 2: tip.rotation = Vector3(PI * 0.5, 0, 0)  # Y->Z
 		h.add_child(tip)
-		selected_part.add_child(h)
+		_gizmo_root.add_child(h)   # welt-ausgerichtet (nicht an der Teil-Rotation)
 		_handles.append(h)
+
+
+# 3 Dreh-Ringe (welt-ausgerichtet): Ring um jede Weltachse, ziehen dreht das Teil um diese Achse.
+func _build_rotate_handles() -> void:
+	var r := _gizmo_radius()
+	for i in 3:
+		var h := StaticBody3D.new()
+		h.add_to_group("handle")
+		h.collision_layer = HANDLE_LAYER
+		h.collision_mask = 0
+		h.set_meta("kind", "rotate")
+		h.set_meta("axis", i)
+		h.set_meta("base_col", GIZ_COLS[i])
+		# sichtbarer Ring (Torus liegt in XZ-Ebene = Achse Y; für X/Z entsprechend kippen)
+		var mi := MeshInstance3D.new()
+		var tm := TorusMesh.new()
+		tm.inner_radius = r - 0.07
+		tm.outer_radius = r + 0.07
+		tm.rings = 48
+		mi.mesh = tm
+		mi.material_override = _gizmo_mat(GIZ_COLS[i])
+		if i == 0:
+			mi.rotation = Vector3(0, 0, PI * 0.5)     # Achse Y -> X
+		elif i == 2:
+			mi.rotation = Vector3(PI * 0.5, 0, 0)     # Achse Y -> Z
+		h.add_child(mi)
+		# Klick-Collider: 16 kleine Kugeln entlang des Rings (Torus hat keine Kollisionsform)
+		for k in 16:
+			var a := TAU * float(k) / 16.0
+			var cs := CollisionShape3D.new()
+			var ss := SphereShape3D.new()
+			ss.radius = 0.16
+			cs.shape = ss
+			var on_ring := Vector3(cos(a), 0.0, sin(a)) * r   # Ringpunkt in XZ (Achse Y)
+			if i == 0:
+				on_ring = Vector3(0.0, cos(a), sin(a)) * r    # Achse X -> Ring in YZ
+			elif i == 2:
+				on_ring = Vector3(cos(a), sin(a), 0.0) * r    # Achse Z -> Ring in XY
+			cs.position = on_ring
+			h.add_child(cs)
+		_gizmo_root.add_child(h)
+		_handles.append(h)
+
+
+# Radius der Bewegen-/Drehen-Griffe aus der aktuellen Teilgröße.
+func _gizmo_radius() -> float:
+	var p := PartCatalog.get_part(selected_part.get_meta("part_id"))
+	var half: Vector3 = PartCatalog.col_size(p) * selected_part.get_meta("pscale", Vector3.ONE) * 0.5
+	return maxf(maxf(half.x, half.y), half.z) + RING_MARGIN
 
 
 # Griffe an die (skalierten) Flächen/Achsen setzen (Würfel an Flächenmitte, Pfeile außerhalb).
@@ -641,13 +793,19 @@ func _update_handles() -> void:
 	var off: Vector3 = PartCatalog.col_offset(p) * psc
 	var half_v := bs * psc * 0.5
 	var halves := [half_v.x, half_v.y, half_v.z]
+	var radius := maxf(maxf(half_v.x, half_v.y), half_v.z) + RING_MARGIN
+	# Welt-Halter ans Hüllenzentrum (Identitäts-Basis -> Bewegen/Drehen global zur Welt)
+	if is_instance_valid(_gizmo_root):
+		_gizmo_root.global_transform = Transform3D(Basis(), selected_part.global_transform * off)
 	for h in _handles:
 		var i: int = h.get_meta("axis")
-		var s: float = h.get_meta("sign")
-		if h.get_meta("kind", "scale") == "move":
-			# Pfeil sitzt außerhalb der Hülle, Schaft+Spitze zeigen nach außen
-			h.position = off + _axis_vec(i) * (float(halves[i]) + 1.05)
-		else:
+		var kind: String = h.get_meta("kind", "scale")
+		if kind == "move":
+			h.position = _axis_vec(i) * radius        # Welt-Achse, relativ zum Welt-Halter
+		elif kind == "rotate":
+			h.position = Vector3.ZERO                 # Ring um das Zentrum
+		else:  # scale: am Teil (lokal), an der Flächenmitte
+			var s: float = h.get_meta("sign")
 			h.position = off + _axis_vec(i) * (s * (float(halves[i]) + 0.45))
 
 
@@ -665,9 +823,8 @@ func _transform_left_press() -> void:
 	if part != null:
 		if part != selected_part:
 			_select_part(part)
-		if gizmo_mode == GIZ_ROTATE:
-			_begin_rotate()
-		else:
+		# Body ziehen = frei verschieben (nur im Bewegen-Modus). Drehen/Skalieren laufen über die Griffe.
+		if gizmo_mode == GIZ_MOVE:
 			_begin_move()
 		return
 	# 3) leerer Raum -> abwählen + Kamera drehen
@@ -675,14 +832,19 @@ func _transform_left_press() -> void:
 	_left_orbit = true
 
 
-func _begin_rotate() -> void:
-	_rotating = true
-	_drag_handle = null
-	_moving_sel = false
-	_edit_xf0 = selected_part.transform
-	_edit_sc0 = selected_part.get_meta("pscale", Vector3.ONE)
-	_rot_mouse0 = get_viewport().get_mouse_position()
-	_rot_b0 = selected_part.transform.basis
+# Winkel des Maus-Strahls in der Ring-Ebene (um die Drehachse) — für den Ring-Drag.
+func _ring_angle() -> float:
+	if camera == null:
+		return _rot_a0
+	var mp := get_viewport().get_mouse_position()
+	var ro := camera.project_ray_origin(mp)
+	var rd := camera.project_ray_normal(mp)
+	var plane := Plane(_rot_axis_w, _rot_center.dot(_rot_axis_w))
+	var hit = plane.intersects_ray(ro, rd)
+	if hit == null:
+		return _rot_a0
+	var rel: Vector3 = (hit as Vector3) - _rot_center
+	return atan2(rel.dot(_rot_v), rel.dot(_rot_u))
 
 
 # Gizmo-Modus setzen (0=Bewegen 1=Drehen 2=Skalieren) und Griffe neu aufbauen.
@@ -696,16 +858,31 @@ func set_gizmo_mode(m: int) -> void:
 func _begin_handle_drag(handle: Node3D) -> void:
 	_drag_handle = handle
 	_moving_sel = false
+	_rotating = false
 	_drag_kind = handle.get_meta("kind", "scale")
 	_drag_axis_i = handle.get_meta("axis")
+	_edit_xf0 = selected_part.transform
+	_edit_sc0 = selected_part.get_meta("pscale", Vector3.ONE)
+	if _drag_kind == "rotate":
+		# Ring ziehen -> um die WELT-Achse drehen (Gizmo ist welt-ausgerichtet)
+		_rot_axis_w = _axis_vec(_drag_axis_i)
+		_rot_center = _gizmo_root.global_position
+		_rot_b0 = selected_part.transform.basis
+		_rot_u = _rot_axis_w.cross(Vector3.UP)
+		if _rot_u.length() < 0.1:
+			_rot_u = _rot_axis_w.cross(Vector3.RIGHT)
+		_rot_u = _rot_u.normalized()
+		_rot_v = _rot_axis_w.cross(_rot_u).normalized()
+		_rot_a0 = _ring_angle()
+		return
 	_drag_sign = handle.get_meta("sign")
 	_drag_scale0 = selected_part.get_meta("pscale", Vector3.ONE)
 	_drag_origin0 = selected_part.position
-	var b := selected_part.global_transform.basis
-	_drag_axis_w = (b * _axis_vec(_drag_axis_i)).normalized() * _drag_sign
+	if _drag_kind == "move":
+		_drag_axis_w = _axis_vec(_drag_axis_i) * _drag_sign   # WELT-Achse (global, nicht lokal)
+	else:  # scale -> lokale Teil-Achse strecken
+		_drag_axis_w = (selected_part.global_transform.basis * _axis_vec(_drag_axis_i)).normalized() * _drag_sign
 	_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
-	_edit_xf0 = selected_part.transform
-	_edit_sc0 = _drag_scale0
 
 
 func _begin_move() -> void:
@@ -727,6 +904,11 @@ func _update_transform_drag() -> void:
 		var t := _ray_axis_t(_drag_origin0, _drag_axis_w)
 		var origin := _drag_origin0 + _drag_axis_w * (t - _drag_t0)
 		_apply_sel_transform(selected_part.transform.basis, origin, _drag_scale0)
+	elif _drag_handle != null and _drag_kind == "rotate":
+		# Ring ziehen -> um die WELT-Achse drehen (Winkel aus der Maus in der Ringebene)
+		var a := _ring_angle()
+		var nb := (Basis(_rot_axis_w, a - _rot_a0) * _rot_b0).orthonormalized()
+		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
 	elif _drag_handle != null:
 		var p := PartCatalog.get_part(selected_part.get_meta("part_id"))
 		var bs: Vector3 = PartCatalog.col_size(p)
@@ -749,15 +931,6 @@ func _update_transform_drag() -> void:
 		var moved: float = base_i * new_s * 0.5 - half0
 		var origin := _drag_origin0 + _drag_axis_w * moved
 		_apply_sel_transform(selected_part.transform.basis, origin, sc)
-	elif _rotating:
-		# Body ziehen im Dreh-Modus: horizontal = Gieren (Welt-Y), vertikal = Nicken (Kamera-rechts).
-		var mp := get_viewport().get_mouse_position()
-		var d := mp - _rot_mouse0
-		var yaw := -d.x * 0.012
-		var pitch := -d.y * 0.012
-		var right := camera.global_transform.basis.x
-		var nb := (Basis(Vector3.UP, yaw) * Basis(right, pitch) * _rot_b0).orthonormalized()
-		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
 	elif _moving_sel:
 		var newpos := _plane_ray() - _move_grab
 		_apply_sel_transform(selected_part.transform.basis, newpos, selected_part.get_meta("pscale", Vector3.ONE))
