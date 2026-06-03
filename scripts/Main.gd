@@ -460,6 +460,9 @@ func _build_hangar_ui() -> void:
 	money_label = _lbl("", 15, Color(1.0, 0.86, 0.3))
 	vb.add_child(money_label)
 	tool_label = _lbl("Werkzeug: —", 13, Color(0.7, 1.0, 0.7))
+	# WICHTIG: Umbruch an, sonst zwingt der lange Text die ganze Panel-Box auf Textbreite auf.
+	tool_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tool_label.custom_minimum_size = Vector2(0, 0)
 	vb.add_child(tool_label)
 	vb.add_child(HSeparator.new())
 
@@ -949,7 +952,7 @@ func _refresh_tool_ui() -> void:
 	elif build_ctrl.paint_mode:
 		tool_label.text = "Werkzeug: 🎨 Lackieren – Teil anklicken zum Umfärben"
 	elif build_ctrl.brush_id == "":
-		tool_label.text = "Teil aus der Liste in den Bauraum ZIEHEN zum Setzen · vorhandenes Teil packen & ziehen = verschieben · leerer Raum = drehen"
+		tool_label.text = "Teil aus Liste ziehen = setzen · Teil anklicken = bearbeiten (G/R/S) · leer = drehen"
 	else:
 		var p := PartCatalog.get_part(build_ctrl.brush_id)
 		tool_label.text = "Werkzeug: %s – ziehen & loslassen zum Setzen" % p.get("name", build_ctrl.brush_id)
