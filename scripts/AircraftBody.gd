@@ -59,6 +59,8 @@ var yaw_area := 0.0
 var engines: Array = []       # [{pos, thrust, jet}]
 var props: Array = []
 var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
+var _afterburners: Array = [] # CPUParticles3D an Jet-Düsen (Nachbrennerflamme)
+var _vapor: Array = []        # CPUParticles3D an Flügelspitzen (Wirbelschleppen bei hoher G)
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
 const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
 const FLAP_RATE := 0.28       # Ausfahr-/Einfahrgeschwindigkeit (1/s): voll ~3.5 s, pro Stufe ~1.8 s (realistisch träge)
@@ -123,6 +125,7 @@ var climb := 0.0
 var stall := false
 var gforce := 1.0
 var gear_status := "—"
+var shake_request := 0.0      # einmaliger Kamera-Shake-Impuls (vom FlightController abgeholt)
 
 
 func _ready() -> void:
@@ -189,6 +192,18 @@ func _process(delta: float) -> void:
 			"yaw":
 				defl = in_yaw * CTRL_DEG                           # Seitenruder
 		node.rotation.x = float(s["dn"]) * deg_to_rad(defl)
+
+	# Nachbrenner (Jets ab ~55% Schub) + Wirbelschleppen (hohe G-Last / Highspeed)
+	var ab_on := throttle > 0.55
+	for ab in _afterburners:
+		if is_instance_valid(ab):
+			ab.emitting = ab_on
+			if ab_on:
+				ab.initial_velocity_max = lerpf(4.0, 10.0, clampf(throttle, 0.0, 1.0))
+	var vap_on := gforce > 4.5 or airspeed > 130.0
+	for v in _vapor:
+		if is_instance_valid(v):
+			v.emitting = vap_on
 	# Einziehfahrwerk animieren
 	if not _collapsed:
 		var target := 0.0 if gear_down else 1.0
@@ -318,6 +333,7 @@ func recompute_aero() -> void:
 	mass = maxf(tm_eff, 1.0)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = (com / tm) if tm > 0.0 else Vector3.ZERO
+	_rebuild_fx()
 
 
 # Verbindungs-Baum ab dem Cockpit (BFS über Box-Nachbarschaft). parent[i] = Träger.
@@ -451,6 +467,10 @@ func _break_subtree(roots: Array) -> void:
 	var dcs := CollisionShape3D.new()
 	dcs.shape = box
 	debris.add_child(dcs)
+	# Rauchfahne: die abgerissenen Teile qualmen im Fallen
+	var smoke := _fx_make(18, 0.9, 0.0, 2.0, Color(0.26, 0.26, 0.29, 0.7), 0.3, false, 1.5, Vector3(0, 1, 0))
+	debris.add_child(smoke)
+	smoke.emitting = true
 	var tmr := get_tree().create_timer(9.0)
 	tmr.timeout.connect(debris.queue_free)
 	recompute_aero()
@@ -463,6 +483,7 @@ func _explode() -> void:
 	if exploded:
 		return
 	exploded = true
+	shake_request = 1.4   # heftiger Kamera-Stoß bei der Explosion
 	var par := get_parent()
 	var com_world: Vector3 = global_transform * center_of_mass
 	var base_vel := linear_velocity
@@ -648,6 +669,67 @@ func _mushroom_cloud(pos: Vector3) -> void:
 	tmr.timeout.connect(root.queue_free)
 
 
+# Allgemeiner Partikel-Emitter (Welt-Spur). dir = Emissionsrichtung im Emitter-Frame.
+func _fx_make(amount: int, life: float, vmin: float, vmax: float, color: Color, size: float,
+		emissive: bool, grav_y: float, dir: Vector3) -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	p.amount = amount
+	p.lifetime = life
+	p.local_coords = false      # Partikel bleiben in der Welt -> trailen hinter dem Flieger
+	p.direction = dir
+	p.spread = 14.0
+	p.initial_velocity_min = vmin
+	p.initial_velocity_max = vmax
+	p.gravity = Vector3(0, grav_y, 0)
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mesh := SphereMesh.new()
+	mesh.radius = size
+	mesh.height = size * 2.0
+	var mm := StandardMaterial3D.new()
+	mm.albedo_color = color
+	if emissive:
+		mm.emission_enabled = true
+		mm.emission = color
+		mm.emission_energy_multiplier = 3.0
+		mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	else:
+		mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh.material = mm
+	p.mesh = mesh
+	return p
+
+
+# FX-Emitter neu aufbauen (nach Bau/Bruch): Nachbrenner an Jet-Düsen, Wirbelschleppen an
+# Hauptflügelspitzen. Ein-/Ausschalten passiert je Frame im _process.
+func _rebuild_fx() -> void:
+	for n in _afterburners:
+		if is_instance_valid(n):
+			n.queue_free()
+	for n in _vapor:
+		if is_instance_valid(n):
+			n.queue_free()
+	_afterburners.clear()
+	_vapor.clear()
+	for e in engines:
+		if not e.get("jet", false):
+			continue
+		var ab := _fx_make(20, 0.22, 3.0, 8.0, Color(1.0, 0.55, 0.16), 0.17, true, 0.0, Vector3(0, 0, 1))
+		add_child(ab)
+		ab.position = e["pos"] + Vector3(0, 0, 1.0)   # hinter der Düse (+Z = Heck)
+		ab.emitting = false
+		_afterburners.append(ab)
+	for pi in parts:
+		if pi.get("broken", false) or not pi["is_wing"] or String(pi["control"]) != "":
+			continue
+		var xf: Transform3D = pi["xform"]
+		var tip: Vector3 = pi["pos"] + xf.basis.x.normalized() * float(pi.get("span", 2.0))
+		var v := _fx_make(14, 0.5, 0.0, 1.2, Color(0.95, 0.97, 1.0, 0.5), 0.11, false, 0.0, Vector3(0, 0, 1))
+		add_child(v)
+		v.position = tip
+		v.emitting = false
+		_vapor.append(v)
+
+
 # Sitzt Teil "ci" auf Teil "pj"? (Box-Nachbarschaft in pj-Achsen, inkl. ci-Größe)
 func _attached(ci: Dictionary, pj: Dictionary) -> bool:
 	var xf: Transform3D = pj["xform"]
@@ -697,11 +779,13 @@ func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
 		_queue_break(break_set.keys())
 		landing_msg = "💥 RÄDER ABGERISSEN!" if only_gear else "💥 CRASH — Teile abgerissen!"
 		_land_timer = 4.0
+		shake_request = maxf(shake_request, 0.85)
 		return
 	# nichts abgerissen -> reine Landenoten
 	if descent > HARD_LAND:
 		landing_msg = "⚠ Harte Landung (%d m/s)" % int(round(descent))
 		_land_timer = 3.5
+		shake_request = maxf(shake_request, 0.4)
 	elif descent > 0.6:
 		landing_msg = "🛬 Saubere Landung ✓"
 		_land_timer = 3.5
@@ -824,6 +908,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			_queue_break(_wing_root_indices())   # Abtrennen erst im _process (nicht im Physik-Schritt)
 			landing_msg = "💥 FLÜGEL ÜBERLASTET — abgerissen!"
 			_land_timer = 4.0
+			shake_request = maxf(shake_request, 0.7)
 		if wings_broken:
 			cd += 0.25          # zerfetzte Struktur -> mehr Widerstand
 			lift_mag = q * wing_area * cl

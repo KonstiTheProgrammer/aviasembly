@@ -13,6 +13,9 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
+const CAM_SHAKE_DECAY := 2.8    # Kamera-Shake klingt so schnell ab (1/s)
+const CAM_SHAKE_POS := 0.55     # Shake-Positionsausschlag (m bei vollem Trauma)
+const CAM_SHAKE_ROLL := 0.05    # Shake-Rollausschlag (rad)
 const BARREL_HOLD := 0.32       # A/D so lange halten -> Fass-Roll (War-Thunder-Stil)
 # Landeklappen-Stufen (Taste F): Aus -> Start -> Landung. Wert = Klappenstellung 0..1.
 const FLAP_STAGES := [0.0, 0.5, 1.0]
@@ -75,6 +78,7 @@ var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, 
 var _roll_hold := 0.0           # wie lange A/D schon gehalten (für Fass-Roll)
 var _roll_dir := 0              # aktuelle Roll-Halterichtung (+1=A, -1=D, 0=keine)
 var _flap_stage := 0            # Landeklappen-Stufe (Index in FLAP_STAGES), Taste F schaltet weiter
+var _cam_shake := 0.0           # aktuelles Kamera-Shake-„Trauma" (0..~1.4), klingt ab
 var _aim_smooth := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr -> smoother)
 var _nose_px := Vector2.ZERO    # geglättete Nasenmarker-Pixelposition
 var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
@@ -187,7 +191,7 @@ func build_from_design(d: Array) -> void:
 			"is_wing": p.get("is_wing", false), "control": String(p.get("control", "")),
 			"mass": p.get("mass", 0.0) * vol,
 			"drag": PartCatalog.part_drag(p) * psc.x * psc.y,
-			"lift_part": 0.0, "ar": 4.0, "lift_coef": 1.0, "wing_cap": 0.0,
+			"lift_part": 0.0, "ar": 4.0, "lift_coef": 1.0, "wing_cap": 0.0, "span": 2.0,
 			"pitch_a": 0.0, "roll_a": 0.0, "yaw_a": 0.0,
 			"thrust": p.get("thrust", 0.0) * vol, "jet": p.get("jet", false),
 			"gear_cap": p.get("gear_capacity", 0.0) * vol, "retract": p.get("retract", false),
@@ -196,6 +200,7 @@ func build_from_design(d: Array) -> void:
 			var a: float = p.get("area", 0.0) * psc.x * psc.z
 			var span: float = p.get("span", sqrt(maxf(a, 0.01))) * psc.x
 			var up_align: float = clampf(absf(xf.basis.y.dot(Vector3.UP)), 0.0, 1.0)
+			pinfo["span"] = span
 			pinfo["ar"] = clampf(span * span / maxf(a, 0.01), 0.6, 10.0)
 			pinfo["lift_coef"] = p.get("lift", 1.0)
 			pinfo["wing_cap"] = a * PartCatalog.WING_STRESS
@@ -452,6 +457,8 @@ func _fire_primary() -> void:
 		if fired:
 			# Rückstoß: Impuls entgegen der Mündungsrichtung (nach hinten = -fwd).
 			aircraft.add_recoil(-fwd * float(RECOIL.get(w["type"], 0.0)))
+			# Kamera-Shake je nach Kaliber (aus dem Rückstoß abgeleitet)
+			add_shake(clampf(float(RECOIL.get(w["type"], 300.0)) / 9000.0, 0.02, 0.16))
 			# Begrenzte Munition verbrauchen; bei 0 verschwindet das Bauteil (-> Aero neu).
 			if int(w["ammo"]) > 0:
 				w["ammo"] -= 1
@@ -468,6 +475,7 @@ func _drop_bomb() -> void:
 		if pidx >= 0 and pidx < aircraft.parts.size() and aircraft.parts[pidx].get("broken", false):
 			continue   # Bombe schon weg/abgerissen
 		_spawn("bomb", _muzzle(w["off"]), av, 12.0, 6.0, 24.0)   # Bombe fällt (Schwerkraft)
+		add_shake(0.1)
 		w["cd"] = 0.8
 		if int(w["ammo"]) > 0:
 			w["ammo"] -= 1
@@ -562,6 +570,10 @@ func _aim_dir() -> Vector3:
 func _process(delta: float) -> void:
 	if camera == null or not is_instance_valid(aircraft):
 		return
+	# Kamera-Shake: Anfragen vom Flugzeug (Aufprall/Explosion/Bruch) aufnehmen + abklingen
+	_cam_shake = minf(_cam_shake + aircraft.shake_request, 1.4)
+	aircraft.shake_request = 0.0
+	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
 	var t := aircraft.global_transform
 	if mouse_fly:
 		# Kamera blickt in die ZIELRICHTUNG (Maus), Flugzeug im Vordergrund -> du siehst,
@@ -574,6 +586,7 @@ func _process(delta: float) -> void:
 		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 6.0, 0.0, 1.0))
 		# Blickpunkt etwas ÜBER dem Flieger -> Kamera neigt sich hoch -> Flieger sitzt tiefer im Bild
 		camera.look_at(t.origin + aim * 30.0 + Vector3.UP * CAM_LOOK_ABOVE, up_ref)
+		_apply_cam_shake()
 		return
 	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
 	_mouse_idle += delta
@@ -584,6 +597,22 @@ func _process(delta: float) -> void:
 	var desired := t.origin + _cam_offset(t)
 	camera.global_position = camera.global_position.lerp(desired, clamp(delta * 6.0, 0.0, 1.0))
 	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
+	_apply_cam_shake()
+
+
+# Kamera-Shake auslösen (Feuer/Aufprall) und anwenden (Positions- + Roll-Jitter, quadratisch).
+func add_shake(amount: float) -> void:
+	_cam_shake = minf(_cam_shake + amount, 1.4)
+
+
+func _apply_cam_shake() -> void:
+	if _cam_shake <= 0.001:
+		return
+	var s := _cam_shake * _cam_shake   # quadratisch -> satter Stoß, sanftes Ausklingen
+	var b := camera.global_transform.basis
+	var off: Vector3 = b.x * randf_range(-1.0, 1.0) + b.y * randf_range(-1.0, 1.0)
+	camera.global_position += off * (s * CAM_SHAKE_POS)
+	camera.rotate_object_local(Vector3(0, 0, 1), randf_range(-1.0, 1.0) * s * CAM_SHAKE_ROLL)
 
 
 # Kamera-Versatz hinter dem Flugzeug, per Umschau-Winkeln (look_yaw/pitch) gedreht.
