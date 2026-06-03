@@ -109,6 +109,9 @@ const HARD_LAND := 3.0        # ab hier "harte Landung"
 const BREAK_LAND := 7.0       # ab hier bricht das Fahrwerk
 const CRASH_SPEED := 10.0     # Schließgeschwindigkeit (m/s) entlang Kontaktnormale, ab der ein
                               # getroffenes (Nicht-Fahrwerk-)Teil + sein Außen-Teilbaum abreißt
+const EXPLODE_SPEED := 20.0   # ab hier: GANZES Flugzeug zerschellt (alle Teile fliegen weg + Toy-Explosion)
+var exploded := false         # ganzes Flugzeug zerschellt? (bis Reset)
+var _explode_pending := false # Explosion fürs nächste _process vorgemerkt (nicht in _integrate_forces!)
 
 # Telemetrie
 var airspeed := 0.0
@@ -136,9 +139,13 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# Abreißen/Reparenting NUR hier (nicht in _integrate_forces). Mehrere Brüche nacheinander
-	# möglich (erst Flügelüberlast, später Crash) -> Queue statt einmaligem Flag.
-	if not _break_queue.is_empty():
+	# Abreißen/Reparenting/Explosion NUR hier (nicht in _integrate_forces).
+	if _explode_pending:
+		_explode_pending = false
+		_break_queue.clear()
+		_explode()
+	elif not _break_queue.is_empty():
+		# Mehrere Brüche nacheinander möglich (erst Flügelüberlast, später Crash) -> Queue.
 		var roots: Array = _break_queue.duplicate()
 		_break_queue.clear()
 		_break_subtree(roots)
@@ -419,6 +426,109 @@ func _break_subtree(roots: Array) -> void:
 	recompute_aero()
 
 
+# Zerschellen: ALLE Teile fliegen als einzelne Trümmer radial auseinander (Spielzeug zerlegt
+# sich) + bunte, übertriebene "Toy"-Explosion. Danach bleibt nur ein leerer, eingefrorener
+# Körper am Crash-Ort (Kamera schaut zu); Reset (Enter) baut alles neu.
+func _explode() -> void:
+	if exploded:
+		return
+	exploded = true
+	var par := get_parent()
+	var com_world: Vector3 = global_transform * center_of_mass
+	var base_vel := linear_velocity
+	if par != null:
+		for i in parts.size():
+			if parts[i].get("broken", false):
+				continue
+			var cs = parts[i]["cs"]
+			if is_instance_valid(cs):
+				cs.disabled = true
+			var vis = parts[i]["vis"]
+			parts[i]["broken"] = true
+			if not is_instance_valid(vis):
+				continue
+			var deb := RigidBody3D.new()
+			deb.add_to_group("debris")
+			deb.collision_layer = 8
+			deb.collision_mask = 1
+			deb.angular_damp = 0.12
+			par.add_child(deb)
+			deb.global_transform = vis.global_transform
+			vis.reparent(deb, true)
+			var outward: Vector3 = deb.global_position - com_world
+			if outward.length() < 0.2:
+				outward = Vector3(randf_range(-1, 1), 1.0, randf_range(-1, 1))
+			outward = outward.normalized()
+			# kräftig radial wegsprengen + nach oben + Zufall -> Teile stieben auseinander
+			deb.linear_velocity = base_vel * 0.35 + outward * randf_range(9.0, 19.0) + Vector3.UP * randf_range(4.0, 11.0)
+			deb.angular_velocity = Vector3(randf_range(-12, 12), randf_range(-12, 12), randf_range(-12, 12))
+			deb.mass = maxf(float(parts[i]["mass"]) * 0.5, 4.0)
+			var box := BoxShape3D.new()
+			box.size = Vector3(0.7, 0.5, 0.7)
+			var dcs := CollisionShape3D.new()
+			dcs.shape = box
+			deb.add_child(dcs)
+			var tmr := get_tree().create_timer(randf_range(7.0, 10.0))
+			tmr.timeout.connect(deb.queue_free)
+		_toy_explosion(com_world)
+	recompute_aero()
+	landing_msg = "💥 ZERSCHELLT!  (Enter = neu)"
+	_land_timer = 6.0
+	# Leerer Körper bleibt am Crash-Ort stehen (Kamera schaut auf die Explosion).
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+	freeze = true
+
+
+# Bunte, übertriebene Spielzeug-Explosion: Feuerball + weißer Blitz + buntes Konfetti + Rauch.
+func _toy_explosion(pos: Vector3) -> void:
+	var par := get_parent()
+	if par == null:
+		return
+	_burst(par, pos, 48, 0.7, 6.0, 26.0, Vector3(0, -6, 0), Color(1.0, 0.55, 0.12), 0.42, true, false)   # Feuerball
+	_burst(par, pos, 12, 0.22, 0.0, 5.0, Vector3.ZERO, Color(1.0, 0.96, 0.85), 1.1, true, false)          # weißer Blitz
+	for c in [Color(1, 0.2, 0.25), Color(0.2, 0.6, 1.0), Color(1, 0.9, 0.2), Color(0.3, 1, 0.45), Color(0.9, 0.4, 1.0)]:
+		_burst(par, pos, 14, 1.5, 9.0, 32.0, Vector3(0, -13, 0), c, 0.16, false, true)                    # buntes Konfetti
+	_burst(par, pos, 18, 1.3, 2.0, 9.0, Vector3(0, 3.5, 0), Color(0.55, 0.55, 0.6), 0.45, false, false)   # Rauchpuffs
+
+
+func _burst(par: Node, pos: Vector3, amount: int, life: float, vmin: float, vmax: float,
+		grav: Vector3, color: Color, size: float, emissive: bool, cube: bool) -> void:
+	var p := CPUParticles3D.new()
+	p.emitting = true
+	p.one_shot = true
+	p.amount = amount
+	p.lifetime = life
+	p.explosiveness = 0.96
+	p.direction = Vector3.UP
+	p.spread = 180.0
+	p.initial_velocity_min = vmin
+	p.initial_velocity_max = vmax
+	p.gravity = grav
+	var mesh: Mesh
+	if cube:
+		var bm := BoxMesh.new()
+		bm.size = Vector3(size, size, size)
+		mesh = bm
+	else:
+		var sm := SphereMesh.new()
+		sm.radius = size
+		sm.height = size * 2.0
+		mesh = sm
+	var mm := StandardMaterial3D.new()
+	mm.albedo_color = color
+	if emissive:
+		mm.emission_enabled = true
+		mm.emission = color
+		mm.emission_energy_multiplier = 2.6
+	mesh.material = mm
+	p.mesh = mesh
+	par.add_child(p)
+	p.global_position = pos
+	var tmr := get_tree().create_timer(life + 0.6)
+	tmr.timeout.connect(p.queue_free)
+
+
 # Sitzt Teil "ci" auf Teil "pj"? (Box-Nachbarschaft in pj-Achsen, inkl. ci-Größe)
 func _attached(ci: Dictionary, pj: Dictionary) -> bool:
 	var xf: Transform3D = pj["xform"]
@@ -437,13 +547,17 @@ func _attached(ci: Dictionary, pj: Dictionary) -> bool:
 # der Kontaktnormale, d.h. wie schnell man IN die Fläche fliegt (so zählt "ins Gelände/in eine
 # Wand krachen", aber nicht das harmlose schnelle Entlanggleiten beim Landen). Bricht nur vor.
 func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
+	if exploded:
+		return
 	var descent := maxf(0.0, -_last_vy)         # vertikale Sinkrate (für die Landenote)
 	var n := state.get_contact_count()
 	var break_set := {}
 	var only_gear := true
+	var worst := 0.0
 	for i in n:
 		var nrm := state.get_contact_local_normal(i)
 		var closing := maxf(0.0, -_last_vel.dot(nrm))   # Tempo IN die getroffene Fläche
+		worst = maxf(worst, closing)
 		if closing <= BREAK_LAND:
 			continue
 		var idx := _nearest_part_index(state.transform, state.get_contact_local_position(i))
@@ -454,6 +568,12 @@ func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
 		elif closing > CRASH_SPEED:
 			break_set[idx] = true               # Struktur reißt erst beim echten Crash (> CRASH_SPEED) ab
 			only_gear = false
+	# Zu schnell in den Boden/ein Hindernis -> GANZES Flugzeug zerschellt (Toy-Explosion).
+	if worst > EXPLODE_SPEED:
+		_explode_pending = true
+		landing_msg = "💥 ZERSCHELLT!"
+		_land_timer = 5.0
+		return
 	if not break_set.is_empty():
 		_queue_break(break_set.keys())
 		landing_msg = "💥 RÄDER ABGERISSEN!" if only_gear else "💥 CRASH — Teile abgerissen!"
