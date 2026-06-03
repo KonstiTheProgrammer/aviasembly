@@ -61,6 +61,7 @@ var props: Array = []
 var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
 const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
+const FLAP_RATE := 0.28       # Ausfahr-/Einfahrgeschwindigkeit (1/s): voll ~3.5 s, pro Stufe ~1.8 s (realistisch träge)
 const FLAPERON_DEG := 12.0    # zusätzl. gegensinniger Klappen-Ausschlag bei Roll (Flaperon -> Roll sichtbar)
 const CTRL_DEG := 24.0        # max. Ruderausschlag (Höhe/Seite/Quer)
 var total_thrust := 0.0
@@ -147,7 +148,7 @@ func _process(delta: float) -> void:
 			p.rotate_z(spd * delta)
 	# Bewegliche Flächen animieren (Scharnier dreht um lokale X-Achse). dn = Welt-"unten"-Vorzeichen.
 	# Klappe: Landestellung + gegensinniger Roll-Anteil (Flaperon). Ruder folgen Pitch/Yaw/Roll.
-	_flap_vis = move_toward(_flap_vis, flaps, delta * 2.2)
+	# _flap_vis wird in _integrate_forces (physikgetaktet) langsam gerampt -> hier nur lesen.
 	for s in surfaces:
 		var node = s["node"]
 		if not is_instance_valid(node):
@@ -504,6 +505,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if not state.angular_velocity.is_finite():
 		state.angular_velocity = Vector3.ZERO
 
+	# Landeklappen fahren langsam/realistisch aus (Motorgeschwindigkeit). _flap_vis = tatsächlich
+	# ausgefahrene Stellung -> Auftrieb/Widerstand UND Optik bauen sich damit allmählich auf.
+	_flap_vis = move_toward(_flap_vis, flaps, state.step * FLAP_RATE)
+
 	var xf := state.transform
 	var v_lin := state.linear_velocity
 	var v_ang := state.angular_velocity
@@ -557,8 +562,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var cl := lerpf(clampf(cl_a * aoa, -CL_MAX, CL_MAX), sin(2.0 * aoa), sigma) * lift_scale
 		# Landeklappen: heben den Auftriebsbeiwert an (Kamber) -> Abheben/Landen bei weniger Tempo.
 		# NACH der CL_MAX-Klemmung addiert, da Klappen den Maximalauftrieb real anheben.
-		cl += flaps * FLAP_LIFT
-		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5 + flaps * FLAP_DRAG
+		cl += _flap_vis * FLAP_LIFT
+		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5 + _flap_vis * FLAP_DRAG
 		var lift_mag := q * wing_area * cl
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
 		if not wings_broken and not arcade and barrel_roll == 0 and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
