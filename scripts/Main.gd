@@ -1252,7 +1252,7 @@ func _update_ampel(stats: Dictionary) -> void:
 	if not has_wings:
 		col = Color(1, 0.45, 0.4); txt = "🔴 Fliegt nicht — keine Tragflächen dran"
 	elif stats.get("gear_overload", false):
-		col = Color(1, 0.45, 0.4); txt = "🔴 Fahrwerk überlastet — kollabiert beim Start"
+		col = Color(1, 0.45, 0.4); txt = "🔴 Fahrwerk überlastet — Reifen reißen beim Start ab"
 	elif tw < 0.12:
 		col = Color(1, 0.45, 0.4); txt = "🔴 Zu wenig Schub zum Abheben"
 	elif stats.get("col_valid", false) and d < -0.5:

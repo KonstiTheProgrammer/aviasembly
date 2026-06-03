@@ -132,7 +132,7 @@ func _ready() -> void:
 	contact_monitor = true
 	max_contacts_reported = 8
 	if gear_overloaded:
-		_collapse_gear()
+		_queue_break(_gear_part_indices())   # überlastete Reifen reißen ab (Trümmer), nicht einknicken
 
 
 func _process(delta: float) -> void:
@@ -338,6 +338,15 @@ func _wing_root_indices() -> Array:
 	return roots
 
 
+# Indizes aller (noch heilen) Fahrwerksteile — für Reifen-Abriss bei Überlast.
+func _gear_part_indices() -> Array:
+	var r: Array = []
+	for i in parts.size():
+		if not parts[i].get("broken", false) and float(parts[i]["gear_cap"]) > 0.0:
+			r.append(i)
+	return r
+
+
 # Bruch zum nächsten _process vormerken (Node-Umbau NIE in _integrate_forces).
 func _queue_break(roots: Array) -> void:
 	for r in roots:
@@ -486,7 +495,12 @@ func reset_gear() -> void:
 	gear_down = true
 	_gear_anim = 0.0
 	if gear_overloaded:
-		_collapse_gear()
+		# Reifen-Überlast (zu schwer fürs Fahrwerk) -> Reifen reißen beim Flugstart AB (Trümmer),
+		# nicht nur einknicken. Abriss erst im _process (Node-Umbau), via _break_queue.
+		_collapsed = false
+		_queue_break(_gear_part_indices())
+		landing_msg = "💥 Fahrwerk überlastet — Reifen abgerissen!"
+		_land_timer = 4.0
 	else:
 		_collapsed = false
 		for g in gear_items:
