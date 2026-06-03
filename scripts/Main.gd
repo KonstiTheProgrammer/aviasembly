@@ -56,9 +56,7 @@ var ampel_label: Label              # "Fliegt's?"-Ampel (grün/gelb/rot + Tipp)
 var hud_label: Label
 var stall_label: Label
 var land_label: Label
-var center_cross: Label             # statisches Fadenkreuz (im Maus-Flug aus)
-var aim_marker: Label               # Maus-Flug: Steuermarker (Cursor)
-var nose_marker: Label              # Maus-Flug: aktuelle Nasenrichtung
+var flight_hud: FlightHud           # Primary-Flight-Display (Kompass, Speed/Höhe, Zielkreis)
 var tool_label: Label
 var toast_label: Label
 var drag_view_btn: Button
@@ -1169,35 +1167,15 @@ func _build_flight_ui() -> void:
 	back_btn.pressed.connect(_on_hangar_pressed)
 	flight_root.add_child(back_btn)
 
-	# Fadenkreuz (Mitte) — im Maus-Flug ausgeblendet (dann zeigt der Nasenmarker)
-	center_cross = _lbl("✛", 26, Color(1, 1, 1, 0.7))
-	center_cross.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	center_cross.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_rect(center_cross, 0.5, 0.5, 0.5, 0.5, -16, -18, 16, 18)
-	flight_root.add_child(center_cross)
-
-	# Maus-Flug-Marker (frei positioniert; werden in _on_hud_changed gesetzt)
-	aim_marker = _make_marker("⊕", 34, Color(0.3, 1.0, 0.45, 0.95))
-	flight_root.add_child(aim_marker)
-	nose_marker = _make_marker("◇", 26, Color(1.0, 0.88, 0.3, 0.95))
-	flight_root.add_child(nose_marker)
+	# Primary-Flight-Display (Custom-Drawing): Kompass oben, Speed/Höhe-Boxen, großer Zielkreis.
+	flight_hud = FlightHud.new()
+	flight_root.add_child(flight_hud)
 
 	# Hinweisleiste unten
 	var hint := _lbl("Maus: Umschauen · M: Maus-Flug · J: Arcade · Schub: Shift/Strg · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · 🔫 LEERTASTE (Bullet-Drop — höher zielen!) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
-
-
-# Frei positionierbarer HUD-Marker (fixe Box, mittig ausgerichtet -> Position = Mittelpunkt).
-func _make_marker(glyph: String, size: int, color: Color) -> Label:
-	var m := _lbl(glyph, size, color)
-	m.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	m.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	m.size = Vector2(48, 48)
-	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	m.visible = false
-	return m
 
 
 # ===========================================================================
@@ -1286,24 +1264,28 @@ func _on_hud_changed(d: Dictionary) -> void:
 	var thr_pct := int(round(d["throttle"] * 100.0))
 	var thr_txt := ("🛑 Bremse %d%%" % absi(thr_pct)) if thr_pct < 0 else ("Schub %d%%" % thr_pct)
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
-	hud_label.text = "%s\nSpeed:  %d km/h  (%d m/s)\nHöhe:   %d m\nSteig:  %+.1f m/s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n➤ %s" % [
-		thr_txt, int(d["kmh"]), int(d["speed"]),
-		int(d["alt"]), d["climb"], int(d["aoa"]), d.get("gforce", 1.0),
+	# Speed/Höhe/Kurs/Steig zeigt jetzt das PFD; hier nur noch Systeme/Status.
+	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n➤ %s" % [
+		thr_txt, int(d["aoa"]), d.get("gforce", 1.0),
 		d.get("wings", "ok"), d.get("gear", "—"), d.get("flaps", "AUS"), inv_txt, assist_txt, mf_txt, nav]
 	var ammo_txt: String = d.get("ammo", "")
 	if ammo_txt != "":
 		hud_label.text += "\nMunition: " + ammo_txt
-	# Maus-Flug-Marker: Zielmarker (Maus/Weltrichtung) + Nasenrichtung; statisches Kreuz aus
-	if center_cross:
-		center_cross.visible = not mf
-	if aim_marker:
-		aim_marker.visible = mf and bool(d.get("aim_vis", true))
-		if aim_marker.visible:
-			aim_marker.position = (d.get("aim", Vector2.ZERO) as Vector2) - aim_marker.size * 0.5
-	if nose_marker:
-		nose_marker.visible = mf and bool(d.get("nose_vis", true))
-		if nose_marker.visible:
-			nose_marker.position = (d.get("nose", Vector2.ZERO) as Vector2) - nose_marker.size * 0.5
+	# Primary-Flight-Display füttern (Kompass, Speed/Höhe-Boxen, Zielkreis)
+	if flight_hud:
+		flight_hud.heading = d.get("heading", 0.0)
+		flight_hud.speed_kmh = d.get("kmh", 0.0)
+		flight_hud.speed_ms = d.get("speed", 0.0)
+		flight_hud.altitude = d.get("alt", 0.0)
+		flight_hud.climb = d.get("climb", 0.0)
+		flight_hud.throttle = d.get("throttle", 0.0)
+		flight_hud.gforce = d.get("gforce", 1.0)
+		flight_hud.stall = d.get("stall", false)
+		flight_hud.mouse_fly = mf
+		flight_hud.aim_pos = d.get("aim", Vector2.ZERO)
+		flight_hud.aim_vis = mf and bool(d.get("aim_vis", true))
+		flight_hud.nose_pos = d.get("nose", Vector2.ZERO)
+		flight_hud.nose_vis = mf and bool(d.get("nose_vis", true))
 	stall_label.visible = d.get("stall", false) and d.get("speed", 0.0) > 4.0
 	if land_label:
 		var lm: String = d.get("land_msg", "")

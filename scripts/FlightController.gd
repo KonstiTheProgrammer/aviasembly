@@ -639,6 +639,12 @@ func _ammo_text() -> String:
 	return "   ".join(parts)
 
 
+# Nasenkurs in Grad (0 = Nord/-Z, im Uhrzeigersinn: O=90, S=180, W=270).
+func _heading_deg() -> float:
+	var fwd := -aircraft.global_transform.basis.z
+	return fposmod(rad_to_deg(atan2(fwd.x, -fwd.z)), 360.0)
+
+
 func _emit_hud() -> void:
 	if not is_instance_valid(aircraft):
 		return
@@ -651,6 +657,7 @@ func _emit_hud() -> void:
 		"aim_vis": aim_visible,
 		"nose_vis": nose_visible,
 		"throttle": throttle,
+		"heading": _heading_deg(),
 		"speed": aircraft.airspeed,
 		"kmh": aircraft.airspeed * 3.6,
 		"alt": aircraft.altitude,
