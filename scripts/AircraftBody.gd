@@ -471,6 +471,7 @@ func _explode() -> void:
 			var tmr := get_tree().create_timer(randf_range(7.0, 10.0))
 			tmr.timeout.connect(deb.queue_free)
 		_toy_explosion(com_world)
+		_mushroom_cloud(com_world)
 	recompute_aero()
 	landing_msg = "💥 ZERSCHELLT!  (Enter = neu)"
 	_land_timer = 6.0
@@ -527,6 +528,94 @@ func _burst(par: Node, pos: Vector3, amount: int, life: float, vmin: float, vmax
 	p.global_position = pos
 	var tmr := get_tree().create_timer(life + 0.6)
 	tmr.timeout.connect(p.queue_free)
+
+
+# Wolken-Mesh mit eigenem (tweenbarem) Material. Rauch = alpha-geblendet & beleuchtet,
+# Feuer = additiv leuchtend.
+func _cloud_mesh(parent: Node3D, mesh: Mesh, color: Color, emissive: bool, pos: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if emissive:
+		m.emission_enabled = true
+		m.emission = color
+		m.emission_energy_multiplier = 2.6
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mi.material_override = m
+	parent.add_child(mi)
+	return mi
+
+
+# Cooler Atompilz: Stiel wächst hoch, feuriger Kern steigt auf & wird zur ausblühenden Kappe,
+# Roll-Ring um die Kappe + Boden-Schockwelle. Alles per Tween animiert, räumt sich selbst auf.
+func _mushroom_cloud(pos: Vector3) -> void:
+	var par := get_parent()
+	if par == null:
+		return
+	var root := Node3D.new()
+	par.add_child(root)
+	root.global_position = Vector3(pos.x, maxf(pos.y, 0.5), pos.z)
+	var smoke := Color(0.66, 0.63, 0.6, 0.9)
+	var dark := Color(0.4, 0.38, 0.37, 0.92)
+	var fire := Color(1.0, 0.55, 0.16, 1.0)
+	var tw := root.create_tween()
+	tw.set_parallel(true)
+
+	# Stiel — Pivot an der Basis, wächst nach oben
+	var stem_pivot := Node3D.new()
+	root.add_child(stem_pivot)
+	var stem_cyl := CylinderMesh.new()
+	stem_cyl.top_radius = 2.4
+	stem_cyl.bottom_radius = 3.4
+	stem_cyl.height = 20.0
+	var stem := _cloud_mesh(stem_pivot, stem_cyl, dark, false, Vector3(0, 10.0, 0))
+	stem_pivot.scale = Vector3(0.6, 0.05, 0.6)
+	tw.tween_property(stem_pivot, "scale", Vector3(1, 1, 1), 1.1).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(stem.material_override, "albedo_color:a", 0.0, 1.6).set_delay(3.0)
+
+	# Feuriger Kern — steigt auf und bläht sich (wird zur Kappe), dann erlischt er
+	var core_mesh := SphereMesh.new()
+	core_mesh.radius = 4.0
+	core_mesh.height = 8.0
+	var core := _cloud_mesh(root, core_mesh, fire, true, Vector3(0, 3, 0))
+	tw.tween_property(core, "position", Vector3(0, 22, 0), 1.2).set_ease(Tween.EASE_OUT)
+	tw.tween_property(core, "scale", Vector3(2.4, 1.7, 2.4), 1.2).set_ease(Tween.EASE_OUT)
+	tw.tween_property(core.material_override, "emission_energy_multiplier", 0.0, 1.3).set_delay(0.5)
+	tw.tween_property(core.material_override, "albedo_color:a", 0.0, 1.0).set_delay(0.9)
+
+	# Kappe — abgeflachte Kugel, bildet sich oben und blüht weit aus
+	var cap_mesh := SphereMesh.new()
+	cap_mesh.radius = 5.0
+	cap_mesh.height = 7.0
+	var cap := _cloud_mesh(root, cap_mesh, smoke, false, Vector3(0, 18, 0))
+	cap.scale = Vector3(0.3, 0.3, 0.3)
+	tw.tween_property(cap, "scale", Vector3(3.4, 2.1, 3.4), 1.6).set_delay(0.5).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(cap, "position", Vector3(0, 25, 0), 1.6).set_delay(0.5).set_ease(Tween.EASE_OUT)
+	tw.tween_property(cap.material_override, "albedo_color:a", 0.0, 1.6).set_delay(3.0)
+
+	# Roll-Ring um die Kappe (Torus liegt flach um die senkrechte Achse)
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = 4.5
+	ring_mesh.outer_radius = 8.0
+	var ring := _cloud_mesh(root, ring_mesh, smoke, false, Vector3(0, 24, 0))
+	ring.scale = Vector3(0.4, 0.4, 0.4)
+	tw.tween_property(ring, "scale", Vector3(2.9, 1.3, 2.9), 1.8).set_delay(0.6).set_ease(Tween.EASE_OUT)
+	tw.tween_property(ring.material_override, "albedo_color:a", 0.0, 1.4).set_delay(2.6)
+
+	# Boden-Schockwelle — flacher Ring, schnell nach außen + aus
+	var sw_mesh := TorusMesh.new()
+	sw_mesh.inner_radius = 1.2
+	sw_mesh.outer_radius = 2.2
+	var sw := _cloud_mesh(root, sw_mesh, Color(1.0, 0.82, 0.4, 1.0), true, Vector3(0, 0.6, 0))
+	tw.tween_property(sw, "scale", Vector3(9.0, 1.0, 9.0), 0.6).set_ease(Tween.EASE_OUT)
+	tw.tween_property(sw.material_override, "albedo_color:a", 0.0, 0.7)
+
+	var tmr := get_tree().create_timer(5.2)
+	tmr.timeout.connect(root.queue_free)
 
 
 # Sitzt Teil "ci" auf Teil "pj"? (Box-Nachbarschaft in pj-Achsen, inkl. ci-Größe)
