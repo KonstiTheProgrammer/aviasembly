@@ -1195,7 +1195,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(flight_hud)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Umschauen · M: Maus-Flug · J: Arcade · Schub: Shift/Strg · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · 🔫 LEERTASTE (Bullet-Drop — höher zielen!) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Umschauen · M: Maus-Flug · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · 🔫 LEERTASTE (Bullet-Drop — höher zielen!) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
@@ -1285,7 +1285,13 @@ func _on_hud_changed(d: Dictionary) -> void:
 	var arc: bool = d.get("arcade", false)
 	var mf_txt: String = ("🖱 AN — ARCADE 🎮" if arc else "🖱 AN (Cursor lenkt)") if mf else "AUS (Umschauen)"
 	var thr_pct := int(round(d["throttle"] * 100.0))
-	var thr_txt := ("🛑 Bremse %d%%" % absi(thr_pct)) if thr_pct < 0 else ("Schub %d%%" % thr_pct)
+	var thr_txt: String
+	if thr_pct < 0:
+		thr_txt = "🛑 Bremse %d%%" % absi(thr_pct)
+	elif thr_pct > 100:
+		thr_txt = "🔥 NACHBRENNER %d%%" % thr_pct
+	else:
+		thr_txt = "Schub %d%%" % thr_pct
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
 	# Speed/Höhe/Kurs/Steig zeigt jetzt das PFD; hier nur noch Systeme/Status.
 	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n➤ %s" % [

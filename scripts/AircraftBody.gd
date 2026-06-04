@@ -48,7 +48,7 @@ const ARCADE_RESP := 6.0      # Arcade: wie schnell/smooth die Orientierung aufs
 const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase folgt (fliegt wohin sie zeigt, kein Schlittern)
 const BARREL_RATE := 5.0      # Fass-Roll: Ziel-Rollrate (rad/s) ~ 1 Rolle / 1,25 s (physikalisch geregelt)
 const BARREL_GAIN := 0.9      # Fass-Roll: P-Anteil Rollraten-Regler (sanftes Anrollen)
-const AB_BOOST := 0.35        # Nachbrenner: max. Mehrschub für Jets bei vollem Gas (+35 %)
+const AB_BOOST := 0.5         # Nachbrenner: Extra-Schub für Jets in der AB-Zone (100→110 % = +50 %)
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
@@ -198,10 +198,11 @@ func _process(delta: float) -> void:
 				defl = in_yaw * CTRL_DEG                           # Seitenruder
 		node.rotation.x = float(s["dn"]) * deg_to_rad(defl)
 
-	# Nachbrenner: blau-weißer Kern -> orange Fahne mit Mach-Diamanten, flammt mit dem Gas auf.
+	# Turbine 0..100 %: dezentes kurzes Abgasglühen. Nachbrenner 100..110 %: lange,
+	# helle Flamme (blau-weißer Kern -> orange Fahne mit Mach-Diamanten) + Funken + Glow.
 	_ab_time += delta
 	var thr_n := clampf(throttle, 0.0, 1.0)
-	var ab := smoothstep(0.55, 1.0, throttle)     # Nachbrenner-Stufe (0..1)
+	var ab := clampf((throttle - 1.0) / 0.10, 0.0, 1.0)   # 0 bei <=100 %, 1 bei 110 %
 	var lit := throttle > 0.04
 	for d in _afterburners:
 		var root = d["root"]
@@ -212,24 +213,24 @@ func _process(delta: float) -> void:
 			continue
 		var plume: MeshInstance3D = d["plume"]
 		var core: MeshInstance3D = d["core"]
-		# Länge wächst stark mit dem Nachbrenner, Breite leicht.
-		var pw := 0.85 + ab * 0.5
-		plume.scale = Vector3(pw, pw, 0.7 + thr_n * 1.5 + ab * 3.2)
-		var cw := 0.8 + ab * 0.45
-		core.scale = Vector3(cw, cw, 0.45 + thr_n * 0.7 + ab * 1.2)
+		# Normal kurz/schmal, im Nachbrenner schießt die Flamme lang & breit raus.
+		var pw := 0.7 + ab * 0.6
+		plume.scale = Vector3(pw, pw, 0.45 + thr_n * 0.75 + ab * 4.2)
+		var cw := 0.62 + ab * 0.55
+		core.scale = Vector3(cw, cw, 0.3 + thr_n * 0.45 + ab * 1.6)
 		var pm: ShaderMaterial = d["plume_mat"]
 		var cm: ShaderMaterial = d["core_mat"]
-		pm.set_shader_parameter("intensity", 0.28 + thr_n * 0.5 + ab * 1.1)
+		pm.set_shader_parameter("intensity", 0.18 + thr_n * 0.32 + ab * 1.35)
 		pm.set_shader_parameter("t_time", _ab_time)
-		cm.set_shader_parameter("intensity", 0.34 + thr_n * 0.6 + ab * 1.3)
+		cm.set_shader_parameter("intensity", 0.22 + thr_n * 0.4 + ab * 1.5)
 		cm.set_shader_parameter("t_time", _ab_time)
 		cm.set_shader_parameter("diamonds", ab)
 		var light: OmniLight3D = d["light"]
-		light.light_energy = thr_n * 0.8 + ab * 4.5
-		light.omni_range = 3.0 + ab * 4.5
+		light.light_energy = thr_n * 0.45 + ab * 5.5
+		light.omni_range = 2.5 + ab * 5.0
 		var sparks = d["sparks"]
 		if is_instance_valid(sparks):
-			sparks.emitting = ab > 0.12
+			sparks.emitting = ab > 0.05
 	var vap_on := gforce > 4.5 or airspeed > 130.0
 	for v in _vapor:
 		if is_instance_valid(v):
@@ -1039,18 +1040,20 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var tt := Vector3.ZERO
 
 	# --- Schub (zentral; Propeller fällt mit Tempo, Jet konstant) ----------
-	# Nachbrenner: Jets bekommen bei sehr hohem Gas (>78 %) bis +35 % Schub.
-	var ab_stage := clampf((throttle - 0.78) / 0.22, 0.0, 1.0)
+	# Turbine: Drossel 0..100 % = normaler Schub. Nachbrenner-Zone 100..110 %:
+	# nur Jets, on top des vollen Turbinenschubs (+AB_BOOST). Propeller bleiben bei 100 %.
+	var base_thr := clampf(throttle, 0.0, 1.0)
+	var ab_stage := clampf((throttle - 1.0) / 0.10, 0.0, 1.0)   # 0 bei 100 %, 1 bei 110 %
 	var fs := v_lin.dot(fwd)
 	var thr := 0.0
 	for e in engines:
 		var t: float = float(e["thrust"])
 		if not e.get("jet", false):
 			t *= clampf(1.0 - fs / PROP_VMAX, 0.0, 1.0)
+			thr += t * base_thr
 		else:
-			t *= 1.0 + AB_BOOST * ab_stage
-		thr += t
-	tf += fwd * (thr * maxf(throttle, 0.0))
+			thr += t * (base_thr + AB_BOOST * ab_stage)
+	tf += fwd * thr
 	# Bremsen bei negativem Gas: Luftbremse + (am Boden) Radbremse
 	if throttle < 0.0 and airspeed > 0.3:
 		var brake := -throttle

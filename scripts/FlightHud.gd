@@ -98,19 +98,28 @@ func _draw_speed_box() -> void:
 	var r := Rect2(bx, by - 30.0, 132.0, 60.0)
 	draw_rect(r, Color(0, 0, 0, 0.5))
 	var thr_col: Color = ACCENT if throttle >= 0.0 else Color(1, 0.5, 0.3)
+	if throttle > 1.0:
+		thr_col = Color(1.0, 0.42, 0.12)        # Nachbrenner: heißes Orange-Rot
 	draw_rect(r, Color(thr_col.r, thr_col.g, thr_col.b, 0.5), false, 2.0)
 	var spd_col: Color = Color(1, 0.45, 0.3) if stall else Color(1, 1, 1)
 	draw_string(_font, Vector2(bx + 12.0, by + 4.0), "%d" % int(round(speed_kmh)),
 		HORIZONTAL_ALIGNMENT_LEFT, 110.0, 30, spd_col)
 	draw_string(_font, Vector2(bx + 12.0, by + 23.0), "km/h  ·  %d m/s" % int(round(speed_ms)),
 		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 12, DIM)
-	# Schub-/Bremsbalken am linken Rand der Box
-	var t := clampf(throttle, -0.4, 1.0)
+	# Schub-/Bremsbalken am linken Rand der Box (über 100 % = Nachbrenner-Zone)
 	var bar := Rect2(bx - 8.0, by - 30.0, 5.0, 60.0)
 	draw_rect(bar, Color(0, 0, 0, 0.5))
-	var fill_h := absf(t) * 30.0
-	var fy: float = (by - fill_h) if t >= 0.0 else by
-	draw_rect(Rect2(bx - 8.0, fy, 5.0, fill_h), thr_col)
+	if throttle >= 0.0:
+		var norm := clampf(throttle, 0.0, 1.0)
+		var fill_h := norm * 30.0
+		draw_rect(Rect2(bx - 8.0, by - fill_h, 5.0, fill_h), thr_col)
+		if throttle > 1.0:
+			# Nachbrenner: pulsierender heller Kopf oben am vollen Balken
+			var pulse := 0.6 + 0.4 * sin(float(Time.get_ticks_msec()) * 0.02)
+			draw_rect(Rect2(bx - 8.0, by - 30.0, 5.0, 5.0), Color(1.0, 0.9, 0.4, pulse))
+	else:
+		var fill_n := absf(throttle) * 30.0
+		draw_rect(Rect2(bx - 8.0, by, 5.0, fill_n), thr_col)
 
 
 # --- Höhen-/Steig-Box rechts (mittig) --------------------------------------

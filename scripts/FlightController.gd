@@ -294,12 +294,12 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(aircraft):
 		return
 
-	# Schub (unter 0 % = bremsen)
+	# Schub (unter 0 % = bremsen, über 100 % = Nachbrenner bis 110 %)
 	if Input.is_key_pressed(KEY_SHIFT):
 		throttle += 0.6 * delta
 	if Input.is_key_pressed(KEY_CTRL):
 		throttle -= 0.6 * delta
-	throttle = clamp(throttle, -0.4, 1.0)
+	throttle = clamp(throttle, -0.4, 1.1)
 
 	# Pitch (S/↓ = Nase hoch, W/↑ = Nase runter)
 	var pitch := 0.0
