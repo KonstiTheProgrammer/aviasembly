@@ -748,9 +748,9 @@ func _build_rotate_handles() -> void:
 		# sichtbarer Ring (Torus liegt in XZ-Ebene = Achse Y; für X/Z entsprechend kippen)
 		var mi := MeshInstance3D.new()
 		var tm := TorusMesh.new()
-		tm.inner_radius = r - 0.07
-		tm.outer_radius = r + 0.07
-		tm.rings = 48
+		tm.inner_radius = r - 0.1
+		tm.outer_radius = r + 0.1
+		tm.rings = 56
 		mi.mesh = tm
 		mi.material_override = _gizmo_mat(GIZ_COLS[i])
 		if i == 0:
@@ -758,12 +758,15 @@ func _build_rotate_handles() -> void:
 		elif i == 2:
 			mi.rotation = Vector3(PI * 0.5, 0, 0)     # Achse Y -> Z
 		h.add_child(mi)
-		# Klick-Collider: 16 kleine Kugeln entlang des Rings (Torus hat keine Kollisionsform)
-		for k in 16:
-			var a := TAU * float(k) / 16.0
+		# Klick-Collider: ÜBERLAPPENDE Kugeln entlang des Rings (Torus hat keine Kollisionsform).
+		# Anzahl skaliert mit dem Umfang, Radius > halber Abstand -> lückenlos klickbar.
+		var segs := clampi(int(ceil(TAU * r / 0.34)), 24, 44)
+		var cr := (TAU * r / float(segs)) * 0.62 + 0.07
+		for k in segs:
+			var a := TAU * float(k) / float(segs)
 			var cs := CollisionShape3D.new()
 			var ss := SphereShape3D.new()
-			ss.radius = 0.16
+			ss.radius = cr
 			cs.shape = ss
 			var on_ring := Vector3(cos(a), 0.0, sin(a)) * r   # Ringpunkt in XZ (Achse Y)
 			if i == 0:
