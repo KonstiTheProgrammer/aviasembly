@@ -91,13 +91,6 @@ static func _build() -> void:
 		"size": Vector3(1.3, 1.1, 1.8),
 	})
 	_add({
-		"id": "f22_body", "name": "F-22 Stealth-Rumpf", "category": CAT_BODY,
-		"mass": 360.0, "color": Color(0.37, 0.39, 0.43), "shape": "box",
-		"size": Vector3(1.35, 0.95, 8.3), "col_size": Vector3(1.2, 0.85, 8.0),
-		"metal": 0.25, "rough": 0.55,
-		"desc": "Gefacetteter Stealth-Rumpf mit gechinten Kanten, Kanzel und Lufteinläufen (F-22). Ein langes Stück — Flügel/Leitwerk dran, fertig.",
-	})
-	_add({
 		"id": "strut", "name": "Tragflächenstrebe", "category": CAT_BODY,
 		"mass": 25.0, "color": Color(0.32, 0.26, 0.18), "shape": "box",
 		"size": Vector3(0.2, 1.5, 0.5), "metal": 0.3, "rough": 0.6,

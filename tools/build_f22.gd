@@ -1,6 +1,7 @@
-## Baut einen F-22-„Raptor"-artigen Stealth-Jet (gut gefaked aus Modulteilen): gepfeilte
-## Delta-Flügel, schräg gestellte Doppel-Seitenleitwerke, zwei eckige Schubdüsen hinten,
-## Stabilatoren, Bordkanone. Stealth-grau. -> user://aircraft_design.json
+## Baut einen schnittigen Kampfjet MODULAR aus Standardteilen (kein Monolith-Rumpf mehr):
+## echtes Cockpit-Modell als Wurzel + Nasenkonus + Rumpfsegment + rundes Düsentriebwerk
+## (mit Nachbrenner) + Deltaflügel + schräge Doppel-Seitenleitwerke + Stabilatoren + Fahrwerk.
+## Stealth-grau. -> user://aircraft_design.json
 ## Godot --headless --path . --script res://tools/build_f22.gd
 extends SceneTree
 
@@ -20,45 +21,37 @@ func _process(_d: float) -> bool:
 	root.add_child(bc)
 	bc.symmetry = true
 	bc.clear_design()
+	# Cockpit (Wurzel @ 0,0,0) stealth-grau lackieren — bleibt SICHTBAR (das ist das Cockpit-Modell).
 	for c in bc.design_root.get_children():
 		if c.is_in_group("part"):
 			bc._recolor(c, GREY)
 
 	var nx := bc._orient_to_normal(Vector3(1, 0, 0))   # Flügel/Stabilatoren: Spannweite +X
 	var vfin := Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))   # Flosse: Ruder hinten
-	var vcant := Basis(Vector3(0, 0, 1), deg_to_rad(-26.0)) * vfin             # nach außen gekippt (F-22)
+	var vcant := Basis(Vector3(0, 0, 1), deg_to_rad(-26.0)) * vfin             # nach außen gekippt (F-22-Look)
 
-	# --- Dedizierter gefacetteter Stealth-Rumpf (ein langes Teil, Nase..Heck mit Kanzel) ---
-	P("f22_body", Vector3(0, 0, 0))
+	# Vorne = -Z. Module flächenbündig aneinander (Cockpit ist 2.2 lang -> z ∈ [-1.1, 1.1]).
+	P("nose", Vector3(0, 0, -2.0))                                   # Nasenkonus (Rückseite an Cockpit-Front)
+	P("fuselage_long", Vector3(0, 0, 2.7))                           # Rumpfsegment hinter dem Cockpit (z 1.1..4.3)
+	P("jet_engine", Vector3(0, 0, 5.4), Basis(), Vector3.ONE, Color(0, 0, 0, 0))  # rundes Triebwerk hinten
 
-	# --- Gepfeilte Delta-Flügel (mittig-tief) ---
-	P("wing_delta", Vector3(0.55, -0.28, 0.7), nx, Vector3(1.35, 1.0, 1.3), GREY)
+	# Gepfeilte Delta-Flügel (mittig-tief, leicht hinten)
+	P("wing_delta", Vector3(0.55, -0.22, 2.2), nx, Vector3(1.4, 1.0, 1.4), GREY)
 
-	# --- Zwei dedizierte 2D-Schubvektordüsen hinten, eng beieinander ---
-	P("f22_engine", Vector3(0.38, -0.05, 4.4), Basis(), Vector3.ONE, Color(0, 0, 0, 0))
+	# Stabilatoren (alle-beweglich) ganz hinten
+	P("h_stab", Vector3(0.55, 0.0, 4.3), nx, Vector3(1.05, 1.0, 1.0), GREY)
 
-	# --- Stabilatoren (alle-beweglich) hinten ---
-	P("h_stab", Vector3(0.6, 0.0, 3.9), nx, Vector3(1.05, 1.0, 1.0), GREY)
+	# Schräg gestellte Doppel-Seitenleitwerke
+	P("v_stab", Vector3(0.5, 0.33, 3.7), vcant, Vector3.ONE, GREY)
 
-	# --- Schräg gestellte Doppel-Seitenleitwerke ---
-	P("v_stab", Vector3(0.5, 0.32, 3.4), vcant, Vector3.ONE, GREY)
-
-	# --- Bordkanone (M61, vorne rechts) ---
-	P("cannon", Vector3(0.55, 0.05, -2.6), Basis(), Vector3.ONE, DARK)
-
-	# --- Einziehfahrwerk ---
-	P("wheel_retract", Vector3(0, -0.7, -2.4))
-	P("wheel_retract", Vector3(1.0, -0.78, 0.8))
+	# Einziehfahrwerk: Bug (mittig) + Hauptfahrwerk (gespiegelt)
+	P("wheel_retract", Vector3(0, -0.62, -1.5))
+	P("wheel_retract", Vector3(0.55, -0.66, 2.0))
 
 	var floating: int = bc.floating_count()
 	var design := bc.get_design()
-	# Cockpit-Wurzel verstecken (winzig + tief im Rumpf) -> keine zweite Kanzel, f22_body liefert die.
-	for it in design:
-		if String(it.get("id", "")) == "cockpit":
-			it["scale"] = Vector3(0.16, 0.16, 0.16)
-			it["xform"] = Transform3D((it["xform"] as Transform3D).basis, Vector3(0, -0.2, -1.5))
 	_save(design)
-	print("F-22 gespeichert: ", design.size(), " Teile | schwebend: ", floating)
+	print("Kampfjet (modular) gespeichert: ", design.size(), " Teile | schwebend: ", floating)
 	if floating > 0:
 		for fp in bc.floating_parts():
 			print("  ⚠ schwebend: ", fp.get("id", "?"), " @ ", (fp["xform"] as Transform3D).origin)
