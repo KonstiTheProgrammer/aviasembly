@@ -216,11 +216,12 @@ func _process(delta: float) -> void:
 			continue
 		var plume: MeshInstance3D = d["plume"]
 		var core: MeshInstance3D = d["core"]
+		var rfac: float = d.get("rfac", 1.0)        # Flamme skaliert mit der Triebwerksgröße
 		# Normal kurz/schmal, im Nachbrenner schießt die Flamme lang & breit raus.
-		var pw := 0.7 + ab * 0.6
-		plume.scale = Vector3(pw, pw, 0.45 + thr_n * 0.75 + ab * 4.2)
-		var cw := 0.62 + ab * 0.55
-		core.scale = Vector3(cw, cw, 0.3 + thr_n * 0.45 + ab * 1.6)
+		var pw := (0.7 + ab * 0.6) * rfac
+		plume.scale = Vector3(pw, pw, (0.45 + thr_n * 0.75 + ab * 4.2) * rfac)
+		var cw := (0.62 + ab * 0.55) * rfac
+		core.scale = Vector3(cw, cw, (0.3 + thr_n * 0.45 + ab * 1.6) * rfac)
 		var pm: ShaderMaterial = d["plume_mat"]
 		var cm: ShaderMaterial = d["core_mat"]
 		pm.set_shader_parameter("intensity", 0.18 + thr_n * 0.32 + ab * 1.35)
@@ -230,7 +231,7 @@ func _process(delta: float) -> void:
 		cm.set_shader_parameter("diamonds", ab)
 		var light: OmniLight3D = d["light"]
 		light.light_energy = thr_n * 0.45 + ab * 5.5
-		light.omni_range = 2.5 + ab * 5.0
+		light.omni_range = (2.5 + ab * 5.0) * rfac
 		var sparks = d["sparks"]
 		if is_instance_valid(sparks):
 			sparks.emitting = ab > 0.05
@@ -341,7 +342,8 @@ func recompute_aero() -> void:
 			ya += pi["yaw_a"]
 		if float(pi["thrust"]) > 0.0:
 			var et: float = float(pi["thrust"]) * thrust_mult
-			eng.append({"pos": pi["pos"], "thrust": et, "jet": pi["jet"]})
+			eng.append({"pos": pi["pos"], "thrust": et, "jet": pi["jet"],
+				"scale": pi.get("scale", Vector3.ONE)})
 			thr += et
 			if pi["prop"] != null and is_instance_valid(pi["prop"]):
 				prp.append(pi["prop"])
@@ -884,11 +886,21 @@ func _rebuild_fx() -> void:
 	for e in engines:
 		if not e.get("jet", false):
 			continue
+		# Flamme an die Triebwerksgröße koppeln: radiale Skalierung = Düsendurchmesser,
+		# Längen-Skalierung schiebt die Düse (und damit den Flammenansatz) weiter nach hinten.
+		var sc: Vector3 = e.get("scale", Vector3.ONE)
+		var rfac: float = maxf((sc.x + sc.y) * 0.5, 0.05)
+		var lfac: float = maxf(sc.z, 0.05)
 		var d := _build_afterburner()
+		d["rfac"] = rfac
 		var root: Node3D = d["root"]
 		add_child(root)
-		root.position = e["pos"] + Vector3(0, 0, 1.12)   # an der Düse (+Z = Heck)
+		root.position = e["pos"] + Vector3(0, 0, 1.12 * lfac)   # an der (skalierten) Düse (+Z = Heck)
 		root.visible = false
+		var sparks: CPUParticles3D = d["sparks"]
+		sparks.scale = Vector3(rfac, rfac, rfac)
+		var light: OmniLight3D = d["light"]
+		light.position = Vector3(0, 0, 0.4 * rfac)
 		_afterburners.append(d)
 	for pi in parts:
 		if pi.get("broken", false) or not pi["is_wing"] or String(pi["control"]) != "":

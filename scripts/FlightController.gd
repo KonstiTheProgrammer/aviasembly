@@ -206,6 +206,7 @@ func build_from_design(d: Array) -> void:
 			"pitch_a": 0.0, "roll_a": 0.0, "yaw_a": 0.0,
 			"thrust": p.get("thrust", 0.0) * vol, "jet": p.get("jet", false),
 			"gear_cap": p.get("gear_capacity", 0.0) * vol, "retract": p.get("retract", false),
+			"scale": psc,
 		}
 		if pinfo["is_wing"]:
 			var a_full: float = p.get("area", 0.0) * psc.x * psc.z
