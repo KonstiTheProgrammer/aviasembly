@@ -77,6 +77,7 @@ var sel_scale_label: Label
 var sel_delete_btn: Button
 var sel_mode_btns: Array = []      # [Bewegen, Drehen, Skalieren] zum Hervorheben des aktiven Modus
 var sel_taper_row: VBoxContainer   # Verjüngungs-Regler (nur für taper-fähige Rumpfteile)
+var sel_taper_front_row: HBoxContainer  # vorderes Ende (nur biends-Teile, z. B. F-22-Rumpf)
 var sel_taper_label: Label
 
 # Ziele zum Abschießen (Luftballons/Luftschiffe) + Geschosse
@@ -1009,6 +1010,24 @@ func _on_move_tool() -> void:
 
 
 # --- Kontext-Panel fürs ausgewählte Teil ----------------------------------
+func _make_taper_row(label_text: String, fn: Callable) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	var lbl := _lbl(label_text, 12)
+	lbl.custom_minimum_size = Vector2(78, 0)
+	row.add_child(lbl)
+	var minus := Button.new()
+	minus.text = " schmaler "
+	minus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	minus.pressed.connect(fn.bind(0.85))
+	row.add_child(minus)
+	var plus := Button.new()
+	plus.text = " breiter "
+	plus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	plus.pressed.connect(fn.bind(1.0 / 0.85))
+	row.add_child(plus)
+	return row
+
+
 func _build_selection_panel() -> void:
 	sel_panel = _panel(Color(0, 0, 0, 0.55))
 	_rect(sel_panel, 1, 0, 1, 0, -290, 200, -10, 624)
@@ -1073,28 +1092,15 @@ func _build_selection_panel() -> void:
 	rst.text = "⟲ Größe zurücksetzen"
 	rst.pressed.connect(build_ctrl.reset_selected_scale)
 	v.add_child(rst)
-	# --- Verjüngung (nur Rumpfteile): ein Ende breiter/schmaler (Taste V / Shift+V) ---
+	# --- Verjüngung: Rumpf-Enden breiter/schmaler (vorne/hinten einzeln) ---
 	sel_taper_row = VBoxContainer.new()
 	sel_taper_row.add_theme_constant_override("separation", 2)
 	v.add_child(sel_taper_row)
-	sel_taper_label = _lbl("Verjüngung hinten: 100 %", 12, Color(0.75, 0.9, 1.0))
+	sel_taper_label = _lbl("Verjüngung", 12, Color(0.75, 0.9, 1.0))
 	sel_taper_row.add_child(sel_taper_label)
-	var trow := HBoxContainer.new()
-	sel_taper_row.add_child(trow)
-	var tlbl := _lbl("⤙ Ende", 12)
-	tlbl.custom_minimum_size = Vector2(78, 0)
-	trow.add_child(tlbl)
-	var tminus := Button.new()
-	tminus.text = " schmaler "
-	tminus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tminus.pressed.connect(build_ctrl.nudge_taper.bind(0.85))
-	trow.add_child(tminus)
-	var tplus := Button.new()
-	tplus.text = " breiter "
-	tplus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tplus.pressed.connect(build_ctrl.nudge_taper.bind(1.0 / 0.85))
-	trow.add_child(tplus)
-	sel_taper_row.add_child(_lbl("Tipp: zum anderen Ende verjüngen → Teil mit R umdrehen.", 10, Color(0.7, 0.74, 0.82)))
+	sel_taper_front_row = _make_taper_row("Vorne", build_ctrl.nudge_taper_front)
+	sel_taper_row.add_child(sel_taper_front_row)
+	sel_taper_row.add_child(_make_taper_row("Hinten", build_ctrl.nudge_taper))
 	var dup := Button.new()
 	dup.text = "⧉  Duplizieren  (Strg+D)"
 	dup.add_theme_color_override("font_color", Color(0.6, 0.9, 1.0))
@@ -1125,12 +1131,15 @@ func _on_selection_changed(info: Dictionary) -> void:
 	var is_root: bool = info.get("is_root", false)
 	sel_delete_btn.disabled = is_root
 	sel_delete_btn.tooltip_text = "Das Cockpit ist die Basis und kann nicht gelöscht werden." if is_root else ""
-	# Verjüngungs-Regler nur für taper-fähige Rumpfteile zeigen
+	# Verjüngungs-Regler: »Hinten« für taperable, zusätzlich »Vorne« für biends (F-22-Rumpf)
 	var taperable: bool = info.get("taperable", false)
+	var biends: bool = info.get("biends", false)
 	if sel_taper_row:
-		sel_taper_row.visible = taperable
-		if taperable:
-			sel_taper_label.text = "Verjüngung hinten: %d %%" % int(round(float(info.get("taper", 1.0)) * 100.0))
+		sel_taper_row.visible = taperable or biends
+		sel_taper_front_row.visible = biends
+		var tb := int(round(float(info.get("taper", 1.0)) * 100.0))
+		var tf := int(round(float(info.get("taper_front", 1.0)) * 100.0))
+		sel_taper_label.text = ("Verjüngung — vorne %d %% · hinten %d %%" % [tf, tb]) if biends else ("Verjüngung hinten: %d %%" % tb)
 	# aktiven Werkzeug-Modus hervorheben
 	var gm: int = info.get("gizmo", 0)
 	for i in sel_mode_btns.size():
@@ -1572,7 +1581,7 @@ func _save_design() -> void:
 		var s: Vector3 = it.get("scale", Vector3.ONE)
 		data.append({"id": it["id"], "xform": _xform_to_array(it["xform"]),
 			"color": [c.r, c.g, c.b, c.a], "scale": [s.x, s.y, s.z],
-			"taper": it.get("taper", 1.0)})
+			"taper": it.get("taper", 1.0), "taper_front": it.get("taper_front", 1.0)})
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -1602,7 +1611,8 @@ func _load_design() -> bool:
 				var sa: Array = it["scale"]
 				scl = Vector3(sa[0], sa[1], sa[2])
 			var tp: float = float(it.get("taper", 1.0))
-			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp})
+			var tpf: float = float(it.get("taper_front", 1.0))
+			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf})
 	if arr.is_empty():
 		return false
 	build_ctrl.load_design(arr)

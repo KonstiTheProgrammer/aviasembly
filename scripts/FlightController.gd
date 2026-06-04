@@ -151,7 +151,7 @@ func build_from_design(d: Array) -> void:
 		var psc: Vector3 = item.get("scale", Vector3.ONE)
 		var vol: float = psc.x * psc.y * psc.z      # Volumen-Faktor (Masse/Traglast)
 
-		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)), item.get("taper", 1.0))
+		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)), item.get("taper", 1.0), item.get("taper_front", 1.0))
 		# Skalierung in die Basis einrechnen (NICHT vis.scale setzen): bei gespiegelten
 		# Teilen ist die Basis improper (det<0); vis.scale würde die Spiegelung zerstören
 		# -> Flügel klappt auf die andere Seite -> "halbes Flugzeug".

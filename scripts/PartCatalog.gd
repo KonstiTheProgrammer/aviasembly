@@ -102,6 +102,20 @@ static func _build() -> void:
 		"desc": "Gefacetteter Stealth-Rumpf mit gechinten Kanten, Kanzel und Lufteinläufen (F-22). Ein langes Stück — Flügel/Leitwerk dran, fertig.",
 	})
 	_add({
+		"id": "f22_head", "name": "F-22 Kopf (Cockpit)", "category": CAT_BODY,
+		"mass": 240.0, "color": Color(0.37, 0.39, 0.43), "shape": "box",
+		"size": Vector3(1.5, 1.0, 4.0), "col_size": Vector3(1.4, 0.95, 3.8),
+		"metal": 0.25, "rough": 0.5,
+		"desc": "F-22-Bugsektion: Spitznase + Kanzel, endet hinten am gechinten Querschnitt. Daran den »F-22 Rumpf (verjüngbar)« andocken.",
+	})
+	_add({
+		"id": "f22_fuselage", "name": "F-22 Rumpf (verjüngbar)", "category": CAT_BODY,
+		"mass": 200.0, "color": Color(0.37, 0.39, 0.43), "shape": "prism",
+		"size": Vector3(1.5, 0.95, 2.6), "col_size": Vector3(1.42, 0.9, 2.6),
+		"metal": 0.25, "rough": 0.55, "biends": true, "taper": 0.78,
+		"desc": "Gechinter Stealth-Rumpf — passt exakt an den Querschnitt des F-22-Kopfes. BEIDE Enden einzeln skalierbar (Panel »Vorne«/»Hinten«) → vorne breit, hinten schmal.",
+	})
+	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
 		"mass": 70.0, "color": C_BODY, "shape": "nose",
 		"size": Vector3(1.3, 1.1, 1.8),
@@ -340,6 +354,7 @@ static func part_cd(p: Dictionary) -> float:
 		"wheel": return 0.85       # stumpfer Reifen (Bluff-Körper)
 		"cannon": return 0.92      # flache, kastige Geschütz-Stirn
 		"box": return 1.05         # Würfel/Platte — der widerstandsstärkste Bluff-Körper
+		"prism": return 0.20       # gechinter Stealth-Rumpf — schlank/windschlüpfrig
 	return 0.9
 
 
@@ -354,6 +369,7 @@ static func _frontal_fill(shape: String) -> float:
 		"cockpit": return 0.85
 		"cyl", "jet", "nose", "missile", "bomb": return 0.80   # runder Querschnitt (~π/4)
 		"box", "wing": return 1.0  # füllt die Box / Stirnfläche ist real
+		"prism": return 0.78       # gechinter Querschnitt füllt ~78 % der Box
 	return 0.85
 
 
@@ -464,7 +480,7 @@ static func has_model(id: String) -> bool:
 	return id != "" and ResourceLoader.exists(MODEL_DIR + id + ".glb")
 
 
-static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0) -> Node3D:
+static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0, taper_front := 1.0) -> Node3D:
 	var root := Node3D.new()
 	# Hochwertiges Blender-Modell (glTF), falls vorhanden — sonst prozedural.
 	var pid: String = p.get("id", "")
@@ -490,6 +506,13 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 				Vector2(0.46, 0.5 * tb), Vector2(0.5, 0.49 * tb)
 			], 18)
 			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
+				Vector3.ZERO, size))
+
+		"prism":
+			# Gechinter Stealth-Rumpf (F-22-Querschnitt). Beide Enden einzeln skaliert:
+			# taper_front = vorderer (-Z) Querschnitt, taper = hinterer (+Z) -> Verjüngung.
+			var pm := _prism_mesh(_f22_cross_section(), maxf(taper_front, 0.02), maxf(taper, 0.02))
+			root.add_child(_mi(pm, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
 
 		"wing":
@@ -855,6 +878,55 @@ static func _revolve(profile: Array, segs := 24) -> ArrayMesh:
 			st.add_index(cn); st.add_index(rb + s); st.add_index(rb + s + 1)
 	st.generate_normals()
 	return st.commit()
+
+
+# Gechinter F-22-Rumpf-Querschnitt (normiert auf ±0.5, Flugrichtung -Z). Wird vom Kopf-Modell
+# (Blender) UND vom prozeduralen "prism"-Rumpf geteilt -> beide docken bündig aneinander.
+static func _f22_cross_section() -> PackedVector2Array:
+	return PackedVector2Array([
+		Vector2(-0.30, 0.50), Vector2(0.30, 0.50),     # flaches Dach (Spine)
+		Vector2(0.50, 0.06),                            # rechte Chine (breiteste Stelle)
+		Vector2(0.32, -0.50), Vector2(-0.32, -0.50),    # flacher Unterboden
+		Vector2(-0.50, 0.06),                           # linke Chine
+	])
+
+
+# Querschnitt entlang Z extrudieren (unit ±0.5). Vorderes (-Z) Ende × tf, hinteres (+Z) × tb
+# -> beide Enden einzeln skalierbar (Frustum). FLACHE Facetten = gechintes Stealth-Aussehen.
+static func _prism_mesh(cs: PackedVector2Array, tf: float, tb: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := cs.size()
+	var zf := -0.5
+	var zb := 0.5
+	for i in n:                                         # Seitenfacetten (Trapeze)
+		var j := (i + 1) % n
+		var f0 := Vector3(cs[i].x * tf, cs[i].y * tf, zf)
+		var f1 := Vector3(cs[j].x * tf, cs[j].y * tf, zf)
+		var b0 := Vector3(cs[i].x * tb, cs[i].y * tb, zb)
+		var b1 := Vector3(cs[j].x * tb, cs[j].y * tb, zb)
+		var mid := (f0 + f1 + b0 + b1) * 0.25
+		var outward := Vector3(mid.x, mid.y, 0.0).normalized()
+		_face(st, f0, f1, b1, outward)
+		_face(st, f0, b1, b0, outward)
+	var cf := Vector3(0, 0, zf)
+	var cb := Vector3(0, 0, zb)
+	for i in n:                                         # Deckel vorne (-Z) / hinten (+Z)
+		var j := (i + 1) % n
+		_face(st, cf, Vector3(cs[i].x * tf, cs[i].y * tf, zf), Vector3(cs[j].x * tf, cs[j].y * tf, zf), Vector3(0, 0, -1))
+		_face(st, cb, Vector3(cs[i].x * tb, cs[i].y * tb, zb), Vector3(cs[j].x * tb, cs[j].y * tb, zb), Vector3(0, 0, 1))
+	return st.commit()
+
+
+# Flaches Dreieck mit korrekter Wicklung: Normale zeigt in want_dir (sonst b/c tauschen).
+static func _face(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, want_dir: Vector3) -> void:
+	var nrm := (b - a).cross(c - a).normalized()
+	if nrm.dot(want_dir) < 0.0:
+		var tmp := b; b = c; c = tmp
+		nrm = -nrm
+	st.set_normal(nrm); st.add_vertex(a)
+	st.set_normal(nrm); st.add_vertex(b)
+	st.set_normal(nrm); st.add_vertex(c)
 
 
 # Ogiven-/Paraboloid-Nasenprofil (Spitze bei -Z). reverse -> Spitze bei +Z.
