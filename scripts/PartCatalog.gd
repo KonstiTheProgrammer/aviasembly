@@ -73,12 +73,26 @@ static func _build() -> void:
 	_add({
 		"id": "fuselage", "name": "Rumpfsegment", "category": CAT_BODY,
 		"mass": 120.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.3, 1.1, 2.0),
+		"size": Vector3(1.3, 1.1, 2.0), "taperable": true,
+		"desc": "Rumpf-Tubus. Ein Ende lässt sich verjüngen (Knopf »Verjüngung« / Taste V) — so baust du fließend zulaufende Rümpfe.",
 	})
 	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
 		"mass": 175.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.3, 1.1, 3.2),
+		"size": Vector3(1.3, 1.1, 3.2), "taperable": true,
+		"desc": "Langer Rumpf-Tubus, ein Ende verjüngbar.",
+	})
+	_add({
+		"id": "fuselage_wide", "name": "Breiter Rumpf", "category": CAT_BODY,
+		"mass": 165.0, "color": C_BODY, "shape": "box",
+		"size": Vector3(1.85, 1.0, 2.6), "taperable": true,
+		"desc": "Breite, flache Rumpfsektion (Blended-Body). Ein Ende verjüngbar — ideal für Stealth-Jets.",
+	})
+	_add({
+		"id": "fuselage_taper", "name": "Verjüngungs-Rumpf", "category": CAT_BODY,
+		"mass": 140.0, "color": C_BODY, "shape": "box",
+		"size": Vector3(1.45, 1.05, 2.8), "taperable": true, "taper": 0.55,
+		"desc": "Läuft von breit auf schmal zu (Übergang Rumpf↔Nase/Heck). Verjüngung einstellbar, mit R umdrehbar.",
 	})
 	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
@@ -443,7 +457,7 @@ static func has_model(id: String) -> bool:
 	return id != "" and ResourceLoader.exists(MODEL_DIR + id + ".glb")
 
 
-static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> Node3D:
+static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0) -> Node3D:
 	var root := Node3D.new()
 	# Hochwertiges Blender-Modell (glTF), falls vorhanden — sonst prozedural.
 	var pid: String = p.get("id", "")
@@ -461,9 +475,12 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0)) -> No
 	match shape:
 		"box":
 			# Rumpfsegment als glatter, leicht abgerundeter Tubus (elliptischer
-			# Querschnitt). Enden flach -> Segmente docken nahtlos aneinander.
+			# Querschnitt). taper skaliert den Querschnitt am +Z-Ende -> Verjüngung
+			# (ein Ende breiter/schmaler), damit man fließend zulaufende Rümpfe baut.
+			var tb: float = maxf(taper, 0.02)
 			var tube := _revolve([
-				Vector2(-0.5, 0.49), Vector2(-0.46, 0.5), Vector2(0.46, 0.5), Vector2(0.5, 0.49)
+				Vector2(-0.5, 0.49), Vector2(-0.46, 0.5),
+				Vector2(0.46, 0.5 * tb), Vector2(0.5, 0.49 * tb)
 			], 18)
 			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))

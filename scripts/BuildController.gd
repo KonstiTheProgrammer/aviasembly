@@ -313,6 +313,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_S:
 				if selected_part != null:
 					set_gizmo_mode(GIZ_SCALE)
+				# V: ein Rumpf-Ende verjüngen (schmaler), Shift+V = breiter.
+			KEY_V:
+				if selected_part != null:
+					nudge_taper((1.0 / 0.85) if event.shift_pressed else 0.85)
 			# Pfeiltasten: ausgewähltes Teil fein verschieben (Weltachsen, 0.25er-Schritte)
 			KEY_LEFT:
 				nudge_selected(Vector3(-0.25, 0, 0))
@@ -448,6 +452,8 @@ func _emit_selection() -> void:
 		"scale": selected_part.get_meta("pscale", Vector3.ONE),
 		"is_root": selected_part.get_meta("is_root", false),
 		"gizmo": gizmo_mode,
+		"taperable": p.get("taperable", false),
+		"taper": selected_part.get_meta("taper", 1.0),
 	})
 
 
@@ -1069,7 +1075,38 @@ func _recolor(part: Node, c: Color) -> void:
 	var vis := part.get_node_or_null("Visual")
 	if vis:
 		vis.free()
-	var nv := PartCatalog.build_visual(PartCatalog.get_part(part.get_meta("part_id")), c)
+	var nv := PartCatalog.build_visual(PartCatalog.get_part(part.get_meta("part_id")), c,
+		part.get_meta("taper", 1.0))
+	nv.name = "Visual"
+	nv.scale = part.get_meta("pscale", Vector3.ONE)
+	part.add_child(nv)
+
+
+# --- Verjüngung (Taper): ein Rumpf-Ende breiter/schmaler ziehen ------------
+func nudge_taper(factor: float) -> void:
+	if selected_part == null:
+		return
+	var p := PartCatalog.get_part(selected_part.get_meta("part_id"))
+	if not p.get("taperable", false):
+		return
+	var tp: float = clampf(selected_part.get_meta("taper", 1.0) * factor, 0.25, 2.5)
+	_set_part_taper(selected_part, tp)
+	if selected_part.has_meta("mirror"):
+		var m = selected_part.get_meta("mirror")
+		if is_instance_valid(m):
+			_set_part_taper(m, tp)
+	_emit_selection()
+	_push_history()
+	_notify_changed()
+
+
+func _set_part_taper(part: Node, tp: float) -> void:
+	part.set_meta("taper", tp)
+	var vis := part.get_node_or_null("Visual")
+	if vis:
+		vis.free()
+	var nv := PartCatalog.build_visual(PartCatalog.get_part(part.get_meta("part_id")),
+		part.get_meta("color", Color(0, 0, 0, 0)), tp)
 	nv.name = "Visual"
 	nv.scale = part.get_meta("pscale", Vector3.ONE)
 	part.add_child(nv)
@@ -1320,13 +1357,13 @@ func _clear_wind_tunnel() -> void:
 
 
 # Platziert ein Teil (mit Symmetrie, falls aktiv und außermittig)
-func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0, 0, 0, 0)) -> Node3D:
+func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0, 0, 0, 0), taper := -1.0) -> Node3D:
 	if id == "":
 		return null
-	var part := _make_part(id, t, col, pscale)
+	var part := _make_part(id, t, col, pscale, taper)
 	if symmetry and absf(t.origin.x) > 0.15:
 		var mt := _mirror_xform(t)
-		var mpart := _make_part(id, mt, col, pscale)
+		var mpart := _make_part(id, mt, col, pscale, taper)
 		part.set_meta("mirror", mpart)
 		mpart.set_meta("mirror", part)
 	return part
@@ -1348,15 +1385,18 @@ func _delete_hovered() -> void:
 
 
 func _make_part(id: String, xform: Transform3D, col := Color(0, 0, 0, 0),
-		pscale := Vector3.ONE) -> Node3D:
+		pscale := Vector3.ONE, taper := -1.0) -> Node3D:
 	var p := PartCatalog.get_part(id)
 	var part := Node3D.new()
 	part.add_to_group("part")
 	part.set_meta("part_id", id)
 	part.set_meta("is_root", p.get("root", false))
 	part.set_meta("color", col)
+	# taper < 0 -> Standardwert des Teils nehmen (1.0, bzw. der Teil-Default).
+	var tp: float = taper if taper >= 0.0 else float(p.get("taper", 1.0))
+	part.set_meta("taper", tp)
 	part.transform = xform
-	var vis := PartCatalog.build_visual(p, col)
+	var vis := PartCatalog.build_visual(p, col, tp)
 	vis.name = "Visual"
 	part.add_child(vis)
 	# Pick-Körper (nur für Editor-Raycasts)
@@ -1524,6 +1564,7 @@ func get_design() -> Array:
 				"xform": child.transform,
 				"color": child.get_meta("color", Color(0, 0, 0, 0)),
 				"scale": child.get_meta("pscale", Vector3.ONE),
+				"taper": child.get_meta("taper", 1.0),
 			})
 	return out
 
@@ -1534,7 +1575,8 @@ func load_design(arr: Array) -> void:
 		var id: String = item.get("id", "")
 		if PartCatalog.has(id):
 			_make_part(id, item.get("xform", Transform3D()),
-				item.get("color", Color(0, 0, 0, 0)), item.get("scale", Vector3.ONE))
+				item.get("color", Color(0, 0, 0, 0)), item.get("scale", Vector3.ONE),
+				item.get("taper", -1.0))
 	_ensure_root()
 	_relink_mirrors()
 	if not _suppress_history:
