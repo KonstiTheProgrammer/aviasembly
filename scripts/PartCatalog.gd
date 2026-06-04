@@ -95,6 +95,13 @@ static func _build() -> void:
 		"desc": "Läuft von breit auf schmal zu (Übergang Rumpf↔Nase/Heck). Verjüngung einstellbar, mit R umdrehbar.",
 	})
 	_add({
+		"id": "f22_body", "name": "F-22 Stealth-Rumpf", "category": CAT_BODY,
+		"mass": 360.0, "color": Color(0.37, 0.39, 0.43), "shape": "box",
+		"size": Vector3(1.35, 0.95, 8.3), "col_size": Vector3(1.2, 0.85, 8.0),
+		"metal": 0.25, "rough": 0.55,
+		"desc": "Gefacetteter Stealth-Rumpf mit gechinten Kanten, Kanzel und Lufteinläufen (F-22). Ein langes Stück — Flügel/Leitwerk dran, fertig.",
+	})
+	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
 		"mass": 70.0, "color": C_BODY, "shape": "nose",
 		"size": Vector3(1.3, 1.1, 1.8),
