@@ -211,8 +211,8 @@ func build_from_design(d: Array) -> void:
 			var a_full: float = p.get("area", 0.0) * psc.x * psc.z
 			var span: float = p.get("span", sqrt(maxf(a_full, 0.01))) * psc.x
 			# im Rumpf vergrabene Spannweite zählt nicht (weniger Auftrieb/Steuerkraft)
-			var exp: float = PartCatalog.wing_exposed_fraction(xf, span, PartCatalog.col_offset(p).z * psc.z, body_boxes)
-			var a: float = a_full * exp
+			var exposed: float = PartCatalog.wing_exposed_fraction(xf, span, PartCatalog.col_offset(p).z * psc.z, body_boxes)
+			var a: float = a_full * exposed
 			var up_align: float = clampf(absf(xf.basis.y.dot(Vector3.UP)), 0.0, 1.0)
 			pinfo["span"] = span
 			pinfo["ar"] = clampf(span * span / maxf(a_full, 0.01), 0.6, 10.0)

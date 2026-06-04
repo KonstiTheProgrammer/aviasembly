@@ -1624,8 +1624,8 @@ func compute_stats() -> Dictionary:
 			var a_full: float = p.get("area", 0.0) * psc.x * psc.z
 			var span_w: float = p.get("span", sqrt(maxf(a_full, 0.01))) * psc.x
 			# im Rumpf vergrabene Fläche zählt nicht (effektive Auftriebsfläche)
-			var exp: float = PartCatalog.wing_exposed_fraction(child.transform, span_w, PartCatalog.col_offset(p).z * psc.z, body_boxes)
-			var a: float = a_full * exp
+			var exposed: float = PartCatalog.wing_exposed_fraction(child.transform, span_w, PartCatalog.col_offset(p).z * psc.z, body_boxes)
+			var a: float = a_full * exposed
 			area += a
 			wing_cap += a_full * PartCatalog.WING_STRESS
 			col += a * child.position
