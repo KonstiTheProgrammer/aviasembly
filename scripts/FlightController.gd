@@ -603,10 +603,15 @@ func _process(delta: float) -> void:
 	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
 	var t := aircraft.global_transform
 	if free_look:
-		# C halten: Kamera schwenkt frei um den Flieger (Maus), Flug läuft unverändert weiter.
-		var fdesired := t.origin + _free_cam_offset(t)
-		camera.global_position = camera.global_position.lerp(fdesired, clampf(delta * 7.0, 0.0, 1.0))
-		camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
+		# C halten: Kamera kreist frei um die MITTE des Flugzeugs (Schwerpunkt) und schaut sie an
+		# -> von jedem Winkel sieht man den ganzen Flieger (nicht nur die Nase). Flug läuft normal.
+		var center: Vector3 = t * aircraft.center_of_mass
+		var off := _free_cam_offset(t)
+		var up_ref := Vector3.UP
+		if absf(off.normalized().y) > 0.95:        # fast senkrechte Sicht -> horizontaler Up-Bezug
+			up_ref = t.basis.z
+		camera.global_position = camera.global_position.lerp(center + off, clampf(delta * 7.0, 0.0, 1.0))
+		camera.look_at(center, up_ref)
 		_apply_cam_shake()
 		return
 	# Free-Look-Winkel sanft zurückstellen, wenn nicht (mehr) aktiv
