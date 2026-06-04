@@ -794,9 +794,11 @@ func _update_handles() -> void:
 	var half_v := bs * psc * 0.5
 	var halves := [half_v.x, half_v.y, half_v.z]
 	var radius := maxf(maxf(half_v.x, half_v.y), half_v.z) + RING_MARGIN
-	# Welt-Halter ans Hüllenzentrum (Identitäts-Basis -> Bewegen/Drehen global zur Welt)
+	# Halter ans Hüllenzentrum. Bewegen: Identitäts-Basis (global zur Welt). Drehen: Teil-Basis
+	# -> die Ringe drehen mit dem Objekt mit (lokal ausgerichtet).
 	if is_instance_valid(_gizmo_root):
-		_gizmo_root.global_transform = Transform3D(Basis(), selected_part.global_transform * off)
+		var giz_basis: Basis = selected_part.global_transform.basis if gizmo_mode == GIZ_ROTATE else Basis()
+		_gizmo_root.global_transform = Transform3D(giz_basis, selected_part.global_transform * off)
 	for h in _handles:
 		var i: int = h.get_meta("axis")
 		var kind: String = h.get_meta("kind", "scale")
@@ -864,8 +866,8 @@ func _begin_handle_drag(handle: Node3D) -> void:
 	_edit_xf0 = selected_part.transform
 	_edit_sc0 = selected_part.get_meta("pscale", Vector3.ONE)
 	if _drag_kind == "rotate":
-		# Ring ziehen -> um die WELT-Achse drehen (Gizmo ist welt-ausgerichtet)
-		_rot_axis_w = _axis_vec(_drag_axis_i)
+		# Ring ziehen -> um die LOKALE Teil-Achse drehen (Ringe sind am Teil ausgerichtet, drehen mit).
+		_rot_axis_w = (selected_part.global_transform.basis * _axis_vec(_drag_axis_i)).normalized()
 		_rot_center = _gizmo_root.global_position
 		_rot_b0 = selected_part.transform.basis
 		_rot_u = _rot_axis_w.cross(Vector3.UP)
