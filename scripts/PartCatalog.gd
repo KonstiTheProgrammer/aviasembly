@@ -512,8 +512,9 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			# Gechinter Stealth-Rumpf (F-22-Querschnitt). Beide Enden einzeln skaliert:
 			# taper_front = vorderer (-Z) Querschnitt, taper = hinterer (+Z) -> Verjüngung.
 			var pm := _prism_mesh(_f22_cross_section(), maxf(taper_front, 0.02), maxf(taper, 0.02))
-			root.add_child(_mi(pm, make_material(col, metal, rough), Vector3.ZERO,
-				Vector3.ZERO, size))
+			var pmat := make_material(col, metal, rough)
+			pmat.cull_mode = BaseMaterial3D.CULL_DISABLED   # beidseitig -> kein Durchsehen
+			root.add_child(_mi(pm, pmat, Vector3.ZERO, Vector3.ZERO, size))
 
 		"wing":
 			var mi := MeshInstance3D.new()
