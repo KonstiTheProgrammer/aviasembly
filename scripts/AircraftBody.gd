@@ -48,6 +48,7 @@ const ARCADE_RESP := 6.0      # Arcade: wie schnell/smooth die Orientierung aufs
 const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase folgt (fliegt wohin sie zeigt, kein Schlittern)
 const BARREL_RATE := 5.0      # Fass-Roll: Ziel-Rollrate (rad/s) ~ 1 Rolle / 1,25 s (physikalisch geregelt)
 const BARREL_GAIN := 0.9      # Fass-Roll: P-Anteil Rollraten-Regler (sanftes Anrollen)
+const AB_BOOST := 0.35        # Nachbrenner: max. Mehrschub für Jets bei vollem Gas (+35 %)
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
@@ -59,7 +60,10 @@ var yaw_area := 0.0
 var engines: Array = []       # [{pos, thrust, jet}]
 var props: Array = []
 var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
-var _afterburners: Array = [] # CPUParticles3D an Jet-Düsen (Nachbrennerflamme)
+var _afterburners: Array = [] # [{root, plume, core, light, sparks, plume_mat, core_mat}] an Jet-Düsen
+var _ab_time := 0.0           # Flacker-/Diamanten-Animationszeit für den Nachbrenner-Shader
+var _flame_shader_cache: Shader = null
+var _flame_mesh_cache := {}   # base_r -> ArrayMesh (Flammen-Kegel, Länge 1)
 var _vapor: Array = []        # CPUParticles3D an Flügelspitzen (Wirbelschleppen bei hoher G)
 var _damage_smoke: CPUParticles3D = null  # Rauchfahne, wenn das Flugzeug Teile verloren hat
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
@@ -194,13 +198,38 @@ func _process(delta: float) -> void:
 				defl = in_yaw * CTRL_DEG                           # Seitenruder
 		node.rotation.x = float(s["dn"]) * deg_to_rad(defl)
 
-	# Nachbrenner (Jets ab ~55% Schub) + Wirbelschleppen (hohe G-Last / Highspeed)
-	var ab_on := throttle > 0.55
-	for ab in _afterburners:
-		if is_instance_valid(ab):
-			ab.emitting = ab_on
-			if ab_on:
-				ab.initial_velocity_max = lerpf(4.0, 10.0, clampf(throttle, 0.0, 1.0))
+	# Nachbrenner: blau-weißer Kern -> orange Fahne mit Mach-Diamanten, flammt mit dem Gas auf.
+	_ab_time += delta
+	var thr_n := clampf(throttle, 0.0, 1.0)
+	var ab := smoothstep(0.55, 1.0, throttle)     # Nachbrenner-Stufe (0..1)
+	var lit := throttle > 0.04
+	for d in _afterburners:
+		var root = d["root"]
+		if not is_instance_valid(root):
+			continue
+		root.visible = lit
+		if not lit:
+			continue
+		var plume: MeshInstance3D = d["plume"]
+		var core: MeshInstance3D = d["core"]
+		# Länge wächst stark mit dem Nachbrenner, Breite leicht.
+		var pw := 0.85 + ab * 0.5
+		plume.scale = Vector3(pw, pw, 0.7 + thr_n * 1.5 + ab * 3.2)
+		var cw := 0.8 + ab * 0.45
+		core.scale = Vector3(cw, cw, 0.45 + thr_n * 0.7 + ab * 1.2)
+		var pm: ShaderMaterial = d["plume_mat"]
+		var cm: ShaderMaterial = d["core_mat"]
+		pm.set_shader_parameter("intensity", 0.28 + thr_n * 0.5 + ab * 1.1)
+		pm.set_shader_parameter("t_time", _ab_time)
+		cm.set_shader_parameter("intensity", 0.34 + thr_n * 0.6 + ab * 1.3)
+		cm.set_shader_parameter("t_time", _ab_time)
+		cm.set_shader_parameter("diamonds", ab)
+		var light: OmniLight3D = d["light"]
+		light.light_energy = thr_n * 0.8 + ab * 4.5
+		light.omni_range = 3.0 + ab * 4.5
+		var sparks = d["sparks"]
+		if is_instance_valid(sparks):
+			sparks.emitting = ab > 0.12
 	var vap_on := gforce > 4.5 or airspeed > 130.0
 	for v in _vapor:
 		if is_instance_valid(v):
@@ -700,12 +729,133 @@ func _fx_make(amount: int, life: float, vmin: float, vmax: float, color: Color, 
 	return p
 
 
+# Additiver Flammen-Shader: Farbverlauf weiß→blau→orange→rot entlang der Länge (UV.y),
+# Mach-Diamanten im vorderen Bereich, Flackern. Wird von Kern- und Fahnenkegel geteilt.
+func _flame_shader() -> Shader:
+	if _flame_shader_cache != null:
+		return _flame_shader_cache
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode blend_add, unshaded, cull_disabled, depth_draw_never;
+uniform float intensity = 0.0;
+uniform float t_time = 0.0;
+uniform float diamonds = 0.0;
+uniform vec3 col_near : source_color = vec3(0.55, 0.78, 1.0);
+uniform vec3 col_mid : source_color = vec3(1.0, 0.6, 0.2);
+uniform vec3 col_far : source_color = vec3(0.9, 0.14, 0.03);
+void fragment() {
+	float t = UV.y;                       // 0 = Düse, 1 = Spitze
+	vec3 col;
+	if (t < 0.16) col = mix(vec3(1.0, 0.96, 0.9), col_near, t / 0.16);
+	else if (t < 0.5) col = mix(col_near, col_mid, (t - 0.16) / 0.34);
+	else col = mix(col_mid, col_far, (t - 0.5) / 0.5);
+	float dia = 0.0;
+	if (diamonds > 0.001) {               // Mach-Diamanten: helle Bänder vorne
+		float band = sin(t * 40.0 - t_time * 7.0);
+		dia = smoothstep(0.55, 1.0, band) * diamonds * (1.0 - smoothstep(0.0, 0.45, t)) * 0.8;
+	}
+	float flick = 0.8 + 0.2 * sin(t_time * 45.0 + t * 24.0);
+	float a = pow(1.0 - t, 1.25);
+	ALBEDO = (col * flick + vec3(dia)) * intensity;
+	ALPHA = clamp(a, 0.0, 1.0);
+}
+"""
+	_flame_shader_cache = sh
+	return sh
+
+
+# Tropfenförmiger Flammen-Kegel (Länge 1 entlang +Z), UV.y = Längsparameter 0..1.
+func _flame_mesh(base_r: float) -> ArrayMesh:
+	var key := snappedf(base_r, 0.001)
+	if _flame_mesh_cache.has(key):
+		return _flame_mesh_cache[key]
+	var rings := 18
+	var seg := 16
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	for i in range(rings):
+		var t := float(i) / float(rings)
+		var r: float = base_r * pow(1.0 - t, 0.7)
+		for j in range(seg):
+			var a := TAU * float(j) / float(seg)
+			verts.append(Vector3(cos(a) * r, sin(a) * r, t))
+			uvs.append(Vector2(float(j) / float(seg), t))
+	var tip_i := verts.size()
+	verts.append(Vector3(0, 0, 1.0))
+	uvs.append(Vector2(0.5, 1.0))
+	var idx := PackedInt32Array()
+	for i in range(rings - 1):
+		for j in range(seg):
+			var j2 := (j + 1) % seg
+			var a0 := i * seg + j
+			var a1 := i * seg + j2
+			var b0 := (i + 1) * seg + j
+			var b1 := (i + 1) * seg + j2
+			idx.append(a0); idx.append(b0); idx.append(a1)
+			idx.append(a1); idx.append(b0); idx.append(b1)
+	var li := (rings - 1) * seg
+	for j in range(seg):
+		var j2 := (j + 1) % seg
+		idx.append(li + j); idx.append(tip_i); idx.append(li + j2)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_TEX_UV] = uvs
+	arr[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	_flame_mesh_cache[key] = m
+	return m
+
+
+func _flame_cone(base_r: float, near: Color, mid: Color, far: Color) -> Array:
+	var mi := MeshInstance3D.new()
+	mi.mesh = _flame_mesh(base_r)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mat := ShaderMaterial.new()
+	mat.shader = _flame_shader()
+	mat.set_shader_parameter("col_near", near)
+	mat.set_shader_parameter("col_mid", mid)
+	mat.set_shader_parameter("col_far", far)
+	mat.set_shader_parameter("intensity", 0.0)
+	mi.material_override = mat
+	return [mi, mat]
+
+
+# Ein kompletter Nachbrenner (Fahne + Kern + Funken + Licht), Wurzel zeigt +Z (Heck).
+func _build_afterburner() -> Dictionary:
+	var root := Node3D.new()
+	var plume_pair := _flame_cone(0.34, Color(0.7, 0.85, 1.0), Color(1.0, 0.55, 0.16), Color(0.85, 0.12, 0.02))
+	var core_pair := _flame_cone(0.19, Color(0.85, 0.92, 1.0), Color(0.7, 0.85, 1.0), Color(1.0, 0.55, 0.16))
+	var plume: MeshInstance3D = plume_pair[0]
+	var core: MeshInstance3D = core_pair[0]
+	root.add_child(plume)
+	root.add_child(core)
+	var sparks := _fx_make(26, 0.35, 6.0, 16.0, Color(1.0, 0.72, 0.32), 0.055, true, 0.0, Vector3(0, 0, 1))
+	sparks.spread = 5.0
+	sparks.emitting = false
+	root.add_child(sparks)
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.55, 0.2)
+	light.light_energy = 0.0
+	light.omni_range = 3.0
+	light.shadow_enabled = false
+	light.position = Vector3(0, 0, 0.4)
+	root.add_child(light)
+	return {
+		"root": root, "plume": plume, "core": core, "light": light, "sparks": sparks,
+		"plume_mat": plume_pair[1], "core_mat": core_pair[1],
+	}
+
+
 # FX-Emitter neu aufbauen (nach Bau/Bruch): Nachbrenner an Jet-Düsen, Wirbelschleppen an
 # Hauptflügelspitzen. Ein-/Ausschalten passiert je Frame im _process.
 func _rebuild_fx() -> void:
-	for n in _afterburners:
-		if is_instance_valid(n):
-			n.queue_free()
+	for d in _afterburners:
+		var r = d.get("root") if d is Dictionary else d
+		if is_instance_valid(r):
+			r.queue_free()
 	for n in _vapor:
 		if is_instance_valid(n):
 			n.queue_free()
@@ -730,11 +880,12 @@ func _rebuild_fx() -> void:
 	for e in engines:
 		if not e.get("jet", false):
 			continue
-		var ab := _fx_make(20, 0.22, 3.0, 8.0, Color(1.0, 0.55, 0.16), 0.17, true, 0.0, Vector3(0, 0, 1))
-		add_child(ab)
-		ab.position = e["pos"] + Vector3(0, 0, 1.0)   # hinter der Düse (+Z = Heck)
-		ab.emitting = false
-		_afterburners.append(ab)
+		var d := _build_afterburner()
+		var root: Node3D = d["root"]
+		add_child(root)
+		root.position = e["pos"] + Vector3(0, 0, 1.12)   # an der Düse (+Z = Heck)
+		root.visible = false
+		_afterburners.append(d)
 	for pi in parts:
 		if pi.get("broken", false) or not pi["is_wing"] or String(pi["control"]) != "":
 			continue
@@ -888,12 +1039,16 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var tt := Vector3.ZERO
 
 	# --- Schub (zentral; Propeller fällt mit Tempo, Jet konstant) ----------
+	# Nachbrenner: Jets bekommen bei sehr hohem Gas (>78 %) bis +35 % Schub.
+	var ab_stage := clampf((throttle - 0.78) / 0.22, 0.0, 1.0)
 	var fs := v_lin.dot(fwd)
 	var thr := 0.0
 	for e in engines:
 		var t: float = float(e["thrust"])
 		if not e.get("jet", false):
 			t *= clampf(1.0 - fs / PROP_VMAX, 0.0, 1.0)
+		else:
+			t *= 1.0 + AB_BOOST * ab_stage
 		thr += t
 	tf += fwd * (thr * maxf(throttle, 0.0))
 	# Bremsen bei negativem Gas: Luftbremse + (am Boden) Radbremse
