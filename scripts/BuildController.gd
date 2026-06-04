@@ -1494,50 +1494,17 @@ func _snap_tangential(origin: Vector3, n: Vector3, grid: float) -> Vector3:
 	return snap_pos + n * along
 
 
-# Flächen-Snapping beim VERSCHIEBEN: rastet das bewegte Teil bündig an die Flächen bzw. die
-# Mittelachse benachbarter Teile (z. B. Cockpit -> Rumpf). only_axis>=0 = nur diese Achse snappen.
+# Grid-Snapping beim VERSCHIEBEN: der Teil-Mittelpunkt rastet auf ein feines Raster (GRID).
+# So lassen sich Teile sauber & vorhersehbar aneinander ausrichten. only_axis>=0 = nur diese Achse.
+const MOVE_GRID := 0.25
 func _snap_move(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 	var p := PartCatalog.get_part(part.get_meta("part_id"))
-	var psc: Vector3 = part.get_meta("pscale", Vector3.ONE)
-	var hev: Vector3 = PartCatalog.col_size(p) * psc * 0.5
-	var cov: Vector3 = PartCatalog.col_offset(p) * psc
-	var he := [hev.x, hev.y, hev.z]
+	var cov: Vector3 = PartCatalog.col_offset(p) * part.get_meta("pscale", Vector3.ONE)
 	var c := [pos.x + cov.x, pos.y + cov.y, pos.z + cov.z]   # genäherter Box-Mittelpunkt
-	var mirror = part.get_meta("mirror") if part.has_meta("mirror") else null
-	const SNAP := 0.5                       # Fangreichweite (Welt-Einheiten)
 	for a in 3:
 		if only_axis >= 0 and a != only_axis:
 			continue
-		var b1 := (a + 1) % 3
-		var b2 := (a + 2) % 3
-		var best: float = c[a]
-		var best_d := SNAP
-		for other in design_root.get_children():
-			if not other.is_in_group("part") or other == part or other == mirror:
-				continue
-			var op := PartCatalog.get_part(other.get_meta("part_id"))
-			var osc: Vector3 = other.get_meta("pscale", Vector3.ONE)
-			var ohv: Vector3 = PartCatalog.col_size(op) * osc * 0.5
-			var ocv: Vector3 = other.position + PartCatalog.col_offset(op) * osc
-			var ohe := [ohv.x, ohv.y, ohv.z]
-			var oc := [ocv.x, ocv.y, ocv.z]
-			# Nur snappen, wenn die beiden ANDEREN Achsen überlappen (Teile liegen in einer Linie).
-			if absf(c[b1] - oc[b1]) > he[b1] + ohe[b1] + 0.15:
-				continue
-			if absf(c[b2] - oc[b2]) > he[b2] + ohe[b2] + 0.15:
-				continue
-			for cand in [
-				oc[a] + ohe[a] + he[a],     # Fläche an Fläche (+Seite des Nachbarn)
-				oc[a] - ohe[a] - he[a],     # Fläche an Fläche (−Seite)
-				oc[a] + ohe[a] - he[a],     # +Flächen bündig
-				oc[a] - ohe[a] + he[a],     # −Flächen bündig
-				oc[a],                      # Mittelachsen fluchten
-			]:
-				var d: float = absf(cand - c[a])
-				if d < best_d:
-					best_d = d
-					best = cand
-		c[a] = best
+		c[a] = roundf(c[a] / MOVE_GRID) * MOVE_GRID
 	return Vector3(c[0], c[1], c[2]) - cov
 
 
