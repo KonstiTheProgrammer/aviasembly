@@ -49,6 +49,8 @@ const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase
 const BARREL_RATE := 5.0      # Fass-Roll: Ziel-Rollrate (rad/s) ~ 1 Rolle / 1,25 s (physikalisch geregelt)
 const BARREL_GAIN := 0.9      # Fass-Roll: P-Anteil Rollraten-Regler (sanftes Anrollen)
 const AB_BOOST := 0.5         # Nachbrenner: Extra-Schub für Jets in der AB-Zone (100→110 % = +50 %)
+const AB_SPOOL_UP := 2.2      # Nachbrenner zündet nicht schlagartig — er spult hoch (exp. Rate, ~1 s auf voll)
+const AB_SPOOL_DN := 3.5      # ... und brennt beim Zurücknehmen schneller ab
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
@@ -62,6 +64,7 @@ var props: Array = []
 var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
 var _afterburners: Array = [] # [{root, plume, core, light, sparks, plume_mat, core_mat}] an Jet-Düsen
 var _ab_time := 0.0           # Flacker-/Diamanten-Animationszeit für den Nachbrenner-Shader
+var _ab_spool := 0.0          # hochgespulter Nachbrenner-Pegel 0..1 (zeitlicher Verlauf, kein harter Sprung)
 var _flame_shader_cache: Shader = null
 var _flame_mesh_cache := {}   # base_r -> ArrayMesh (Flammen-Kegel, Länge 1)
 var _vapor: Array = []        # CPUParticles3D an Flügelspitzen (Wirbelschleppen bei hoher G)
@@ -202,8 +205,8 @@ func _process(delta: float) -> void:
 	# helle Flamme (blau-weißer Kern -> orange Fahne mit Mach-Diamanten) + Funken + Glow.
 	_ab_time += delta
 	var thr_n := clampf(throttle, 0.0, 1.0)
-	var ab := clampf((throttle - 1.0) / 0.10, 0.0, 1.0)   # 0 bei <=100 %, 1 bei 110 %
-	var lit := throttle > 0.04
+	var ab := _ab_spool                                   # hochgespulter Nachbrenner (zeitlicher Verlauf)
+	var lit := throttle > 0.04 or ab > 0.01
 	for d in _afterburners:
 		var root = d["root"]
 		if not is_instance_valid(root):
@@ -1042,8 +1045,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# --- Schub (zentral; Propeller fällt mit Tempo, Jet konstant) ----------
 	# Turbine: Drossel 0..100 % = normaler Schub. Nachbrenner-Zone 100..110 %:
 	# nur Jets, on top des vollen Turbinenschubs (+AB_BOOST). Propeller bleiben bei 100 %.
+	# Der Nachbrenner zündet nicht schlagartig — _ab_spool fährt zeitlich hoch/runter.
 	var base_thr := clampf(throttle, 0.0, 1.0)
-	var ab_stage := clampf((throttle - 1.0) / 0.10, 0.0, 1.0)   # 0 bei 100 %, 1 bei 110 %
+	var ab_target := clampf((throttle - 1.0) / 0.10, 0.0, 1.0)   # 0 bei 100 %, 1 bei 110 %
+	var sr := AB_SPOOL_UP if ab_target > _ab_spool else AB_SPOOL_DN
+	_ab_spool += (ab_target - _ab_spool) * clampf(sr * state.step, 0.0, 1.0)
 	var fs := v_lin.dot(fwd)
 	var thr := 0.0
 	for e in engines:
@@ -1052,7 +1058,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			t *= clampf(1.0 - fs / PROP_VMAX, 0.0, 1.0)
 			thr += t * base_thr
 		else:
-			thr += t * (base_thr + AB_BOOST * ab_stage)
+			thr += t * (base_thr + AB_BOOST * _ab_spool)
 	tf += fwd * thr
 	# Bremsen bei negativem Gas: Luftbremse + (am Boden) Radbremse
 	if throttle < 0.0 and airspeed > 0.3:
