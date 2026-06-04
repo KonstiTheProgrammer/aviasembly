@@ -11,6 +11,7 @@ const GROUND_LAYER := 1
 const SPAWN := Vector3(0, 2.2, 35.0)
 
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
+const FREE_LOOK_SENS := 0.014   # Free-Look (C): flotter -> voll 360° mit normalem Swipe
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
 const CAM_SHAKE_DECAY := 2.8    # Kamera-Shake klingt so schnell ab (1/s)
@@ -531,9 +532,9 @@ func _ramp(cur: float, target: float, delta: float, rise: float, fall: float) ->
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if free_look:
-			# Free-Look (C): Maus schwenkt nur die Kamera frei um den Flieger, lenkt NICHT.
-			flook_yaw = wrapf(flook_yaw - event.relative.x * LOOK_SENS, -PI, PI)
-			flook_pitch = clampf(flook_pitch - event.relative.y * LOOK_SENS, -1.3, 1.4)
+			# Free-Look (C): Maus schwenkt nur die Kamera frei um den Flieger (voll 360°), lenkt NICHT.
+			flook_yaw = wrapf(flook_yaw - event.relative.x * FREE_LOOK_SENS, -PI, PI)
+			flook_pitch = clampf(flook_pitch - event.relative.y * FREE_LOOK_SENS, -1.3, 1.3)
 			return
 		if mouse_fly:
 			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
