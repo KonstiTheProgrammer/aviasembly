@@ -131,6 +131,17 @@ func build_from_design(d: Array) -> void:
 	var part_infos: Array = []   # je Teil: alle Aero-Beiträge (für Neuberechnung nach Bruch)
 	weapons.clear()
 
+	# Vorab: Rumpf-Boxen (Nicht-Flügel) -> im Rumpf vergrabene Flügelfläche erzeugt keinen Auftrieb.
+	var body_boxes: Array = []
+	for it in d:
+		var bid: String = it.get("id", "")
+		if not PartCatalog.has(bid):
+			continue
+		var bpp := PartCatalog.get_part(bid)
+		if bpp.get("is_wing", false):
+			continue
+		body_boxes.append(PartCatalog.part_box(bpp, it.get("xform", Transform3D()), it.get("scale", Vector3.ONE)))
+
 	for item in d:
 		var id: String = item.get("id", "")
 		if not PartCatalog.has(id):
@@ -197,13 +208,16 @@ func build_from_design(d: Array) -> void:
 			"gear_cap": p.get("gear_capacity", 0.0) * vol, "retract": p.get("retract", false),
 		}
 		if pinfo["is_wing"]:
-			var a: float = p.get("area", 0.0) * psc.x * psc.z
-			var span: float = p.get("span", sqrt(maxf(a, 0.01))) * psc.x
+			var a_full: float = p.get("area", 0.0) * psc.x * psc.z
+			var span: float = p.get("span", sqrt(maxf(a_full, 0.01))) * psc.x
+			# im Rumpf vergrabene Spannweite zählt nicht (weniger Auftrieb/Steuerkraft)
+			var exp: float = PartCatalog.wing_exposed_fraction(xf, span, PartCatalog.col_offset(p).z * psc.z, body_boxes)
+			var a: float = a_full * exp
 			var up_align: float = clampf(absf(xf.basis.y.dot(Vector3.UP)), 0.0, 1.0)
 			pinfo["span"] = span
-			pinfo["ar"] = clampf(span * span / maxf(a, 0.01), 0.6, 10.0)
+			pinfo["ar"] = clampf(span * span / maxf(a_full, 0.01), 0.6, 10.0)
 			pinfo["lift_coef"] = p.get("lift", 1.0)
-			pinfo["wing_cap"] = a * PartCatalog.WING_STRESS
+			pinfo["wing_cap"] = a_full * PartCatalog.WING_STRESS
 			pinfo["lift_part"] = a * up_align
 			var ctrl_part: float = a * (1.0 - up_align)
 			match pinfo["control"]:

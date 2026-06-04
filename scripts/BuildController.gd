@@ -1598,6 +1598,15 @@ func compute_stats() -> Dictionary:
 	var com := Vector3.ZERO
 	var col := Vector3.ZERO
 	var col_w := 0.0
+	# Rumpf-Boxen (Nicht-Flügel) für den Vergrabungs-Test
+	var body_boxes: Array = []
+	for child in design_root.get_children():
+		if not child.is_in_group("part"):
+			continue
+		var pp := PartCatalog.get_part(child.get_meta("part_id"))
+		if pp.get("is_wing", false):
+			continue
+		body_boxes.append(PartCatalog.part_box(pp, child.transform, child.get_meta("pscale", Vector3.ONE)))
 	for child in design_root.get_children():
 		if not child.is_in_group("part"):
 			continue
@@ -1612,9 +1621,13 @@ func compute_stats() -> Dictionary:
 		drag_area += PartCatalog.part_drag(p) * psc.x * psc.y
 		com += m * child.position
 		if p.get("is_wing", false):
-			var a: float = p.get("area", 0.0) * psc.x * psc.z
+			var a_full: float = p.get("area", 0.0) * psc.x * psc.z
+			var span_w: float = p.get("span", sqrt(maxf(a_full, 0.01))) * psc.x
+			# im Rumpf vergrabene Fläche zählt nicht (effektive Auftriebsfläche)
+			var exp: float = PartCatalog.wing_exposed_fraction(child.transform, span_w, PartCatalog.col_offset(p).z * psc.z, body_boxes)
+			var a: float = a_full * exp
 			area += a
-			wing_cap += a * PartCatalog.WING_STRESS
+			wing_cap += a_full * PartCatalog.WING_STRESS
 			col += a * child.position
 			col_w += a
 	if mass > 0.0:

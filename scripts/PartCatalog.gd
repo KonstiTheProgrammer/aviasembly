@@ -364,6 +364,39 @@ static func col_offset(p: Dictionary) -> Vector3:
 	return p.get("col_offset", Vector3.ZERO)
 
 
+# Welt-Box eines Teils (für Verdeckungs-/Vergrabungs-Tests). basis_t = transponierte Basis.
+static func part_box(p: Dictionary, xf: Transform3D, psc := Vector3.ONE) -> Dictionary:
+	return {
+		"center": xf * (col_offset(p) * psc),
+		"basis_t": xf.basis.orthonormalized().transposed(),
+		"half": col_size(p) * psc * 0.5,
+	}
+
+
+# Anteil der Flügel-Spannweite, der NICHT in einem Rumpf-Teil steckt (0..1). Im Rumpf vergrabene
+# Spannweite erzeugt keinen Auftrieb -> effektive Fläche schrumpft. Sampling entlang der
+# Spannweite (lokal X, Wurzel..Spitze) gegen die Rumpf-Boxen (point-in-OBB). Die innersten ~6 %
+# (Anbindungs-Überlappung) werden nicht bestraft.
+static func wing_exposed_fraction(wing_xf: Transform3D, span: float, sweep_off: float, body_boxes: Array) -> float:
+	if body_boxes.is_empty() or span <= 0.01:
+		return 1.0
+	var n := 16
+	var exposed := 0
+	for k in n:
+		var t: float = lerpf(0.06, 1.0, (float(k) + 0.5) / float(n))
+		var wp: Vector3 = wing_xf * Vector3(t * span, 0.0, sweep_off)
+		var inside := false
+		for b in body_boxes:
+			var lp: Vector3 = (b["basis_t"] as Basis) * (wp - (b["center"] as Vector3))
+			var hf: Vector3 = b["half"]
+			if absf(lp.x) <= hf.x and absf(lp.y) <= hf.y and absf(lp.z) <= hf.z:
+				inside = true
+				break
+		if not inside:
+			exposed += 1
+	return float(exposed) / float(n)
+
+
 # ---------------------------------------------------------------------------
 # Material-Helfer
 # ---------------------------------------------------------------------------
