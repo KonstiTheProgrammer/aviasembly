@@ -72,6 +72,9 @@ var throttle := 0.0
 var spawn_height := 2.0
 var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
+var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
+var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
+var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
 var _mouse_idle := 0.0
 var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase folgt)
 var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, nur im Maus-Flug)
@@ -295,6 +298,9 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(aircraft):
 		return
 
+	# Free-Look: C halten -> nur die Kamera schwenkt frei (siehe _process), Steuerung bleibt.
+	free_look = Input.is_physical_key_pressed(KEY_C)
+
 	# Schub (unter 0 % = bremsen, über 100 % = Nachbrenner bis 110 %)
 	if Input.is_key_pressed(KEY_SHIFT):
 		throttle += 0.6 * delta
@@ -314,9 +320,9 @@ func _physics_process(delta: float) -> void:
 		roll += 1.0
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
 		roll -= 1.0
-	# Gieren / Seitenleitwerk (Q oder C = rechts, E oder Z = links)
+	# Gieren / Seitenleitwerk (Q = rechts, E oder Z = links). C ist jetzt Free-Look.
 	var yaw := 0.0
-	if Input.is_physical_key_pressed(KEY_Q) or Input.is_physical_key_pressed(KEY_C):
+	if Input.is_physical_key_pressed(KEY_Q):
 		yaw += 1.0
 	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
 		yaw -= 1.0
@@ -524,6 +530,11 @@ func _ramp(cur: float, target: float, delta: float, rise: float, fall: float) ->
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if free_look:
+			# Free-Look (C): Maus schwenkt nur die Kamera frei um den Flieger, lenkt NICHT.
+			flook_yaw = wrapf(flook_yaw - event.relative.x * LOOK_SENS, -PI, PI)
+			flook_pitch = clampf(flook_pitch - event.relative.y * LOOK_SENS, -1.3, 1.4)
+			return
 		if mouse_fly:
 			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
 			# Nach rechts schauen -> rechts; nach hinten schauen -> Flieger dreht ganz herum.
@@ -590,6 +601,16 @@ func _process(delta: float) -> void:
 	aircraft.shake_request = 0.0
 	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
 	var t := aircraft.global_transform
+	if free_look:
+		# C halten: Kamera schwenkt frei um den Flieger (Maus), Flug läuft unverändert weiter.
+		var fdesired := t.origin + _free_cam_offset(t)
+		camera.global_position = camera.global_position.lerp(fdesired, clampf(delta * 7.0, 0.0, 1.0))
+		camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
+		_apply_cam_shake()
+		return
+	# Free-Look-Winkel sanft zurückstellen, wenn nicht (mehr) aktiv
+	flook_yaw = lerpf(flook_yaw, 0.0, clampf(delta * 5.0, 0.0, 1.0))
+	flook_pitch = lerpf(flook_pitch, 0.0, clampf(delta * 5.0, 0.0, 1.0))
 	if mouse_fly:
 		# Kamera blickt in die ZIELRICHTUNG (Maus), Flugzeug im Vordergrund -> du siehst,
 		# wohin du zeigst und wie die Nase nachzieht. Kein Zurückschwenken (Ziel bleibt stehen).
@@ -638,6 +659,16 @@ func _cam_offset(t: Transform3D) -> Vector3:
 	var rightax: Vector3 = off.cross(Vector3.UP)
 	if rightax.length() > 0.01:
 		off = Basis(rightax.normalized(), look_pitch) * off
+	return off
+
+
+# Kamera-Versatz für Free-Look (C): wie _cam_offset, aber mit den freien Blickwinkeln.
+func _free_cam_offset(t: Transform3D) -> Vector3:
+	var base: Vector3 = t.basis.z.normalized() * 11.0 + Vector3.UP * 3.8
+	var off: Vector3 = Basis(Vector3.UP, flook_yaw) * base
+	var rightax: Vector3 = off.cross(Vector3.UP)
+	if rightax.length() > 0.01:
+		off = Basis(rightax.normalized(), flook_pitch) * off
 	return off
 
 
