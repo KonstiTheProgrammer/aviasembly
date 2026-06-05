@@ -668,14 +668,19 @@ func _cam_offset(t: Transform3D) -> Vector3:
 	return off
 
 
-# Kamera-Versatz für Free-Look (C): wie _cam_offset, aber mit den freien Blickwinkeln.
-func _free_cam_offset(t: Transform3D) -> Vector3:
-	var base: Vector3 = t.basis.z.normalized() * 11.0 + Vector3.UP * 3.8
-	var off: Vector3 = Basis(Vector3.UP, flook_yaw) * base
-	var rightax: Vector3 = off.cross(Vector3.UP)
+# Kamera-Versatz für Free-Look (C): saubere KUGEL mit KONSTANTEM Radius um den Schwerpunkt
+# -> gleicher Abstand bei jedem Winkel. flook_yaw=0 = horizontal hinter dem Flieger.
+const FREE_LOOK_DIST := 14.0
+func _free_cam_offset(_t: Transform3D) -> Vector3:
+	var behind: Vector3 = Vector3(_t.basis.z.x, 0.0, _t.basis.z.z)   # Heading horizontal projiziert
+	if behind.length() < 0.01:
+		behind = Vector3(0, 0, 1)
+	behind = behind.normalized()
+	var dir: Vector3 = Basis(Vector3.UP, flook_yaw) * behind
+	var rightax: Vector3 = dir.cross(Vector3.UP)
 	if rightax.length() > 0.01:
-		off = Basis(rightax.normalized(), flook_pitch) * off
-	return off
+		dir = (Basis(rightax.normalized(), flook_pitch) * dir).normalized()
+	return dir * FREE_LOOK_DIST
 
 
 func _snap_camera() -> void:
