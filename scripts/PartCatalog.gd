@@ -73,26 +73,26 @@ static func _build() -> void:
 	_add({
 		"id": "fuselage", "name": "Rumpfsegment", "category": CAT_BODY,
 		"mass": 120.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.3, 1.1, 2.0), "taperable": true,
-		"desc": "Rumpf-Tubus. Ein Ende lässt sich verjüngen (Knopf »Verjüngung« / Taste V) — so baust du fließend zulaufende Rümpfe.",
+		"size": Vector3(1.3, 1.1, 2.0), "biends": true,
+		"desc": "Rumpf-Tubus. BEIDE Enden einzeln skalierbar (Panel »Vorne«/»Hinten«) — vorne/hinten verschieden dick, für fließend zulaufende Rümpfe.",
 	})
 	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
 		"mass": 175.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.3, 1.1, 3.2), "taperable": true,
-		"desc": "Langer Rumpf-Tubus, ein Ende verjüngbar.",
+		"size": Vector3(1.3, 1.1, 3.2), "biends": true,
+		"desc": "Langer Rumpf-Tubus. Beide Enden einzeln dick/dünn (Panel »Vorne«/»Hinten«).",
 	})
 	_add({
 		"id": "fuselage_wide", "name": "Breiter Rumpf", "category": CAT_BODY,
 		"mass": 165.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.85, 1.0, 2.6), "taperable": true,
-		"desc": "Breite, flache Rumpfsektion (Blended-Body). Ein Ende verjüngbar — ideal für Stealth-Jets.",
+		"size": Vector3(1.85, 1.0, 2.6), "biends": true,
+		"desc": "Breite, flache Rumpfsektion (Blended-Body). Beide Enden einzeln skalierbar — ideal für Stealth-Jets.",
 	})
 	_add({
 		"id": "fuselage_taper", "name": "Verjüngungs-Rumpf", "category": CAT_BODY,
 		"mass": 140.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.45, 1.05, 2.8), "taperable": true, "taper": 0.55,
-		"desc": "Läuft von breit auf schmal zu (Übergang Rumpf↔Nase/Heck). Verjüngung einstellbar, mit R umdrehbar.",
+		"size": Vector3(1.45, 1.05, 2.8), "biends": true, "taper": 0.55,
+		"desc": "Läuft von breit auf schmal zu (Übergang Rumpf↔Nase/Heck). Beide Enden einzeln skalierbar, mit R umdrehbar.",
 	})
 	_add({
 		"id": "f22_body", "name": "F-22 Stealth-Rumpf", "category": CAT_BODY,
@@ -497,12 +497,13 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 
 	match shape:
 		"box":
-			# Rumpfsegment als glatter, leicht abgerundeter Tubus (elliptischer
-			# Querschnitt). taper skaliert den Querschnitt am +Z-Ende -> Verjüngung
-			# (ein Ende breiter/schmaler), damit man fließend zulaufende Rümpfe baut.
+			# Rumpfsegment als glatter, leicht abgerundeter Tubus (elliptischer Querschnitt).
+			# BEIDE Enden einzeln skalierbar: taper_front = vorderes (-Z) Ende, taper = hinteres
+			# (+Z) Ende -> Segment vorne/hinten verschieden dick (fließend zulaufende Rümpfe).
+			var tf: float = maxf(taper_front, 0.02)
 			var tb: float = maxf(taper, 0.02)
 			var tube := _revolve([
-				Vector2(-0.5, 0.49), Vector2(-0.46, 0.5),
+				Vector2(-0.5, 0.49 * tf), Vector2(-0.46, 0.5 * tf),
 				Vector2(0.46, 0.5 * tb), Vector2(0.5, 0.49 * tb)
 			], 18)
 			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
