@@ -184,10 +184,14 @@ func _process(delta: float) -> void:
 		_detach_queue.clear()
 		if changed:
 			recompute_aero()   # leichter, weniger Widerstand, COM verschiebt sich
-	var spd := 4.0 + _engine_spool * 60.0   # Prop/Fan dreht mit dem Triebwerk-Hochlauf mit
+	# Propeller drehen gemächlich; Jet-Fans drehen viel schneller — und bei Vollgas/
+	# Nachbrenner ("richtig Gas") nochmal deutlich schneller.
+	var prop_spd := 4.0 + _engine_spool * 60.0
+	var jet_spd := 25.0 + _engine_spool * 150.0 + _ab_spool * 110.0
 	for p in props:
-		if is_instance_valid(p):
-			p.rotate_z(spd * delta)
+		var pn = p["node"]
+		if is_instance_valid(pn):
+			pn.rotate_z((jet_spd if p["jet"] else prop_spd) * delta)
 	# Bewegliche Flächen animieren (Scharnier dreht um lokale X-Achse). dn = Welt-"unten"-Vorzeichen.
 	# Klappe: Landestellung + gegensinniger Roll-Anteil (Flaperon). Ruder folgen Pitch/Yaw/Roll.
 	# _flap_vis wird in _integrate_forces (physikgetaktet) langsam gerampt -> hier nur lesen.
@@ -352,7 +356,7 @@ func recompute_aero() -> void:
 				"scale": pi.get("scale", Vector3.ONE)})
 			thr += et
 			if pi["prop"] != null and is_instance_valid(pi["prop"]):
-				prp.append(pi["prop"])
+				prp.append({"node": pi["prop"], "jet": pi.get("jet", false)})
 		if float(pi["gear_cap"]) > 0.0:
 			gc += pi["gear_cap"]
 			gi.append({"vis": pi["vis"], "cs": pi["cs"], "retract": pi["retract"], "base": pi["xform"]})
