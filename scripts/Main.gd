@@ -1059,6 +1059,7 @@ func _build_selection_panel() -> void:
 		mrow.add_child(mb)
 		sel_mode_btns.append(mb)
 	v.add_child(_lbl("Pfeile/Würfel im 3D-Raum ziehen · Drehen: Teil ziehen · 90°-Schritte unten:", 10, Color(0.7, 0.74, 0.82)))
+	v.add_child(_lbl("⇿ Enden (Rumpf): blauer Würfel vorne / oranger hinten — längs ziehen macht das Ende dicker/dünner.", 10, Color(0.55, 0.72, 0.95)))
 	var axis_names := ["Breite", "Höhe", "Länge"]
 	for i in 3:
 		var row := HBoxContainer.new()

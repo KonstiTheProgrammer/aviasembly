@@ -702,8 +702,8 @@ func _build_scale_handles() -> void:
 			_handles.append(h)
 
 
-# Enden-Modus: je ein Würfel am vorderen (-Z, blau) und hinteren (+Z, orange) Ende.
-# Ziehen (nach oben/unten) macht das jeweilige Ende dicker/dünner (Taper vorne/hinten).
+# Enden-Modus: je ein Scale-Würfel am vorderen (-Z, blau) und hinteren (+Z, orange) Ende.
+# Entlang der Längsachse ziehen (außen/innen) macht das jeweilige Ende dicker/dünner.
 func _build_ends_handles() -> void:
 	for s in [-1.0, 1.0]:
 		var h := StaticBody3D.new()
@@ -717,12 +717,12 @@ func _build_ends_handles() -> void:
 		h.set_meta("base_col", col)
 		var cs := CollisionShape3D.new()
 		var bs := BoxShape3D.new()
-		bs.size = Vector3(0.7, 0.7, 0.7)
+		bs.size = Vector3(0.5, 0.5, 0.5)
 		cs.shape = bs
 		h.add_child(cs)
 		var mi := MeshInstance3D.new()
 		var bm := BoxMesh.new()
-		bm.size = Vector3(0.55, 0.55, 0.55)
+		bm.size = Vector3(0.42, 0.42, 0.42)
 		mi.mesh = bm
 		mi.material_override = _gizmo_mat(col)
 		h.add_child(mi)
@@ -851,11 +851,12 @@ func _update_handles() -> void:
 		elif kind == "rotate":
 			h.position = Vector3.ZERO                 # Ring um das Zentrum
 		elif kind == "ends":
-			# am Endquerschnitt (±Z), oben auf der aktuellen Dicke dieses Endes
+			# Würfel zentriert auf der ±Z-Endfläche (wie ein Scale-Würfel); rückt mit der Dicke
+			# dieses Endes nach außen -> direktes Feedback beim Ziehen entlang der Längsachse.
 			var es: float = h.get_meta("sign")
 			var ekey := "taper_front" if es < 0.0 else "taper"
 			var et: float = selected_part.get_meta(ekey, 1.0)
-			h.position = off + Vector3(0.0, float(halves[1]) * et + 0.4, es * float(halves[2]))
+			h.position = off + Vector3(0.0, 0.0, es * (float(halves[2]) + 0.45 + (et - 1.0) * float(halves[2]) * 0.5))
 		else:  # scale: am Teil (lokal), an der Flächenmitte
 			var s: float = h.get_meta("sign")
 			h.position = off + _axis_vec(i) * (s * (float(halves[i]) + 0.45))
@@ -932,13 +933,16 @@ func _begin_handle_drag(handle: Node3D) -> void:
 		_rot_a0 = _ring_angle()
 		return
 	if _drag_kind == "ends":
-		# Enden-Drag: vertikal ziehen -> Taper dieses Endes (vorne/hinten) dicker/dünner.
+		# Enden-Drag wie ein Scale-Würfel: entlang der LÄNGS-Achse (±Z) ziehen.
+		# Nach AUSSEN ziehen -> dieses Ende dicker; nach INNEN -> dünner/spitzer.
 		_drag_sign = handle.get_meta("sign")
 		var ep := PartCatalog.get_part(selected_part.get_meta("part_id"))
-		_drag_half = maxf(PartCatalog.col_size(ep).y * selected_part.get_meta("pscale", Vector3.ONE).y * 0.5, 0.3)
+		var epsc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+		var ehalf: Vector3 = PartCatalog.col_size(ep) * epsc * 0.5
+		_drag_half = maxf((ehalf.x + ehalf.y) * 0.5, 0.3)                     # Sensitivität ~ Querschnitt
 		_drag_taper0 = selected_part.get_meta("taper_front" if _drag_sign < 0.0 else "taper", 1.0)
-		_drag_axis_w = selected_part.global_transform.basis.y.normalized()   # lokale Hoch-Achse (Welt)
-		_drag_origin0 = handle.global_position                                # fixe Referenz auf der Achse
+		_drag_axis_w = (selected_part.global_transform.basis * Vector3(0.0, 0.0, _drag_sign)).normalized()  # auswärts ±Z
+		_drag_origin0 = handle.global_position
 		_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
 		return
 	_drag_sign = handle.get_meta("sign")
@@ -977,7 +981,7 @@ func _update_transform_drag() -> void:
 		var nb := (Basis(_rot_axis_w, a - _rot_a0) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
 	elif _drag_handle != null and _drag_kind == "ends":
-		# Enden-Griff vertikal ziehen -> Taper dieses Endes (vorne/hinten) dicker/dünner.
+		# Enden-Würfel entlang ±Z ziehen: außen = dieses Ende dicker, innen = dünner/spitzer.
 		var te := _ray_axis_t(_drag_origin0, _drag_axis_w)
 		var new_t: float = clampf(_drag_taper0 + (te - _drag_t0) / _drag_half, 0.25, 2.5)
 		var ekey := "taper_front" if _drag_sign < 0.0 else "taper"
