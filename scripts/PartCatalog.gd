@@ -253,7 +253,7 @@ static func _build() -> void:
 	})
 	_add({
 		"id": "rocket_pod", "name": "Raketenwerfer", "category": CAT_WEAPON,
-		"mass": 140.0, "color": Color(0.35, 0.37, 0.4), "shape": "cannon", "weapon": "salvo",
+		"mass": 140.0, "color": Color(0.35, 0.37, 0.4), "shape": "pod", "weapon": "salvo",
 		"size": Vector3(0.6, 0.6, 1.5), "metal": 0.6, "rough": 0.4,
 		"desc": "Salve aus 3 ungelenkten Raketen auf einmal (LEERTASTE), leicht gefächert.",
 	})
@@ -353,6 +353,7 @@ static func part_cd(p: Dictionary) -> float:
 		"bomb": return 0.16        # tropfenförmig
 		"wheel": return 0.85       # stumpfer Reifen (Bluff-Körper)
 		"cannon": return 0.92      # flache, kastige Geschütz-Stirn
+		"pod": return 0.55         # runder Werfer-Pod
 		"box": return 1.05         # Würfel/Platte — der widerstandsstärkste Bluff-Körper
 		"prism": return 0.20       # gechinter Stealth-Rumpf — schlank/windschlüpfrig
 	return 0.9
@@ -366,6 +367,7 @@ static func _frontal_fill(shape: String) -> float:
 		"wheel": return 0.42       # dünnes Federbein + kleiner Reifen in hoher Box
 		"prop": return 0.45        # Spinner + dünne Blätter (viel Luft)
 		"cannon": return 0.80      # Gehäuse füllt, Lauf dünn
+		"pod": return 0.85         # runder Pod
 		"cockpit": return 0.85
 		"cyl", "jet", "nose", "missile", "bomb": return 0.80   # runder Querschnitt (~π/4)
 		"box", "wing": return 1.0  # füllt die Box / Stirnfläche ist real
@@ -683,46 +685,104 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 				Vector3(0.16, 0.16, size.y * 0.72)))
 
 		"missile":
-			var body := _revolve([
-				Vector2(-0.5, 0.0), Vector2(-0.42, 0.26), Vector2(-0.3, 0.42),
-				Vector2(-0.12, 0.5), Vector2(0.42, 0.5), Vector2(0.5, 0.4)
-			], 18)
-			root.add_child(_mi(body, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, size))
-			var fmat := make_material(col.darkened(0.35), metal, rough)
+			# Flugkörper: spitze Nase (-Z) -> Körper -> verjüngtes Heck, + Finnen + Düse.
+			# Lenkraketen (weapon "missile…") bekommen einen Glas-Suchkopf an der Spitze.
+			var guided: bool = String(p.get("weapon", "")).begins_with("missile")
+			var mbody := _revolve([
+				Vector2(-0.5, 0.0), Vector2(-0.42, 0.24), Vector2(-0.3, 0.42),
+				Vector2(-0.12, 0.5), Vector2(0.4, 0.5), Vector2(0.5, 0.34)
+			], 20)
+			root.add_child(_mi(mbody, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, size))
+			# Mittel-Band (Akzent)
+			var bandr := CylinderMesh.new()
+			bandr.top_radius = size.x * 0.52; bandr.bottom_radius = size.x * 0.52
+			bandr.height = size.z * 0.04; bandr.radial_segments = 18
+			root.add_child(_mi(bandr, make_material(col.darkened(0.4), metal, rough),
+				Vector3(0, 0, -size.z * 0.05), Vector3(PI * 0.5, 0, 0)))
+			if guided:
+				var dome := SphereMesh.new()
+				dome.radius = size.x * 0.4; dome.height = size.x * 0.8
+				var gmat := make_material(Color(0.1, 0.16, 0.26), 0.3, 0.1)
+				gmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				gmat.albedo_color.a = 0.8
+				gmat.rim_enabled = true; gmat.rim = 0.6
+				root.add_child(_mi(dome, gmat, Vector3(0, 0, -size.z * 0.46)))
+			# Düse hinten (+Z)
+			var noz := CylinderMesh.new()
+			noz.top_radius = size.x * 0.34; noz.bottom_radius = size.x * 0.22
+			noz.height = size.z * 0.1; noz.radial_segments = 16
+			root.add_child(_mi(noz, make_material(Color(0.08, 0.08, 0.09), 0.6, 0.5),
+				Vector3(0, 0, size.z * 0.5), Vector3(PI * 0.5, 0, 0)))
+			# 4 Finnen hinten (kreuzförmig)
+			var fmat := make_material(col.darkened(0.4), metal, rough)
 			for i in 4:
 				var fin := BoxMesh.new()
-				fin.size = Vector3(size.x * 0.5, 0.03, size.z * 0.2)
+				fin.size = Vector3(size.x * 0.55, 0.028, size.z * 0.22)
 				var holder := Node3D.new()
-				holder.rotation = Vector3(0, 0, deg_to_rad(90.0 * i))
-				holder.add_child(_mi(fin, fmat, Vector3(size.x * 0.42, 0, size.z * 0.38)))
+				holder.rotation = Vector3(0, 0, deg_to_rad(45.0 + 90.0 * i))
+				holder.add_child(_mi(fin, fmat, Vector3(size.x * 0.44, 0, size.z * 0.4)))
 				root.add_child(holder)
 
 		"bomb":
+			# Tropfen-Körper + Kreuz-Leitwerk + Heckring + Aufhänge-Öse.
 			var bb := _revolve([
-				Vector2(-0.5, 0.12), Vector2(-0.4, 0.36), Vector2(-0.2, 0.5),
-				Vector2(0.18, 0.5), Vector2(0.4, 0.32), Vector2(0.5, 0.14)
-			], 18)
+				Vector2(-0.5, 0.16), Vector2(-0.4, 0.38), Vector2(-0.18, 0.5),
+				Vector2(0.2, 0.5), Vector2(0.42, 0.34), Vector2(0.5, 0.18)
+			], 20)
 			root.add_child(_mi(bb, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, size))
-			var bfmat := make_material(col.darkened(0.25), metal, rough)
+			var bfmat := make_material(col.darkened(0.3), metal, rough)
 			for i in 4:
 				var fin := BoxMesh.new()
-				fin.size = Vector3(size.x * 0.55, 0.03, size.z * 0.22)
+				fin.size = Vector3(size.x * 0.62, 0.03, size.z * 0.26)
 				var holder := Node3D.new()
 				holder.rotation = Vector3(0, 0, deg_to_rad(45.0 + 90.0 * i))
-				holder.add_child(_mi(fin, bfmat, Vector3(size.x * 0.4, 0, size.z * 0.42)))
+				holder.add_child(_mi(fin, bfmat, Vector3(size.x * 0.44, 0, size.z * 0.42)))
 				root.add_child(holder)
+			var ring := TorusMesh.new()
+			ring.inner_radius = size.x * 0.32; ring.outer_radius = size.x * 0.42
+			ring.rings = 24
+			root.add_child(_mi(ring, bfmat, Vector3(0, 0, size.z * 0.5), Vector3(PI * 0.5, 0, 0)))
+			var lug := BoxMesh.new()
+			lug.size = Vector3(size.x * 0.1, size.y * 0.2, size.z * 0.12)
+			root.add_child(_mi(lug, bfmat, Vector3(0, size.y * 0.52, -size.z * 0.05)))
 
 		"cannon":
+			# Geschütz: Verschluss-Block (+Z) + Lauf (-Z) + Mündung(-sbremse) + Zuführung oben.
+			var gunmetal := make_material(Color(0.12, 0.12, 0.14), 0.85, 0.3)
+			var housemat := make_material(col, metal, rough)
 			var house := BoxMesh.new()
-			house.size = Vector3(size.x, size.y, size.z * 0.7)
-			root.add_child(_mi(house, make_material(col, metal, rough), Vector3(0, 0, size.z * 0.12)))
+			house.size = Vector3(size.x * 0.94, size.y * 0.94, size.z * 0.4)
+			root.add_child(_mi(house, housemat, Vector3(0, 0, size.z * 0.28)))
 			var barrel := CylinderMesh.new()
-			barrel.top_radius = size.x * 0.16
-			barrel.bottom_radius = size.x * 0.16
-			barrel.height = size.z * 0.6
-			barrel.radial_segments = 14
-			root.add_child(_mi(barrel, make_material(Color(0.12, 0.12, 0.14), 0.8, 0.3),
-				Vector3(0, 0, -size.z * 0.3), Vector3(PI * 0.5, 0, 0)))
+			barrel.top_radius = size.x * 0.2; barrel.bottom_radius = size.x * 0.2
+			barrel.height = size.z * 0.78; barrel.radial_segments = 16
+			root.add_child(_mi(barrel, gunmetal, Vector3(0, 0, -size.z * 0.12), Vector3(PI * 0.5, 0, 0)))
+			var big: bool = size.x > 0.45    # Auto-/Schwere Kanone -> dickere Mündungsbremse
+			var muzzle := CylinderMesh.new()
+			muzzle.top_radius = size.x * (0.32 if big else 0.26)
+			muzzle.bottom_radius = muzzle.top_radius
+			muzzle.height = size.z * (0.16 if big else 0.1); muzzle.radial_segments = 16
+			root.add_child(_mi(muzzle, gunmetal, Vector3(0, 0, -size.z * 0.46), Vector3(PI * 0.5, 0, 0)))
+			var feed := BoxMesh.new()
+			feed.size = Vector3(size.x * 0.36, size.y * 0.42, size.z * 0.32)
+			root.add_child(_mi(feed, housemat, Vector3(0, size.y * 0.5, size.z * 0.22)))
+
+		"pod":
+			# Raketenwerfer-Pod: Röhre mit 7 Abschussrohren (1 Mitte + 6 außen) an der Front (-Z).
+			var podbody := _revolve([
+				Vector2(-0.5, 0.42), Vector2(-0.46, 0.5), Vector2(0.46, 0.5), Vector2(0.5, 0.44)
+			], 22)
+			root.add_child(_mi(podbody, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, size))
+			var tubemat := make_material(Color(0.05, 0.05, 0.06), 0.5, 0.6)
+			var tubepos := [Vector2.ZERO]
+			for k in 6:
+				tubepos.append(Vector2(cos(TAU * k / 6.0), sin(TAU * k / 6.0)) * 0.28)
+			for tp in tubepos:
+				var tube := CylinderMesh.new()
+				tube.top_radius = size.x * 0.12; tube.bottom_radius = size.x * 0.12
+				tube.height = size.z * 0.55; tube.radial_segments = 12
+				root.add_child(_mi(tube, tubemat,
+					Vector3(tp.x * size.x, tp.y * size.y, -size.z * 0.22), Vector3(PI * 0.5, 0, 0)))
 
 		_:
 			var mi := MeshInstance3D.new()
