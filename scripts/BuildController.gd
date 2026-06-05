@@ -547,6 +547,9 @@ func _on_right_click() -> void:
 	_ctx_menu.add_item("✥  Bewegen", 0)
 	_ctx_menu.add_item("⟳  Drehen", 1)
 	_ctx_menu.add_item("⤢  Skalieren", 2)
+	# Enden X/Y getrennt skalieren — nur für Rumpfsegmente (biends): 4 Vierecke vorne/hinten.
+	if PartCatalog.get_part(part.get_meta("part_id")).get("biends", false):
+		_ctx_menu.add_item("⇿  Enden skalieren (X/Y)", 5)
 	_ctx_menu.add_separator()
 	_ctx_menu.add_item("↺  Umdrehen (180°)", 3)
 	_ctx_menu.add_item("🗑  Löschen", 4)
@@ -560,6 +563,7 @@ func _on_ctx_id(id: int) -> void:
 		0: set_gizmo_mode(GIZ_MOVE)
 		1: set_gizmo_mode(GIZ_ROTATE)
 		2: set_gizmo_mode(GIZ_SCALE)
+		5: set_gizmo_mode(GIZ_ENDS)
 		3: invert_selected()
 		4: delete_selected()
 
@@ -702,32 +706,42 @@ func _build_scale_handles() -> void:
 			_handles.append(h)
 
 
-# Enden-Modus: je ein Scale-Würfel am vorderen (-Z, blau) und hinteren (+Z, orange) Ende.
-# Entlang der Längsachse ziehen (außen/innen) macht das jeweilige Ende dicker/dünner.
+# Meta-Schlüssel für ein Enden-Viereck: vorne/hinten (sign) × X/Y (axis).
+func _ends_key(sgn: float, axis: int) -> String:
+	if sgn < 0.0:
+		return "taper_front" if axis == 0 else "taper_front_y"
+	return "taper" if axis == 0 else "taper_y"
+
+
+# Enden-Modus: 4 Vierecke — vorne (-Z) & hinten (+Z), je eines für X (Breite, seitlich)
+# und Y (Höhe, oben). Nach außen ziehen macht dieses Ende in DIESER Achse dicker.
 func _build_ends_handles() -> void:
 	for s in [-1.0, 1.0]:
-		var h := StaticBody3D.new()
-		h.add_to_group("handle")
-		h.collision_layer = HANDLE_LAYER
-		h.collision_mask = 0
-		h.set_meta("kind", "ends")
-		h.set_meta("axis", 2)
-		h.set_meta("sign", s)
-		var col: Color = Color(0.35, 0.8, 1.0) if s < 0.0 else Color(1.0, 0.62, 0.2)
-		h.set_meta("base_col", col)
-		var cs := CollisionShape3D.new()
-		var bs := BoxShape3D.new()
-		bs.size = Vector3(0.5, 0.5, 0.5)
-		cs.shape = bs
-		h.add_child(cs)
-		var mi := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = Vector3(0.42, 0.42, 0.42)
-		mi.mesh = bm
-		mi.material_override = _gizmo_mat(col)
-		h.add_child(mi)
-		selected_part.add_child(h)
-		_handles.append(h)
+		for ax in [0, 1]:
+			var h := StaticBody3D.new()
+			h.add_to_group("handle")
+			h.collision_layer = HANDLE_LAYER
+			h.collision_mask = 0
+			h.set_meta("kind", "ends")
+			h.set_meta("axis", ax)              # 0 = X (Breite), 1 = Y (Höhe)
+			h.set_meta("sign", s)               # -1 vorne, +1 hinten
+			# vorne bläulich / hinten orange; Y-Würfel grünlich getönt (X vs. Y unterscheidbar)
+			var base: Color = Color(0.35, 0.8, 1.0) if s < 0.0 else Color(1.0, 0.62, 0.2)
+			var col: Color = base if ax == 0 else base.lerp(Color(0.25, 1.0, 0.45), 0.55)
+			h.set_meta("base_col", col)
+			var cs := CollisionShape3D.new()
+			var bs := BoxShape3D.new()
+			bs.size = Vector3(0.5, 0.5, 0.5)
+			cs.shape = bs
+			h.add_child(cs)
+			var mi := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(0.42, 0.42, 0.42)
+			mi.mesh = bm
+			mi.material_override = _gizmo_mat(col)
+			h.add_child(mi)
+			selected_part.add_child(h)
+			_handles.append(h)
 
 
 # 3 Achsenpfeile (Bewegen) — Schaft + Spitze entlang +X/+Y/+Z, ziehen verschiebt entlang Achse.
@@ -851,12 +865,15 @@ func _update_handles() -> void:
 		elif kind == "rotate":
 			h.position = Vector3.ZERO                 # Ring um das Zentrum
 		elif kind == "ends":
-			# Würfel zentriert auf der ±Z-Endfläche (wie ein Scale-Würfel); rückt mit der Dicke
-			# dieses Endes nach außen -> direktes Feedback beim Ziehen entlang der Längsachse.
+			# 4 Enden-Vierecke: X-Würfel seitlich (+X), Y-Würfel oben (+Y), je am ±Z-Endquerschnitt.
+			# Rückt mit der aktuellen Dicke dieses Endes/dieser Achse nach außen (direktes Feedback).
 			var es: float = h.get_meta("sign")
-			var ekey := "taper_front" if es < 0.0 else "taper"
+			var ekey := _ends_key(es, i)
 			var et: float = selected_part.get_meta(ekey, 1.0)
-			h.position = off + Vector3(0.0, 0.0, es * (float(halves[2]) + 0.45 + (et - 1.0) * float(halves[2]) * 0.5))
+			if i == 0:
+				h.position = off + Vector3(float(halves[0]) * et + 0.4, 0.0, es * float(halves[2]))
+			else:
+				h.position = off + Vector3(0.0, float(halves[1]) * et + 0.4, es * float(halves[2]))
 		else:  # scale: am Teil (lokal), an der Flächenmitte
 			var s: float = h.get_meta("sign")
 			h.position = off + _axis_vec(i) * (s * (float(halves[i]) + 0.45))
@@ -933,15 +950,16 @@ func _begin_handle_drag(handle: Node3D) -> void:
 		_rot_a0 = _ring_angle()
 		return
 	if _drag_kind == "ends":
-		# Enden-Drag wie ein Scale-Würfel: entlang der LÄNGS-Achse (±Z) ziehen.
-		# Nach AUSSEN ziehen -> dieses Ende dicker; nach INNEN -> dünner/spitzer.
+		# Enden-Drag wie ein Scale-Würfel: X-Würfel entlang +X, Y-Würfel entlang +Y ziehen.
+		# Nach AUSSEN ziehen -> dieses Ende in DIESER Achse dicker; nach INNEN -> dünner.
 		_drag_sign = handle.get_meta("sign")
+		_drag_axis_i = handle.get_meta("axis")              # 0 = X (Breite), 1 = Y (Höhe)
 		var ep := PartCatalog.get_part(selected_part.get_meta("part_id"))
 		var epsc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
 		var ehalf: Vector3 = PartCatalog.col_size(ep) * epsc * 0.5
-		_drag_half = maxf((ehalf.x + ehalf.y) * 0.5, 0.3)                     # Sensitivität ~ Querschnitt
-		_drag_taper0 = selected_part.get_meta("taper_front" if _drag_sign < 0.0 else "taper", 1.0)
-		_drag_axis_w = (selected_part.global_transform.basis * Vector3(0.0, 0.0, _drag_sign)).normalized()  # auswärts ±Z
+		_drag_half = maxf(ehalf.x if _drag_axis_i == 0 else ehalf.y, 0.3)     # Sensitivität ~ diese Achse
+		_drag_taper0 = selected_part.get_meta(_ends_key(_drag_sign, _drag_axis_i), 1.0)
+		_drag_axis_w = (selected_part.global_transform.basis * _axis_vec(_drag_axis_i)).normalized()  # auswärts +X/+Y
 		_drag_origin0 = handle.global_position
 		_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
 		return
@@ -981,10 +999,10 @@ func _update_transform_drag() -> void:
 		var nb := (Basis(_rot_axis_w, a - _rot_a0) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
 	elif _drag_handle != null and _drag_kind == "ends":
-		# Enden-Würfel entlang ±Z ziehen: außen = dieses Ende dicker, innen = dünner/spitzer.
+		# Enden-Würfel ziehen: außen = dieses Ende in X/Y dicker, innen = dünner.
 		var te := _ray_axis_t(_drag_origin0, _drag_axis_w)
 		var new_t: float = clampf(_drag_taper0 + (te - _drag_t0) / _drag_half, 0.25, 2.5)
-		var ekey := "taper_front" if _drag_sign < 0.0 else "taper"
+		var ekey := _ends_key(_drag_sign, _drag_axis_i)
 		selected_part.set_meta(ekey, new_t)
 		_rebuild_visual(selected_part)
 		if selected_part.has_meta("mirror"):
@@ -1098,7 +1116,7 @@ func _transform_release() -> void:
 		var moved_sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
 		var changed: bool = selected_part.transform != _edit_xf0 or moved_sc != _edit_sc0
 		if _drag_handle != null and _drag_kind == "ends":
-			var ekey := "taper_front" if _drag_sign < 0.0 else "taper"
+			var ekey := _ends_key(_drag_sign, _drag_axis_i)
 			changed = changed or selected_part.get_meta(ekey, 1.0) != _drag_taper0
 		if changed:
 			_push_history()
@@ -1179,7 +1197,8 @@ func _rebuild_visual(part: Node) -> void:
 		vis.free()
 	var nv := PartCatalog.build_visual(PartCatalog.get_part(part.get_meta("part_id")),
 		part.get_meta("color", Color(0, 0, 0, 0)),
-		part.get_meta("taper", 1.0), part.get_meta("taper_front", 1.0))
+		part.get_meta("taper", 1.0), part.get_meta("taper_front", 1.0),
+		part.get_meta("taper_y", -1.0), part.get_meta("taper_front_y", -1.0))
 	nv.name = "Visual"
 	nv.scale = part.get_meta("pscale", Vector3.ONE)
 	part.add_child(nv)
@@ -1201,12 +1220,15 @@ func _apply_taper(meta_key: String, factor: float, front_only: bool) -> void:
 	if not ok:
 		return
 	var tp: float = clampf(selected_part.get_meta(meta_key, 1.0) * factor, 0.25, 2.5)
+	var yk := meta_key + "_y"                          # Regler skaliert X UND Y gleichförmig
 	selected_part.set_meta(meta_key, tp)
+	selected_part.set_meta(yk, tp)
 	_rebuild_visual(selected_part)
 	if selected_part.has_meta("mirror"):
 		var m = selected_part.get_meta("mirror")
 		if is_instance_valid(m):
 			m.set_meta(meta_key, tp)
+			m.set_meta(yk, tp)
 			_rebuild_visual(m)
 	_emit_selection()
 	_push_history()
@@ -1458,13 +1480,13 @@ func _clear_wind_tunnel() -> void:
 
 
 # Platziert ein Teil (mit Symmetrie, falls aktiv und außermittig)
-func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0, 0, 0, 0), taper := -1.0, taper_front := -1.0) -> Node3D:
+func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0, 0, 0, 0), taper := -1.0, taper_front := -1.0, taper_y := -1.0, taper_front_y := -1.0) -> Node3D:
 	if id == "":
 		return null
-	var part := _make_part(id, t, col, pscale, taper, taper_front)
+	var part := _make_part(id, t, col, pscale, taper, taper_front, taper_y, taper_front_y)
 	if symmetry and absf(t.origin.x) > _mirror_threshold(id, pscale):
 		var mt := _mirror_xform(t)
-		var mpart := _make_part(id, mt, col, pscale, taper, taper_front)
+		var mpart := _make_part(id, mt, col, pscale, taper, taper_front, taper_y, taper_front_y)
 		part.set_meta("mirror", mpart)
 		mpart.set_meta("mirror", part)
 	return part
@@ -1486,20 +1508,25 @@ func _delete_hovered() -> void:
 
 
 func _make_part(id: String, xform: Transform3D, col := Color(0, 0, 0, 0),
-		pscale := Vector3.ONE, taper := -1.0, taper_front := -1.0) -> Node3D:
+		pscale := Vector3.ONE, taper := -1.0, taper_front := -1.0, taper_y := -1.0, taper_front_y := -1.0) -> Node3D:
 	var p := PartCatalog.get_part(id)
 	var part := Node3D.new()
 	part.add_to_group("part")
 	part.set_meta("part_id", id)
 	part.set_meta("is_root", p.get("root", false))
 	part.set_meta("color", col)
-	# taper/taper_front < 0 -> Teil-Default (hinteres/vorderes Ende, 1.0 = voll).
+	# taper/taper_front = X-Skalierung hinten/vorne (< 0 -> Teil-Default, 1.0 = voll).
+	# taper_y/taper_front_y = separate Y-Skalierung (< 0 -> wie X, gleichförmig).
 	var tp: float = taper if taper >= 0.0 else float(p.get("taper", 1.0))
 	var tpf: float = taper_front if taper_front >= 0.0 else float(p.get("taper_front", 1.0))
+	var tpy: float = taper_y if taper_y >= 0.0 else tp
+	var tpfy: float = taper_front_y if taper_front_y >= 0.0 else tpf
 	part.set_meta("taper", tp)
 	part.set_meta("taper_front", tpf)
+	part.set_meta("taper_y", tpy)
+	part.set_meta("taper_front_y", tpfy)
 	part.transform = xform
-	var vis := PartCatalog.build_visual(p, col, tp, tpf)
+	var vis := PartCatalog.build_visual(p, col, tp, tpf, tpy, tpfy)
 	vis.name = "Visual"
 	part.add_child(vis)
 	# Pick-Körper (nur für Editor-Raycasts)
@@ -1683,6 +1710,8 @@ func get_design() -> Array:
 				"scale": child.get_meta("pscale", Vector3.ONE),
 				"taper": child.get_meta("taper", 1.0),
 				"taper_front": child.get_meta("taper_front", 1.0),
+				"taper_y": child.get_meta("taper_y", -1.0),
+				"taper_front_y": child.get_meta("taper_front_y", -1.0),
 			})
 	return out
 
@@ -1694,7 +1723,8 @@ func load_design(arr: Array) -> void:
 		if PartCatalog.has(id):
 			_make_part(id, item.get("xform", Transform3D()),
 				item.get("color", Color(0, 0, 0, 0)), item.get("scale", Vector3.ONE),
-				item.get("taper", -1.0), item.get("taper_front", -1.0))
+				item.get("taper", -1.0), item.get("taper_front", -1.0),
+				item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 	_ensure_root()
 	_relink_mirrors()
 	if not _suppress_history:

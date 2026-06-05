@@ -1059,7 +1059,7 @@ func _build_selection_panel() -> void:
 		mrow.add_child(mb)
 		sel_mode_btns.append(mb)
 	v.add_child(_lbl("Pfeile/Würfel im 3D-Raum ziehen · Drehen: Teil ziehen · 90°-Schritte unten:", 10, Color(0.7, 0.74, 0.82)))
-	v.add_child(_lbl("⇿ Enden (Rumpf): blauer Würfel vorne / oranger hinten — längs ziehen macht das Ende dicker/dünner.", 10, Color(0.55, 0.72, 0.95)))
+	v.add_child(_lbl("⇿ Enden (Rumpf, auch per Rechtsklick): 4 Vierecke — vorne/hinten je X (seitlich) + Y (oben) — auswärts ziehen = dicker.", 10, Color(0.55, 0.72, 0.95)))
 	var axis_names := ["Breite", "Höhe", "Länge"]
 	for i in 3:
 		var row := HBoxContainer.new()
@@ -1584,7 +1584,8 @@ func _save_design() -> void:
 		var s: Vector3 = it.get("scale", Vector3.ONE)
 		data.append({"id": it["id"], "xform": _xform_to_array(it["xform"]),
 			"color": [c.r, c.g, c.b, c.a], "scale": [s.x, s.y, s.z],
-			"taper": it.get("taper", 1.0), "taper_front": it.get("taper_front", 1.0)})
+			"taper": it.get("taper", 1.0), "taper_front": it.get("taper_front", 1.0),
+			"taper_y": it.get("taper_y", -1.0), "taper_front_y": it.get("taper_front_y", -1.0)})
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -1615,7 +1616,9 @@ func _load_design() -> bool:
 				scl = Vector3(sa[0], sa[1], sa[2])
 			var tp: float = float(it.get("taper", 1.0))
 			var tpf: float = float(it.get("taper_front", 1.0))
-			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf})
+			var tpy: float = float(it.get("taper_y", -1.0))
+			var tpfy: float = float(it.get("taper_front_y", -1.0))
+			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf, "taper_y": tpy, "taper_front_y": tpfy})
 	if arr.is_empty():
 		return false
 	build_ctrl.load_design(arr)

@@ -482,7 +482,12 @@ static func has_model(id: String) -> bool:
 	return id != "" and ResourceLoader.exists(MODEL_DIR + id + ".glb")
 
 
-static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0, taper_front := 1.0) -> Node3D:
+static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0, taper_front := 1.0, taper_y := -1.0, taper_front_y := -1.0) -> Node3D:
+	# taper/taper_front = X-Skalierung des hinteren/vorderen Endes; taper_y/taper_front_y =
+	# separate Y-Skalierung (< 0 -> wie X, also gleichförmig). So lässt sich jedes Rumpf-Ende
+	# in Breite (X) und Höhe (Y) getrennt formen.
+	var ef := Vector2(maxf(taper_front, 0.02), maxf(taper_front_y if taper_front_y >= 0.0 else taper_front, 0.02))
+	var eb := Vector2(maxf(taper, 0.02), maxf(taper_y if taper_y >= 0.0 else taper, 0.02))
 	var root := Node3D.new()
 	# Hochwertiges Blender-Modell (glTF), falls vorhanden — sonst prozedural.
 	var pid: String = p.get("id", "")
@@ -500,21 +505,16 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 	match shape:
 		"box":
 			# Rumpfsegment als glatter, leicht abgerundeter Tubus (elliptischer Querschnitt).
-			# BEIDE Enden einzeln skalierbar: taper_front = vorderes (-Z) Ende, taper = hinteres
-			# (+Z) Ende -> Segment vorne/hinten verschieden dick (fließend zulaufende Rümpfe).
-			var tf: float = maxf(taper_front, 0.02)
-			var tb: float = maxf(taper, 0.02)
-			var tube := _revolve([
-				Vector2(-0.5, 0.49 * tf), Vector2(-0.46, 0.5 * tf),
-				Vector2(0.46, 0.5 * tb), Vector2(0.5, 0.49 * tb)
-			], 18)
+			# BEIDE Enden einzeln in X UND Y skalierbar (elliptischer Loft): ef = vorderes
+			# (-Z) Ende (x,y), eb = hinteres (+Z) -> Segment vorne/hinten verschieden breit/hoch.
+			var tube := _box_tube(ef, eb, 18)
 			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
 
 		"prism":
-			# Gechinter Stealth-Rumpf (F-22-Querschnitt). Beide Enden einzeln skaliert:
-			# taper_front = vorderer (-Z) Querschnitt, taper = hinterer (+Z) -> Verjüngung.
-			var pm := _prism_mesh(_f22_cross_section(), maxf(taper_front, 0.02), maxf(taper, 0.02))
+			# Gechinter Stealth-Rumpf (F-22-Querschnitt). Beide Enden in X UND Y getrennt:
+			# ef = vorderer (-Z) Querschnitt (x,y), eb = hinterer (+Z) -> Verjüngung/Formung.
+			var pm := _prism_mesh(_f22_cross_section(), ef, eb)
 			var pmat := make_material(col, metal, rough)
 			pmat.cull_mode = BaseMaterial3D.CULL_DISABLED   # beidseitig -> kein Durchsehen
 			root.add_child(_mi(pm, pmat, Vector3.ZERO, Vector3.ZERO, size))
@@ -953,9 +953,10 @@ static func _f22_cross_section() -> PackedVector2Array:
 	])
 
 
-# Querschnitt entlang Z extrudieren (unit ±0.5). Vorderes (-Z) Ende × tf, hinteres (+Z) × tb
-# -> beide Enden einzeln skalierbar (Frustum). FLACHE Facetten = gechintes Stealth-Aussehen.
-static func _prism_mesh(cs: PackedVector2Array, tf: float, tb: float) -> ArrayMesh:
+# Querschnitt entlang Z extrudieren (unit ±0.5). Vorderes (-Z) Ende × ef=(x,y),
+# hinteres (+Z) × eb=(x,y) -> beide Enden in X UND Y getrennt skalierbar (Frustum).
+# FLACHE Facetten = gechintes Stealth-Aussehen.
+static func _prism_mesh(cs: PackedVector2Array, ef: Vector2, eb: Vector2) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := cs.size()
@@ -963,10 +964,10 @@ static func _prism_mesh(cs: PackedVector2Array, tf: float, tb: float) -> ArrayMe
 	var zb := 0.5
 	for i in n:                                         # Seitenfacetten (Trapeze)
 		var j := (i + 1) % n
-		var f0 := Vector3(cs[i].x * tf, cs[i].y * tf, zf)
-		var f1 := Vector3(cs[j].x * tf, cs[j].y * tf, zf)
-		var b0 := Vector3(cs[i].x * tb, cs[i].y * tb, zb)
-		var b1 := Vector3(cs[j].x * tb, cs[j].y * tb, zb)
+		var f0 := Vector3(cs[i].x * ef.x, cs[i].y * ef.y, zf)
+		var f1 := Vector3(cs[j].x * ef.x, cs[j].y * ef.y, zf)
+		var b0 := Vector3(cs[i].x * eb.x, cs[i].y * eb.y, zb)
+		var b1 := Vector3(cs[j].x * eb.x, cs[j].y * eb.y, zb)
 		var mid := (f0 + f1 + b0 + b1) * 0.25
 		var outward := Vector3(mid.x, mid.y, 0.0).normalized()
 		_face(st, f0, f1, b1, outward)
@@ -975,8 +976,48 @@ static func _prism_mesh(cs: PackedVector2Array, tf: float, tb: float) -> ArrayMe
 	var cb := Vector3(0, 0, zb)
 	for i in n:                                         # Deckel vorne (-Z) / hinten (+Z)
 		var j := (i + 1) % n
-		_face(st, cf, Vector3(cs[i].x * tf, cs[i].y * tf, zf), Vector3(cs[j].x * tf, cs[j].y * tf, zf), Vector3(0, 0, -1))
-		_face(st, cb, Vector3(cs[i].x * tb, cs[i].y * tb, zb), Vector3(cs[j].x * tb, cs[j].y * tb, zb), Vector3(0, 0, 1))
+		_face(st, cf, Vector3(cs[i].x * ef.x, cs[i].y * ef.y, zf), Vector3(cs[j].x * ef.x, cs[j].y * ef.y, zf), Vector3(0, 0, -1))
+		_face(st, cb, Vector3(cs[i].x * eb.x, cs[i].y * eb.y, zb), Vector3(cs[j].x * eb.x, cs[j].y * eb.y, zb), Vector3(0, 0, 1))
+	return st.commit()
+
+
+# Elliptischer Rumpf-Tubus entlang Z (leicht gerundete Enden). Vorderes (-Z) Ende
+# Querschnitt × ef=(x,y), hinteres (+Z) × eb=(x,y) -> X UND Y pro Ende getrennt.
+static func _box_tube(ef: Vector2, eb: Vector2, segs := 18) -> ArrayMesh:
+	var prof := [Vector2(-0.5, 0.49), Vector2(-0.46, 0.5), Vector2(0.46, 0.5), Vector2(0.5, 0.49)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := prof.size()
+	var stride := segs + 1
+	for ring in n:
+		var z: float = prof[ring].x
+		var rad: float = prof[ring].y
+		var t: float = z + 0.5                          # 0 vorne (-Z) .. 1 hinten (+Z)
+		var sx: float = lerp(ef.x, eb.x, t)
+		var sy: float = lerp(ef.y, eb.y, t)
+		for s in stride:
+			var a: float = TAU * float(s) / float(segs)
+			st.add_vertex(Vector3(cos(a) * rad * sx, sin(a) * rad * sy, z))
+	for ring in n - 1:
+		for s in segs:
+			var i0 := ring * stride + s
+			var i1 := ring * stride + s + 1
+			var i2 := (ring + 1) * stride + s
+			var i3 := (ring + 1) * stride + s + 1
+			st.add_index(i0); st.add_index(i1); st.add_index(i2)
+			st.add_index(i1); st.add_index(i3); st.add_index(i2)
+	var verts := n * stride
+	st.add_vertex(Vector3(0, 0, prof[0].x))             # Deckel vorne (-Z)
+	var c0 := verts
+	verts += 1
+	for s in segs:
+		st.add_index(c0); st.add_index(s + 1); st.add_index(s)
+	st.add_vertex(Vector3(0, 0, prof[n - 1].x))         # Deckel hinten (+Z)
+	var cn := verts
+	var rb := (n - 1) * stride
+	for s in segs:
+		st.add_index(cn); st.add_index(rb + s); st.add_index(rb + s + 1)
+	st.generate_normals()
 	return st.commit()
 
 
