@@ -1656,7 +1656,7 @@ func _aabb_for(part: Node3D, origin: Vector3, sc: Vector3) -> AABB:
 func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 	var sc: Vector3 = part.get_meta("pscale", Vector3.ONE)
 	var result := pos
-	var mir = part.get_meta("mirror", null)
+	var mir = part.get_meta("mirror") if part.has_meta("mirror") else null
 	for a in 3:
 		if only_axis >= 0 and a != only_axis:
 			continue
@@ -1709,7 +1709,7 @@ func _snap_scale_face(part: Node3D, face_off: float) -> float:
 	var mx := my.position + my.size
 	var b1 := (k + 1) % 3
 	var b2 := (k + 2) % 3
-	var mir = part.get_meta("mirror", null)
+	var mir = part.get_meta("mirror") if part.has_meta("mirror") else null
 	var best_d := SNAP_MAG
 	var best := face_k
 	for other in design_root.get_children():
