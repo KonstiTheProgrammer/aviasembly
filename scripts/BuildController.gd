@@ -1513,7 +1513,7 @@ func _snap_tangential(origin: Vector3, n: Vector3, grid: float) -> Vector3:
 
 # Grid-Snapping beim VERSCHIEBEN: der Teil-Mittelpunkt rastet auf ein feines Raster (GRID).
 # So lassen sich Teile sauber & vorhersehbar aneinander ausrichten. only_axis>=0 = nur diese Achse.
-const MOVE_GRID := 0.05
+const MOVE_GRID := 0.025
 func _snap_move(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 	var p := PartCatalog.get_part(part.get_meta("part_id"))
 	var cov: Vector3 = PartCatalog.col_offset(p) * part.get_meta("pscale", Vector3.ONE)
