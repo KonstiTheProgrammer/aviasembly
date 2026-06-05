@@ -969,7 +969,8 @@ func _mirror_threshold(id: String, pscale: Vector3) -> float:
 	var p := PartCatalog.get_part(id)
 	if p.get("is_wing", false) or String(p.get("shape", "")) == "wing":
 		return 0.15
-	return maxf(PartCatalog.col_size(p).x * pscale.x * 0.5, 0.15)
+	# schmale Mitte-Zone: nur wirklich zentrale Teile bleiben einzeln, knapp daneben wird gespiegelt
+	return maxf(PartCatalog.col_size(p).x * pscale.x * 0.3, 0.15)
 
 
 func _sync_mirror(part: Node3D, sc: Vector3) -> void:
