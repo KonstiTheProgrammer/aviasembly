@@ -991,7 +991,8 @@ func _update_transform_drag() -> void:
 		# Pfeil ziehen -> entlang der Achse verschieben (Gegenrichtung durch Zurückziehen).
 		var t := _ray_axis_t(_drag_origin0, _drag_axis_w)
 		var origin := _drag_origin0 + _drag_axis_w * (t - _drag_t0)
-		origin = _snap_move(selected_part, origin, _drag_axis_i)   # an Nachbar-Flächen einrasten
+		origin = _snap_move(selected_part, origin, _drag_axis_i)   # aufs Raster
+		origin = _snap_to_neighbors(selected_part, origin, _drag_axis_i)  # magnetisch bündig an Nachbar
 		_apply_sel_transform(selected_part.transform.basis, origin, _drag_scale0)
 	elif _drag_handle != null and _drag_kind == "rotate":
 		# Ring ziehen -> um die WELT-Achse drehen (Winkel aus der Maus in der Ringebene)
@@ -1022,6 +1023,9 @@ func _update_transform_drag() -> void:
 		var half0: float = base_i * s0 * 0.5
 		var t := _ray_axis_t(_drag_origin0, _drag_axis_w)
 		var new_half: float = maxf(half0 + (t - _drag_t0), base_i * 0.125)
+		# gezogene Fläche aufs Raster bzw. magnetisch bündig an eine Nachbar-Fläche
+		var face_off: float = _snap_scale_face(selected_part, 2.0 * new_half - half0)
+		new_half = maxf((face_off + half0) * 0.5, base_i * 0.125)
 		var new_s: float = clampf(new_half * 2.0 / base_i, 0.25, 6.0)
 		var sc := _drag_scale0
 		if i == 0:
@@ -1037,7 +1041,8 @@ func _update_transform_drag() -> void:
 		_apply_sel_transform(selected_part.transform.basis, origin, sc)
 	elif _moving_sel:
 		var newpos := _plane_ray() - _move_grab
-		newpos = _snap_move(selected_part, newpos)   # bündig an Nachbar-Teile einrasten
+		newpos = _snap_move(selected_part, newpos)   # aufs Raster
+		newpos = _snap_to_neighbors(selected_part, newpos)   # magnetisch bündig an Nachbar-Teile
 		_apply_sel_transform(selected_part.transform.basis, newpos, selected_part.get_meta("pscale", Vector3.ONE))
 
 
@@ -1626,6 +1631,105 @@ func _snap_move(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 			continue
 		c[a] = roundf(c[a] / MOVE_GRID) * MOVE_GRID
 	return Vector3(c[0], c[1], c[2]) - cov
+
+
+# Magnetisches Flächen-Snapping: rastet Teile BÜNDIG aneinander. Reichweite + Raster fürs Skalieren.
+const SNAP_MAG := 0.16
+const SCALE_GRID := 0.05
+
+# Welt-AABB des Teils, wenn sein Ursprung bei `origin` läge und es Skalierung `sc` hätte.
+func _aabb_for(part: Node3D, origin: Vector3, sc: Vector3) -> AABB:
+	var p := PartCatalog.get_part(part.get_meta("part_id"))
+	var half: Vector3 = PartCatalog.col_size(p) * sc * 0.5
+	var b := part.transform.basis
+	var center: Vector3 = origin + b * (PartCatalog.col_offset(p) * sc)
+	var ab := AABB(center, Vector3.ZERO)
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				ab = ab.expand(center + b * Vector3(sx * half.x, sy * half.y, sz * half.z))
+	return ab
+
+
+# Verschieben: zieht das Teil pro Achse BÜNDIG an die nächste Nachbar-Fläche (wenn < SNAP_MAG),
+# sofern sich die beiden anderen Achsen überlappen (die Flächen sich also wirklich berühren würden).
+func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
+	var sc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+	var result := pos
+	var mir = part.get_meta("mirror", null)
+	for a in 3:
+		if only_axis >= 0 and a != only_axis:
+			continue
+		var my := _aabb_for(part, result, sc)
+		var mn := my.position
+		var mx := my.position + my.size
+		var b1 := (a + 1) % 3
+		var b2 := (a + 2) % 3
+		var best_d := SNAP_MAG
+		var best_delta := 0.0
+		for other in design_root.get_children():
+			if not other.is_in_group("part") or other == part or other == mir:
+				continue
+			var ob := _part_world_aabb(other)
+			var omn := ob.position
+			var omx := ob.position + ob.size
+			if mx[b1] <= omn[b1] + 0.04 or mn[b1] >= omx[b1] - 0.04:
+				continue
+			if mx[b2] <= omn[b2] + 0.04 or mn[b2] >= omx[b2] - 0.04:
+				continue
+			var d1: float = absf(omx[a] - mn[a])    # meine −Fläche an deren +Fläche
+			if d1 < best_d:
+				best_d = d1
+				best_delta = omx[a] - mn[a]
+			var d2: float = absf(omn[a] - mx[a])    # meine +Fläche an deren −Fläche
+			if d2 < best_d:
+				best_d = d2
+				best_delta = omn[a] - mx[a]
+		if best_d < SNAP_MAG:
+			result[a] += best_delta
+	return result
+
+
+# Skalieren: Offset der gezogenen Fläche (von _drag_origin0 entlang _drag_axis_w) aufs Raster
+# bzw. magnetisch an eine Nachbar-Fläche einrasten. Gibt den evtl. gesnappten Offset zurück.
+func _snap_scale_face(part: Node3D, face_off: float) -> float:
+	var grid_off: float = roundf(face_off / SCALE_GRID) * SCALE_GRID
+	var axw := _drag_axis_w
+	var k := 0
+	if absf(axw.y) > absf(axw[k]):
+		k = 1
+	if absf(axw.z) > absf(axw[k]):
+		k = 2
+	if absf(axw[k]) < 0.94:                          # nicht achsenparallel -> nur Raster
+		return grid_off
+	var dir: float = signf(axw[k])
+	var face_k: float = _drag_origin0[k] + axw[k] * face_off
+	var my := _part_world_aabb(part)
+	var mn := my.position
+	var mx := my.position + my.size
+	var b1 := (k + 1) % 3
+	var b2 := (k + 2) % 3
+	var mir = part.get_meta("mirror", null)
+	var best_d := SNAP_MAG
+	var best := face_k
+	for other in design_root.get_children():
+		if not other.is_in_group("part") or other == part or other == mir:
+			continue
+		var ob := _part_world_aabb(other)
+		var omn := ob.position
+		var omx := ob.position + ob.size
+		if mx[b1] <= omn[b1] + 0.04 or mn[b1] >= omx[b1] - 0.04:
+			continue
+		if mx[b2] <= omn[b2] + 0.04 or mn[b2] >= omx[b2] - 0.04:
+			continue
+		for cand in [omn[k], omx[k]]:
+			var d: float = absf(cand - face_k)
+			if d < best_d:
+				best_d = d
+				best = cand
+	if best_d < SNAP_MAG:
+		return (best - _drag_origin0[k]) * dir
+	return grid_off
 
 
 func _mirror_xform(t: Transform3D) -> Transform3D:
