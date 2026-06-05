@@ -59,6 +59,7 @@ var land_label: Label
 var flight_hud: FlightHud           # Primary-Flight-Display (Kompass, Speed/Höhe, Zielkreis)
 var tool_label: Label
 var toast_label: Label
+var toast_panel: PanelContainer
 var drag_view_btn: Button
 var part_buttons: Dictionary = {}
 var _part_group: ButtonGroup       # exklusive Auswahl der Teil-Kacheln
@@ -79,6 +80,7 @@ var sel_mode_btns: Array = []      # [Bewegen, Drehen, Skalieren] zum Hervorhebe
 var sel_taper_row: VBoxContainer   # Verjüngungs-Regler (nur für taper-fähige Rumpfteile)
 var sel_taper_front_row: HBoxContainer  # vorderes Ende (nur biends-Teile, z. B. F-22-Rumpf)
 var sel_taper_label: Label
+var _ui_theme: Theme               # zentrales UI-Design-System (dunkel + Cyan-Akzent)
 
 # Ziele zum Abschießen (Luftballons/Luftschiffe) + Geschosse
 var targets_root: Node3D           # Container in fly_world für Ziele + Geschosse
@@ -597,18 +599,127 @@ func _toggle_fullscreen() -> void:
 # ===========================================================================
 # UI
 # ===========================================================================
+# ===========================================================================
+# UI-Design-System — kohärentes dunkles Theme mit Cyan-Akzent
+# ===========================================================================
+const UI_BG := Color(0.066, 0.085, 0.125, 0.94)      # Panel-Hintergrund
+const UI_BG_SOFT := Color(0.11, 0.14, 0.19, 0.96)    # leicht hellere Fläche
+const UI_BORDER := Color(0.28, 0.45, 0.62, 0.5)      # dezenter Rand
+const UI_ACCENT := Color(0.30, 0.80, 0.94)           # Cyan-Akzent
+const UI_ACCENT_DK := Color(0.16, 0.40, 0.54)
+const UI_GOLD := Color(1.0, 0.82, 0.35)              # Geld/Highlight
+const UI_TEXT := Color(0.88, 0.92, 0.97)
+const UI_TEXT_DIM := Color(0.58, 0.66, 0.76)
+const UI_GOOD := Color(0.46, 0.92, 0.56)
+const UI_WARN := Color(1.0, 0.55, 0.4)
+
+func _sb(bg: Color, border: Color, bw: int, radius: int, pad: int) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = bg
+	s.set_corner_radius_all(radius)
+	s.set_content_margin_all(pad)
+	if bw > 0:
+		s.set_border_width_all(bw)
+		s.border_color = border
+	return s
+
+# Zentrales Theme — wird auf die UI-Wurzel gelegt und vererbt sich auf alle Kinder.
+func _make_ui_theme() -> Theme:
+	var th := Theme.new()
+	th.default_font_size = 13
+	# --- Button ---
+	var bn := _sb(Color(0.15, 0.19, 0.27, 0.96), UI_BORDER, 1, 7, 6)
+	bn.content_margin_left = 9; bn.content_margin_right = 9
+	var bh := _sb(Color(0.19, 0.33, 0.45, 0.98), UI_ACCENT, 1, 7, 6)
+	bh.content_margin_left = 9; bh.content_margin_right = 9
+	var bp := _sb(Color(0.24, 0.58, 0.74, 1.0), UI_ACCENT, 1, 7, 6)
+	bp.content_margin_left = 9; bp.content_margin_right = 9
+	var bd := _sb(Color(0.11, 0.13, 0.17, 0.65), Color(0.3, 0.33, 0.4, 0.35), 1, 7, 6)
+	bd.content_margin_left = 9; bd.content_margin_right = 9
+	th.set_stylebox("normal", "Button", bn)
+	th.set_stylebox("hover", "Button", bh)
+	th.set_stylebox("pressed", "Button", bp)
+	th.set_stylebox("disabled", "Button", bd)
+	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	th.set_color("font_color", "Button", UI_TEXT)
+	th.set_color("font_hover_color", "Button", Color(1, 1, 1))
+	th.set_color("font_pressed_color", "Button", Color(1, 1, 1))
+	th.set_color("font_disabled_color", "Button", UI_TEXT_DIM)
+	th.set_color("font_focus_color", "Button", Color(1, 1, 1))
+	th.set_font_size("font_size", "Button", 13)
+	# --- CheckBox / CheckButton ---
+	for cls in ["CheckBox", "CheckButton"]:
+		th.set_color("font_color", cls, UI_TEXT)
+		th.set_color("font_hover_color", cls, Color(1, 1, 1))
+		th.set_color("font_pressed_color", cls, UI_ACCENT)
+		th.set_stylebox("normal", cls, StyleBoxEmpty.new())
+		th.set_stylebox("hover", cls, StyleBoxEmpty.new())
+		th.set_stylebox("pressed", cls, StyleBoxEmpty.new())
+		th.set_stylebox("focus", cls, StyleBoxEmpty.new())
+	# --- Label ---
+	th.set_color("font_color", "Label", UI_TEXT)
+	# --- HSeparator (dezente Linie) ---
+	var ln := StyleBoxLine.new()
+	ln.color = Color(0.35, 0.5, 0.66, 0.3)
+	ln.thickness = 1
+	th.set_stylebox("separator", "HSeparator", ln)
+	th.set_constant("separation", "HSeparator", 9)
+	# --- Scrollbalken schlank + Akzent ---
+	var track := _sb(Color(0.0, 0.0, 0.0, 0.18), Color(0, 0, 0, 0), 0, 5, 0)
+	var grab := _sb(Color(0.32, 0.46, 0.6, 0.55), Color(0, 0, 0, 0), 0, 5, 0)
+	var grab_h := _sb(UI_ACCENT, Color(0, 0, 0, 0), 0, 5, 0)
+	for sc in ["VScrollBar", "HScrollBar"]:
+		th.set_stylebox("scroll", sc, track)
+		th.set_stylebox("grabber", sc, grab)
+		th.set_stylebox("grabber_highlight", sc, grab_h)
+		th.set_stylebox("grabber_pressed", sc, grab_h)
+	# --- PopupMenu (Rechtsklick-Kontextmenü) ---
+	th.set_stylebox("panel", "PopupMenu", _sb(UI_BG_SOFT, UI_BORDER, 1, 8, 6))
+	th.set_color("font_color", "PopupMenu", UI_TEXT)
+	th.set_color("font_hover_color", "PopupMenu", Color(1, 1, 1))
+	var hl := _sb(UI_ACCENT_DK, Color(0, 0, 0, 0), 0, 5, 0)
+	th.set_stylebox("hover", "PopupMenu", hl)
+	return th
+
+# Akzent-Button (z. B. Primäraktion): kräftige Farbe + Rand.
+func _accent_button(btn: Button, base: Color, hover: Color) -> void:
+	var n := _sb(base, base.lightened(0.15), 1, 8, 9)
+	var h := _sb(hover, Color(1, 1, 1, 0.6), 1, 8, 9)
+	var p := _sb(base.darkened(0.15), base, 1, 8, 9)
+	btn.add_theme_stylebox_override("normal", n)
+	btn.add_theme_stylebox_override("hover", h)
+	btn.add_theme_stylebox_override("pressed", p)
+	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	btn.add_theme_color_override("font_color", Color(1, 1, 1))
+	btn.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+
+# Schicker Sektions-Header: Akzent-Balken links + großer Titel, in einem dezenten Panel.
+func _section_header(text: String, accent := UI_ACCENT) -> PanelContainer:
+	var pc := PanelContainer.new()
+	var sb := _sb(Color(accent.r, accent.g, accent.b, 0.14), Color(0, 0, 0, 0), 0, 7, 8)
+	sb.border_width_left = 4
+	sb.border_color = accent
+	pc.add_theme_stylebox_override("panel", sb)
+	var l := _lbl(text, 16, Color(1, 1, 1))
+	pc.add_child(l)
+	return pc
+
+
 func _setup_ui() -> void:
 	ui = CanvasLayer.new()
 	add_child(ui)
+	_ui_theme = _make_ui_theme()
 
 	build_root = Control.new()
 	build_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	build_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	build_root.theme = _ui_theme
 	ui.add_child(build_root)
 
 	flight_root = Control.new()
 	flight_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	flight_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flight_root.theme = _ui_theme
 	ui.add_child(flight_root)
 
 	_build_hangar_ui()
@@ -618,18 +729,17 @@ func _setup_ui() -> void:
 func _build_hangar_ui() -> void:
 	# --- Linkes Teile-Panel ---
 	var panel := _panel(Color(0, 0, 0, 0.5))
-	_rect(panel, 0, 0, 0, 1, 10, 10, 248, -10)
+	_rect(panel, 0, 0, 0, 1, 12, 12, 268, -12)
 	build_root.add_child(panel)
 
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 6)
 	panel.add_child(vb)
 
-	var title := _lbl("🛠  HANGAR", 22, Color(1, 1, 1))
-	vb.add_child(title)
-	money_label = _lbl("", 15, Color(1.0, 0.86, 0.3))
+	vb.add_child(_section_header("🛠  HANGAR"))
+	money_label = _lbl("", 16, UI_GOLD)
 	vb.add_child(money_label)
-	tool_label = _lbl("Werkzeug: —", 13, Color(0.7, 1.0, 0.7))
+	tool_label = _lbl("Werkzeug: —", 13, UI_GOOD)
 	# WICHTIG: Umbruch an, sonst zwingt der lange Text die ganze Panel-Box auf Textbreite auf.
 	tool_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tool_label.custom_minimum_size = Vector2(0, 0)
@@ -737,7 +847,8 @@ func _build_hangar_ui() -> void:
 	var fly_btn := Button.new()
 	fly_btn.text = "▶  TESTFLUG STARTEN  (Tab)"
 	fly_btn.add_theme_font_size_override("font_size", 18)
-	_rect(fly_btn, 0.5, 0, 0.5, 0, -150, 10, 150, 52)
+	_accent_button(fly_btn, Color(0.18, 0.62, 0.34), Color(0.26, 0.78, 0.44))
+	_rect(fly_btn, 0.5, 0, 0.5, 0, -160, 12, 160, 56)
 	fly_btn.pressed.connect(_on_fly_pressed)
 	build_root.add_child(fly_btn)
 
@@ -746,8 +857,9 @@ func _build_hangar_ui() -> void:
 	_rect(spanel, 1, 0, 1, 0, -290, 10, -10, 290)
 	build_root.add_child(spanel)
 	var sv := VBoxContainer.new()
+	sv.add_theme_constant_override("separation", 6)
 	spanel.add_child(sv)
-	sv.add_child(_lbl("📊  STATISTIK", 16, Color(1, 0.9, 0.5)))
+	sv.add_child(_section_header("📊  STATISTIK", UI_GOLD))
 	ampel_label = _lbl("", 14, Color(0.6, 1.0, 0.6))
 	ampel_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sv.add_child(ampel_label)
@@ -758,17 +870,28 @@ func _build_hangar_ui() -> void:
 
 	_build_selection_panel()
 
-	# --- Hinweisleiste unten ---
-	var hint := _lbl("Aus Liste ziehen = bauen · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.9, 0.9, 0.9))
+	# --- Hinweisleiste unten (in dezenter Pille) ---
+	var hint_pill := PanelContainer.new()
+	var hsb := _sb(Color(0.06, 0.08, 0.12, 0.82), UI_BORDER, 1, 9, 6)
+	hint_pill.add_theme_stylebox_override("panel", hsb)
+	_rect(hint_pill, 0.5, 1, 0.5, 1, -470, -40, 470, -8)
+	build_root.add_child(hint_pill)
+	var hint := _lbl("Aus Liste ziehen = bauen · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 12, UI_TEXT_DIM)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rect(hint, 0, 1, 1, 1, 320, -34, -10, -8)
-	build_root.add_child(hint)
+	hint.autowrap_mode = TextServer.AUTOWRAP_OFF
+	hint_pill.add_child(hint)
 
-	# Toast (kurze Meldung)
-	toast_label = _lbl("", 15, Color(0.6, 1.0, 0.7))
+	# Toast (kurze Meldung, in Akzent-Pille)
+	toast_panel = PanelContainer.new()
+	var tsb := _sb(Color(0.08, 0.12, 0.10, 0.92), UI_GOOD, 1, 9, 8)
+	toast_panel.add_theme_stylebox_override("panel", tsb)
+	_rect(toast_panel, 0.5, 0, 0.5, 0, -220, 70, 220, 104)
+	toast_panel.visible = false
+	build_root.add_child(toast_panel)
+	toast_label = _lbl("", 15, Color(0.85, 1.0, 0.9))
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rect(toast_label, 0.5, 0, 0.5, 0, -200, 66, 200, 92)
-	build_root.add_child(toast_label)
+	toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	toast_panel.add_child(toast_label)
 
 
 func _fill_part_list(list: VBoxContainer) -> void:
@@ -1040,12 +1163,12 @@ func _build_selection_panel() -> void:
 	v.offset_bottom = -8
 	v.add_theme_constant_override("separation", 4)
 	sel_panel.add_child(v)
-	sel_title = _lbl("✦ Ausgewählt", 15, Color(0.55, 1.0, 0.7))
+	sel_title = _lbl("✦ Ausgewählt", 16, UI_ACCENT)
 	v.add_child(sel_title)
-	sel_scale_label = _lbl("", 12, Color(0.8, 0.85, 0.95))
+	sel_scale_label = _lbl("", 12, UI_TEXT_DIM)
 	v.add_child(sel_scale_label)
 	# --- Modus-Umschaltung (Blender-artig: Bewegen/Drehen/Skalieren, Tasten G/R/S) ---
-	v.add_child(_lbl("Werkzeug (G / R / S):", 11, Color(0.82, 0.82, 0.88)))
+	v.add_child(_lbl("Werkzeug (G / R / S):", 11, UI_TEXT_DIM))
 	var mrow := HBoxContainer.new()
 	v.add_child(mrow)
 	sel_mode_btns.clear()
@@ -1564,12 +1687,16 @@ func _on_load_pressed() -> void:
 func _on_toast_timeout() -> void:
 	if toast_label:
 		toast_label.text = ""
+	if toast_panel:
+		toast_panel.visible = false
 
 
 func _toast(msg: String) -> void:
 	if toast_label == null:
 		return
 	toast_label.text = msg
+	if toast_panel:
+		toast_panel.visible = msg != ""
 	var t := get_tree().create_timer(1.6)
 	t.timeout.connect(_on_toast_timeout)
 
@@ -1696,9 +1823,14 @@ func _lbl(text: String, size: int = 14, color: Color = Color(1, 1, 1)) -> Label:
 func _panel(bg: Color) -> PanelContainer:
 	var p := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(10)
+	# Einheitlich dunkles Panel (übergebene Farbe nur als Tönung, sonst Standard-Dunkel).
+	sb.bg_color = UI_BG if bg.a <= 0.6 else bg
+	sb.set_corner_radius_all(11)
+	sb.set_content_margin_all(13)
+	sb.set_border_width_all(1)
+	sb.border_color = UI_BORDER
+	sb.shadow_color = Color(0, 0, 0, 0.4)
+	sb.shadow_size = 7
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
