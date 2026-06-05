@@ -962,20 +962,37 @@ func _apply_sel_transform(new_basis: Basis, origin: Vector3, sc: Vector3) -> voi
 
 # Spiegelteil dynamisch erzeugen/aktualisieren beim Verschieben/Drehen/Skalieren, damit der
 # Symmetrie-Modus auch nachträglich greift (vorher nur beim Platzieren).
+# Ab welchem |x| ein Teil gespiegelt wird. Flügel/Steuerflächen ragen nach außen -> schon knapp
+# neben der Mitte. Rumpf-/Körperteile erst, wenn sie die Mittelachse NICHT mehr überlappen
+# -> "in der Mitte platziert" = KEIN Spiegel (auch bei aktiver Symmetrie).
+func _mirror_threshold(id: String, pscale: Vector3) -> float:
+	var p := PartCatalog.get_part(id)
+	if p.get("is_wing", false) or String(p.get("shape", "")) == "wing":
+		return 0.15
+	return maxf(PartCatalog.col_size(p).x * pscale.x * 0.5, 0.15)
+
+
 func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 	var m = part.get_meta("mirror") if part.has_meta("mirror") else null
 	var m_valid := is_instance_valid(m)
-	var want: bool = symmetry and not bool(part.get_meta("is_root", false)) and absf(part.position.x) > 0.15
-	if want and not m_valid:
-		# Symmetrie an, Teil außermittig, aber noch kein Spiegel -> neuen erzeugen
-		m = _make_part(part.get_meta("part_id"), _mirror_xform(part.transform),
-			part.get_meta("color", Color(0, 0, 0, 0)), sc)
-		part.set_meta("mirror", m)
-		m.set_meta("mirror", part)
+	var want: bool = symmetry and not bool(part.get_meta("is_root", false)) \
+		and absf(part.position.x) > _mirror_threshold(part.get_meta("part_id"), sc)
+	if want:
+		if not m_valid:
+			# Symmetrie an, Teil außermittig, aber noch kein Spiegel -> neuen erzeugen
+			m = _make_part(part.get_meta("part_id"), _mirror_xform(part.transform),
+				part.get_meta("color", Color(0, 0, 0, 0)), sc,
+				part.get_meta("taper", -1.0), part.get_meta("taper_front", -1.0))
+			part.set_meta("mirror", m)
+			m.set_meta("mirror", part)
+		else:
+			# vorhandenen Spiegel mitziehen (folgt auch bei ausgeschalteter Symmetrie)
+			m.transform = _mirror_xform(part.transform)
+			_apply_part_scale(m, sc)
 	elif m_valid:
-		# vorhandenen Spiegel mitziehen (folgt auch bei ausgeschalteter Symmetrie)
-		m.transform = _mirror_xform(part.transform)
-		_apply_part_scale(m, sc)
+		# in die Mitte gezogen -> Spiegel entfernen (kein überlappender Klon)
+		part.remove_meta("mirror")
+		m.free()
 
 
 # Parameter t entlang der Achse (lo + t*ld), am nächsten zum Maus-Strahl.
@@ -1369,7 +1386,7 @@ func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0
 	if id == "":
 		return null
 	var part := _make_part(id, t, col, pscale, taper, taper_front)
-	if symmetry and absf(t.origin.x) > 0.15:
+	if symmetry and absf(t.origin.x) > _mirror_threshold(id, pscale):
 		var mt := _mirror_xform(t)
 		var mpart := _make_part(id, mt, col, pscale, taper, taper_front)
 		part.set_meta("mirror", mpart)
@@ -1618,7 +1635,8 @@ func _relink_mirrors() -> void:
 		if c.is_in_group("part"):
 			parts.append(c)
 	for a in parts:
-		if a.has_meta("mirror") or a.get_meta("is_root", false) or absf(a.position.x) <= 0.15:
+		if a.has_meta("mirror") or a.get_meta("is_root", false) \
+				or absf(a.position.x) <= _mirror_threshold(a.get_meta("part_id"), a.get_meta("pscale", Vector3.ONE)):
 			continue
 		var target: Vector3 = _mirror_xform(a.transform).origin
 		for b in parts:
