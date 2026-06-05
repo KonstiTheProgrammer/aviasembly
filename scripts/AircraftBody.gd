@@ -253,18 +253,31 @@ func _process(delta: float) -> void:
 	if not _collapsed:
 		var target := 0.0 if gear_down else 1.0
 		if absf(_gear_anim - target) > 0.001:
-			_gear_anim = move_toward(_gear_anim, target, delta * 1.6)
+			_gear_anim = move_toward(_gear_anim, target, delta * 1.35)
+			var a := _gear_anim
+			# Sequenziert: Klappe auf (0..0.16) -> Bein klappt hoch (0.16..0.86) -> Klappe zu (0.84..1)
+			var leg_fold := smoothstep(0.16, 0.86, a)
+			var door_open := smoothstep(0.0, 0.16, a) - smoothstep(0.84, 1.0, a)
 			for g in gear_items:
 				if not g["retract"]:
 					continue
-				var vis = g["vis"]
-				if is_instance_valid(vis):
-					var fold := Transform3D(Basis(Vector3.RIGHT, deg_to_rad(88.0 * _gear_anim)),
-						Vector3(0, 0.55 * _gear_anim, 0))
-					vis.transform = g["base"] * fold
+				var leg = g["leg"]
+				if leg != null and is_instance_valid(leg):
+					# Neues Modell: Bein um oberen Pivot hochklappen, Klappe schwenkt auf/zu
+					var lr: Transform3D = g["leg_rest"]
+					leg.transform = Transform3D(Basis(Vector3.RIGHT, deg_to_rad(86.0 * leg_fold)) * lr.basis, lr.origin)
+					var door = g["door"]
+					if door != null and is_instance_valid(door):
+						var dr: Transform3D = g["door_rest"]
+						door.transform = Transform3D(Basis(Vector3.FORWARD, deg_to_rad(92.0 * door_open)) * dr.basis, dr.origin)
+				else:
+					# Fallback: altes Einteiler-Modell um Box-Mitte klappen
+					var vis = g["vis"]
+					if is_instance_valid(vis):
+						vis.transform = g["base"] * Transform3D(Basis(Vector3.RIGHT, deg_to_rad(88.0 * a)), Vector3(0, 0.55 * a, 0))
 				var cs = g["cs"]
 				if is_instance_valid(cs):
-					cs.disabled = _gear_anim > 0.5
+					cs.disabled = a > 0.5
 	_update_gear_status()
 	if _land_timer > 0.0:
 		_land_timer -= delta
@@ -359,7 +372,20 @@ func recompute_aero() -> void:
 				prp.append({"node": pi["prop"], "jet": pi.get("jet", false)})
 		if float(pi["gear_cap"]) > 0.0:
 			gc += pi["gear_cap"]
-			gi.append({"vis": pi["vis"], "cs": pi["cs"], "retract": pi["retract"], "base": pi["xform"]})
+			var gvis = pi["vis"]
+			var gleg = null
+			var gdoor = null
+			var glr := Transform3D.IDENTITY
+			var gdr := Transform3D.IDENTITY
+			if is_instance_valid(gvis):
+				gleg = gvis.find_child("Leg", true, false)
+				gdoor = gvis.find_child("Door", true, false)
+				if gleg != null:
+					glr = gleg.transform
+				if gdoor != null:
+					gdr = gdoor.transform
+			gi.append({"vis": gvis, "cs": pi["cs"], "retract": pi["retract"], "base": pi["xform"],
+				"leg": gleg, "door": gdoor, "leg_rest": glr, "door_rest": gdr})
 	wing_area = wa
 	eff_ar = (ars / wa) if wa > 0.0 else 4.0
 	lift_scale = (lifts / wa) if wa > 0.0 else 1.0
@@ -1027,6 +1053,12 @@ func reset_gear() -> void:
 			var vis = g["vis"]
 			if is_instance_valid(vis):
 				vis.transform = g["base"]
+			var leg = g["leg"]
+			if leg != null and is_instance_valid(leg):
+				leg.transform = g["leg_rest"]
+			var door = g["door"]
+			if door != null and is_instance_valid(door):
+				door.transform = g["door_rest"]
 		_update_gear_status()
 
 
