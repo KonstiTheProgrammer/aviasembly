@@ -12,6 +12,7 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const FREE_LOOK_SENS := 0.014   # Free-Look (C): flotter -> voll 360° mit normalem Swipe
+const FREE_LOOK_DIST := 14.0    # Free-Look: konstanter Orbit-Radius um die Flugzeug-Mitte
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
 const CAM_SHAKE_DECAY := 2.8    # Kamera-Shake klingt so schnell ab (1/s)
@@ -534,7 +535,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if free_look:
 			# Free-Look (C): Maus schwenkt nur die Kamera frei um den Flieger (voll 360°), lenkt NICHT.
 			flook_yaw = wrapf(flook_yaw - event.relative.x * FREE_LOOK_SENS, -PI, PI)
-			flook_pitch = clampf(flook_pitch - event.relative.y * FREE_LOOK_SENS, -1.3, 1.3)
+			flook_pitch = clampf(flook_pitch - event.relative.y * FREE_LOOK_SENS, -1.7, 1.7)
 			return
 		if mouse_fly:
 			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
@@ -603,15 +604,14 @@ func _process(delta: float) -> void:
 	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
 	var t := aircraft.global_transform
 	if free_look:
-		# C halten: Kamera kreist frei um die MITTE des Flugzeugs (Schwerpunkt) und schaut sie an
-		# -> von jedem Winkel sieht man den ganzen Flieger (nicht nur die Nase). Flug läuft normal.
+		# C halten: Kamera orbitet als KUGEL (konstanter Abstand) um die Flugzeug-Mitte (Schwerpunkt).
+		# Die Orientierung wird DIREKT aus Heading + Free-Look-Winkeln gebaut (kein look_at) -> smooth
+		# über den Scheitel, KEIN 180°-Flip beim Drüberfahren. Flug läuft normal weiter.
 		var center: Vector3 = t * aircraft.center_of_mass
-		var off := _free_cam_offset(t)
-		var up_ref := Vector3.UP
-		if absf(off.normalized().y) > 0.95:        # fast senkrechte Sicht -> horizontaler Up-Bezug
-			up_ref = t.basis.z
-		camera.global_position = camera.global_position.lerp(center + off, clampf(delta * 7.0, 0.0, 1.0))
-		camera.look_at(center, up_ref)
+		var heading: float = atan2(t.basis.z.x, t.basis.z.z)   # horizontale "Hinten"-Richtung
+		var b := Basis(Vector3.UP, heading + flook_yaw) * Basis(Vector3.RIGHT, flook_pitch)
+		var target := Transform3D(b, center + b.z * FREE_LOOK_DIST)
+		camera.global_transform = camera.global_transform.interpolate_with(target, clampf(delta * 8.0, 0.0, 1.0))
 		_apply_cam_shake()
 		return
 	# Free-Look-Winkel sanft zurückstellen, wenn nicht (mehr) aktiv
@@ -666,21 +666,6 @@ func _cam_offset(t: Transform3D) -> Vector3:
 	if rightax.length() > 0.01:
 		off = Basis(rightax.normalized(), look_pitch) * off
 	return off
-
-
-# Kamera-Versatz für Free-Look (C): saubere KUGEL mit KONSTANTEM Radius um den Schwerpunkt
-# -> gleicher Abstand bei jedem Winkel. flook_yaw=0 = horizontal hinter dem Flieger.
-const FREE_LOOK_DIST := 14.0
-func _free_cam_offset(_t: Transform3D) -> Vector3:
-	var behind: Vector3 = Vector3(_t.basis.z.x, 0.0, _t.basis.z.z)   # Heading horizontal projiziert
-	if behind.length() < 0.01:
-		behind = Vector3(0, 0, 1)
-	behind = behind.normalized()
-	var dir: Vector3 = Basis(Vector3.UP, flook_yaw) * behind
-	var rightax: Vector3 = dir.cross(Vector3.UP)
-	if rightax.length() > 0.01:
-		dir = (Basis(rightax.normalized(), flook_pitch) * dir).normalized()
-	return dir * FREE_LOOK_DIST
 
 
 func _snap_camera() -> void:
