@@ -1049,7 +1049,7 @@ func _build_selection_panel() -> void:
 	var mrow := HBoxContainer.new()
 	v.add_child(mrow)
 	sel_mode_btns.clear()
-	var modes := [["↔ Bewegen", 0], ["↻ Drehen", 1], ["⤢ Skalieren", 2]]
+	var modes := [["↔ Bewegen", 0], ["↻ Drehen", 1], ["⤢ Skalieren", 2], ["⇿ Enden", 3]]
 	for md in modes:
 		var mb := Button.new()
 		mb.text = md[0]
@@ -1140,10 +1140,12 @@ func _on_selection_changed(info: Dictionary) -> void:
 		var tb := int(round(float(info.get("taper", 1.0)) * 100.0))
 		var tf := int(round(float(info.get("taper_front", 1.0)) * 100.0))
 		sel_taper_label.text = ("Verjüngung — vorne %d %% · hinten %d %%" % [tf, tb]) if biends else ("Verjüngung hinten: %d %%" % tb)
-	# aktiven Werkzeug-Modus hervorheben
+	# aktiven Werkzeug-Modus hervorheben; »Enden« nur für Rumpfsegmente (biends) zeigen
 	var gm: int = info.get("gizmo", 0)
 	for i in sel_mode_btns.size():
 		sel_mode_btns[i].modulate = Color(0.5, 1.0, 0.6) if i == gm else Color(1, 1, 1)
+	if sel_mode_btns.size() >= 4:
+		sel_mode_btns[3].visible = biends
 
 
 func _on_erase_tool() -> void:

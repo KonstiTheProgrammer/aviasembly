@@ -69,6 +69,8 @@ var _drag_axis_w := Vector3.ZERO  # Welt-Achsenrichtung des Griffs
 var _drag_t0 := 0.0               # Startparameter auf der Achse
 var _drag_scale0 := Vector3.ONE
 var _drag_origin0 := Vector3.ZERO
+var _drag_taper0 := 1.0           # Enden-Drag: Taper-Wert des Endes beim Greifen
+var _drag_half := 1.0             # Enden-Drag: halbe Höhe (Sensitivität)
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
 var _move_plane := Plane()
 var _move_grab := Vector3.ZERO
@@ -79,6 +81,7 @@ var _edit_sc0 := Vector3.ONE
 const GIZ_MOVE := 0
 const GIZ_ROTATE := 1
 const GIZ_SCALE := 2
+const GIZ_ENDS := 3             # Enden skalieren (nur Rumpfsegmente: vorne/hinten dick/dünn)
 var gizmo_mode := GIZ_MOVE
 var _drag_kind := "scale"         # "move" (Pfeil) | "rotate" (Ring) | "scale" (Würfel)
 var _rotating := false            # (Alt-Pfad, ungenutzt — Drehen läuft jetzt über Ring-Griffe)
@@ -637,6 +640,8 @@ func _build_handles() -> void:
 		return
 	if gizmo_mode == GIZ_SCALE:
 		_build_scale_handles()        # Würfel: bleiben am Teil (lokal -> Dimensionen strecken)
+	elif gizmo_mode == GIZ_ENDS:
+		_build_ends_handles()         # 2 Würfel an den Enden (lokal): vorne/hinten dick/dünn
 	else:
 		# Bewegen/Drehen: welt-ausgerichteter Halter (dreht NICHT mit dem Teil)
 		_gizmo_root = Node3D.new()
@@ -695,6 +700,34 @@ func _build_scale_handles() -> void:
 			h.add_child(mi)
 			selected_part.add_child(h)
 			_handles.append(h)
+
+
+# Enden-Modus: je ein Würfel am vorderen (-Z, blau) und hinteren (+Z, orange) Ende.
+# Ziehen (nach oben/unten) macht das jeweilige Ende dicker/dünner (Taper vorne/hinten).
+func _build_ends_handles() -> void:
+	for s in [-1.0, 1.0]:
+		var h := StaticBody3D.new()
+		h.add_to_group("handle")
+		h.collision_layer = HANDLE_LAYER
+		h.collision_mask = 0
+		h.set_meta("kind", "ends")
+		h.set_meta("axis", 2)
+		h.set_meta("sign", s)
+		var col: Color = Color(0.35, 0.8, 1.0) if s < 0.0 else Color(1.0, 0.62, 0.2)
+		h.set_meta("base_col", col)
+		var cs := CollisionShape3D.new()
+		var bs := BoxShape3D.new()
+		bs.size = Vector3(0.7, 0.7, 0.7)
+		cs.shape = bs
+		h.add_child(cs)
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.55, 0.55, 0.55)
+		mi.mesh = bm
+		mi.material_override = _gizmo_mat(col)
+		h.add_child(mi)
+		selected_part.add_child(h)
+		_handles.append(h)
 
 
 # 3 Achsenpfeile (Bewegen) — Schaft + Spitze entlang +X/+Y/+Z, ziehen verschiebt entlang Achse.
@@ -817,6 +850,12 @@ func _update_handles() -> void:
 			h.position = _axis_vec(i) * radius        # Welt-Achse, relativ zum Welt-Halter
 		elif kind == "rotate":
 			h.position = Vector3.ZERO                 # Ring um das Zentrum
+		elif kind == "ends":
+			# am Endquerschnitt (±Z), oben auf der aktuellen Dicke dieses Endes
+			var es: float = h.get_meta("sign")
+			var ekey := "taper_front" if es < 0.0 else "taper"
+			var et: float = selected_part.get_meta(ekey, 1.0)
+			h.position = off + Vector3(0.0, float(halves[1]) * et + 0.4, es * float(halves[2]))
 		else:  # scale: am Teil (lokal), an der Flächenmitte
 			var s: float = h.get_meta("sign")
 			h.position = off + _axis_vec(i) * (s * (float(halves[i]) + 0.45))
@@ -860,9 +899,13 @@ func _ring_angle() -> float:
 	return atan2(rel.dot(_rot_v), rel.dot(_rot_u))
 
 
-# Gizmo-Modus setzen (0=Bewegen 1=Drehen 2=Skalieren) und Griffe neu aufbauen.
+# Gizmo-Modus setzen (0=Bewegen 1=Drehen 2=Skalieren 3=Enden) und Griffe neu aufbauen.
 func set_gizmo_mode(m: int) -> void:
-	gizmo_mode = clampi(m, 0, 2)
+	gizmo_mode = clampi(m, 0, 3)
+	# Enden-Modus nur für Rumpfsegmente mit zwei skalierbaren Enden (biends).
+	if gizmo_mode == GIZ_ENDS and selected_part != null \
+			and not PartCatalog.get_part(selected_part.get_meta("part_id")).get("biends", false):
+		gizmo_mode = GIZ_SCALE
 	if selected_part != null:
 		_build_handles()
 		_emit_selection()
@@ -887,6 +930,16 @@ func _begin_handle_drag(handle: Node3D) -> void:
 		_rot_u = _rot_u.normalized()
 		_rot_v = _rot_axis_w.cross(_rot_u).normalized()
 		_rot_a0 = _ring_angle()
+		return
+	if _drag_kind == "ends":
+		# Enden-Drag: vertikal ziehen -> Taper dieses Endes (vorne/hinten) dicker/dünner.
+		_drag_sign = handle.get_meta("sign")
+		var ep := PartCatalog.get_part(selected_part.get_meta("part_id"))
+		_drag_half = maxf(PartCatalog.col_size(ep).y * selected_part.get_meta("pscale", Vector3.ONE).y * 0.5, 0.3)
+		_drag_taper0 = selected_part.get_meta("taper_front" if _drag_sign < 0.0 else "taper", 1.0)
+		_drag_axis_w = selected_part.global_transform.basis.y.normalized()   # lokale Hoch-Achse (Welt)
+		_drag_origin0 = handle.global_position                                # fixe Referenz auf der Achse
+		_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
 		return
 	_drag_sign = handle.get_meta("sign")
 	_drag_scale0 = selected_part.get_meta("pscale", Vector3.ONE)
@@ -923,6 +976,21 @@ func _update_transform_drag() -> void:
 		var a := _ring_angle()
 		var nb := (Basis(_rot_axis_w, a - _rot_a0) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
+	elif _drag_handle != null and _drag_kind == "ends":
+		# Enden-Griff vertikal ziehen -> Taper dieses Endes (vorne/hinten) dicker/dünner.
+		var te := _ray_axis_t(_drag_origin0, _drag_axis_w)
+		var new_t: float = clampf(_drag_taper0 + (te - _drag_t0) / _drag_half, 0.25, 2.5)
+		var ekey := "taper_front" if _drag_sign < 0.0 else "taper"
+		selected_part.set_meta(ekey, new_t)
+		_rebuild_visual(selected_part)
+		if selected_part.has_meta("mirror"):
+			var mm = selected_part.get_meta("mirror")
+			if is_instance_valid(mm):
+				mm.set_meta(ekey, new_t)
+				_rebuild_visual(mm)
+		_update_handles()
+		_emit_selection()
+		_notify_changed()
 	elif _drag_handle != null:
 		var p := PartCatalog.get_part(selected_part.get_meta("part_id"))
 		var bs: Vector3 = PartCatalog.col_size(p)
@@ -1025,6 +1093,9 @@ func _transform_release() -> void:
 	if (_drag_handle != null or _moving_sel or _rotating) and selected_part != null:
 		var moved_sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
 		var changed: bool = selected_part.transform != _edit_xf0 or moved_sc != _edit_sc0
+		if _drag_handle != null and _drag_kind == "ends":
+			var ekey := "taper_front" if _drag_sign < 0.0 else "taper"
+			changed = changed or selected_part.get_meta(ekey, 1.0) != _drag_taper0
 		if changed:
 			_push_history()
 			_notify_changed()
