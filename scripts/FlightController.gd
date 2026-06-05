@@ -77,6 +77,8 @@ var look_pitch := 0.0           # vertikal
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
 var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
 var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
+var _flook_basis := Basis()     # geglättete Orbit-Orientierung (Position folgt dem Flieger STARR)
+var _flook_was := false         # war Free-Look letzten Frame aktiv? (für sanften Einstieg)
 var _mouse_idle := 0.0
 var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase folgt)
 var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, nur im Maus-Flug)
@@ -609,12 +611,17 @@ func _process(delta: float) -> void:
 		# über den Scheitel, KEIN 180°-Flip beim Drüberfahren. Flug läuft normal weiter.
 		var center: Vector3 = t * aircraft.center_of_mass
 		var heading: float = atan2(t.basis.z.x, t.basis.z.z)   # horizontale "Hinten"-Richtung
-		var b := Basis(Vector3.UP, heading + flook_yaw) * Basis(Vector3.RIGHT, flook_pitch)
-		var target := Transform3D(b, center + b.z * FREE_LOOK_DIST)
-		camera.global_transform = camera.global_transform.interpolate_with(target, clampf(delta * 8.0, 0.0, 1.0))
+		var b_target := Basis(Vector3.UP, heading + flook_yaw) * Basis(Vector3.RIGHT, flook_pitch)
+		if not _flook_was:
+			_flook_basis = camera.global_transform.basis.orthonormalized()   # sanfter Einstieg aus aktueller Sicht
+		_flook_was = true
+		# Nur die ORIENTIERUNG glätten; die POSITION folgt dem (auch schnellen) Flieger STARR -> kein Lag.
+		_flook_basis = _flook_basis.slerp(b_target, clampf(delta * 12.0, 0.0, 1.0)).orthonormalized()
+		camera.global_transform = Transform3D(_flook_basis, center + _flook_basis.z * FREE_LOOK_DIST)
 		_apply_cam_shake()
 		return
 	# Free-Look-Winkel sanft zurückstellen, wenn nicht (mehr) aktiv
+	_flook_was = false
 	flook_yaw = lerpf(flook_yaw, 0.0, clampf(delta * 5.0, 0.0, 1.0))
 	flook_pitch = lerpf(flook_pitch, 0.0, clampf(delta * 5.0, 0.0, 1.0))
 	if mouse_fly:
