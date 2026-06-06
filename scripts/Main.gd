@@ -545,7 +545,7 @@ func _setup_controllers() -> void:
 func _set_mode(m: int) -> void:
 	# Nicht starten, wenn Teile frei schweben (nicht mit dem Flugzeug verbunden).
 	if m == Mode.FLY and mode == Mode.BUILD and build_ctrl != null and build_ctrl.has_floating():
-		_toast("⚠ %d Teil(e) hängen frei (rot markiert) — erst verbinden, dann Start" % build_ctrl.floating_count())
+		_toast("%d Teil(e) hängen frei (rot markiert) — erst verbinden, dann Start" % build_ctrl.floating_count())
 		return
 	mode = m
 	var building := (m == Mode.BUILD)
@@ -693,16 +693,72 @@ func _accent_button(btn: Button, base: Color, hover: Color) -> void:
 	btn.add_theme_color_override("font_color", Color(1, 1, 1))
 	btn.add_theme_color_override("font_hover_color", Color(1, 1, 1))
 
-# Schicker Sektions-Header: Akzent-Balken links + großer Titel, in einem dezenten Panel.
-func _section_header(text: String, accent := UI_ACCENT) -> PanelContainer:
+# Schicker Sektions-Header: Akzent-Balken links + Icon + großer Titel, in einem dezenten Panel.
+func _section_header(icon_kind: String, text: String, accent := UI_ACCENT) -> PanelContainer:
 	var pc := PanelContainer.new()
-	var sb := _sb(Color(accent.r, accent.g, accent.b, 0.14), Color(0, 0, 0, 0), 0, 7, 8)
+	var sb := _sb(Color(accent.r, accent.g, accent.b, 0.13), Color(0, 0, 0, 0), 0, 7, 8)
 	sb.border_width_left = 4
 	sb.border_color = accent
 	pc.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	pc.add_child(h)
+	if icon_kind != "":
+		var ic := HangarIcon.new()
+		ic.setup(icon_kind, accent, 2.2)
+		ic.custom_minimum_size = Vector2(20, 20)
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(ic)
 	var l := _lbl(text, 16, Color(1, 1, 1))
-	pc.add_child(l)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
 	return pc
+
+
+# Frei stehendes Icon (live gezeichnet, gestochen scharf).
+func _icon(kind: String, px: int, color := UI_TEXT, thick := 2.0) -> HangarIcon:
+	var ic := HangarIcon.new()
+	ic.setup(kind, color, thick)
+	ic.custom_minimum_size = Vector2(px, px)
+	return ic
+
+# Button mit selbst gezeichnetem Icon links + Text. Icon überlagert links (Platz via Stylebox).
+func _icon_btn(kind: String, text: String, cb: Callable, icon_col := UI_TEXT) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	for st in ["normal", "hover", "pressed", "disabled"]:
+		var base = _ui_theme.get_stylebox(st, "Button")
+		if base is StyleBoxFlat:
+			var d: StyleBoxFlat = base.duplicate()
+			d.content_margin_left = 32
+			b.add_theme_stylebox_override(st, d)
+	var ic := HangarIcon.new()
+	ic.setup(kind, icon_col, 2.0)
+	ic.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	ic.offset_left = 9
+	ic.offset_right = 27
+	ic.offset_top = 0
+	ic.offset_bottom = 0
+	b.add_child(ic)
+	if cb.is_valid():
+		b.pressed.connect(cb)
+	return b
+
+# Kompakter Button: nur Icon, zentriert (für enge Reihen). tooltip beschreibt die Aktion.
+func _icon_only_btn(kind: String, cb: Callable, tooltip := "", icon_col := UI_TEXT) -> Button:
+	var b := Button.new()
+	b.tooltip_text = tooltip
+	b.custom_minimum_size = Vector2(0, 30)
+	var ic := HangarIcon.new()
+	ic.setup(kind, icon_col, 2.0)
+	ic.set_anchors_preset(Control.PRESET_FULL_RECT)
+	ic.offset_top = 6
+	ic.offset_bottom = -6
+	b.add_child(ic)
+	if cb.is_valid():
+		b.pressed.connect(cb)
+	return b
 
 
 func _setup_ui() -> void:
@@ -736,9 +792,13 @@ func _build_hangar_ui() -> void:
 	vb.add_theme_constant_override("separation", 6)
 	panel.add_child(vb)
 
-	vb.add_child(_section_header("🛠  HANGAR"))
+	vb.add_child(_section_header("wrench", "HANGAR"))
+	var money_row := HBoxContainer.new()
+	money_row.add_theme_constant_override("separation", 6)
+	money_row.add_child(_icon("coin", 16, UI_GOLD))
 	money_label = _lbl("", 16, UI_GOLD)
-	vb.add_child(money_label)
+	money_row.add_child(money_label)
+	vb.add_child(money_row)
 	tool_label = _lbl("Werkzeug: —", 13, UI_GOOD)
 	# WICHTIG: Umbruch an, sonst zwingt der lange Text die ganze Panel-Box auf Textbreite auf.
 	tool_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -761,17 +821,15 @@ func _build_hangar_ui() -> void:
 	vb.add_child(upgrade_box)
 
 	vb.add_child(HSeparator.new())
-	var move_btn := Button.new()
-	move_btn.text = "✋  Bewegen / Greifen"
-	move_btn.pressed.connect(_on_move_tool)
-	vb.add_child(move_btn)
-	var erase_btn := Button.new()
-	erase_btn.text = "🧹  Abriss-Modus"
-	erase_btn.pressed.connect(_on_erase_tool)
-	vb.add_child(erase_btn)
+	vb.add_child(_icon_btn("move", "Bewegen / Greifen", _on_move_tool))
+	vb.add_child(_icon_btn("trash", "Abriss-Modus", _on_erase_tool))
 
 	# --- Lackieren ---
-	vb.add_child(_lbl("🎨  Lackieren — Farbe wählen, dann Teil klicken:", 12, Color(0.82, 0.9, 1.0)))
+	var paint_row := HBoxContainer.new()
+	paint_row.add_theme_constant_override("separation", 7)
+	paint_row.add_child(_icon("paint", 17, UI_ACCENT))
+	paint_row.add_child(_lbl("Lackieren — Farbe wählen, dann Teil klicken", 12, UI_TEXT_DIM))
+	vb.add_child(paint_row)
 	var pal := GridContainer.new()
 	pal.columns = 7
 	vb.add_child(pal)
@@ -783,38 +841,31 @@ func _build_hangar_ui() -> void:
 	]
 	for c in colors:
 		var sw := Button.new()
-		sw.custom_minimum_size = Vector2(26, 22)
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = c
-		sb.set_corner_radius_all(4)
+		sw.custom_minimum_size = Vector2(26, 23)
+		var sb := _sb(c, Color(0, 0, 0, 0.45), 1, 5, 0)
+		var shv := _sb(c, Color(1, 1, 1, 0.92), 2, 5, 0)
 		sw.add_theme_stylebox_override("normal", sb)
-		sw.add_theme_stylebox_override("hover", sb)
-		sw.add_theme_stylebox_override("pressed", sb)
+		sw.add_theme_stylebox_override("hover", shv)
+		sw.add_theme_stylebox_override("pressed", shv)
 		sw.add_theme_stylebox_override("focus", sb)
 		sw.pressed.connect(_on_paint_color.bind(c))
 		pal.add_child(sw)
 
-	# --- Undo / Redo / Ansicht ---
+	# --- Undo / Redo / Ansicht (kompakt, nur Icons) ---
 	var row3 := HBoxContainer.new()
+	row3.add_theme_constant_override("separation", 6)
 	vb.add_child(row3)
-	var undo_btn := Button.new()
-	undo_btn.text = "↶ Undo"
+	var undo_btn := _icon_only_btn("undo", _on_undo, "Rückgängig (Strg+Z)")
 	undo_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	undo_btn.pressed.connect(_on_undo)
 	row3.add_child(undo_btn)
-	var redo_btn := Button.new()
-	redo_btn.text = "↷ Redo"
+	var redo_btn := _icon_only_btn("redo", _on_redo, "Wiederholen (Strg+Y)")
 	redo_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	redo_btn.pressed.connect(_on_redo)
 	row3.add_child(redo_btn)
-	var cam_btn := Button.new()
-	cam_btn.text = "🎯 Ansicht"
+	var cam_btn := _icon_only_btn("target", _on_reset_view, "Ansicht zentrieren (F)")
 	cam_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cam_btn.pressed.connect(_on_reset_view)
 	row3.add_child(cam_btn)
 
-	drag_view_btn = Button.new()
-	drag_view_btn.text = "🌬  Windkanal-Ansicht"
+	drag_view_btn = _icon_btn("wind", "Windkanal-Ansicht", Callable())
 	drag_view_btn.toggle_mode = true
 	drag_view_btn.toggled.connect(_on_drag_view)
 	vb.add_child(drag_view_btn)
@@ -826,29 +877,31 @@ func _build_hangar_ui() -> void:
 	vb.add_child(sym)
 
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
 	vb.add_child(row)
-	var clear_btn := Button.new()
-	clear_btn.text = "Neu"
+	var clear_btn := _icon_only_btn("new", _on_clear_pressed, "Neu (alles löschen)")
 	clear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	clear_btn.pressed.connect(_on_clear_pressed)
 	row.add_child(clear_btn)
-	var save_btn := Button.new()
-	save_btn.text = "Speichern"
+	var save_btn := _icon_only_btn("save", _on_save_pressed, "Speichern")
 	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	save_btn.pressed.connect(_on_save_pressed)
 	row.add_child(save_btn)
-	var load_btn := Button.new()
-	load_btn.text = "Laden"
+	var load_btn := _icon_only_btn("load", _on_load_pressed, "Laden")
 	load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	load_btn.pressed.connect(_on_load_pressed)
 	row.add_child(load_btn)
 
 	# --- Testflug-Button oben mitte ---
 	var fly_btn := Button.new()
-	fly_btn.text = "▶  TESTFLUG STARTEN  (Tab)"
+	fly_btn.text = "TESTFLUG STARTEN     (Tab)"
 	fly_btn.add_theme_font_size_override("font_size", 18)
-	_accent_button(fly_btn, Color(0.18, 0.62, 0.34), Color(0.26, 0.78, 0.44))
-	_rect(fly_btn, 0.5, 0, 0.5, 0, -160, 12, 160, 56)
+	fly_btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_accent_button(fly_btn, Color(0.17, 0.6, 0.33), Color(0.26, 0.79, 0.45))
+	var play_ic := HangarIcon.new()
+	play_ic.setup("play", Color(1, 1, 1), 2.0)
+	play_ic.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	play_ic.offset_left = 20
+	play_ic.offset_right = 44
+	fly_btn.add_child(play_ic)
+	_rect(fly_btn, 0.5, 0, 0.5, 0, -175, 12, 175, 58)
 	fly_btn.pressed.connect(_on_fly_pressed)
 	build_root.add_child(fly_btn)
 
@@ -859,13 +912,21 @@ func _build_hangar_ui() -> void:
 	var sv := VBoxContainer.new()
 	sv.add_theme_constant_override("separation", 6)
 	spanel.add_child(sv)
-	sv.add_child(_section_header("📊  STATISTIK", UI_GOLD))
+	sv.add_child(_section_header("stats", "STATISTIK", UI_GOLD))
 	ampel_label = _lbl("", 14, Color(0.6, 1.0, 0.6))
 	ampel_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sv.add_child(ampel_label)
 	stats_label = _lbl("", 14)
 	sv.add_child(stats_label)
-	var legend := _lbl("● Schwerpunkt   ● Auftriebspunkt", 11, Color(0.85, 0.85, 0.85))
+	var legend := HBoxContainer.new()
+	legend.add_theme_constant_override("separation", 5)
+	legend.add_child(_icon("dot", 12, Color(1.0, 0.85, 0.2)))
+	legend.add_child(_lbl("Schwerpunkt", 11, UI_TEXT_DIM))
+	var lsp := Control.new()
+	lsp.custom_minimum_size = Vector2(8, 0)
+	legend.add_child(lsp)
+	legend.add_child(_icon("dot", 12, Color(0.4, 0.7, 1.0)))
+	legend.add_child(_lbl("Auftriebspunkt", 11, UI_TEXT_DIM))
 	sv.add_child(legend)
 
 	_build_selection_panel()
@@ -913,13 +974,25 @@ func _fill_part_list(list: VBoxContainer) -> void:
 		var hb := StyleBoxFlat.new()
 		hb.bg_color = Color(1.0, 0.78, 0.35, 0.16)
 		hb.set_corner_radius_all(4)
-		hb.content_margin_left = 6
-		hb.content_margin_top = 3
-		hb.content_margin_bottom = 3
+		var hbh := StyleBoxFlat.new()
+		hbh.bg_color = Color(1.0, 0.78, 0.35, 0.26)
+		hbh.set_corner_radius_all(4)
+		hbh.content_margin_left = 28
+		hb.content_margin_left = 28
+		hb.content_margin_top = 4
+		hb.content_margin_bottom = 4
+		hbh.content_margin_top = 4
+		hbh.content_margin_bottom = 4
 		header.add_theme_stylebox_override("normal", hb)
-		header.add_theme_stylebox_override("hover", hb)
+		header.add_theme_stylebox_override("hover", hbh)
 		header.add_theme_stylebox_override("pressed", hb)
-		header.add_theme_color_override("font_color", Color(1.0, 0.82, 0.45))
+		header.add_theme_color_override("font_color", Color(1.0, 0.84, 0.5))
+		var chev := HangarIcon.new()
+		chev.setup("chev_down" if _cat_open[cat] else "chev_right", Color(1.0, 0.82, 0.45), 2.0)
+		chev.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		chev.offset_left = 7
+		chev.offset_right = 25
+		header.add_child(chev)
 		list.add_child(header)
 		# --- Grid mit Vorschau-Kacheln ---
 		var grid := GridContainer.new()
@@ -928,11 +1001,11 @@ func _fill_part_list(list: VBoxContainer) -> void:
 		grid.add_theme_constant_override("v_separation", 5)
 		grid.visible = _cat_open[cat]
 		list.add_child(grid)
-		header.text = ("▾  " if _cat_open[cat] else "▸  ") + cat.to_upper() + "   (%d)" % parts.size()
+		header.text = cat.to_upper() + "    (%d)" % parts.size()
 		header.toggled.connect(func(on: bool) -> void:
 			grid.visible = on
 			_cat_open[cat] = on
-			header.text = ("▾  " if on else "▸  ") + cat.to_upper() + "   (%d)" % parts.size()
+			chev.setup("chev_down" if on else "chev_right", Color(1.0, 0.82, 0.45), 2.0)
 		)
 		for p in parts:
 			grid.add_child(_make_part_tile(p))
@@ -954,7 +1027,7 @@ func _part_stats_text(p: Dictionary) -> String:
 	if String(p.get("weapon", "")) != "":
 		lines.append("Waffe: %s" % String(p["weapon"]))
 	lines.append("Luftwiderstand cW·A: %.2f m²" % PartCatalog.part_drag(p))
-	lines.append("Preis: %d 🪙" % PartCatalog.part_cost(p))
+	lines.append("Preis: %d Münzen" % PartCatalog.part_cost(p))
 	return "\n".join(lines)
 
 
@@ -993,19 +1066,38 @@ func _make_part_tile(p: Dictionary) -> Button:
 	box.add_child(nm)
 
 	var locked: bool = game != null and not game.is_unlocked(id)
-	var mass := Label.new()
-	mass.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	mass.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mass.add_theme_font_size_override("font_size", 9)
 	if locked:
-		mass.text = "🔒 %d 🪙" % PartCatalog.part_cost(p)
-		mass.add_theme_color_override("font_color", Color(1.0, 0.82, 0.35))
-		tile.modulate = Color(0.68, 0.68, 0.74)   # gesperrt -> ausgegraut
-		tile.tooltip_text = _part_stats_text(p) + "\n🔒 klicken zum Kaufen"
+		# Preis mit Coin-Icon + Schloss-Icon oben rechts
+		var price_row := HBoxContainer.new()
+		price_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		price_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		price_row.add_theme_constant_override("separation", 3)
+		price_row.add_child(_icon("coin", 11, Color(1.0, 0.82, 0.35)))
+		var pl := Label.new()
+		pl.text = "%d" % PartCatalog.part_cost(p)
+		pl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pl.add_theme_font_size_override("font_size", 9)
+		pl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.35))
+		price_row.add_child(pl)
+		box.add_child(price_row)
+		tile.modulate = Color(0.7, 0.7, 0.76)   # gesperrt -> ausgegraut
+		tile.tooltip_text = _part_stats_text(p) + "\nKlicken zum Kaufen"
+		var lock_ic := HangarIcon.new()
+		lock_ic.setup("lock", Color(1.0, 0.82, 0.35), 1.6)
+		lock_ic.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		lock_ic.offset_left = -20
+		lock_ic.offset_top = 4
+		lock_ic.offset_right = -4
+		lock_ic.offset_bottom = 20
+		tile.add_child(lock_ic)
 	else:
+		var mass := Label.new()
 		mass.text = "%d kg" % int(p["mass"])
+		mass.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mass.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		mass.add_theme_font_size_override("font_size", 9)
 		mass.add_theme_color_override("font_color", Color(0.72, 0.8, 0.92))
-	box.add_child(mass)
+		box.add_child(mass)
 
 	part_buttons[id] = tile
 	return tile
@@ -1112,10 +1204,10 @@ func _on_pick_part(id: String) -> void:
 		var p := PartCatalog.get_part(id)
 		var cost := PartCatalog.part_cost(p)
 		if game.buy_part(id, cost):
-			_toast("Gekauft: %s  (−%d 🪙)" % [p.get("name", id), cost])
+			_toast("Gekauft: %s  (−%d Münzen)" % [p.get("name", id), cost])
 			_rebuild_palette()
 		else:
-			_toast("Zu teuer: %s kostet %d 🪙 (du hast %d)" % [p.get("name", id), cost, game.money])
+			_toast("Zu teuer: %s kostet %d (du hast %d)" % [p.get("name", id), cost, game.money])
 
 
 # Drücken auf eine Kachel startet das Drag&Drop aus dem Inventar (nur freigeschaltete Teile).
@@ -1163,7 +1255,7 @@ func _build_selection_panel() -> void:
 	v.offset_bottom = -8
 	v.add_theme_constant_override("separation", 4)
 	sel_panel.add_child(v)
-	sel_title = _lbl("✦ Ausgewählt", 16, UI_ACCENT)
+	sel_title = _lbl("Ausgewählt", 16, UI_ACCENT)
 	v.add_child(sel_title)
 	sel_scale_label = _lbl("", 12, UI_TEXT_DIM)
 	v.add_child(sel_scale_label)
@@ -1171,14 +1263,12 @@ func _build_selection_panel() -> void:
 	v.add_child(_lbl("Werkzeug (G / R / S):", 11, UI_TEXT_DIM))
 	var mrow := HBoxContainer.new()
 	v.add_child(mrow)
+	mrow.add_theme_constant_override("separation", 6)
 	sel_mode_btns.clear()
-	var modes := [["↔ Bewegen", 0], ["↻ Drehen", 1], ["⤢ Skalieren", 2], ["⇿ Enden", 3]]
+	var modes := [["move", 0, "Bewegen (G)"], ["rotate", 1, "Drehen (R)"], ["scale", 2, "Skalieren (S)"], ["ends", 3, "Enden X/Y"]]
 	for md in modes:
-		var mb := Button.new()
-		mb.text = md[0]
+		var mb := _icon_only_btn(md[0], build_ctrl.set_gizmo_mode.bind(md[1]), md[2])
 		mb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		mb.add_theme_font_size_override("font_size", 11)
-		mb.pressed.connect(build_ctrl.set_gizmo_mode.bind(md[1]))
 		mrow.add_child(mb)
 		sel_mode_btns.append(mb)
 	v.add_child(_lbl("Pfeile/Würfel im 3D-Raum ziehen · Drehen: Teil ziehen · 90°-Schritte unten:", 10, Color(0.7, 0.74, 0.82)))
@@ -1201,21 +1291,19 @@ func _build_selection_panel() -> void:
 		plus.pressed.connect(build_ctrl.nudge_scale.bind(i, 1.18))
 		row.add_child(plus)
 	var row2 := HBoxContainer.new()
+	row2.add_theme_constant_override("separation", 6)
 	v.add_child(row2)
 	var rot := Button.new()
-	rot.text = "↻ Drehen"
+	rot.text = "Drehen 90°"
 	rot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rot.pressed.connect(build_ctrl.rotate_selected)
 	row2.add_child(rot)
 	var tilt := Button.new()
-	tilt.text = "⤡ Kippen"
+	tilt.text = "Kippen 90°"
 	tilt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tilt.pressed.connect(build_ctrl.tilt_selected)
 	row2.add_child(tilt)
-	var rst := Button.new()
-	rst.text = "⟲ Größe zurücksetzen"
-	rst.pressed.connect(build_ctrl.reset_selected_scale)
-	v.add_child(rst)
+	v.add_child(_icon_btn("reset", "Größe zurücksetzen", build_ctrl.reset_selected_scale))
 	# --- Verjüngung: Rumpf-Enden breiter/schmaler (vorne/hinten einzeln) ---
 	sel_taper_row = VBoxContainer.new()
 	sel_taper_row.add_theme_constant_override("separation", 2)
@@ -1225,15 +1313,9 @@ func _build_selection_panel() -> void:
 	sel_taper_front_row = _make_taper_row("Vorne", build_ctrl.nudge_taper_front)
 	sel_taper_row.add_child(sel_taper_front_row)
 	sel_taper_row.add_child(_make_taper_row("Hinten", build_ctrl.nudge_taper))
-	var dup := Button.new()
-	dup.text = "⧉  Duplizieren  (Strg+D)"
-	dup.add_theme_color_override("font_color", Color(0.6, 0.9, 1.0))
-	dup.pressed.connect(build_ctrl.duplicate_selected)
-	v.add_child(dup)
-	sel_delete_btn = Button.new()
-	sel_delete_btn.text = "🗑  Löschen"
-	sel_delete_btn.add_theme_color_override("font_color", Color(1, 0.6, 0.55))
-	sel_delete_btn.pressed.connect(build_ctrl.delete_selected)
+	v.add_child(_icon_btn("duplicate", "Duplizieren   (Strg+D)", build_ctrl.duplicate_selected, UI_ACCENT))
+	sel_delete_btn = _icon_btn("trash", "Löschen", build_ctrl.delete_selected, Color(1.0, 0.55, 0.5))
+	sel_delete_btn.add_theme_color_override("font_color", Color(1.0, 0.66, 0.62))
 	v.add_child(sel_delete_btn)
 	sel_panel.visible = false
 
@@ -1245,7 +1327,7 @@ func _on_selection_changed(info: Dictionary) -> void:
 		sel_panel.visible = false
 		return
 	sel_panel.visible = true
-	sel_title.text = "✦ %s" % info.get("name", "Teil")
+	sel_title.text = "%s" % info.get("name", "Teil")
 	# Stats des ausgewählten Teils als Tooltip am Titel (Hover zeigt Masse/Auftrieb/Schub/…)
 	var pid: String = String(info.get("id", ""))
 	if pid != "" and PartCatalog.has(pid):
@@ -1301,7 +1383,7 @@ func _on_drag_view(on: bool) -> void:
 		var tip := "nur angeströmte Teile gefärbt (grau = Windschatten)"
 		if worst != "":
 			tip = "rot = größter Widerstand: %s (grau = Windschatten)" % worst
-		_toast("🌬 Windkanal AN — " + tip)
+		_toast("Windkanal AN — " + tip)
 	else:
 		_toast("Windkanal aus")
 
@@ -1311,9 +1393,9 @@ func _refresh_tool_ui() -> void:
 	for pid in part_buttons:
 		part_buttons[pid].set_pressed_no_signal(pid == sel)
 	if build_ctrl.erase_mode:
-		tool_label.text = "Werkzeug: 🧹 Abriss – Teil anklicken zum Löschen"
+		tool_label.text = "Werkzeug: Abriss – Teil anklicken zum Löschen"
 	elif build_ctrl.paint_mode:
-		tool_label.text = "Werkzeug: 🎨 Lackieren – Teil anklicken zum Umfärben"
+		tool_label.text = "Werkzeug: Lackieren – Teil anklicken zum Umfärben"
 	elif build_ctrl.brush_id == "":
 		tool_label.text = "Teil aus Liste ziehen = setzen · Teil anklicken = bearbeiten (G/R/S) · leer = drehen"
 	else:
@@ -1335,7 +1417,7 @@ func _build_flight_ui() -> void:
 	hv.add_child(hud_label)
 
 	# Stall-Warnung mitte oben
-	stall_label = _lbl("⚠  STRÖMUNGSABRISS  ⚠", 26, Color(1, 0.3, 0.25))
+	stall_label = _lbl("STRÖMUNGSABRISS", 26, Color(1, 0.3, 0.25))
 	stall_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(stall_label, 0.5, 0, 0.5, 0, -260, 70, 260, 110)
 	stall_label.visible = false
@@ -1376,17 +1458,17 @@ func _on_design_changed(stats: Dictionary) -> void:
 	if stats.get("col_valid", false):
 		var d: float = stats["col"].z - stats["com"].z
 		if d > 0.2:
-			stab = "stabil ✓"
+			stab = "stabil"
 		elif d < -0.2:
-			stab = "kopflastig ⚠"
+			stab = "kopflastig!"
 		else:
 			stab = "neutral"
 	var gear := "kein Fahrwerk"
 	if stats.get("has_gear", false):
 		if stats.get("gear_overload", false):
-			gear = "%d/%d kg ⚠ KOLLABIERT!" % [int(stats["mass"]), int(stats["gear_cap"])]
+			gear = "%d/%d kg — KOLLABIERT!" % [int(stats["mass"]), int(stats["gear_cap"])]
 		else:
-			gear = "%d/%d kg ✓" % [int(stats["mass"]), int(stats["gear_cap"])]
+			gear = "%d/%d kg" % [int(stats["mass"]), int(stats["gear_cap"])]
 	var wingload := "—"
 	if stats.get("has_wings", false):
 		wingload = "bis ~%.1f g" % stats["max_g"]
@@ -1445,10 +1527,10 @@ func _on_hud_changed(d: Dictionary) -> void:
 	if hud_label == null:
 		return
 	var assist_txt: String = "AN" if d.get("assist", true) else "AUS (Pro)"
-	var inv_txt: String = "INVERTIERT ⚠" if d.get("inverted", false) else "normal"
+	var inv_txt: String = "INVERTIERT" if d.get("inverted", false) else "normal"
 	var mf: bool = d.get("mouse_fly", false)
 	var arc: bool = d.get("arcade", false)
-	var mf_txt: String = ("🖱 AN — ARCADE 🎮" if arc else "🖱 AN (Cursor lenkt)") if mf else "AUS (Umschauen)"
+	var mf_txt: String = ("AN — ARCADE" if arc else "AN (Cursor lenkt)") if mf else "AUS (Umschauen)"
 	var thr_pct := int(round(d["throttle"] * 100.0))
 	var thr_txt: String
 	if thr_pct < 0:
@@ -1555,7 +1637,7 @@ func _make_target(kind: String, pos: Vector3, col: Color) -> void:
 func _on_target_killed(reward: int, _pos: Vector3) -> void:
 	if game != null:
 		game.add_money(reward)
-	_toast("💥 Abschuss! +%d 🪙" % reward)
+	_toast("Abschuss!  +%d Münzen" % reward)
 	# Nachschub: nach kurzer Zeit einen neuen Ballon einfliegen lassen
 	var tmr := get_tree().create_timer(7.0)
 	tmr.timeout.connect(_respawn_balloon)
@@ -1571,11 +1653,11 @@ func _respawn_balloon() -> void:
 # WIRTSCHAFT · MODI (Sandbox / Survival)
 # ===========================================================================
 func _on_game_changed() -> void:
-	var mstr := "Sandbox ∞" if (game != null and game.is_sandbox()) else ("🪙 %d" % (game.money if game else 0))
+	var mstr := "∞  (Sandbox)" if (game != null and game.is_sandbox()) else ("%d" % (game.money if game else 0))
 	if money_label:
-		money_label.text = "Guthaben: " + mstr
+		money_label.text = mstr
 	if fly_money_label:
-		fly_money_label.text = "🪙 " + ("∞ (Sandbox)" if (game and game.is_sandbox()) else str(game.money if game else 0))
+		fly_money_label.text = ("∞ (Sandbox)" if (game and game.is_sandbox()) else str(game.money if game else 0))
 	_build_upgrades_ui()
 
 
@@ -1601,14 +1683,14 @@ func _build_upgrades_ui() -> void:
 			b.disabled = true
 		else:
 			var cost := 600 * (lvl + 1)
-			b.text = "%s  [Lv %d]  %d 🪙" % [u["name"], lvl, cost]
+			b.text = "%s   ·   Lv %d   ·   %d Mz" % [u["name"], lvl, cost]
 			b.pressed.connect(_on_buy_upgrade.bind(u["key"], cost))
 		upgrade_box.add_child(b)
 
 
 func _on_buy_upgrade(key: String, cost: int) -> void:
 	if game.buy_upgrade(key, cost, 3):
-		_toast("Upgrade gekauft: %s  (−%d 🪙)" % [key, cost])
+		_toast("Upgrade gekauft: %s  (−%d Münzen)" % [key, cost])
 	else:
 		_toast("Zu teuer oder Maximum erreicht")
 
@@ -1674,12 +1756,12 @@ func _on_clear_pressed() -> void:
 
 func _on_save_pressed() -> void:
 	_save_design()
-	_toast("Design gespeichert ✓")
+	_toast("Design gespeichert")
 
 
 func _on_load_pressed() -> void:
 	if _load_design():
-		_toast("Design geladen ✓")
+		_toast("Design geladen")
 	else:
 		_toast("Kein Speicherstand vorhanden")
 
