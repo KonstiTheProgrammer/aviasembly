@@ -75,6 +75,7 @@ var spawn_height := 2.0
 var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
+var cockpit_view := false        # V: First-Person aus der Kanzel (rollt/nickt mit dem Flieger)
 var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
 var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
 var _flook_basis := Basis()     # geglättete Orbit-Orientierung (Position folgt dem Flieger STARR)
@@ -565,6 +566,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_flap_stage = (_flap_stage + 1) % FLAP_STAGES.size()   # Aus -> Start -> Landung -> Aus
 		elif event.keycode == KEY_I and is_instance_valid(aircraft):
 			aircraft.toggle_invert()
+		elif event.keycode == KEY_V:
+			cockpit_view = not cockpit_view
 
 
 # Maus-Flug umschalten: Maus = Weltzielrichtung (an) <-> freies Umschauen (aus).
@@ -624,6 +627,16 @@ func _process(delta: float) -> void:
 	_flook_was = false
 	flook_yaw = lerpf(flook_yaw, 0.0, clampf(delta * 5.0, 0.0, 1.0))
 	flook_pitch = lerpf(flook_pitch, 0.0, clampf(delta * 5.0, 0.0, 1.0))
+	if cockpit_view:
+		# Pilotensicht aus der Kanzel: Augenpunkt vorne/oben, Blick entlang der Nase; rollt/nickt mit.
+		var b := t.basis.orthonormalized()
+		var eye := t.origin + (-b.z) * 1.3 + b.y * 0.85
+		var view_b := b
+		if not mouse_fly:   # Maus = Kopf in der Kanzel umschauen (sonst stur geradeaus)
+			view_b = (b * Basis(Vector3.UP, look_yaw) * Basis(Vector3.RIGHT, look_pitch)).orthonormalized()
+		camera.global_transform = Transform3D(view_b, eye)
+		_apply_cam_shake()
+		return
 	if mouse_fly:
 		# Kamera blickt in die ZIELRICHTUNG (Maus), Flugzeug im Vordergrund -> du siehst,
 		# wohin du zeigst und wie die Nase nachzieht. Kein Zurückschwenken (Ziel bleibt stehen).
@@ -752,6 +765,10 @@ func _emit_hud() -> void:
 	if not is_instance_valid(aircraft):
 		return
 	_update_markers()
+	# Lage für den künstlichen Horizont: Pitch (Nase über Horizont) + Bank (rechte Tragfläche unten = +).
+	var _bz := aircraft.global_transform.basis
+	var _pitch_deg := rad_to_deg(asin(clampf(-_bz.z.y, -1.0, 1.0)))
+	var _bank_deg := rad_to_deg(atan2(-_bz.x.y, _bz.y.y))
 	hud_changed.emit({
 		"mouse_fly": mouse_fly,
 		"arcade": arcade,
@@ -760,6 +777,9 @@ func _emit_hud() -> void:
 		"aim_vis": aim_visible,
 		"nose_vis": nose_visible,
 		"throttle": throttle,
+		"pitch": _pitch_deg,
+		"roll": _bank_deg,
+		"cockpit": cockpit_view,
 		"heading": _heading_deg(),
 		"speed": aircraft.airspeed,
 		"kmh": aircraft.airspeed * 3.6,

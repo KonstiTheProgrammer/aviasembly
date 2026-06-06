@@ -4,6 +4,8 @@
 class_name FlightHud
 extends Control
 
+var pitch := 0.0            # Nicklage in Grad (+ = Nase über Horizont)
+var roll := 0.0             # Querlage in Grad (+ = rechte Tragfläche unten)
 var heading := 0.0          # Kurs in Grad (0 = Nord)
 var speed_kmh := 0.0
 var speed_ms := 0.0
@@ -40,10 +42,75 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	_draw_horizon()
 	_draw_compass()
 	_draw_speed_box()
 	_draw_alt_box()
 	_draw_reticle()
+
+
+# --- Künstlicher Horizont: Pitch-Leiter (rollt/kippt mit) + Bank-Bogen + feste Waterline ---
+func _draw_horizon() -> void:
+	var c := size * 0.5
+	var ppd := 5.6                       # Pixel pro Grad Nicklage
+	var rot := -deg_to_rad(roll)         # Horizont kippt gegen die Querlage
+	var hl := Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.9)
+	var hl_dim := Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.55)
+	# --- Leiter im gedrehten Rahmen um die Bildmitte ---
+	draw_set_transform(c, rot, Vector2.ONE)
+	var hy := pitch * ppd                 # Horizontlinie (0°)
+	if absf(hy) < 220.0:
+		draw_line(Vector2(-270, hy), Vector2(-40, hy), hl, 2.0, true)
+		draw_line(Vector2(40, hy), Vector2(270, hy), hl, 2.0, true)
+	for a in [-60, -50, -40, -30, -20, -10, 10, 20, 30, 40, 50, 60]:
+		var ry := (pitch - float(a)) * ppd
+		if absf(ry) > 165.0:
+			continue
+		var half := 64.0 if absi(a) % 30 == 0 else 42.0
+		var gap := 26.0
+		var down := 7.0 if a > 0 else -7.0      # Steig-Sprossen weisen nach unten, Sturz nach oben
+		if a > 0:
+			draw_line(Vector2(-half, ry), Vector2(-gap, ry), hl_dim, 1.5, true)
+			draw_line(Vector2(-gap, ry), Vector2(-gap, ry + down), hl_dim, 1.5, true)
+			draw_line(Vector2(half, ry), Vector2(gap, ry), hl_dim, 1.5, true)
+			draw_line(Vector2(gap, ry), Vector2(gap, ry + down), hl_dim, 1.5, true)
+		else:
+			_dash(Vector2(-half, ry), Vector2(-gap, ry), hl_dim)
+			draw_line(Vector2(-gap, ry), Vector2(-gap, ry + down), hl_dim, 1.5, true)
+			_dash(Vector2(gap, ry), Vector2(half, ry), hl_dim)
+			draw_line(Vector2(gap, ry), Vector2(gap, ry + down), hl_dim, 1.5, true)
+		if absi(a) % 30 == 0:
+			var lab := str(absf(a))
+			draw_string(_font, Vector2(-half - 30.0, ry + 5.0), lab, HORIZONTAL_ALIGNMENT_RIGHT, 26.0, 12, hl_dim)
+			draw_string(_font, Vector2(half + 4.0, ry + 5.0), lab, HORIZONTAL_ALIGNMENT_LEFT, 26.0, 12, hl_dim)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# --- Bank-Bogen oben (feste Skala) + beweglicher Zeiger ---
+	var R := 156.0
+	for b in [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]:
+		var ang := deg_to_rad(-90.0 + float(b))
+		var dir := Vector2(cos(ang), sin(ang))
+		var tl := 11.0 if (b == 0 or absf(b) == 30 or absf(b) == 60) else 6.0
+		draw_line(c + dir * R, c + dir * (R - tl), hl_dim, 1.5, true)
+	# Zeiger (Dreieck) an aktueller Querlage
+	var pang := deg_to_rad(-90.0 + roll)
+	var pd := Vector2(cos(pang), sin(pang))
+	var pp := c + pd * (R - 12.0)
+	var perp := Vector2(-pd.y, pd.x)
+	draw_colored_polygon(PackedVector2Array([pp, pp - pd * 13.0 + perp * 7.0, pp - pd * 13.0 - perp * 7.0]), ACCENT)
+	# --- Feste Waterline (Flugzeug-Referenz) ---
+	draw_line(c + Vector2(-62, 0), c + Vector2(-26, 0), Color(1, 0.9, 0.3, 0.95), 2.5, true)
+	draw_line(c + Vector2(-26, 0), c + Vector2(-26, 9), Color(1, 0.9, 0.3, 0.95), 2.5, true)
+	draw_line(c + Vector2(62, 0), c + Vector2(26, 0), Color(1, 0.9, 0.3, 0.95), 2.5, true)
+	draw_line(c + Vector2(26, 0), c + Vector2(26, 9), Color(1, 0.9, 0.3, 0.95), 2.5, true)
+	draw_circle(c, 2.5, Color(1, 0.9, 0.3, 0.95))
+
+
+func _dash(a: Vector2, b: Vector2, col: Color) -> void:
+	var d := b - a
+	var n := maxi(1, int(d.length() / 7.0))
+	for i in n:
+		if i % 2 == 0:
+			draw_line(a + d * (float(i) / n), a + d * (float(i + 1) / n), col, 1.5, true)
 
 
 # --- Kompass-Leiste oben (scrollt mit dem Kurs) -----------------------------
@@ -129,10 +196,17 @@ func _draw_alt_box() -> void:
 	draw_rect(r, Color(DIM.r, DIM.g, DIM.b, 0.45), false, 2.0)
 	draw_string(_font, Vector2(r.position.x + 12.0, r.position.y + 34.0), "%d" % int(round(altitude)),
 		HORIZONTAL_ALIGNMENT_LEFT, 110.0, 30, Color(1, 1, 1))
-	var arrow := "▲" if climb > 0.4 else ("▼" if climb < -0.4 else "■")
 	var cc: Color = ACCENT if climb > 0.4 else (Color(1, 0.6, 0.3) if climb < -0.4 else DIM)
-	draw_string(_font, Vector2(r.position.x + 12.0, r.position.y + 53.0), "m  %s %+.1f m/s" % [arrow, climb],
-		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 12, cc)
+	var ax := r.position.x + 17.0
+	var ay := r.position.y + 49.0
+	if climb > 0.4:
+		draw_colored_polygon(PackedVector2Array([Vector2(ax, ay - 5), Vector2(ax - 5, ay + 4), Vector2(ax + 5, ay + 4)]), cc)
+	elif climb < -0.4:
+		draw_colored_polygon(PackedVector2Array([Vector2(ax, ay + 5), Vector2(ax - 5, ay - 4), Vector2(ax + 5, ay - 4)]), cc)
+	else:
+		draw_rect(Rect2(ax - 4.0, ay - 4.0, 8.0, 8.0), cc, false, 1.5)
+	draw_string(_font, Vector2(r.position.x + 30.0, r.position.y + 53.0), "m    %+.1f m/s" % climb,
+		HORIZONTAL_ALIGNMENT_LEFT, 110.0, 12, cc)
 	# G-Kraft kleiner darunter
 	draw_string(_font, Vector2(r.position.x, r.position.y + 76.0), "%.1f g" % gforce,
 		HORIZONTAL_ALIGNMENT_RIGHT, 130.0, 13, Color(1, 0.85, 0.4) if gforce > 4.0 else DIM)
@@ -150,11 +224,4 @@ func _draw_reticle() -> void:
 			draw_polyline(PackedVector2Array([
 				n + Vector2(0, -9), n + Vector2(9, 0), n + Vector2(0, 9), n + Vector2(-9, 0), n + Vector2(0, -9)]),
 				Color(1.0, 0.88, 0.3, 0.95), 2.0)
-	else:
-		# statisches kleines Fadenkreuz mittig
-		var c := size * 0.5
-		draw_arc(c, 8.0, 0.0, TAU, 32, Color(1, 1, 1, 0.6), 2.0, true)
-		draw_line(c + Vector2(-14, 0), c + Vector2(-9, 0), Color(1, 1, 1, 0.6), 2.0)
-		draw_line(c + Vector2(9, 0), c + Vector2(14, 0), Color(1, 1, 1, 0.6), 2.0)
-		draw_line(c + Vector2(0, -14), c + Vector2(0, -9), Color(1, 1, 1, 0.6), 2.0)
-		draw_circle(c, 1.5, Color(1, 1, 1, 0.7))
+	# Sonst dient die feste Waterline des künstlichen Horizonts als Referenz (kein extra Fadenkreuz).

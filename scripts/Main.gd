@@ -1534,21 +1534,24 @@ func _on_hud_changed(d: Dictionary) -> void:
 	var thr_pct := int(round(d["throttle"] * 100.0))
 	var thr_txt: String
 	if thr_pct < 0:
-		thr_txt = "🛑 Bremse %d%%" % absi(thr_pct)
+		thr_txt = "Bremse %d%%" % absi(thr_pct)
 	elif thr_pct > 100:
-		thr_txt = "🔥 NACHBRENNER %d%%" % thr_pct
+		thr_txt = "NACHBRENNER %d%%" % thr_pct
 	else:
 		thr_txt = "Schub %d%%" % thr_pct
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
 	# Speed/Höhe/Kurs/Steig zeigt jetzt das PFD; hier nur noch Systeme/Status.
-	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n➤ %s" % [
+	var cam_txt: String = "Cockpit" if d.get("cockpit", false) else "Verfolger"
+	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\nKamera (V/C): %s\nNächstes Feld: %s" % [
 		thr_txt, int(d["aoa"]), d.get("gforce", 1.0),
-		d.get("wings", "ok"), d.get("gear", "—"), d.get("flaps", "AUS"), inv_txt, assist_txt, mf_txt, nav]
+		d.get("wings", "ok"), d.get("gear", "—"), d.get("flaps", "AUS"), inv_txt, assist_txt, mf_txt, cam_txt, nav]
 	var ammo_txt: String = d.get("ammo", "")
 	if ammo_txt != "":
 		hud_label.text += "\nMunition: " + ammo_txt
 	# Primary-Flight-Display füttern (Kompass, Speed/Höhe-Boxen, Zielkreis)
 	if flight_hud:
+		flight_hud.pitch = d.get("pitch", 0.0)
+		flight_hud.roll = d.get("roll", 0.0)
 		flight_hud.heading = d.get("heading", 0.0)
 		flight_hud.speed_kmh = d.get("kmh", 0.0)
 		flight_hud.speed_ms = d.get("speed", 0.0)
