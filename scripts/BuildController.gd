@@ -6,6 +6,7 @@ extends Node3D
 
 signal design_changed(stats: Dictionary)
 signal selection_changed(info: Dictionary)   # {} = nichts gewählt; sonst {name, scale, is_root}
+signal snap_changed(on: bool)                 # Snapping an/aus (Checkbox + Taste N synchron halten)
 
 const BUILD_LAYER := 2
 const HANDLE_LAYER := 8       # Transform-Griffe (eigener Raycast-Layer)
@@ -17,6 +18,7 @@ var ghost: Node3D
 var brush_id := ""           # aktuell gewähltes Teil aus der Palette ("" = kein Teil)
 var erase_mode := false      # Abriss-Werkzeug
 var symmetry := true
+var snap_enabled := true        # Raster- + Magnet-Snapping beim Verschieben/Skalieren (aus = frei)
 var ghost_rot := 0           # R-Drehung (nur für achsen-ausgerichtete Teile)
 
 # Orbit-Kamera (Blueprint: frei ums Flugzeug drehen)
@@ -355,6 +357,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_delete_hovered()
 			KEY_M:
 				symmetry = not symmetry
+			KEY_N:
+				snap_enabled = not snap_enabled
+				snap_changed.emit(snap_enabled)
 
 
 # Linke Maus im 3D-Raum: Abriss / Lackieren / vorhandenes Teil AUSWÄHLEN+bearbeiten / Kamera drehen.
@@ -1623,6 +1628,8 @@ func _snap_tangential(origin: Vector3, n: Vector3, grid: float) -> Vector3:
 # So lassen sich Teile sauber & vorhersehbar aneinander ausrichten. only_axis>=0 = nur diese Achse.
 const MOVE_GRID := 0.025
 func _snap_move(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
+	if not snap_enabled:
+		return pos
 	var p := PartCatalog.get_part(part.get_meta("part_id"))
 	var cov: Vector3 = PartCatalog.col_offset(p) * part.get_meta("pscale", Vector3.ONE)
 	var c := [pos.x + cov.x, pos.y + cov.y, pos.z + cov.z]   # genäherter Box-Mittelpunkt
@@ -1654,6 +1661,8 @@ func _aabb_for(part: Node3D, origin: Vector3, sc: Vector3) -> AABB:
 # Verschieben: zieht das Teil pro Achse BÜNDIG an die nächste Nachbar-Fläche (wenn < SNAP_MAG),
 # sofern sich die beiden anderen Achsen überlappen (die Flächen sich also wirklich berühren würden).
 func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
+	if not snap_enabled:
+		return pos
 	var sc: Vector3 = part.get_meta("pscale", Vector3.ONE)
 	var result := pos
 	var mir = part.get_meta("mirror") if part.has_meta("mirror") else null
@@ -1693,6 +1702,8 @@ func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 # Skalieren: Offset der gezogenen Fläche (von _drag_origin0 entlang _drag_axis_w) aufs Raster
 # bzw. magnetisch an eine Nachbar-Fläche einrasten. Gibt den evtl. gesnappten Offset zurück.
 func _snap_scale_face(part: Node3D, face_off: float) -> float:
+	if not snap_enabled:
+		return face_off
 	var grid_off: float = roundf(face_off / SCALE_GRID) * SCALE_GRID
 	var axw := _drag_axis_w
 	var k := 0
