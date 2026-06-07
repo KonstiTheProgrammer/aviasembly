@@ -1097,11 +1097,20 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 		# Mittelspalt-Füllung beider Hälften an die neue Position anpassen
 		_update_wing_fill(part)
 		_update_wing_fill(m)
+	elif symmetry and String(PartCatalog.get_part(part.get_meta("part_id")).get("shape", "")) == "wing":
+		# Symmetrie AN + zentriertes Flügel-Paar (zwei in der Mitte zusammenstoßende
+		# Hälften = durchgehender Flügel): NICHT entfernen, sondern beide Hälften gleich
+		# skalieren/mitziehen -> die Symmetrie greift auch beim mittigen Flügel.
+		m.transform = _mirror_xform(part.transform)
+		_apply_part_scale(m, sc)
+		_update_wing_fill(part)
+		_update_wing_fill(m)
 	elif m_valid:
-		# in die Mitte gezogen -> Spiegel entfernen (kein überlappender Klon)
+		# Symmetrie AUS (wie bisher) oder symmetrisches Teil (Box/Zylinder) mittig:
+		# doppelten/deckungsgleichen Spiegel entfernen.
 		part.remove_meta("mirror")
 		m.free()
-		_update_wing_fill(part)   # ohne Spiegel keine Füllung mehr
+		_update_wing_fill(part)
 
 
 # Parameter t entlang der Achse (lo + t*ld), am nächsten zum Maus-Strahl.
