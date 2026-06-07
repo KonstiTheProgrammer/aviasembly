@@ -76,20 +76,21 @@ func _build_fokker() -> void:
 	P(bc, "wing_straight", Vector3(0.2, 1.35, -0.12), _nx(), RED, Vector3(0.80, 1.0, 0.6))   # oben
 	P(bc, "wing_straight", Vector3(0.2, 0.1, 0.0), _nx(), RED, Vector3(0.72, 1.0, 0.6))      # Mitte
 	P(bc, "wing_straight", Vector3(0.2, -1.15, 0.12), _nx(), RED, Vector3(0.66, 1.0, 0.6))   # unten
-	# --- Streben (schlank): Kabine vorn am Rumpf (Paar) + Interplane außen je Seite ---
+	# --- Streben: Kabinenstreben OBEN und UNTEN (verbinden oberen UND unteren Flügel je
+	#     mit dem Rumpf) + EINE durchgehende Interplane-Strebe außen (verbindet alle drei) ---
 	var ST := Vector3(0.7, 1.0, 0.45)                                # schlanke Holzstrebe
-	P(bc, "strut", Vector3(0.32, 0.72, -0.04), Basis(), WOOD, ST)    # Kabine Rumpf->oben (gespiegelt)
-	P(bc, "strut", Vector3(2.55, 0.72, -0.1), Basis(), WOOD, ST)     # Interplane oben<->Mitte (gespiegelt)
-	P(bc, "strut", Vector3(2.55, -0.52, 0.06), Basis(), WOOD, ST)    # Interplane Mitte<->unten (gespiegelt)
+	P(bc, "strut", Vector3(0.42, 0.72, -0.04), Basis(), WOOD, ST)    # Kabine: Rumpf<->oben (gespiegelt)
+	P(bc, "strut", Vector3(0.42, -0.52, 0.06), Basis(), WOOD, ST)    # Kabine: Rumpf<->unten (gespiegelt)
+	P(bc, "strut", Vector3(2.55, 0.10, -0.02), Basis(), WOOD, Vector3(0.7, 1.85, 0.45))  # Interplane durchgehend, alle 3 (gespiegelt)
 	# --- Leitwerk: Höhenleitwerk gespiegelt (x=0.2!), Seitenflosse mittig ---
 	P(bc, "h_stab", Vector3(0.2, 0.0, 2.95), _nx(), RED, Vector3(1.0, 1.0, 1.0))
 	P(bc, "v_stab", Vector3(0, 0.45, 3.1), _ny(), RED, Vector3(0.95, 1.1, 1.0))
 	# --- Twin-Spandau-MG auf der Haube (gespiegelt) ---
 	P(bc, "mg", Vector3(0.18, 0.45, -0.45), Basis(), DARK)
-	# --- Kreuz-Achsfahrwerk: zwei Beine + quer liegende Achse + Räder + Hecksporn ---
-	P(bc, "strut", Vector3(0.45, -0.92, -0.1), Basis(), WOOD, Vector3(0.7, 0.62, 0.45))  # Bein (gespiegelt)
-	P(bc, "strut", Vector3(0, -1.4, -0.1), _ny(), WOOD, Vector3(1.0, 1.0, 0.5))          # Achse quer
-	P(bc, "wheel", Vector3(0.55, -1.55, -0.1), Basis(), DARK)
+	# --- Kreuz-Achsfahrwerk: Beine + DÜNNE Querachse + Räder MITTIG auf der Achse + Hecksporn ---
+	P(bc, "strut", Vector3(0.45, -1.10, -0.1), Basis(), WOOD, Vector3(0.7, 0.76, 0.45))  # Bein (gespiegelt)
+	P(bc, "strut", Vector3(0, -1.64, -0.1), _ny(), WOOD, Vector3(0.6, 1.0, 0.3))         # dünne Achse quer
+	P(bc, "wheel", Vector3(0.58, -1.64, -0.1), Basis(), DARK)                             # Rad mittig auf der Achse (gespiegelt)
 	P(bc, "wheel_light", Vector3(0, -0.55, 2.85), Basis(), DARK)                          # Hecksporn
 	_finish(bc, "fokker_dr1", "Fokker Dr.I")
 
