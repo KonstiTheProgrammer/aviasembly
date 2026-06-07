@@ -1643,7 +1643,8 @@ func _snap_move(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 
 
 # Magnetisches Flächen-Snapping: rastet Teile BÜNDIG aneinander. Reichweite + Raster fürs Skalieren.
-const SNAP_MAG := 0.28           # magnetische Reichweite fürs Andocken (großzügig -> Teile finden sich leicht)
+const SNAP_MAG := 0.14           # magnetische Reichweite fürs Andocken — klein gehalten: großer freier
+                                 # Spielraum, rastet erst ein wenn man wirklich nah dran ist (nicht bei jeder Bewegung)
 const SCALE_GRID := 0.05
 
 # Welt-AABB des Teils, wenn sein Ursprung bei `origin` läge und es Skalierung `sc` hätte.
