@@ -1658,14 +1658,27 @@ func _aabb_for(part: Node3D, origin: Vector3, sc: Vector3) -> AABB:
 	return ab
 
 
-# Verschieben: zieht das Teil pro Achse BÜNDIG an die nächste Nachbar-Fläche (wenn < SNAP_MAG),
-# sofern sich die beiden anderen Achsen überlappen (die Flächen sich also wirklich berühren würden).
+# Andock-Priorität: gleiche Kategorie zuerst (Rumpf-Kette, Flügel-Paar), Rumpf generell
+# bevorzugt (Rückgrat). Höhere Affinität schlägt kürzere Distanz -> ein Rumpf dockt eher an
+# einen Rumpf als an einen zufällig näheren Flügel.
+func _snap_affinity(cat_d: String, cat_n: String) -> int:
+	var s := 1
+	if cat_d == cat_n:
+		s += 2
+	if cat_n == PartCatalog.CAT_BODY:
+		s += 1
+	return s
+
+
+# Verschieben: zieht das Teil pro Achse BÜNDIG an die nächste PASSENDE Nachbar-Fläche
+# (Affinität VOR Distanz), sofern sich die beiden anderen Achsen überlappen.
 func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 	if not snap_enabled:
 		return pos
 	var sc: Vector3 = part.get_meta("pscale", Vector3.ONE)
 	var result := pos
 	var mir = part.get_meta("mirror") if part.has_meta("mirror") else null
+	var cat_d: String = PartCatalog.get_part(part.get_meta("part_id")).get("category", "")
 	for a in 3:
 		if only_axis >= 0 and a != only_axis:
 			continue
@@ -1674,7 +1687,8 @@ func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 		var mx := my.position + my.size
 		var b1 := (a + 1) % 3
 		var b2 := (a + 2) % 3
-		var best_d := SNAP_MAG
+		var best_aff := 0           # höhere Affinität gewinnt IMMER (solange in Reichweite)
+		var best_d := SNAP_MAG      # bei gleicher Affinität: kleinster Abstand gewinnt
 		var best_delta := 0.0
 		for other in design_root.get_children():
 			if not other.is_in_group("part") or other == part or other == mir:
@@ -1686,15 +1700,17 @@ func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 				continue
 			if mx[b2] <= omn[b2] + 0.04 or mn[b2] >= omx[b2] - 0.04:
 				continue
-			var d1: float = absf(omx[a] - mn[a])    # meine −Fläche an deren +Fläche
-			if d1 < best_d:
-				best_d = d1
-				best_delta = omx[a] - mn[a]
-			var d2: float = absf(omn[a] - mx[a])    # meine +Fläche an deren −Fläche
-			if d2 < best_d:
-				best_d = d2
-				best_delta = omn[a] - mx[a]
-		if best_d < SNAP_MAG:
+			var aff := _snap_affinity(cat_d, PartCatalog.get_part(other.get_meta("part_id")).get("category", ""))
+			# meine −Fläche an deren +Fläche  /  meine +Fläche an deren −Fläche
+			for cand in [[absf(omx[a] - mn[a]), omx[a] - mn[a]], [absf(omn[a] - mx[a]), omn[a] - mx[a]]]:
+				var d: float = cand[0]
+				if d >= SNAP_MAG:
+					continue
+				if aff > best_aff or (aff == best_aff and d < best_d):
+					best_aff = aff
+					best_d = d
+					best_delta = cand[1]
+		if best_aff > 0:
 			result[a] += best_delta
 	return result
 
@@ -1721,6 +1737,8 @@ func _snap_scale_face(part: Node3D, face_off: float) -> float:
 	var b1 := (k + 1) % 3
 	var b2 := (k + 2) % 3
 	var mir = part.get_meta("mirror") if part.has_meta("mirror") else null
+	var cat_d: String = PartCatalog.get_part(part.get_meta("part_id")).get("category", "")
+	var best_aff := 0
 	var best_d := SNAP_MAG
 	var best := face_k
 	for other in design_root.get_children():
@@ -1733,12 +1751,16 @@ func _snap_scale_face(part: Node3D, face_off: float) -> float:
 			continue
 		if mx[b2] <= omn[b2] + 0.04 or mn[b2] >= omx[b2] - 0.04:
 			continue
+		var aff := _snap_affinity(cat_d, PartCatalog.get_part(other.get_meta("part_id")).get("category", ""))
 		for cand in [omn[k], omx[k]]:
 			var d: float = absf(cand - face_k)
-			if d < best_d:
+			if d >= SNAP_MAG:
+				continue
+			if aff > best_aff or (aff == best_aff and d < best_d):
+				best_aff = aff
 				best_d = d
 				best = cand
-	if best_d < SNAP_MAG:
+	if best_aff > 0:
 		return (best - _drag_origin0[k]) * dir
 	return grid_off
 
