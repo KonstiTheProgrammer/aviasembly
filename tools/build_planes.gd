@@ -72,10 +72,10 @@ func _build_fokker() -> void:
 	P(bc, "prop_engine", Vector3(0, 0, -1.6), Basis(), RED, Vector3(1.12, 1.12, 1.0))
 	P(bc, "fuselage", Vector3(0, 0, 1.5), Basis(), RED, BODY, 0.42, 1.0)
 	P(bc, "tailcone", Vector3(0, 0, 2.8), Basis(), RED, Vector3(0.60, 0.70, 1.0))
-	# Drei Tragflächen — oben am breitesten, minimal gestaffelt (echte Dr.I-Anordnung)
-	P(bc, "wing_short", Vector3(0.2, 1.42, -0.05), _nx(), RED, Vector3(1.32, 1.0, 1.0))   # oben (Querruder)
-	P(bc, "wing_short", Vector3(0.2, 0.06, 0.05), _nx(), RED, Vector3(1.20, 1.0, 1.0))    # Mitte (am Rumpf)
-	P(bc, "wing_short", Vector3(0.2, -1.20, 0.15), _nx(), RED, Vector3(1.10, 1.0, 1.0))   # unten (am kürzesten)
+	# Drei GERADE, rechteckige Tragflächen (Dr.I-typisch, kaum Pfeilung/Taper) — oben am breitesten
+	P(bc, "wing_straight", Vector3(0.2, 1.4, 0.0), _nx(), RED, Vector3(0.74, 1.0, 0.82))   # oben (Querruder)
+	P(bc, "wing_straight", Vector3(0.2, 0.1, 0.05), _nx(), RED, Vector3(0.70, 1.0, 0.82))  # Mitte (am Rumpf)
+	P(bc, "wing_straight", Vector3(0.2, -1.2, 0.1), _nx(), RED, Vector3(0.66, 1.0, 0.82))  # unten (am kürzesten)
 	# Kabinenstreben mittig (verbinden senkrecht durch den Rumpf)
 	P(bc, "strut", Vector3(0, 0.78, -0.05), Basis(), WOOD)        # Rumpf -> oben
 	P(bc, "strut", Vector3(0, -0.62, 0.1), Basis(), WOOD)         # Rumpf -> unten
