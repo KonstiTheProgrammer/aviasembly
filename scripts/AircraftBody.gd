@@ -263,11 +263,11 @@ func _process(delta: float) -> void:
 				var leg = g["leg"]
 				if leg != null and is_instance_valid(leg):
 					# Außen sitzende Beine (Tragflächen-Fahrwerk) klappen um die LÄNGSACHSE (Z)
-					# nach AUSSEN in den Flügel hoch (echte Spitfire-Art); die gespiegelte linke
-					# Hälfte (improper Basis) klappt automatisch zur Gegenseite. Mittig sitzende
-					# Beine (Bug-/Heckfahrwerk) klappen stattdessen um X nach VORN.
+					# nach INNEN zur Mitte hoch (Rad fährt zum Rumpf ein); die gespiegelte linke
+					# Hälfte (improper Basis) klappt automatisch zur Gegenseite (auch nach innen).
+					# Mittig sitzende Beine (Bug-/Heckfahrwerk) klappen stattdessen um X nach VORN.
 					var lr: Transform3D = g["leg_rest"]
-					var fold_axis := Vector3.BACK if absf(g["base"].origin.x) > 0.25 else Vector3.RIGHT
+					var fold_axis := Vector3.FORWARD if absf(g["base"].origin.x) > 0.25 else Vector3.RIGHT
 					leg.transform = Transform3D(Basis(fold_axis, deg_to_rad(88.0 * leg_fold)) * lr.basis, lr.origin)
 					var door = g["door"]
 					if door != null and is_instance_valid(door):
