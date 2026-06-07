@@ -748,6 +748,7 @@ func _build_hangar_ui() -> void:
 		["fokker_dr1", "Fokker Dr.I  ·  Roter Baron"],
 		["spitfire", "Supermarine Spitfire"],
 		["mustang_p51", "P-51 Mustang"],
+		["jet", "Kampfjet  ·  F-22"],
 	]
 	for pr in presets:
 		var pb := Button.new()
