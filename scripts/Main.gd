@@ -741,6 +741,21 @@ func _build_hangar_ui() -> void:
 	load_btn.pressed.connect(_on_load_pressed)
 	row.add_child(load_btn)
 
+	# --- Vorlagen (historische Flugzeuge laden) ---
+	vb.add_child(HSeparator.new())
+	vb.add_child(_lbl("Vorlagen — anklicken zum Laden:", 12, Color(0.82, 0.9, 1.0)))
+	var presets := [
+		["fokker_dr1", "Fokker Dr.I  ·  Roter Baron"],
+		["spitfire", "Supermarine Spitfire"],
+		["mustang_p51", "P-51 Mustang"],
+	]
+	for pr in presets:
+		var pb := Button.new()
+		pb.text = pr[1]
+		pb.add_theme_font_size_override("font_size", 12)
+		pb.pressed.connect(_load_preset.bind(pr[0], pr[1]))
+		vb.add_child(pb)
+
 	# --- Testflug-Button oben mitte ---
 	var fly_btn := Button.new()
 	fly_btn.text = "▶  TESTFLUG STARTEN  (Tab)"
@@ -1613,9 +1628,22 @@ func _save_design() -> void:
 
 
 func _load_design() -> bool:
-	if not FileAccess.file_exists(SAVE_PATH):
+	return _load_design_from(SAVE_PATH)
+
+
+# Vorlage (historisches Flugzeug) aus res://designs/ laden.
+func _load_preset(id: String, title: String) -> void:
+	if _load_design_from("res://designs/%s.json" % id):
+		_toast("Vorlage geladen: " + title)
+	else:
+		_toast("Vorlage nicht gefunden: " + id)
+
+
+# Lädt ein Design aus beliebigem Pfad (Speicherstand ODER Vorlage in res://designs/).
+func _load_design_from(path: String) -> bool:
+	if not FileAccess.file_exists(path):
 		return false
-	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return false
 	var txt := f.get_as_text()
