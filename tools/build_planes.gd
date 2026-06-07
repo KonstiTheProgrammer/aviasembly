@@ -130,7 +130,7 @@ func _build_spitfire() -> void:
 	PW(bc, "h_stab", 0.10, 4.55, GREEN, Vector3(0.85, 1.0, 1.0))
 	P(bc, "v_stab", Vector3(0, 0.45, 4.75), _ny(), GREEN, Vector3(1.0, 1.15, 1.0))
 	# --- Einziehfahrwerk (gespiegelt) + Spornrad (mittig) ---
-	P(bc, "wheel_retract", Vector3(0.72, -0.88, 0.1), Basis(), GREY)
+	P(bc, "wheel_retract", Vector3(0.78, -0.42, 0.15), Basis(), GREY)   # Bein montiert am Flügel, Rad haengt darunter
 	P(bc, "wheel_light", Vector3(0, -0.5, 4.45), Basis(), DARK)
 	_finish(bc, "spitfire", "Spitfire")
 
@@ -156,7 +156,7 @@ func _build_mustang() -> void:
 	P(bc, "h_stab", Vector3(0.2, 0.05, 5.3), _nx(), SILVER, Vector3(0.8, 1.0, 1.0))
 	P(bc, "v_stab", Vector3(0, 0.5, 5.5), _ny(), SILVER, Vector3(1.0, 1.1, 1.0))
 	# Einziehfahrwerk (gespiegelt) + Spornrad (mittig)
-	P(bc, "wheel_retract", Vector3(0.7, -1.0, 0.2), Basis(), DARK)
+	P(bc, "wheel_retract", Vector3(0.78, -0.5, 0.25), Basis(), DARK)    # Bein montiert am Flügel, Rad haengt darunter
 	P(bc, "wheel_light", Vector3(0, -0.5, 5.6), Basis(), DARK)
 	_finish(bc, "mustang_p51", "P-51 Mustang")
 

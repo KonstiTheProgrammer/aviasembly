@@ -210,8 +210,9 @@ static func _build() -> void:
 	_add({
 		"id": "wheel_retract", "name": "Einziehfahrwerk (G)", "category": CAT_GEAR,
 		"mass": 60.0, "color": Color(0.16, 0.16, 0.2), "shape": "wheel", "gear_capacity": 1050.0,
-		"size": Vector3(0.62, 1.25, 0.9), "metal": 0.5, "rough": 0.45, "retract": true,
-		"desc": "Im Flug mit G einfahren -> weniger Widerstand. ~1050 kg.",
+		"size": Vector3(0.4, 1.1, 0.65), "col_size": Vector3(0.36, 1.05, 0.62),
+		"col_offset": Vector3(0, -0.52, 0), "metal": 0.5, "rough": 0.45, "retract": true,
+		"desc": "Im Flug mit G einfahren (Bein klappt hoch, Klappe schwenkt) -> weniger Widerstand. ~1050 kg.",
 	})
 
 	# --- Bewaffnung (feuerbar: LEERTASTE = Kanone/Raketen, B = Bombe) ------
