@@ -13,6 +13,5 @@ export_presets.cfg
 Thumbs.db
 
 # Dev-Render-Artefakte (tools/snap_render.gd, tools/preview.py)
-tools/render_*.png
-tools/crop_*.png
+tools/*.png
 tools/*.png.import
