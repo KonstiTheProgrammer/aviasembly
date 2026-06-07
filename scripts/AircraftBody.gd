@@ -255,17 +255,20 @@ func _process(delta: float) -> void:
 		if absf(_gear_anim - target) > 0.001:
 			_gear_anim = move_toward(_gear_anim, target, delta * 1.35)
 			var a := _gear_anim
-			# Sequenziert: Klappe auf (0..0.16) -> Bein klappt hoch (0.16..0.86) -> Klappe zu (0.84..1)
-			var leg_fold := smoothstep(0.16, 0.86, a)
+			var leg_fold := smoothstep(0.12, 0.9, a)
 			var door_open := smoothstep(0.0, 0.16, a) - smoothstep(0.84, 1.0, a)
 			for g in gear_items:
 				if not g["retract"]:
 					continue
 				var leg = g["leg"]
 				if leg != null and is_instance_valid(leg):
-					# Neues Modell: Bein um oberen Pivot hochklappen, Klappe schwenkt auf/zu
+					# Außen sitzende Beine (Tragflächen-Fahrwerk) klappen um die LÄNGSACHSE (Z)
+					# nach AUSSEN in den Flügel hoch (echte Spitfire-Art); die gespiegelte linke
+					# Hälfte (improper Basis) klappt automatisch zur Gegenseite. Mittig sitzende
+					# Beine (Bug-/Heckfahrwerk) klappen stattdessen um X nach VORN.
 					var lr: Transform3D = g["leg_rest"]
-					leg.transform = Transform3D(Basis(Vector3.RIGHT, deg_to_rad(86.0 * leg_fold)) * lr.basis, lr.origin)
+					var fold_axis := Vector3.BACK if absf(g["base"].origin.x) > 0.25 else Vector3.RIGHT
+					leg.transform = Transform3D(Basis(fold_axis, deg_to_rad(88.0 * leg_fold)) * lr.basis, lr.origin)
 					var door = g["door"]
 					if door != null and is_instance_valid(door):
 						var dr: Transform3D = g["door_rest"]
