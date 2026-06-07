@@ -107,28 +107,31 @@ func _build_fokker() -> void:
 	_finish(bc, "fokker_dr1", "Fokker Dr.I")
 
 
-# 2) Supermarine Spitfire — eleganter Tiefdecker (WWII, RAF)
+# 2) Supermarine Spitfire — eleganter Tiefdecker (WWII, RAF) — komplett neu
 func _build_spitfire() -> void:
 	var bc := _new_bc()
-	var GREEN := Color(0.27, 0.34, 0.21)
-	var GREY := Color(0.5, 0.52, 0.5)
+	var GREEN := Color(0.26, 0.33, 0.22)         # RAF-Dunkelgrün
+	var GREY := Color(0.55, 0.57, 0.55)
 	var DARK := Color(0.12, 0.12, 0.14)
-	var BODY := Vector3(0.85, 0.92, 1.0)
+	var BODY := Vector3(0.82, 0.92, 1.0)         # schlanker, runder Rumpf
 	_setup_root(bc, GREEN, BODY)
-	P(bc, "prop_engine_big", Vector3(0, 0, -1.8), Basis(), GREEN, Vector3(0.72, 0.72, 1.05))
-	P(bc, "fuselage", Vector3(0, 0, 1.85), Basis(), GREEN, BODY, 0.82, 1.0)
-	P(bc, "fuselage_taper", Vector3(0, 0, 4.0), Basis(), GREEN, BODY, 0.3, 1.0)
-	# Tiefdecker-Tragflächen: tief am Rumpf, leicht vor dem Schwerpunkt, gespiegelt
-	P(bc, "wing_tapered", Vector3(0.3, -0.46, 0.45), _nx(), GREEN, Vector3(0.95, 1.0, 1.2))
-	# MG in den Flügeln (gespiegelt)
-	P(bc, "mg", Vector3(1.5, -0.46, -0.25), Basis(), DARK)
-	P(bc, "mg", Vector3(2.2, -0.46, -0.15), Basis(), DARK)
-	# Leitwerk: Höhenleitwerk GESPIEGELT (x=0.2), Seitenflosse mittig hoch
-	P(bc, "h_stab", Vector3(0.2, 0.05, 4.9), _nx(), GREEN, Vector3(0.8, 1.0, 1.0))
-	P(bc, "v_stab", Vector3(0, 0.45, 5.1), _ny(), GREEN, Vector3(1.0, 1.15, 1.0))
-	# Einziehfahrwerk (gespiegelt) + Spornrad (mittig)
-	P(bc, "wheel_retract", Vector3(0.7, -1.0, 0.05), Basis(), GREY)
-	P(bc, "wheel_light", Vector3(0, -0.5, 4.8), Basis(), GREY)
+	# --- Rumpf: Merlin-Nase, langer schlanker Rumpf, zum Heck spitz auslaufend ---
+	P(bc, "prop_engine_big", Vector3(0, 0, -1.85), Basis(), GREEN, Vector3(0.70, 0.70, 1.05))
+	P(bc, "fuselage", Vector3(0, 0, 1.70), Basis(), GREEN, BODY, 0.85, 1.0)
+	P(bc, "fuselage_taper", Vector3(0, 0, 3.75), Basis(), GREEN, BODY, 0.3, 0.95)
+	# --- Bauch-Kühler (Spitfire-typisch unter dem Rumpf) ---
+	P(bc, "fueltank", Vector3(0, -0.52, 1.25), Basis(), GREY, Vector3(0.5, 0.42, 1.05))
+	# --- Tiefdecker-Tragflächen (elliptisch angenähert), durchgehend ohne Mittelspalt (PW) ---
+	PW(bc, "wing_tapered", -0.42, 0.60, GREEN, Vector3(0.92, 1.0, 1.2))
+	# --- NEU: Flügel-MGs (Blender-Modell) paarweise in den Flügeln, feuern nach vorn ---
+	P(bc, "wing_gun", Vector3(1.45, -0.42, -0.55), Basis(), DARK)
+	P(bc, "wing_gun", Vector3(2.15, -0.42, -0.40), Basis(), DARK)
+	# --- Leitwerk: Höhenleitwerk durchgehend (PW), Seitenflosse mittig ---
+	PW(bc, "h_stab", 0.10, 4.55, GREEN, Vector3(0.85, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.45, 4.75), _ny(), GREEN, Vector3(1.0, 1.15, 1.0))
+	# --- Einziehfahrwerk (gespiegelt) + Spornrad (mittig) ---
+	P(bc, "wheel_retract", Vector3(0.72, -0.88, 0.1), Basis(), GREY)
+	P(bc, "wheel_light", Vector3(0, -0.5, 4.45), Basis(), DARK)
 	_finish(bc, "spitfire", "Spitfire")
 
 

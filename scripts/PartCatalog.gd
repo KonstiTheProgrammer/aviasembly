@@ -240,6 +240,13 @@ static func _build() -> void:
 		"desc": "Leichtes Kaliber: schnelles, flaches Geschoss (kaum Bullet-Drop), langsame Kadenz. Klassiker fürs Doppeldecker-Cockpit.",
 	})
 	_add({
+		"id": "wing_gun", "name": "Flügel-MG (.50)", "category": CAT_WEAPON,
+		"mass": 60.0, "color": Color(0.18, 0.18, 0.2), "shape": "cannon", "weapon": "gun",
+		"size": Vector3(0.26, 0.26, 1.5), "col_size": Vector3(0.24, 0.24, 1.2),
+		"col_offset": Vector3(0, 0, 0.1), "metal": 0.7, "rough": 0.35,
+		"desc": "In die Tragfläche eingelassenes MG mit Kühlmantel — feuert schnell nach vorn (LEERTASTE). Ideal paarweise in den Flügeln.",
+	})
+	_add({
 		"id": "minigun", "name": "GAU-8 Gatling (30 mm)", "category": CAT_WEAPON,
 		"mass": 290.0, "color": Color(0.13, 0.13, 0.15), "shape": "cannon", "weapon": "minigun",
 		"size": Vector3(0.38, 0.38, 3.3), "metal": 0.85, "rough": 0.4,
