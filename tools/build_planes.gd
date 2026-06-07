@@ -1,6 +1,11 @@
 ## Baut drei historische Flugzeuge aus Bauteilen und speichert sie als Vorlagen
 ## nach res://designs/<id>.json (im Hangar unter "Vorlagen" ladbar).
 ## Godot --headless --path . --script res://tools/build_planes.gd
+##
+## WICHTIG zur Spiegelung: Teile mit Wurzel-x = 0 werden NICHT gespiegelt (unter der
+## Schwelle ~0.15). Alles, was links UND rechts da sein soll (Flügel, Höhenleitwerk!),
+## muss bei x >= ~0.2 platziert werden. Mittige Einzelteile (Seitenflosse, Bauchkühler,
+## Spornrad) bleiben bei x = 0.
 extends SceneTree
 
 var frame := 0
@@ -35,7 +40,6 @@ func _root_part(bc: BuildController) -> Node3D:
 			return c
 	return null
 
-# Cockpit (Wurzel) einfärben + schlank skalieren.
 func _setup_root(bc: BuildController, col: Color, sc: Vector3) -> void:
 	var r := _root_part(bc)
 	if r:
@@ -62,26 +66,26 @@ func _build_fokker() -> void:
 	var RED := Color(0.72, 0.11, 0.12)
 	var DARK := Color(0.13, 0.13, 0.15)
 	var WOOD := Color(0.43, 0.28, 0.15)
-	var BODY := Vector3(0.92, 0.95, 1.0)   # WWI: leicht kastig, nur dezent schlank
+	var BODY := Vector3(0.92, 0.95, 1.0)
+	var WING := Vector3(1.15, 1.0, 1.0)
 	_setup_root(bc, RED, BODY)
 	P(bc, "prop_engine", Vector3(0, 0, -1.7), Basis(), RED, Vector3(1.05, 1.05, 1.0))
 	P(bc, "fuselage", Vector3(0, 0, 1.6), Basis(), RED, BODY, 0.5, 1.0)
 	P(bc, "tailcone", Vector3(0, 0, 3.0), Basis(), RED, Vector3(0.66, 0.66, 1.0))
-	# Drei gestaffelte Tragflächen (Spannweite ~ Rumpflänge -> kompakter Dreidecker)
-	P(bc, "wing_short", Vector3(0.2, 1.25, -0.1), _nx(), RED, Vector3(1.15, 1.0, 1.0))
-	P(bc, "wing_short", Vector3(0.2, 0.12, 0.1), _nx(), RED, Vector3(1.15, 1.0, 1.0))
-	P(bc, "wing_short", Vector3(0.2, -0.95, 0.3), _nx(), RED, Vector3(1.15, 1.0, 1.0))
-	# Kabinen- + Außenstreben
+	# Drei gestaffelte Tragflächen (x>=0.2 -> links+rechts gespiegelt)
+	P(bc, "wing_short", Vector3(0.2, 1.25, -0.05), _nx(), RED, WING)
+	P(bc, "wing_short", Vector3(0.2, 0.12, 0.1), _nx(), RED, WING)
+	P(bc, "wing_short", Vector3(0.2, -0.98, 0.25), _nx(), RED, WING)
+	# Kabinen- (mittig) + Außenstreben (gespiegelt)
 	P(bc, "strut", Vector3(0, 0.68, 0.0), Basis(), WOOD)
-	P(bc, "strut", Vector3(0, -0.42, 0.2), Basis(), WOOD)
+	P(bc, "strut", Vector3(0, -0.43, 0.18), Basis(), WOOD)
 	P(bc, "strut", Vector3(2.0, 0.68, -0.05), Basis(), WOOD)
-	P(bc, "strut", Vector3(2.0, -0.42, 0.15), Basis(), WOOD)
-	# Leitwerk
-	P(bc, "h_stab", Vector3(0, 0.0, 3.0), _nx(), RED, Vector3(0.95, 1.0, 1.0))
-	P(bc, "v_stab", Vector3(0, 0.42, 3.3), _ny(), RED)
-	# Zwei Spandau-MG auf der Motorhaube (gespiegelt)
+	P(bc, "strut", Vector3(2.0, -0.43, 0.12), Basis(), WOOD)
+	# Leitwerk: Höhenleitwerk GESPIEGELT (x=0.2!), Seitenflosse mittig
+	P(bc, "h_stab", Vector3(0.2, 0.0, 3.0), _nx(), RED, Vector3(0.85, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.42, 3.3), _ny(), RED, Vector3(1.0, 1.05, 1.0))
+	# Zwei Spandau-MG auf der Haube (gespiegelt) + Fahrwerk + Hecksporn
 	P(bc, "mg", Vector3(0.16, 0.5, -0.7), Basis(), DARK)
-	# Festes Fahrwerk + Hecksporn
 	P(bc, "wheel", Vector3(0.55, -1.55, -0.2), Basis(), DARK)
 	P(bc, "wheel_light", Vector3(0, -0.8, 2.9), Basis(), DARK)
 	_finish(bc, "fokker_dr1", "Fokker Dr.I")
@@ -93,21 +97,21 @@ func _build_spitfire() -> void:
 	var GREEN := Color(0.27, 0.34, 0.21)
 	var GREY := Color(0.5, 0.52, 0.5)
 	var DARK := Color(0.12, 0.12, 0.14)
-	var BODY := Vector3(0.85, 0.92, 1.0)   # schlanker Jäger-Rumpf
+	var BODY := Vector3(0.85, 0.92, 1.0)
 	_setup_root(bc, GREEN, BODY)
 	P(bc, "prop_engine_big", Vector3(0, 0, -1.8), Basis(), GREEN, Vector3(0.72, 0.72, 1.05))
 	P(bc, "fuselage", Vector3(0, 0, 1.85), Basis(), GREEN, BODY, 0.82, 1.0)
 	P(bc, "fuselage_taper", Vector3(0, 0, 4.0), Basis(), GREEN, BODY, 0.3, 1.0)
-	# Breite, elegante Tiefdecker-Tragflächen — Spannweite ~ Rumpflänge
-	P(bc, "wing_tapered", Vector3(0.3, -0.38, 0.7), _nx(), GREEN, Vector3(0.95, 1.0, 1.2))
-	# Bordwaffen (MG in den Flügeln)
-	P(bc, "mg", Vector3(1.5, -0.38, -0.2), Basis(), DARK)
-	P(bc, "mg", Vector3(2.2, -0.38, -0.1), Basis(), DARK)
-	# Leitwerk auf dem schlanken Heck
-	P(bc, "h_stab", Vector3(0, 0.0, 4.9), _nx(), GREEN, Vector3(0.95, 1.0, 1.0))
-	P(bc, "v_stab", Vector3(0, 0.45, 5.1), _ny(), GREEN)
-	# Einziehfahrwerk + Spornrad
-	P(bc, "wheel_retract", Vector3(0.7, -1.0, 0.1), Basis(), GREY)
+	# Tiefdecker-Tragflächen: tief am Rumpf, leicht vor dem Schwerpunkt, gespiegelt
+	P(bc, "wing_tapered", Vector3(0.3, -0.46, 0.45), _nx(), GREEN, Vector3(0.95, 1.0, 1.2))
+	# MG in den Flügeln (gespiegelt)
+	P(bc, "mg", Vector3(1.5, -0.46, -0.25), Basis(), DARK)
+	P(bc, "mg", Vector3(2.2, -0.46, -0.15), Basis(), DARK)
+	# Leitwerk: Höhenleitwerk GESPIEGELT (x=0.2), Seitenflosse mittig hoch
+	P(bc, "h_stab", Vector3(0.2, 0.05, 4.9), _nx(), GREEN, Vector3(0.8, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.45, 5.1), _ny(), GREEN, Vector3(1.0, 1.15, 1.0))
+	# Einziehfahrwerk (gespiegelt) + Spornrad (mittig)
+	P(bc, "wheel_retract", Vector3(0.7, -1.0, 0.05), Basis(), GREY)
 	P(bc, "wheel_light", Vector3(0, -0.5, 4.8), Basis(), GREY)
 	_finish(bc, "spitfire", "Spitfire")
 
@@ -122,17 +126,17 @@ func _build_mustang() -> void:
 	P(bc, "prop_engine_big", Vector3(0, 0, -1.8), Basis(), SILVER, Vector3(0.74, 0.74, 1.05))
 	P(bc, "fuselage", Vector3(0, 0, 1.85), Basis(), SILVER, BODY, 0.85, 1.0)
 	P(bc, "fuselage_long", Vector3(0, 0, 4.1), Basis(), SILVER, BODY, 0.4, 1.0)
-	# Charakteristischer Bauch-Kühler
+	# Charakteristischer Bauch-Kühler (mittig)
 	P(bc, "fueltank", Vector3(0, -0.7, 1.6), Basis(), SILVER, Vector3(0.62, 0.55, 1.2))
-	# Laminare Tiefdecker-Tragflächen
-	P(bc, "wing_tapered", Vector3(0.3, -0.36, 0.8), _nx(), SILVER, Vector3(0.92, 1.0, 1.05))
-	# Bordwaffen (.50 cal in den Flügeln)
-	P(bc, "mg", Vector3(1.4, -0.36, 0.0), Basis(), DARK)
-	P(bc, "mg", Vector3(2.0, -0.36, 0.1), Basis(), DARK)
-	# Leitwerk
-	P(bc, "h_stab", Vector3(0, 0.0, 5.3), _nx(), SILVER, Vector3(0.95, 1.0, 1.0))
-	P(bc, "v_stab", Vector3(0, 0.5, 5.5), _ny(), SILVER)
-	# Einziehfahrwerk + Spornrad
+	# Laminare Tiefdecker-Tragflächen (gespiegelt)
+	P(bc, "wing_tapered", Vector3(0.3, -0.46, 0.55), _nx(), SILVER, Vector3(0.92, 1.0, 1.05))
+	# .50 cal MG in den Flügeln (gespiegelt)
+	P(bc, "mg", Vector3(1.4, -0.46, -0.1), Basis(), DARK)
+	P(bc, "mg", Vector3(2.0, -0.46, 0.0), Basis(), DARK)
+	# Leitwerk: Höhenleitwerk GESPIEGELT (x=0.2), Seitenflosse mittig
+	P(bc, "h_stab", Vector3(0.2, 0.05, 5.3), _nx(), SILVER, Vector3(0.8, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.5, 5.5), _ny(), SILVER, Vector3(1.0, 1.1, 1.0))
+	# Einziehfahrwerk (gespiegelt) + Spornrad (mittig)
 	P(bc, "wheel_retract", Vector3(0.7, -1.0, 0.2), Basis(), DARK)
 	P(bc, "wheel_light", Vector3(0, -0.5, 5.6), Basis(), DARK)
 	_finish(bc, "mustang_p51", "P-51 Mustang")
