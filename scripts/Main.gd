@@ -59,6 +59,7 @@ var land_label: Label
 var flight_hud: FlightHud           # Primary-Flight-Display (Kompass, Speed/Höhe, Zielkreis)
 var tool_label: Label
 var toast_label: Label
+var snap_cb: CheckBox               # Auto-Andocken an/aus (Bau-Editor)
 var drag_view_btn: Button
 var part_buttons: Dictionary = {}
 var _part_group: ButtonGroup       # exklusive Auswahl der Teil-Kacheln
@@ -530,6 +531,7 @@ func _setup_controllers() -> void:
 	build_ctrl.set_camera(camera)
 	build_ctrl.design_changed.connect(_on_design_changed)
 	build_ctrl.selection_changed.connect(_on_selection_changed)
+	build_ctrl.snap_changed.connect(_on_snap_changed)
 
 	flight_ctrl = FlightController.new()
 	add_child(flight_ctrl)
@@ -714,6 +716,12 @@ func _build_hangar_ui() -> void:
 	sym.button_pressed = true
 	sym.toggled.connect(_on_symmetry_toggled)
 	vb.add_child(sym)
+
+	snap_cb = CheckBox.new()
+	snap_cb.text = "Andocken / Snapping  (Taste N)"
+	snap_cb.button_pressed = true
+	snap_cb.toggled.connect(_on_snap_toggled)
+	vb.add_child(snap_cb)
 
 	var row := HBoxContainer.new()
 	vb.add_child(row)
@@ -1399,6 +1407,18 @@ func _on_hangar_pressed() -> void:
 
 func _on_symmetry_toggled(on: bool) -> void:
 	build_ctrl.set_symmetry(on)
+
+
+func _on_snap_toggled(on: bool) -> void:
+	build_ctrl.snap_enabled = on
+	_toast("Andocken " + ("AN" if on else "AUS — freie Platzierung"))
+
+
+# Aus dem Bau-Editor (Taste N): Checkbox synchron halten + Toast.
+func _on_snap_changed(on: bool) -> void:
+	if snap_cb:
+		snap_cb.set_pressed_no_signal(on)
+	_toast("Andocken " + ("AN" if on else "AUS — freie Platzierung"))
 
 
 # ===========================================================================
