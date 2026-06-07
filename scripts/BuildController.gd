@@ -1901,6 +1901,7 @@ func get_design() -> Array:
 				"taper_front": child.get_meta("taper_front", 1.0),
 				"taper_y": child.get_meta("taper_y", -1.0),
 				"taper_front_y": child.get_meta("taper_front_y", -1.0),
+				"fill": child.get_meta("fill", 0.0),   # Flügel-Mittelspalt-Füllung (für Flug + Speichern)
 			})
 	return out
 

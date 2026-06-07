@@ -157,12 +157,23 @@ func build_from_design(d: Array) -> void:
 		var xf: Transform3D = item.get("xform", Transform3D())
 		var psc: Vector3 = item.get("scale", Vector3.ONE)
 		var vol: float = psc.x * psc.y * psc.z      # Volumen-Faktor (Masse/Traglast)
+		# Flügel-Mittelspalt-Füllung (aus dem Editor): der Flügel ist um "fill" nach innen
+		# verlängert. Effektive Spann-Skalierung + nach innen verschobene Wurzel, damit der
+		# durchgehende Flügel auch IM FLUG sichtbar/wirksam ist (nicht nur im Editor).
+		var nspan: float = maxf(float(p.get("span", 1.0)), 0.01)
+		var fill: float = float(item.get("fill", 0.0))
+		var has_fill: bool = fill > 0.0
+		var psx_eff: float = psc.x + (fill / nspan if has_fill else 0.0)
 
 		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)), item.get("taper", 1.0), item.get("taper_front", 1.0), item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 		# Skalierung in die Basis einrechnen (NICHT vis.scale setzen): bei gespiegelten
 		# Teilen ist die Basis improper (det<0); vis.scale würde die Spiegelung zerstören
 		# -> Flügel klappt auf die andere Seite -> "halbes Flugzeug".
-		vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
+		if has_fill:
+			vis.transform = Transform3D(xf.basis * Basis.from_scale(Vector3(psx_eff, psc.y, psc.z)),
+				xf.origin - xf.basis.x * fill)
+		else:
+			vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
 		var prop := vis.find_child("Prop", true, false)
 		# Bewegliche Fläche: Hauptflügel = "FlapHinge" (Rolle "flap"), Steuerflügel = "CtrlHinge"
@@ -175,11 +186,11 @@ func build_from_design(d: Array) -> void:
 
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		box.size = PartCatalog.col_size(p) * psc
+		box.size = PartCatalog.col_size(p) * psc + (Vector3(fill, 0.0, 0.0) if has_fill else Vector3.ZERO)
 		cs.shape = box
 		# Korrekte (ggf. gespiegelte) Box-Mitte, aber mit proper Orientierung
 		# (det > 0), sonst wird der Trägheitstensor fehlerhaft -> Physik-Explosion.
-		var cob: Vector3 = PartCatalog.col_offset(p) * psc
+		var cob: Vector3 = PartCatalog.col_offset(p) * psc - (Vector3(fill * 0.5, 0.0, 0.0) if has_fill else Vector3.ZERO)
 		var center_local: Vector3 = xf * cob
 		var ori := xf.basis.orthonormalized()
 		if ori.determinant() < 0.0:
@@ -216,8 +227,8 @@ func build_from_design(d: Array) -> void:
 			"scale": psc,
 		}
 		if pinfo["is_wing"]:
-			var a_full: float = p.get("area", 0.0) * psc.x * psc.z
-			var span: float = p.get("span", sqrt(maxf(a_full, 0.01))) * psc.x
+			var a_full: float = p.get("area", 0.0) * psx_eff * psc.z
+			var span: float = p.get("span", sqrt(maxf(a_full, 0.01))) * psx_eff
 			# im Rumpf vergrabene Spannweite zählt nicht (weniger Auftrieb/Steuerkraft)
 			var exposed: float = PartCatalog.wing_exposed_fraction(xf, span, PartCatalog.col_offset(p).z * psc.z, body_boxes)
 			var a: float = a_full * exposed

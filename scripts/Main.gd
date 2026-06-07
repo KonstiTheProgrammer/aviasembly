@@ -1621,7 +1621,8 @@ func _save_design() -> void:
 		data.append({"id": it["id"], "xform": _xform_to_array(it["xform"]),
 			"color": [c.r, c.g, c.b, c.a], "scale": [s.x, s.y, s.z],
 			"taper": it.get("taper", 1.0), "taper_front": it.get("taper_front", 1.0),
-			"taper_y": it.get("taper_y", -1.0), "taper_front_y": it.get("taper_front_y", -1.0)})
+			"taper_y": it.get("taper_y", -1.0), "taper_front_y": it.get("taper_front_y", -1.0),
+			"fill": it.get("fill", 0.0)})
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -1667,7 +1668,7 @@ func _load_design_from(path: String) -> bool:
 			var tpf: float = float(it.get("taper_front", 1.0))
 			var tpy: float = float(it.get("taper_y", -1.0))
 			var tpfy: float = float(it.get("taper_front_y", -1.0))
-			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf, "taper_y": tpy, "taper_front_y": tpfy})
+			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf, "taper_y": tpy, "taper_front_y": tpfy, "fill": float(it.get("fill", 0.0))})
 	if arr.is_empty():
 		return false
 	build_ctrl.load_design(arr)
