@@ -996,8 +996,10 @@ func _update_transform_drag() -> void:
 		# Pfeil ziehen -> entlang der Achse verschieben (Gegenrichtung durch Zurückziehen).
 		var t := _ray_axis_t(_drag_origin0, _drag_axis_w)
 		var origin := _drag_origin0 + _drag_axis_w * (t - _drag_t0)
-		origin = _snap_move(selected_part, origin, _drag_axis_i)   # aufs Raster
-		origin = _snap_to_neighbors(selected_part, origin, _drag_axis_i)  # magnetisch bündig an Nachbar
+		origin = _snap_move(selected_part, origin, _drag_axis_i)   # Raster nur auf der Zieh-Achse
+		# Andocken auf ALLEN Achsen: beim Ziehen in eine Richtung rastet das Teil voll bündig
+		# an einen Nachbarn ein (nicht nur auf der Zieh-Achse), wenn es nah genug kommt.
+		origin = _snap_to_neighbors(selected_part, origin, -1)
 		_apply_sel_transform(selected_part.transform.basis, origin, _drag_scale0)
 	elif _drag_handle != null and _drag_kind == "rotate":
 		# Ring ziehen -> um die WELT-Achse drehen (Winkel aus der Maus in der Ringebene)
