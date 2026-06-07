@@ -18,6 +18,7 @@ var ghost: Node3D
 var brush_id := ""           # aktuell gewähltes Teil aus der Palette ("" = kein Teil)
 var erase_mode := false      # Abriss-Werkzeug
 var symmetry := true
+const WING_FILL_MAX := 0.8       # max. Innen-Verlängerung je Flügelhälfte (Mittelspalt-Füllung)
 var snap_enabled := true        # Auto-Andocken (magnetisches Flächen-Snapping) an/aus
 var ghost_rot := 0           # R-Drehung (nur für achsen-ausgerichtete Teile)
 
@@ -357,6 +358,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_delete_hovered()
 			KEY_M:
 				symmetry = not symmetry
+				_refresh_all_wing_fill()
 			KEY_N:
 				snap_enabled = not snap_enabled
 				snap_changed.emit(snap_enabled)
@@ -1092,10 +1094,14 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 			# vorhandenen Spiegel mitziehen (folgt auch bei ausgeschalteter Symmetrie)
 			m.transform = _mirror_xform(part.transform)
 			_apply_part_scale(m, sc)
+		# Mittelspalt-Füllung beider Hälften an die neue Position anpassen
+		_update_wing_fill(part)
+		_update_wing_fill(m)
 	elif m_valid:
 		# in die Mitte gezogen -> Spiegel entfernen (kein überlappender Klon)
 		part.remove_meta("mirror")
 		m.free()
+		_update_wing_fill(part)   # ohne Spiegel keine Füllung mehr
 
 
 # Parameter t entlang der Achse (lo + t*ld), am nächsten zum Maus-Strahl.
@@ -1181,6 +1187,7 @@ func set_paint_color(c: Color) -> void:
 
 func set_symmetry(b: bool) -> void:
 	symmetry = b
+	_refresh_all_wing_fill()
 
 
 # --- Lackieren --------------------------------------------------------------
@@ -1501,6 +1508,8 @@ func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0
 		var mpart := _make_part(id, mt, col, pscale, taper, taper_front, taper_y, taper_front_y)
 		part.set_meta("mirror", mpart)
 		mpart.set_meta("mirror", part)
+		_update_wing_fill(part)
+		_update_wing_fill(mpart)
 	return part
 
 
@@ -1560,17 +1569,57 @@ func _apply_part_scale(part: Node3D, pscale: Vector3) -> void:
 	pscale = pscale.clamp(Vector3(0.25, 0.25, 0.25), Vector3(6, 6, 6))
 	part.set_meta("pscale", pscale)
 	var p := PartCatalog.get_part(part.get_meta("part_id"))
+	# Mittelspalt-Füllung: ein Tragflügel im Symmetrie-Modus wird um "fill" (Weltachsen-
+	# Einheiten) nach INNEN (zur Wurzel = lokales −X) verlängert -> Spalt zum Spiegel zu.
+	var fill: float = float(part.get_meta("fill", 0.0))
+	var wingfill := fill > 0.0 and String(p.get("shape", "")) == "wing"
+	var nspan: float = maxf(float(p.get("span", 1.0)), 0.01)
 	var vis := part.get_node_or_null("Visual")
 	if vis:
-		(vis as Node3D).scale = pscale
+		if wingfill:
+			(vis as Node3D).scale = Vector3(pscale.x + fill / nspan, pscale.y, pscale.z)
+			(vis as Node3D).position = Vector3(-fill, 0.0, 0.0)
+		else:
+			(vis as Node3D).scale = pscale
+			(vis as Node3D).position = Vector3.ZERO
 	var cs := part.get_node_or_null("Pick/CollisionShape3D") as CollisionShape3D
 	if cs == null:
 		var body := part.get_node_or_null("Pick")
 		if body:
 			cs = body.get_child(0) as CollisionShape3D
 	if cs and cs.shape is BoxShape3D:
-		(cs.shape as BoxShape3D).size = PartCatalog.col_size(p) * pscale
-		cs.transform = Transform3D(Basis(), PartCatalog.col_offset(p) * pscale)
+		var bsize: Vector3 = PartCatalog.col_size(p) * pscale
+		var boff: Vector3 = PartCatalog.col_offset(p) * pscale
+		if wingfill:
+			(cs.shape as BoxShape3D).size = bsize + Vector3(fill, 0.0, 0.0)
+			cs.transform = Transform3D(Basis(), boff - Vector3(fill * 0.5, 0.0, 0.0))
+		else:
+			(cs.shape as BoxShape3D).size = bsize
+			cs.transform = Transform3D(Basis(), boff)
+
+
+# Berechnet die Mittelspalt-Füllung eines Tragflügels neu: nur im Symmetrie-Modus, nur für
+# echte Auftriebsflügel (keine Steuerflächen), und nur bis WING_FILL_MAX. So schließt sich der
+# Spalt zur gespiegelten Hälfte automatisch (Flügel wird länger), aber nicht unbegrenzt —
+# zieht man die Flügel weiter als WING_FILL_MAX nach außen, öffnet sich der Spalt wieder.
+func _update_wing_fill(part: Node3D) -> void:
+	if not is_instance_valid(part):
+		return
+	var p := PartCatalog.get_part(part.get_meta("part_id", ""))
+	if not bool(p.get("is_wing", false)) or String(p.get("control", "")) != "":
+		return
+	var fill := 0.0
+	if symmetry and part.has_meta("mirror") and is_instance_valid(part.get_meta("mirror")):
+		fill = clampf(absf(part.position.x), 0.0, WING_FILL_MAX)
+	if not is_equal_approx(float(part.get_meta("fill", 0.0)), fill):
+		part.set_meta("fill", fill)
+		_apply_part_scale(part, part.get_meta("pscale", Vector3.ONE))
+
+
+func _refresh_all_wing_fill() -> void:
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			_update_wing_fill(c)
 
 
 # ---------------------------------------------------------------------------
@@ -1867,6 +1916,7 @@ func load_design(arr: Array) -> void:
 				item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 	_ensure_root()
 	_relink_mirrors()
+	_refresh_all_wing_fill()    # Mittelspalt-Füllung der geladenen Flügel herstellen
 	if not _suppress_history:
 		_seed_history()
 	_notify_changed()
