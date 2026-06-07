@@ -17,9 +17,9 @@ func _process(_d: float) -> bool:
 	return true
 
 func _nx() -> Basis:
-	return Basis()                                                   # horizontale Fläche, Spannweite X
+	return Basis()
 func _ny() -> Basis:
-	return Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))  # senkrechte Flosse
+	return Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))
 
 func _new_bc() -> BuildController:
 	var bc := BuildController.new()
@@ -29,10 +29,18 @@ func _new_bc() -> BuildController:
 	bc.clear_design()
 	return bc
 
-func _recolor_root(bc: BuildController, col: Color) -> void:
+func _root_part(bc: BuildController) -> Node3D:
 	for c in bc.design_root.get_children():
 		if c.is_in_group("part") and c.get_meta("is_root", false):
-			bc._recolor(c, col)
+			return c
+	return null
+
+# Cockpit (Wurzel) einfärben + schlank skalieren.
+func _setup_root(bc: BuildController, col: Color, sc: Vector3) -> void:
+	var r := _root_part(bc)
+	if r:
+		bc._recolor(r, col)
+		bc._apply_part_scale(r, sc)
 
 func P(bc: BuildController, id: String, pos: Vector3, basis := Basis(), col := Color(0, 0, 0, 0),
 		pscale := Vector3.ONE, taper := -1.0, taper_front := -1.0) -> void:
@@ -52,29 +60,30 @@ func _finish(bc: BuildController, fname: String, title: String) -> void:
 func _build_fokker() -> void:
 	var bc := _new_bc()
 	var RED := Color(0.72, 0.11, 0.12)
-	var DARK := Color(0.14, 0.14, 0.16)
+	var DARK := Color(0.13, 0.13, 0.15)
 	var WOOD := Color(0.43, 0.28, 0.15)
-	_recolor_root(bc, RED)
-	# Rumpf: runder WWI-Motor vorn, kurzer Rumpf, zum Heck verjüngt
-	P(bc, "prop_engine", Vector3(0, 0, -1.7), Basis(), RED, Vector3(1.1, 1.1, 1.0))
-	P(bc, "fuselage", Vector3(0, 0, 1.7), Basis(), RED, Vector3(1.0, 1.0, 1.0), 0.5, 1.0)   # Heck schmaler
-	P(bc, "tailcone", Vector3(0, 0, 3.2), Basis(), RED, Vector3(0.7, 0.7, 1.0))
-	# Drei gestaffelte Tragflächen (gespiegelt)
-	P(bc, "wing_short", Vector3(0.2, 1.25, -0.1), _nx(), RED)
-	P(bc, "wing_short", Vector3(0.2, 0.15, 0.1), _nx(), RED)
-	P(bc, "wing_short", Vector3(0.2, -0.95, 0.3), _nx(), RED)
-	# Kabinenstreben (Mitte, verbinden die Flügel senkrecht durch den Rumpf)
-	P(bc, "strut", Vector3(0, 0.7, 0.0), Basis(), WOOD)
-	P(bc, "strut", Vector3(0, -0.4, 0.2), Basis(), WOOD)
-	# Außenstreben (Optik)
-	P(bc, "strut", Vector3(1.8, 0.7, -0.05), Basis(), WOOD)
-	P(bc, "strut", Vector3(1.8, -0.4, 0.15), Basis(), WOOD)
+	var BODY := Vector3(0.92, 0.95, 1.0)   # WWI: leicht kastig, nur dezent schlank
+	_setup_root(bc, RED, BODY)
+	P(bc, "prop_engine", Vector3(0, 0, -1.7), Basis(), RED, Vector3(1.05, 1.05, 1.0))
+	P(bc, "fuselage", Vector3(0, 0, 1.6), Basis(), RED, BODY, 0.5, 1.0)
+	P(bc, "tailcone", Vector3(0, 0, 3.0), Basis(), RED, Vector3(0.66, 0.66, 1.0))
+	# Drei gestaffelte Tragflächen (Spannweite ~ Rumpflänge -> kompakter Dreidecker)
+	P(bc, "wing_short", Vector3(0.2, 1.25, -0.1), _nx(), RED, Vector3(1.15, 1.0, 1.0))
+	P(bc, "wing_short", Vector3(0.2, 0.12, 0.1), _nx(), RED, Vector3(1.15, 1.0, 1.0))
+	P(bc, "wing_short", Vector3(0.2, -0.95, 0.3), _nx(), RED, Vector3(1.15, 1.0, 1.0))
+	# Kabinen- + Außenstreben
+	P(bc, "strut", Vector3(0, 0.68, 0.0), Basis(), WOOD)
+	P(bc, "strut", Vector3(0, -0.42, 0.2), Basis(), WOOD)
+	P(bc, "strut", Vector3(2.0, 0.68, -0.05), Basis(), WOOD)
+	P(bc, "strut", Vector3(2.0, -0.42, 0.15), Basis(), WOOD)
 	# Leitwerk
-	P(bc, "h_stab", Vector3(0, 0.0, 3.2), _nx(), RED)
-	P(bc, "v_stab", Vector3(0, 0.45, 3.5), _ny(), RED)
+	P(bc, "h_stab", Vector3(0, 0.0, 3.0), _nx(), RED, Vector3(0.95, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.42, 3.3), _ny(), RED)
+	# Zwei Spandau-MG auf der Motorhaube (gespiegelt)
+	P(bc, "mg", Vector3(0.16, 0.5, -0.7), Basis(), DARK)
 	# Festes Fahrwerk + Hecksporn
 	P(bc, "wheel", Vector3(0.55, -1.55, -0.2), Basis(), DARK)
-	P(bc, "wheel_light", Vector3(0, -0.8, 3.1), Basis(), DARK)
+	P(bc, "wheel_light", Vector3(0, -0.8, 2.9), Basis(), DARK)
 	_finish(bc, "fokker_dr1", "Fokker Dr.I")
 
 
@@ -82,21 +91,24 @@ func _build_fokker() -> void:
 func _build_spitfire() -> void:
 	var bc := _new_bc()
 	var GREEN := Color(0.27, 0.34, 0.21)
-	var GREY := Color(0.55, 0.57, 0.55)
-	_recolor_root(bc, GREEN)
-	# Schlanke, spitze Merlin-Nase (Triebwerk schmal skaliert, Haube grün)
-	P(bc, "prop_engine_big", Vector3(0, 0, -1.85), Basis(), GREEN, Vector3(0.8, 0.8, 1.05))
-	P(bc, "fuselage", Vector3(0, 0, 1.9), Basis(), GREEN, Vector3(1.0, 1.0, 1.0), 0.8, 1.0)
-	# verjüngter Heckrumpf -> schlanke Spitze
-	P(bc, "fuselage_taper", Vector3(0, 0, 4.1), Basis(), GREEN, Vector3(1.0, 1.0, 1.0), 0.32, 1.0)
-	# Elegante, breite Tiefdecker-Tragflächen
-	P(bc, "wing_tapered", Vector3(0.3, -0.42, 0.7), _nx(), GREEN, Vector3(1.25, 1.0, 1.2))
+	var GREY := Color(0.5, 0.52, 0.5)
+	var DARK := Color(0.12, 0.12, 0.14)
+	var BODY := Vector3(0.85, 0.92, 1.0)   # schlanker Jäger-Rumpf
+	_setup_root(bc, GREEN, BODY)
+	P(bc, "prop_engine_big", Vector3(0, 0, -1.8), Basis(), GREEN, Vector3(0.72, 0.72, 1.05))
+	P(bc, "fuselage", Vector3(0, 0, 1.85), Basis(), GREEN, BODY, 0.82, 1.0)
+	P(bc, "fuselage_taper", Vector3(0, 0, 4.0), Basis(), GREEN, BODY, 0.3, 1.0)
+	# Breite, elegante Tiefdecker-Tragflächen — Spannweite ~ Rumpflänge
+	P(bc, "wing_tapered", Vector3(0.3, -0.38, 0.7), _nx(), GREEN, Vector3(0.95, 1.0, 1.2))
+	# Bordwaffen (MG in den Flügeln)
+	P(bc, "mg", Vector3(1.5, -0.38, -0.2), Basis(), DARK)
+	P(bc, "mg", Vector3(2.2, -0.38, -0.1), Basis(), DARK)
 	# Leitwerk auf dem schlanken Heck
-	P(bc, "h_stab", Vector3(0, 0.0, 5.0), _nx(), GREEN)
-	P(bc, "v_stab", Vector3(0, 0.45, 5.2), _ny(), GREEN)
+	P(bc, "h_stab", Vector3(0, 0.0, 4.9), _nx(), GREEN, Vector3(0.95, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.45, 5.1), _ny(), GREEN)
 	# Einziehfahrwerk + Spornrad
-	P(bc, "wheel_retract", Vector3(0.72, -1.05, 0.1), Basis(), GREY)
-	P(bc, "wheel_light", Vector3(0, -0.55, 4.9), Basis(), GREY)
+	P(bc, "wheel_retract", Vector3(0.7, -1.0, 0.1), Basis(), GREY)
+	P(bc, "wheel_light", Vector3(0, -0.5, 4.8), Basis(), GREY)
 	_finish(bc, "spitfire", "Spitfire")
 
 
@@ -104,22 +116,25 @@ func _build_spitfire() -> void:
 func _build_mustang() -> void:
 	var bc := _new_bc()
 	var SILVER := Color(0.70, 0.72, 0.76)
-	var DARK := Color(0.20, 0.20, 0.22)
-	_recolor_root(bc, SILVER)
-	# Lange schlanke Nase, langer Rumpf zum verjüngten Heck
-	P(bc, "prop_engine_big", Vector3(0, 0, -1.85), Basis(), SILVER, Vector3(0.82, 0.82, 1.05))
-	P(bc, "fuselage", Vector3(0, 0, 1.9), Basis(), SILVER, Vector3(1.0, 1.0, 1.0), 0.85, 1.0)
-	P(bc, "fuselage_long", Vector3(0, 0, 4.2), Basis(), SILVER, Vector3(1.0, 1.0, 1.0), 0.4, 1.0)
-	# Charakteristischer Bauch-Kühler (Radiator-Scoop)
-	P(bc, "fueltank", Vector3(0, -0.72, 1.7), Basis(), SILVER, Vector3(0.7, 0.6, 1.3))
+	var DARK := Color(0.16, 0.16, 0.18)
+	var BODY := Vector3(0.85, 0.92, 1.0)
+	_setup_root(bc, SILVER, BODY)
+	P(bc, "prop_engine_big", Vector3(0, 0, -1.8), Basis(), SILVER, Vector3(0.74, 0.74, 1.05))
+	P(bc, "fuselage", Vector3(0, 0, 1.85), Basis(), SILVER, BODY, 0.85, 1.0)
+	P(bc, "fuselage_long", Vector3(0, 0, 4.1), Basis(), SILVER, BODY, 0.4, 1.0)
+	# Charakteristischer Bauch-Kühler
+	P(bc, "fueltank", Vector3(0, -0.7, 1.6), Basis(), SILVER, Vector3(0.62, 0.55, 1.2))
 	# Laminare Tiefdecker-Tragflächen
-	P(bc, "wing_tapered", Vector3(0.3, -0.40, 0.8), _nx(), SILVER, Vector3(1.15, 1.0, 1.05))
-	# Leitwerk auf dem verjüngten Heck
-	P(bc, "h_stab", Vector3(0, 0.0, 5.4), _nx(), SILVER)
-	P(bc, "v_stab", Vector3(0, 0.5, 5.6), _ny(), SILVER)
+	P(bc, "wing_tapered", Vector3(0.3, -0.36, 0.8), _nx(), SILVER, Vector3(0.92, 1.0, 1.05))
+	# Bordwaffen (.50 cal in den Flügeln)
+	P(bc, "mg", Vector3(1.4, -0.36, 0.0), Basis(), DARK)
+	P(bc, "mg", Vector3(2.0, -0.36, 0.1), Basis(), DARK)
+	# Leitwerk
+	P(bc, "h_stab", Vector3(0, 0.0, 5.3), _nx(), SILVER, Vector3(0.95, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.5, 5.5), _ny(), SILVER)
 	# Einziehfahrwerk + Spornrad
-	P(bc, "wheel_retract", Vector3(0.72, -1.0, 0.2), Basis(), DARK)
-	P(bc, "wheel_light", Vector3(0, -0.55, 5.7), Basis(), DARK)
+	P(bc, "wheel_retract", Vector3(0.7, -1.0, 0.2), Basis(), DARK)
+	P(bc, "wheel_light", Vector3(0, -0.5, 5.6), Basis(), DARK)
 	_finish(bc, "mustang_p51", "P-51 Mustang")
 
 
