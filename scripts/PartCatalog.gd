@@ -923,21 +923,22 @@ static func _revolve(profile: Array, segs := 24) -> ArrayMesh:
 			var i1 := ring * stride + s + 1
 			var i2 := (ring + 1) * stride + s
 			var i3 := (ring + 1) * stride + s + 1
-			st.add_index(i0); st.add_index(i1); st.add_index(i2)
-			st.add_index(i1); st.add_index(i3); st.add_index(i2)
+			# Wicklung nach AUSSEN (sonst sind Nase/Heck/Tank inside-out)
+			st.add_index(i0); st.add_index(i2); st.add_index(i1)
+			st.add_index(i1); st.add_index(i2); st.add_index(i3)
 	var verts := n * stride
 	if float(profile[0].y) > 0.001:                  # vorderer Deckel (-Z)
 		st.add_vertex(Vector3(0, 0, profile[0].x))
 		var c0 := verts
 		verts += 1
 		for s in segs:
-			st.add_index(c0); st.add_index(s + 1); st.add_index(s)
+			st.add_index(c0); st.add_index(s); st.add_index(s + 1)
 	if float(profile[n - 1].y) > 0.001:              # hinterer Deckel (+Z)
 		st.add_vertex(Vector3(0, 0, profile[n - 1].x))
 		var cn := verts
 		var rb := (n - 1) * stride
 		for s in segs:
-			st.add_index(cn); st.add_index(rb + s); st.add_index(rb + s + 1)
+			st.add_index(cn); st.add_index(rb + s + 1); st.add_index(rb + s)
 	st.generate_normals()
 	return st.commit()
 
@@ -1004,19 +1005,20 @@ static func _box_tube(ef: Vector2, eb: Vector2, segs := 18) -> ArrayMesh:
 			var i1 := ring * stride + s + 1
 			var i2 := (ring + 1) * stride + s
 			var i3 := (ring + 1) * stride + s + 1
-			st.add_index(i0); st.add_index(i1); st.add_index(i2)
-			st.add_index(i1); st.add_index(i3); st.add_index(i2)
+			# Wicklung so, dass die Normalen NACH AUSSEN zeigen (sonst Rumpf inside-out)
+			st.add_index(i0); st.add_index(i2); st.add_index(i1)
+			st.add_index(i1); st.add_index(i2); st.add_index(i3)
 	var verts := n * stride
 	st.add_vertex(Vector3(0, 0, prof[0].x))             # Deckel vorne (-Z)
 	var c0 := verts
 	verts += 1
 	for s in segs:
-		st.add_index(c0); st.add_index(s + 1); st.add_index(s)
+		st.add_index(c0); st.add_index(s); st.add_index(s + 1)
 	st.add_vertex(Vector3(0, 0, prof[n - 1].x))         # Deckel hinten (+Z)
 	var cn := verts
 	var rb := (n - 1) * stride
 	for s in segs:
-		st.add_index(cn); st.add_index(rb + s); st.add_index(rb + s + 1)
+		st.add_index(cn); st.add_index(rb + s + 1); st.add_index(rb + s)
 	st.generate_normals()
 	return st.commit()
 
