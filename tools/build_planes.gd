@@ -60,34 +60,37 @@ func _finish(bc: BuildController, fname: String, title: String) -> void:
 	bc.queue_free()
 
 
-# 1) Fokker Dr.I — roter Dreidecker (WWI)
+# 1) Fokker Dr.I — roter Dreidecker (WWI), Manfred von Richthofen
 func _build_fokker() -> void:
 	var bc := _new_bc()
-	var RED := Color(0.72, 0.11, 0.12)
-	var DARK := Color(0.13, 0.13, 0.15)
-	var WOOD := Color(0.43, 0.28, 0.15)
-	var BODY := Vector3(0.92, 0.95, 1.0)
-	var WING := Vector3(1.15, 1.0, 1.0)
+	var RED := Color(0.74, 0.10, 0.11)
+	var DARK := Color(0.12, 0.12, 0.14)
+	var WOOD := Color(0.40, 0.26, 0.13)
+	var BODY := Vector3(0.92, 1.16, 1.0)        # tiefer, kastiger WWI-Rumpf
 	_setup_root(bc, RED, BODY)
-	P(bc, "prop_engine", Vector3(0, 0, -1.7), Basis(), RED, Vector3(1.05, 1.05, 1.0))
-	P(bc, "fuselage", Vector3(0, 0, 1.6), Basis(), RED, BODY, 0.5, 1.0)
-	P(bc, "tailcone", Vector3(0, 0, 3.0), Basis(), RED, Vector3(0.66, 0.66, 1.0))
-	# Drei gestaffelte Tragflächen (x>=0.2 -> links+rechts gespiegelt)
-	P(bc, "wing_short", Vector3(0.2, 1.25, -0.05), _nx(), RED, WING)
-	P(bc, "wing_short", Vector3(0.2, 0.12, 0.1), _nx(), RED, WING)
-	P(bc, "wing_short", Vector3(0.2, -0.98, 0.25), _nx(), RED, WING)
-	# Kabinen- (mittig) + Außenstreben (gespiegelt)
-	P(bc, "strut", Vector3(0, 0.68, 0.0), Basis(), WOOD)
-	P(bc, "strut", Vector3(0, -0.43, 0.18), Basis(), WOOD)
-	P(bc, "strut", Vector3(2.0, 0.68, -0.05), Basis(), WOOD)
-	P(bc, "strut", Vector3(2.0, -0.43, 0.12), Basis(), WOOD)
-	# Leitwerk: Höhenleitwerk GESPIEGELT (x=0.2!), Seitenflosse mittig
-	P(bc, "h_stab", Vector3(0.2, 0.0, 3.0), _nx(), RED, Vector3(0.85, 1.0, 1.0))
-	P(bc, "v_stab", Vector3(0, 0.42, 3.3), _ny(), RED, Vector3(1.0, 1.05, 1.0))
-	# Zwei Spandau-MG auf der Haube (gespiegelt) + Fahrwerk + Hecksporn
-	P(bc, "mg", Vector3(0.16, 0.5, -0.7), Basis(), DARK)
-	P(bc, "wheel", Vector3(0.55, -1.55, -0.2), Basis(), DARK)
-	P(bc, "wheel_light", Vector3(0, -0.8, 2.9), Basis(), DARK)
+	# Rotary-Motor mit runder Haube, kurzer tiefer Rumpf, zum Heck verjüngt
+	P(bc, "prop_engine", Vector3(0, 0, -1.6), Basis(), RED, Vector3(1.12, 1.12, 1.0))
+	P(bc, "fuselage", Vector3(0, 0, 1.5), Basis(), RED, BODY, 0.42, 1.0)
+	P(bc, "tailcone", Vector3(0, 0, 2.8), Basis(), RED, Vector3(0.60, 0.70, 1.0))
+	# Drei Tragflächen — oben am breitesten, minimal gestaffelt (echte Dr.I-Anordnung)
+	P(bc, "wing_short", Vector3(0.2, 1.42, -0.05), _nx(), RED, Vector3(1.32, 1.0, 1.0))   # oben (Querruder)
+	P(bc, "wing_short", Vector3(0.2, 0.06, 0.05), _nx(), RED, Vector3(1.20, 1.0, 1.0))    # Mitte (am Rumpf)
+	P(bc, "wing_short", Vector3(0.2, -1.20, 0.15), _nx(), RED, Vector3(1.10, 1.0, 1.0))   # unten (am kürzesten)
+	# Kabinenstreben mittig (verbinden senkrecht durch den Rumpf)
+	P(bc, "strut", Vector3(0, 0.78, -0.05), Basis(), WOOD)        # Rumpf -> oben
+	P(bc, "strut", Vector3(0, -0.62, 0.1), Basis(), WOOD)         # Rumpf -> unten
+	# Charakteristische einzelne I-/N-Verstrebung außen je Seite (gespiegelt)
+	P(bc, "strut", Vector3(2.1, 0.78, -0.05), Basis(), WOOD)      # oben <-> Mitte
+	P(bc, "strut", Vector3(2.1, -0.62, 0.1), Basis(), WOOD)       # Mitte <-> unten
+	# Leitwerk: Höhenleitwerk gespiegelt (x=0.2), Komma-Seitenflosse mittig
+	P(bc, "h_stab", Vector3(0.2, 0.0, 2.85), _nx(), RED, Vector3(0.82, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.42, 3.1), _ny(), RED, Vector3(0.95, 1.05, 1.0))
+	# Twin-Spandau-MG auf der Haube (gespiegelt)
+	P(bc, "mg", Vector3(0.16, 0.55, -0.45), Basis(), DARK)
+	# Kreuz-Achsfahrwerk: horizontale Achse (mittig) + zwei eng stehende Räder + Hecksporn
+	P(bc, "strut", Vector3(0, -1.4, -0.2), _ny(), WOOD)           # Achsfairing (quer, 1.5 breit)
+	P(bc, "wheel", Vector3(0.5, -1.55, -0.2), Basis(), DARK)
+	P(bc, "wheel_light", Vector3(0, -0.7, 2.7), Basis(), DARK)    # Hecksporn
 	_finish(bc, "fokker_dr1", "Fokker Dr.I")
 
 
