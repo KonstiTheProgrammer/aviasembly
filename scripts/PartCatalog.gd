@@ -807,6 +807,27 @@ static func _attach_model(root: Node3D, id: String, col_override: Color) -> void
 	root.add_child(inst)
 	if col_override.a > 0.0:                 # nur bei Lackierung umfärben
 		_recolor_model(inst, col_override)
+	_tone_model_accents(inst)               # zu grelle Chrom-Akzente (Federbein-Kolben) dämpfen
+
+
+# Dämpft im glTF gebackene, spiegelglatte Chrom-Akzente (z. B. das polierte
+# Federbein-Kolben-Material "piston"), die unter starkem Licht weiß ausbrennen und
+# wie ein fehlplatzierter weißer Würfel wirken. Brüniertes Metall statt Spiegel.
+static func _tone_model_accents(node: Node) -> void:
+	for ch in node.get_children():
+		_tone_model_accents(ch)
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh == null:
+			return
+		for i in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(i)
+			if m is StandardMaterial3D and (m as StandardMaterial3D).resource_name == "piston":
+				var dup: StandardMaterial3D = m.duplicate()
+				dup.albedo_color = Color(0.50, 0.51, 0.55)
+				dup.metallic = 0.6
+				dup.roughness = 0.45
+				mi.set_surface_override_material(i, dup)
 
 
 static func _recolor_model(node: Node, col: Color) -> void:
