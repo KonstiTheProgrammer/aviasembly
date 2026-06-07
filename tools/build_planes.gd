@@ -50,6 +50,18 @@ func P(bc: BuildController, id: String, pos: Vector3, basis := Basis(), col := C
 		pscale := Vector3.ONE, taper := -1.0, taper_front := -1.0) -> void:
 	bc._place_id(id, Transform3D(basis, pos), pscale, col, taper, taper_front)
 
+# Platziert einen Flügel als ZWEI in der Mitte (x=0) zusammenstoßende Hälften: rechte
+# Hälfte normal (+X), linke Hälfte X-gespiegelt (−X). Die Wurzeln treffen sich bündig bei
+# x=0 -> KEIN Spalt in der Mitte. Beide werden als Symmetrie-Paar verknüpft. So bleibt ein
+# durchgehender Flügel auch wenn er über/unter dem Rumpf liegt (Dreidecker oben/unten).
+func PW(bc: BuildController, id: String, y: float, z: float, col := Color(0, 0, 0, 0),
+		pscale := Vector3.ONE) -> void:
+	var rt := bc._make_part(id, Transform3D(Basis(), Vector3(0, y, z)), col, pscale)
+	var lb := Basis(Vector3(-1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1))   # X gespiegelt -> linke Hälfte
+	var lf := bc._make_part(id, Transform3D(lb, Vector3(0, y, z)), col, pscale)
+	rt.set_meta("mirror", lf)
+	lf.set_meta("mirror", rt)
+
 func _finish(bc: BuildController, fname: String, title: String) -> void:
 	bc._notify_changed()
 	var design := bc.get_design()
@@ -72,18 +84,18 @@ func _build_fokker() -> void:
 	P(bc, "prop_engine", Vector3(0, 0, -1.55), Basis(), RED, Vector3(1.1, 1.1, 1.0))
 	P(bc, "fuselage", Vector3(0, 0, 1.45), Basis(), RED, BODY, 0.5, 1.0)
 	P(bc, "tailcone", Vector3(0, 0, 2.85), Basis(), RED, Vector3(0.55, 0.62, 1.0))
-	# --- Drei gerade Tragflächen: oben am breitesten, gleichmäßig gestapelt, leichter Staffel ---
-	P(bc, "wing_straight", Vector3(0.2, 1.35, -0.12), _nx(), RED, Vector3(0.80, 1.0, 0.6))   # oben
-	P(bc, "wing_straight", Vector3(0.2, 0.1, 0.0), _nx(), RED, Vector3(0.72, 1.0, 0.6))      # Mitte
-	P(bc, "wing_straight", Vector3(0.2, -1.15, 0.12), _nx(), RED, Vector3(0.66, 1.0, 0.6))   # unten
+	# --- Drei gerade Tragflächen (je zwei mittig zusammenstoßende Hälften -> KEIN Mittelspalt) ---
+	PW(bc, "wing_straight", 1.35, -0.12, RED, Vector3(0.85, 1.0, 0.6))   # oben (am breitesten)
+	PW(bc, "wing_straight", 0.10, 0.0, RED, Vector3(0.76, 1.0, 0.6))     # Mitte
+	PW(bc, "wing_straight", -1.15, 0.12, RED, Vector3(0.70, 1.0, 0.6))   # unten
 	# --- Streben: Kabinenstreben OBEN und UNTEN (verbinden oberen UND unteren Flügel je
 	#     mit dem Rumpf) + EINE durchgehende Interplane-Strebe außen (verbindet alle drei) ---
 	var ST := Vector3(0.7, 1.0, 0.45)                                # schlanke Holzstrebe
 	P(bc, "strut", Vector3(0.42, 0.72, -0.04), Basis(), WOOD, ST)    # Kabine: Rumpf<->oben (gespiegelt)
 	P(bc, "strut", Vector3(0.42, -0.52, 0.06), Basis(), WOOD, ST)    # Kabine: Rumpf<->unten (gespiegelt)
 	P(bc, "strut", Vector3(2.55, 0.10, -0.02), Basis(), WOOD, Vector3(0.7, 1.85, 0.45))  # Interplane durchgehend, alle 3 (gespiegelt)
-	# --- Leitwerk: Höhenleitwerk gespiegelt (x=0.2!), Seitenflosse mittig ---
-	P(bc, "h_stab", Vector3(0.2, 0.0, 2.95), _nx(), RED, Vector3(1.0, 1.0, 1.0))
+	# --- Leitwerk: Höhenleitwerk als durchgehende Hälften (kein Mittelspalt), Seitenflosse mittig ---
+	PW(bc, "h_stab", 0.0, 2.95, RED, Vector3(1.0, 1.0, 1.0))
 	P(bc, "v_stab", Vector3(0, 0.45, 3.1), _ny(), RED, Vector3(0.95, 1.1, 1.0))
 	# --- Twin-Spandau-MG auf der Haube (gespiegelt) ---
 	P(bc, "mg", Vector3(0.18, 0.45, -0.45), Basis(), DARK)

@@ -1892,6 +1892,23 @@ func _relink_mirrors() -> void:
 				a.set_meta("mirror", b)
 				b.set_meta("mirror", a)
 				break
+	# MITTIGE Spiegelpaare (x≈0): zwei gleiche Teile an gleicher Stelle, eine Hälfte mit
+	# gespiegelter (improper, det<0) Basis -> z. B. ein durchgehender Flügel aus zwei in der
+	# Mitte zusammenstoßenden Hälften. Damit greift der Symmetrie-Modus auch hier.
+	for a in parts:
+		if a.has_meta("mirror") or a.get_meta("is_root", false) or absf(a.position.x) > 0.05:
+			continue
+		if a.transform.basis.determinant() >= 0.0:
+			continue                                  # nur die gespiegelte (linke) Hälfte sucht
+		for b in parts:
+			if b == a or b.has_meta("mirror") or b.get_meta("is_root", false):
+				continue
+			if b.get_meta("part_id") != a.get_meta("part_id") or absf(b.position.x) > 0.05:
+				continue
+			if b.transform.basis.determinant() > 0.0 and a.position.distance_to(b.position) < 0.1:
+				a.set_meta("mirror", b)
+				b.set_meta("mirror", a)
+				break
 
 
 func clear_design() -> void:
