@@ -1337,7 +1337,7 @@ func _update_ampel(stats: Dictionary) -> void:
 		col = Color(1, 0.45, 0.4); txt = "🔴 Fliegt nicht — keine Tragflächen dran"
 	elif stats.get("gear_overload", false):
 		col = Color(1, 0.45, 0.4); txt = "🔴 Fahrwerk überlastet — Reifen reißen beim Start ab"
-	elif offset > 1.4:
+	elif offset > 1.0:
 		# außermittiger/schräger Schub (z. B. Düse hinten, die nach oben zeigt) -> kippt/dreht
 		col = Color(1, 0.45, 0.4); txt = "🔴 Schub stark außermittig — kippt/dreht beim Gasgeben (Triebwerke symmetrisch & durch den Schwerpunkt richten)"
 	elif tw < 0.12 and up_tw < 0.9:
@@ -1353,8 +1353,8 @@ func _update_ampel(stats: Dictionary) -> void:
 			warns.append("Senkrechtschub-Stil — braucht Vorwärtsschub für sauberen Vorwärtsflug")
 		elif tw < 0.30:
 			warns.append("wenig Vorwärtsschub")
-		if offset > 0.6:
-			warns.append("Schub außermittig (kippt unter Last)")
+		if offset > 0.15:
+			warns.append("Schub nicht durch den Schwerpunkt — zieht/kippt beim Gasgeben (Triebwerk auf COM-Höhe = ruhiger)")
 		if stats.get("col_valid", false) and d < 0.15:
 			warns.append("grenzwertig stabil (Leitwerk/Flügel weiter nach hinten)")
 		if not stats.get("has_gear", false):
