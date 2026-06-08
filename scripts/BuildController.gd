@@ -1097,7 +1097,7 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 		# Mittelspalt-Füllung beider Hälften an die neue Position anpassen
 		_update_wing_fill(part)
 		_update_wing_fill(m)
-	elif symmetry and String(PartCatalog.get_part(part.get_meta("part_id")).get("shape", "")) == "wing":
+	elif m_valid and symmetry and String(PartCatalog.get_part(part.get_meta("part_id")).get("shape", "")) == "wing":
 		# Symmetrie AN + zentriertes Flügel-Paar (zwei in der Mitte zusammenstoßende
 		# Hälften = durchgehender Flügel): NICHT entfernen, sondern beide Hälften gleich
 		# skalieren/mitziehen -> die Symmetrie greift auch beim mittigen Flügel.
