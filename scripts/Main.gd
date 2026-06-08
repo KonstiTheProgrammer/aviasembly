@@ -5,7 +5,8 @@ extends Node3D
 
 enum Mode { BUILD, FLY }
 
-const SAVE_PATH := "user://aircraft_design.json"
+const SAVE_PATH := "user://aircraft_design.json"   # Autoload: zuletzt gebautes/geladenes
+const SLOT_DIR := "user://hangar"                  # benannte eigene Speicher-Slots
 
 # Blueprint-Gitter-Shader (anti-aliased, zum Horizont ausgeblendet)
 const _BLUEPRINT_GRID_SHADER := "
@@ -72,6 +73,15 @@ var fly_money_label: Label         # Flug-HUD
 var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
 var upgrade_box: VBoxContainer     # Upgrade-Panel
 var mode_overlay: Control          # Modus-Auswahl-Overlay
+var dialog_overlay: Control = null # Speichern-/Laden-Overlay
+var _slot_name := "Mein Flugzeug"  # zuletzt verwendeter Slot-Name (Default im Speichern-Dialog)
+# Vorlagen-Flugzeuge (id, Anzeigename) — werden im Laden-Dialog gelistet
+const PRESETS := [
+	["fokker_dr1", "Fokker Dr.I  ·  Roter Baron"],
+	["spitfire", "Supermarine Spitfire"],
+	["mustang_p51", "P-51 Mustang"],
+	["jet", "Kampfjet  ·  F-22"],
+]
 var sel_panel: Control             # Kontext-Panel für ausgewähltes Teil
 var sel_title: Label
 var sel_scale_label: Label
@@ -742,21 +752,8 @@ func _build_hangar_ui() -> void:
 	load_btn.pressed.connect(_on_load_pressed)
 	row.add_child(load_btn)
 
-	# --- Vorlagen (historische Flugzeuge laden) ---
-	vb.add_child(HSeparator.new())
-	vb.add_child(_lbl("Vorlagen — anklicken zum Laden:", 12, Color(0.82, 0.9, 1.0)))
-	var presets := [
-		["fokker_dr1", "Fokker Dr.I  ·  Roter Baron"],
-		["spitfire", "Supermarine Spitfire"],
-		["mustang_p51", "P-51 Mustang"],
-		["jet", "Kampfjet  ·  F-22"],
-	]
-	for pr in presets:
-		var pb := Button.new()
-		pb.text = pr[1]
-		pb.add_theme_font_size_override("font_size", 12)
-		pb.pressed.connect(_load_preset.bind(pr[0], pr[1]))
-		vb.add_child(pb)
+	# Vorlagen (Spitfire/Mustang/…) und eigene Speicherstände liegen jetzt im »Laden«-Dialog.
+	vb.add_child(_lbl("Vorlagen & eigene Flugzeuge: über »Laden« ↑", 11, Color(0.7, 0.8, 0.95)))
 
 	# --- Testflug-Button oben mitte ---
 	var fly_btn := Button.new()
@@ -1613,15 +1610,11 @@ func _on_clear_pressed() -> void:
 
 
 func _on_save_pressed() -> void:
-	_save_design()
-	_toast("Design gespeichert ✓")
+	_show_save_dialog()
 
 
 func _on_load_pressed() -> void:
-	if _load_design():
-		_toast("Design geladen ✓")
-	else:
-		_toast("Kein Speicherstand vorhanden")
+	_show_load_dialog()
 
 
 func _on_toast_timeout() -> void:
@@ -1641,6 +1634,11 @@ func _toast(msg: String) -> void:
 # Speichern / Laden
 # ===========================================================================
 func _save_design() -> void:
+	_write_design(SAVE_PATH)
+
+
+# Serialisiert das aktuelle Design in ein JSON-fähiges Array.
+func _design_data() -> Array:
 	var data: Array = []
 	for it in build_ctrl.get_design():
 		var c: Color = it.get("color", Color(0, 0, 0, 0))
@@ -1650,22 +1648,181 @@ func _save_design() -> void:
 			"taper": it.get("taper", 1.0), "taper_front": it.get("taper_front", 1.0),
 			"taper_y": it.get("taper_y", -1.0), "taper_front_y": it.get("taper_front_y", -1.0),
 			"fill": it.get("fill", 0.0), "thrust_reverse": it.get("thrust_reverse", false)})
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(data))
-		f.close()
+	return data
+
+
+func _write_design(path: String) -> bool:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(JSON.stringify(_design_data()))
+	f.close()
+	return true
+
+
+# --- Benannte Speicher-Slots (user://hangar/<name>.json) ------------------------
+func _ensure_slot_dir() -> void:
+	if not DirAccess.dir_exists_absolute(SLOT_DIR):
+		DirAccess.make_dir_recursive_absolute(SLOT_DIR)
+
+
+func _safe_name(n: String) -> String:
+	var out := ""
+	for ch in n.strip_edges():
+		if ch in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
+			continue
+		out += ch
+	return out.substr(0, 40)
+
+
+func _slot_path(n: String) -> String:
+	return SLOT_DIR + "/" + _safe_name(n) + ".json"
+
+
+func _list_slots() -> Array:
+	var out: Array = []
+	var d := DirAccess.open(SLOT_DIR)
+	if d == null:
+		return out
+	for fn in d.get_files():
+		if fn.ends_with(".json"):
+			out.append(fn.get_basename())   # Anzeigename = Dateiname ohne .json
+	out.sort()
+	return out
+
+
+# --- Speichern-/Laden-Overlays --------------------------------------------------
+func _close_dialog() -> void:
+	if is_instance_valid(dialog_overlay):
+		dialog_overlay.queue_free()
+	dialog_overlay = null
+
+
+func _dialog_shell(title: String) -> VBoxContainer:
+	_close_dialog()
+	dialog_overlay = ColorRect.new()
+	(dialog_overlay as ColorRect).color = Color(0.03, 0.05, 0.09, 0.92)
+	dialog_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dialog_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	ui.add_child(dialog_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dialog_overlay.add_child(center)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	v.custom_minimum_size = Vector2(470, 0)
+	center.add_child(v)
+	var t := _lbl(title, 24, Color(0.6, 1.0, 0.7))
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	return v
+
+
+func _show_save_dialog() -> void:
+	if build_ctrl == null:
+		return
+	var v := _dialog_shell("✈  Flugzeug speichern")
+	v.add_child(_lbl("Name:", 14, Color(0.8, 0.85, 0.95)))
+	var le := LineEdit.new()
+	le.text = _slot_name
+	le.custom_minimum_size = Vector2(470, 38)
+	le.select_all_on_focus = true
+	v.add_child(le)
+	le.text_submitted.connect(func(_t): _do_save_slot(le.text))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	v.add_child(row)
+	var ok := Button.new(); ok.text = "💾  Speichern"; ok.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ok.pressed.connect(func(): _do_save_slot(le.text))
+	row.add_child(ok)
+	var cancel := Button.new(); cancel.text = "Abbrechen"; cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel.pressed.connect(_close_dialog)
+	row.add_child(cancel)
+	le.grab_focus()
+
+
+func _do_save_slot(nm_raw: String) -> void:
+	var nm := _safe_name(nm_raw)
+	if nm == "":
+		_toast("Bitte einen Namen eingeben")
+		return
+	_slot_name = nm
+	_ensure_slot_dir()
+	if _write_design(_slot_path(nm)):
+		_write_design(SAVE_PATH)   # auch als aktuelles Autoload merken
+		_toast("Gespeichert: " + nm + " ✓")
+	else:
+		_toast("Speichern fehlgeschlagen")
+	_close_dialog()
+
+
+func _show_load_dialog() -> void:
+	var v := _dialog_shell("✈  Flugzeug laden")
+	v.add_child(_lbl("Vorlagen", 14, Color(0.82, 0.9, 1.0)))
+	for pr in PRESETS:
+		var pb := Button.new()
+		pb.text = pr[1]
+		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pb.pressed.connect(_do_load_preset.bind(pr[0], pr[1]))
+		v.add_child(pb)
+	v.add_child(HSeparator.new())
+	v.add_child(_lbl("Eigene Flugzeuge", 14, Color(0.82, 0.9, 1.0)))
+	var slots := _list_slots()
+	if slots.is_empty():
+		v.add_child(_lbl("(noch keine gespeichert — über »Speichern« anlegen)", 12, Color(0.7, 0.7, 0.78)))
+	else:
+		var scroll := ScrollContainer.new()
+		scroll.custom_minimum_size = Vector2(470, minf(slots.size() * 40.0, 220.0))
+		v.add_child(scroll)
+		var sv := VBoxContainer.new()
+		sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.add_child(sv)
+		for nm in slots:
+			var hb := HBoxContainer.new()
+			hb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			sv.add_child(hb)
+			var lb := Button.new()
+			lb.text = "📂  " + nm
+			lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lb.pressed.connect(_do_load_slot.bind(nm))
+			hb.add_child(lb)
+			var db := Button.new()
+			db.text = "🗑"
+			db.tooltip_text = "Löschen"
+			db.pressed.connect(_do_delete_slot.bind(nm))
+			hb.add_child(db)
+	var close := Button.new(); close.text = "Schließen"
+	close.pressed.connect(_close_dialog)
+	v.add_child(close)
+
+
+func _do_load_preset(id: String, title: String) -> void:
+	if _load_design_from("res://designs/%s.json" % id):
+		_write_design(SAVE_PATH)
+		_toast("Geladen: " + title)
+	else:
+		_toast("Vorlage nicht gefunden: " + id)
+	_close_dialog()
+
+
+func _do_load_slot(nm: String) -> void:
+	if _load_design_from(_slot_path(nm)):
+		_slot_name = nm
+		_write_design(SAVE_PATH)
+		_toast("Geladen: " + nm)
+	else:
+		_toast("Konnte nicht laden: " + nm)
+	_close_dialog()
+
+
+func _do_delete_slot(nm: String) -> void:
+	DirAccess.remove_absolute(_slot_path(nm))
+	_toast("Gelöscht: " + nm)
+	_show_load_dialog()   # Dialog mit aktualisierter Liste neu aufbauen
 
 
 func _load_design() -> bool:
 	return _load_design_from(SAVE_PATH)
-
-
-# Vorlage (historisches Flugzeug) aus res://designs/ laden.
-func _load_preset(id: String, title: String) -> void:
-	if _load_design_from("res://designs/%s.json" % id):
-		_toast("Vorlage geladen: " + title)
-	else:
-		_toast("Vorlage nicht gefunden: " + id)
 
 
 # Lädt ein Design aus beliebigem Pfad (Speicherstand ODER Vorlage in res://designs/).
