@@ -1161,7 +1161,7 @@ func _on_selection_changed(info: Dictionary) -> void:
 	if pid != "" and PartCatalog.has(pid):
 		sel_title.tooltip_text = _part_stats_text(PartCatalog.get_part(pid))
 	var s: Vector3 = info.get("scale", Vector3.ONE)
-	sel_scale_label.text = "Größe: %.2f × %.2f × %.2f   (Shift = uniform skalieren)" % [s.x, s.y, s.z]
+	sel_scale_label.text = "Größe: %.2f × %.2f × %.2f   (Shift = uniform · Strg = X+Y)" % [s.x, s.y, s.z]
 	var is_root: bool = info.get("is_root", false)
 	sel_delete_btn.disabled = is_root
 	sel_delete_btn.tooltip_text = "Das Cockpit ist die Basis und kann nicht gelöscht werden." if is_root else ""

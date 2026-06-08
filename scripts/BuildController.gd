@@ -494,6 +494,9 @@ func nudge_scale(axis: int, factor: float) -> void:
 		# Shift = UNIFORM: alle 3 Achsen mit demselben Faktor skalieren
 		new_sc = Vector3(clampf(sc.x * factor, 0.25, 6.0), clampf(sc.y * factor, 0.25, 6.0),
 			clampf(sc.z * factor, 0.25, 6.0))
+	elif (Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META)) and axis != 2:
+		# Strg + X/Y = Querschnitt: X UND Y zusammen (Länge Z bleibt)
+		new_sc = Vector3(clampf(sc.x * factor, 0.25, 6.0), clampf(sc.y * factor, 0.25, 6.0), sc.z)
 	else:
 		v[axis] = clampf(float(v[axis]) * factor, 0.25, 6.0)
 		new_sc = Vector3(v[0], v[1], v[2])
@@ -1069,6 +1072,11 @@ func _update_transform_drag() -> void:
 			sc = Vector3(clampf(_drag_scale0.x * ratio, 0.25, 6.0),
 				clampf(_drag_scale0.y * ratio, 0.25, 6.0),
 				clampf(_drag_scale0.z * ratio, 0.25, 6.0))
+		elif (Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META)) and i != 2:
+			# Strg + X/Y-Griff = Querschnitt: X UND Y zusammen skalieren (Länge Z bleibt)
+			var ratio2: float = new_s / maxf(s0, 0.001)
+			sc.x = clampf(_drag_scale0.x * ratio2, 0.25, 6.0)
+			sc.y = clampf(_drag_scale0.y * ratio2, 0.25, 6.0)
 		elif i == 0:
 			sc.x = new_s
 		elif i == 1:
