@@ -916,6 +916,20 @@ static func _tone_model_accents(node: Node) -> void:
 				dup.metallic = 0.6
 				dup.roughness = 0.45
 				mi.set_surface_override_material(i, dup)
+			elif m is StandardMaterial3D and (m as StandardMaterial3D).resource_name == "ductdark":
+				# Lufteinlauf-Schacht: BEIDSEITIG (sonst sieht man durch die abgewandte Wand auf
+				# den Rumpf) + matt tiefschwarz, damit es als echtes dunkles Loch liest.
+				var dd: StandardMaterial3D = m.duplicate()
+				dd.cull_mode = BaseMaterial3D.CULL_DISABLED
+				dd.albedo_color = Color(0.02, 0.02, 0.025)
+				dd.metallic = 0.0
+				dd.roughness = 1.0
+				dd.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+				mi.set_surface_override_material(i, dd)
+			elif m is StandardMaterial3D and (m as StandardMaterial3D).resource_name == "ductsplit":
+				var ds: StandardMaterial3D = m.duplicate()
+				ds.cull_mode = BaseMaterial3D.CULL_DISABLED
+				mi.set_surface_override_material(i, ds)
 
 
 static func _recolor_model(node: Node, col: Color) -> void:

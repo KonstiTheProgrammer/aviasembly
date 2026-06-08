@@ -18,7 +18,12 @@ def newmat(name, col, rough, metal, alpha=1.0):
 MB = newmat("body", (0.80, 0.81, 0.84), 0.40, 0.55)
 MG = newmat("glass", (0.03, 0.03, 0.035), 0.08, 0.1)
 MF = newmat("frame", (0.12, 0.12, 0.13), 0.5, 0.55)
-MD = newmat("ductdark", (0.025, 0.025, 0.03), 0.6, 0.3)
+MD = newmat("ductdark", (0.016, 0.016, 0.02), 1.0, 0.0)
+MS = newmat("ductsplit", (0.20, 0.20, 0.22), 0.75, 0.15)
+# Einlauf-Innenraum & Teiler beidseitig sichtbar (sonst sieht man durch die abgewandte
+# Schachtwand auf den silbernen Rumpf dahinter -> "halb silberner" Einlauf).
+MD.use_backface_culling = False
+MS.use_backface_culling = False
 
 N = 26
 def ering(bm, y, rw, rh, cz):
@@ -55,12 +60,12 @@ sv = [bm.verts.new(p) for p in [
     (0.018, 2.575, 0.45), (0.018, 2.575, -0.45), (0.018, 0.40, -0.36), (0.018, 0.40, 0.36),
     (-0.018, 2.575, 0.45), (-0.018, 2.575, -0.45), (-0.018, 0.40, -0.36), (-0.018, 0.40, 0.36)]]
 for f in [(0,1,2,3),(7,6,5,4),(4,5,1,0),(5,6,2,1),(6,7,3,2),(7,4,0,3)]:
-    bm.faces.new([sv[k] for k in f]).material_index = 0
+    bm.faces.new([sv[k] for k in f]).material_index = 2
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 me = bpy.data.meshes.new("Fuselage"); bm.to_mesh(me); bm.free()
 for p in me.polygons: p.use_smooth = True
 fo = bpy.data.objects.new("Fuselage", me); bpy.context.scene.collection.objects.link(fo)
-fo.data.materials.append(MB); fo.data.materials.append(MD)
+fo.data.materials.append(MB); fo.data.materials.append(MD); fo.data.materials.append(MS)
 
 # --- Bubble-Kanzel (sitzt hoch, weiter vorn) ---
 bm = bmesh.new()
