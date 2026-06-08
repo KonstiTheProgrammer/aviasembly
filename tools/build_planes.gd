@@ -138,26 +138,30 @@ func _build_spitfire() -> void:
 # 3) North American P-51 Mustang — silberner Tiefdecker (WWII)
 func _build_mustang() -> void:
 	var bc := _new_bc()
-	var SILVER := Color(0.70, 0.72, 0.76)
-	var DARK := Color(0.16, 0.16, 0.18)
-	var BODY := Vector3(0.85, 0.92, 1.0)
+	var SILVER := Color(0.76, 0.78, 0.82)        # blankes Aluminium (bare metal)
+	var SCOOP := Color(0.56, 0.58, 0.62)         # Kühlerschacht etwas dunkler
+	var DARK := Color(0.13, 0.13, 0.15)
+	var BODY := Vector3(0.84, 0.90, 1.0)         # schlanker Rumpf
 	_setup_root(bc, SILVER, BODY)
-	P(bc, "prop_engine_big", Vector3(0, 0, -1.8), Basis(), SILVER, Vector3(0.74, 0.74, 1.05))
-	P(bc, "fuselage", Vector3(0, 0, 1.85), Basis(), SILVER, BODY, 0.85, 1.0)
-	P(bc, "fuselage_long", Vector3(0, 0, 4.1), Basis(), SILVER, BODY, 0.4, 1.0)
-	# Charakteristischer Bauch-Kühler (mittig)
-	P(bc, "fueltank", Vector3(0, -0.7, 1.6), Basis(), SILVER, Vector3(0.62, 0.55, 1.2))
-	# Laminare Tiefdecker-Tragflächen (gespiegelt)
-	P(bc, "wing_tapered", Vector3(0.3, -0.46, 0.55), _nx(), SILVER, Vector3(0.92, 1.0, 1.05))
-	# .50 cal MG in den Flügeln (gespiegelt)
-	P(bc, "mg", Vector3(1.4, -0.46, -0.1), Basis(), DARK)
-	P(bc, "mg", Vector3(2.0, -0.46, 0.0), Basis(), DARK)
-	# Leitwerk: Höhenleitwerk GESPIEGELT (x=0.2), Seitenflosse mittig
-	P(bc, "h_stab", Vector3(0.2, 0.05, 5.3), _nx(), SILVER, Vector3(0.8, 1.0, 1.0))
-	P(bc, "v_stab", Vector3(0, 0.5, 5.5), _ny(), SILVER, Vector3(1.0, 1.1, 1.0))
-	# Einziehfahrwerk (gespiegelt) + Spornrad (mittig)
-	P(bc, "wheel_retract", Vector3(0.78, -0.5, 0.25), Basis(), DARK)    # Bein montiert am Flügel, Rad haengt darunter
-	P(bc, "wheel_light", Vector3(0, -0.5, 5.6), Basis(), DARK)
+	# --- Rumpf: lange Packard-Merlin-Nase, schlanker Rumpf, schlank zum Heck auslaufend ---
+	P(bc, "prop_engine_big", Vector3(0, 0, -1.95), Basis(), SILVER, Vector3(0.72, 0.72, 1.18))
+	P(bc, "fuselage", Vector3(0, 0, 1.70), Basis(), SILVER, BODY, 0.88, 1.0)
+	P(bc, "fuselage_taper", Vector3(0, 0, 3.78), Basis(), SILVER, BODY, 0.30, 0.95)
+	# --- Laminar-Tiefdecker, durchgehend ohne Mittelspalt (PW), leicht vorn ---
+	PW(bc, "wing_tapered", -0.42, 0.45, SILVER, Vector3(1.0, 1.0, 1.18))
+	# --- P-51-Merkmal: flacher Bauch-Kühlerschacht, integriert HINTER dem Flügel ---
+	P(bc, "fueltank", Vector3(0, -0.48, 1.5), Basis(), SCOOP, Vector3(0.64, 0.42, 1.7))
+	# --- kleiner Vergaser-Scoop oben auf der Nase (Mustang-typisch) ---
+	P(bc, "fueltank", Vector3(0, 0.46, -1.35), Basis(), SILVER, Vector3(0.32, 0.24, 0.7))
+	# --- .50 cal Flügel-MGs (sauberes Modell, in den Flügeln; nur Lauf schaut vorn raus) ---
+	P(bc, "wing_gun", Vector3(1.55, -0.42, 0.25), Basis(), DARK)
+	P(bc, "wing_gun", Vector3(2.25, -0.42, 0.4), Basis(), DARK)
+	# --- Leitwerk: Höhenleitwerk durchgehend (PW), hohe Seitenflosse mittig ---
+	PW(bc, "h_stab", 0.05, 4.70, SILVER, Vector3(0.92, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.52, 4.92), _ny(), SILVER, Vector3(1.05, 1.18, 1.0))
+	# --- Einziehfahrwerk (am Flügel) + Spornrad (mittig) ---
+	P(bc, "wheel_retract", Vector3(0.82, -0.42, 0.10), Basis(), SILVER)
+	P(bc, "wheel_light", Vector3(0, -0.5, 4.55), Basis(), DARK)
 	_finish(bc, "mustang_p51", "P-51 Mustang")
 
 
