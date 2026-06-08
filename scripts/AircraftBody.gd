@@ -77,7 +77,6 @@ var _vapor: Array = []        # CPUParticles3D an Flügelspitzen (Wirbelschleppe
 var _damage_smoke: CPUParticles3D = null  # Rauchfahne, wenn das Flugzeug Teile verloren hat
 var _exhaust_fx: Array = []   # [{startup, soot, ignite}] Rauch-Emitter je Triebwerk (Auspuff)
 var _spawned := false         # erster _process-Frame -> Triebwerk "anlassen" = Startrauch-Stoß
-var _ab_smoke_on := false     # Flanke: Nachbrenner-Zündung -> einmaliger Rußstoß
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
 const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
 const FLAP_RATE := 0.28       # Ausfahr-/Einfahrgeschwindigkeit (1/s): voll ~3.5 s, pro Stufe ~1.8 s (realistisch träge)
@@ -248,7 +247,7 @@ func _process(delta: float) -> void:
 		var sparks = d["sparks"]
 		if is_instance_valid(sparks):
 			sparks.emitting = ab > 0.05
-	# Auspuff-Rauch: Triebwerk "anlassen" -> einmaliger Qualmstoß; Nachbrenner -> Ruß ----
+	# Auspuff-Rauch (nur Spitfire-Engine): Startrauch beim Anlassen + schwarzer Rauch bei 100..110 %
 	if not _spawned and not _exhaust_fx.is_empty():
 		_spawned = true
 		for fxd in _exhaust_fx:
@@ -256,18 +255,11 @@ func _process(delta: float) -> void:
 			if su != null and is_instance_valid(su):
 				su.restart()
 				su.emitting = true
-	var ab_smoke := _ab_spool > 0.06
-	if ab_smoke and not _ab_smoke_on:           # steigende Flanke = AB zündet -> Rußstoß
-		for fxd in _exhaust_fx:
-			var ig = fxd.get("ignite")
-			if ig != null and is_instance_valid(ig):
-				ig.restart()
-				ig.emitting = true
-	_ab_smoke_on = ab_smoke
+	var black_on := throttle >= 0.99            # Vollgas-Zone 100..110 % -> schwarzer Qualm
 	for fxd in _exhaust_fx:
-		var so = fxd.get("soot")
-		if so != null and is_instance_valid(so):
-			so.emitting = ab_smoke
+		var bk = fxd.get("black")
+		if bk != null and is_instance_valid(bk):
+			bk.emitting = black_on
 	var vap_on := gforce > 4.5 or airspeed > 130.0
 	for v in _vapor:
 		if is_instance_valid(v):
@@ -391,7 +383,7 @@ func recompute_aero() -> void:
 			ya += pi["yaw_a"]
 		if float(pi["thrust"]) > 0.0:
 			var et: float = float(pi["thrust"]) * thrust_mult
-			eng.append({"pos": pi["pos"], "thrust": et, "jet": pi["jet"],
+			eng.append({"id": pi.get("id", ""), "pos": pi["pos"], "thrust": et, "jet": pi["jet"],
 				"scale": pi.get("scale", Vector3.ONE)})
 			thr += et
 			if pi["prop"] != null and is_instance_valid(pi["prop"]):
@@ -969,7 +961,7 @@ func _rebuild_fx() -> void:
 		_damage_smoke.queue_free()
 	_damage_smoke = null
 	for fxd in _exhaust_fx:
-		for k in ["startup", "soot", "ignite"]:
+		for k in ["startup", "black"]:
 			var n = fxd.get(k)
 			if n != null and is_instance_valid(n):
 				n.queue_free()
@@ -1008,38 +1000,29 @@ func _rebuild_fx() -> void:
 		var light: OmniLight3D = d["light"]
 		light.position = Vector3(0, 0, 0.4 * rfac)
 		_afterburners.append(d)
-	# Auspuff-Rauch je Triebwerk: Startrauch (alle) + Nachbrenner-Ruß (nur Jets).
-	# Position relativ zum Körper (+Z = Heck); Partikel bleiben in der Welt -> trailen.
+	# Auspuff-Rauch NUR für die Spitfire-Engine (prop_engine_big):
+	# grauer Qualmstoß beim Anlassen + schwarzer Rauch bei 100..110 % Schub (Notleistung).
 	for e in engines:
-		var ejet: bool = e.get("jet", false)
+		if String(e.get("id", "")) != "prop_engine_big":
+			continue
 		var esc: Vector3 = e.get("scale", Vector3.ONE)
-		var elf: float = maxf(esc.z, 0.05)
-		var ssz: float = clampf((esc.x + esc.y) * 0.5, 0.5, 1.25)   # Partikelgröße nur dezent skalieren
+		var ssz: float = clampf((esc.x + esc.y) * 0.5, 0.5, 1.3)   # Partikelgröße nur dezent skalieren
 		var epos: Vector3 = e["pos"]
 		var fx := {}
-		# Startrauch: kleine graue Qualmwölkchen, quellen auf & faden (one-shot beim Anlassen)
-		var st := _make_smoke(30, 1.3, 0.4, 1.5, Color(0.72, 0.70, 0.66, 0.5), 0.055 * ssz, 3.4, 0.85, Vector3(0, 0.4, 1), 34.0)
+		# Startrauch: grauer Qualmstoß aus dem Auspuff beim Anlassen (one-shot, quillt auf & fadet)
+		var st := _make_smoke(26, 1.2, 0.4, 1.4, Color(0.60, 0.58, 0.55, 0.5), 0.05 * ssz, 3.2, 0.8, Vector3(0, 0.4, 1), 32.0)
 		st.one_shot = true
 		st.explosiveness = 0.65
 		st.emitting = false
 		add_child(st)
-		st.position = epos + Vector3(0, 0.05, (0.9 if ejet else 0.12) * elf)
+		st.position = epos + Vector3(0, 0.1, 0.1)
 		fx["startup"] = st
-		if ejet:
-			# Nachbrenner-Ruß: graue Fahne hinter der Flamme, solange der AB brennt (auch bei 110 %)
-			var so := _make_smoke(48, 1.8, 1.5, 5.0, Color(0.27, 0.26, 0.24, 0.46), 0.05 * ssz, 4.6, 0.3, Vector3(0, 0.08, 1), 13.0)
-			so.emitting = false
-			add_child(so)
-			so.position = epos + Vector3(0, 0.02, 2.2 * elf)
-			fx["soot"] = so
-			# Zünd-Stoß: kräftigerer dunkler Rußstoß im Moment der AB-Zündung
-			var ig := _make_smoke(30, 1.2, 2.0, 6.0, Color(0.14, 0.13, 0.12, 0.55), 0.06 * ssz, 3.8, 0.5, Vector3(0, 0.16, 1), 18.0)
-			ig.one_shot = true
-			ig.explosiveness = 0.8
-			ig.emitting = false
-			add_child(ig)
-			ig.position = epos + Vector3(0, 0.02, 1.5 * elf)
-			fx["ignite"] = ig
+		# Schwarzer Rauch: bei Vollgas (100..110 %) qualmt der Motor schwarz aus dem Auspuff
+		var bk := _make_smoke(44, 1.6, 0.8, 2.8, Color(0.06, 0.06, 0.06, 0.55), 0.05 * ssz, 3.8, 0.7, Vector3(0, 0.35, 1), 20.0)
+		bk.emitting = false
+		add_child(bk)
+		bk.position = epos + Vector3(0, 0.1, 0.12)
+		fx["black"] = bk
 		_exhaust_fx.append(fx)
 	for pi in parts:
 		if pi.get("broken", false) or not pi["is_wing"] or String(pi["control"]) != "":

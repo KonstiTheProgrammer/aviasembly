@@ -209,7 +209,7 @@ func build_from_design(d: Array) -> void:
 		# Bruch das Modell aus den ÜBRIGEN Teilen neu zusammenrechnen.
 		var pinfo := {
 			"vis": vis, "cs": cs, "xform": xf, "csize": box.size, "coffset": cob,
-			"pos": xf.origin, "prop": prop, "broken": false,
+			"id": id, "pos": xf.origin, "prop": prop, "broken": false,
 			"surf": surf_node, "surf_role": surf_role,
 			# Welt-"unten"-Vorzeichen aus der Flügel-Oberseite (basis.y.y); kippt bei Spiegelung
 			# NICHT (Mirror negiert nur X) -> beide Seiten schlagen gleich aus. Vertikale Flosse
