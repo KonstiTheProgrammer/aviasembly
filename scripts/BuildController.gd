@@ -2025,6 +2025,8 @@ func compute_stats() -> Dictionary:
 	var area := 0.0
 	var thrust := 0.0       # installierter Schub-Betrag (Anzeige)
 	var fwd_thrust := 0.0   # nach VORNE gerichteter Anteil (für die "Fliegt's?"-Ampel)
+	var thrust_up := 0.0    # nach OBEN gerichteter Anteil (Senkrechtschub / VTOL)
+	var thrust_arms: Array = []   # [pos, kraftvektor] je Triebwerk -> Schub-Drehmoment um den COM
 	var gear_cap := 0.0
 	var wing_cap := 0.0
 	var drag_area := 0.0
@@ -2057,6 +2059,8 @@ func compute_stats() -> Dictionary:
 			if bool(child.get_meta("thrust_reverse", false)):
 				edir = -edir
 			fwd_thrust += et * (-edir.z)   # nur die nach-vorne-Komponente treibt das Abheben
+			thrust_up += et * edir.y       # nach oben gerichteter Anteil (Senkrechtschub)
+			thrust_arms.append([child.position, edir * et])   # für das Schub-Drehmoment um den COM
 		gear_cap += p.get("gear_capacity", 0.0) * vol
 		drag_area += PartCatalog.part_drag(p) * psc.x * psc.y
 		com += m * child.position
@@ -2074,14 +2078,26 @@ func compute_stats() -> Dictionary:
 		com /= mass
 	if col_w > 0.0:
 		col /= col_w
-	var tw: float = fwd_thrust / max(mass * 9.81, 0.001)   # Ampel nutzt den Vorwärts-Schub
-	var max_g: float = wing_cap / max(mass * 9.81, 0.001)
+	# Schub-Drehmoment um den COM: außermittige/schräge Triebwerke kippen/drehen das Flugzeug.
+	# thrust_offset = |Drehmoment| / Schub = effektiver Hebel (m), um den der Netto-Schub am COM
+	# vorbeizieht. 0 = ausbalanciert (symmetrisch / auf der COM-Achse), groß = kippt unter Last.
+	var thrust_torque := Vector3.ZERO
+	for arm in thrust_arms:
+		var apos: Vector3 = arm[0]
+		var afrc: Vector3 = arm[1]
+		thrust_torque += (apos - com).cross(afrc)
+	var weight: float = max(mass * 9.81, 0.001)
+	var tw: float = fwd_thrust / weight          # Ampel nutzt den VORWÄRTS-Schub
+	var up_tw: float = thrust_up / weight          # Senkrechtschub / Gewicht (VTOL-fähig ab ~1.0)
+	var thrust_offset: float = thrust_torque.length() / max(thrust, 0.001)
+	var max_g: float = wing_cap / weight
 	return {
 		"mass": mass, "parts": n, "area": area, "thrust": thrust,
 		"tw": tw, "com": com, "col": col, "col_valid": col_w > 0.0,
 		"gear_cap": gear_cap, "gear_overload": gear_cap > 0.0 and mass > gear_cap,
 		"has_gear": gear_cap > 0.0, "drag_area": drag_area,
 		"max_g": max_g, "has_wings": wing_cap > 0.0,
+		"up_tw": up_tw, "thrust_offset": thrust_offset,
 	}
 
 

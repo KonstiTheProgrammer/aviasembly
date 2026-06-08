@@ -1321,28 +1321,40 @@ func _on_design_changed(stats: Dictionary) -> void:
 func _update_ampel(stats: Dictionary) -> void:
 	if ampel_label == null:
 		return
+	if build_ctrl != null and build_ctrl.has_floating():
+		ampel_label.add_theme_color_override("font_color", Color(1, 0.45, 0.4))
+		ampel_label.text = "🔴 %d Teil(e) hängen frei (rot markiert) — verbinden zum Starten" % build_ctrl.floating_count()
+		return
 	var has_wings: bool = stats.get("has_wings", false)
-	var tw: float = stats.get("tw", 0.0)
+	var tw: float = stats.get("tw", 0.0)                       # VORWÄRTS-Schub / Gewicht
+	var up_tw: float = stats.get("up_tw", 0.0)                 # Senkrechtschub / Gewicht (VTOL)
+	var offset: float = stats.get("thrust_offset", 0.0)        # Schub-Hebel (m) um den COM
+	var inst_tw: float = float(stats.get("thrust", 0.0)) / max(float(stats.get("mass", 0.0)) * 9.81, 0.001)
 	var d: float = (stats["col"].z - stats["com"].z) if stats.get("col_valid", false) else 0.0
 	var txt: String
 	var col: Color
-	if build_ctrl != null and build_ctrl.has_floating():
-		col = Color(1, 0.45, 0.4)
-		ampel_label.add_theme_color_override("font_color", col)
-		ampel_label.text = "🔴 %d Teil(e) hängen frei (rot markiert) — verbinden zum Starten" % build_ctrl.floating_count()
-		return
 	if not has_wings:
 		col = Color(1, 0.45, 0.4); txt = "🔴 Fliegt nicht — keine Tragflächen dran"
 	elif stats.get("gear_overload", false):
 		col = Color(1, 0.45, 0.4); txt = "🔴 Fahrwerk überlastet — Reifen reißen beim Start ab"
-	elif tw < 0.12:
-		col = Color(1, 0.45, 0.4); txt = "🔴 Zu wenig Schub zum Abheben"
+	elif offset > 1.4:
+		# außermittiger/schräger Schub (z. B. Düse hinten, die nach oben zeigt) -> kippt/dreht
+		col = Color(1, 0.45, 0.4); txt = "🔴 Schub stark außermittig — kippt/dreht beim Gasgeben (Triebwerke symmetrisch & durch den Schwerpunkt richten)"
+	elif tw < 0.12 and up_tw < 0.9:
+		if inst_tw >= 0.30:   # es GIBT Schub, er zeigt nur nicht nach vorne (gedreht/Reverse)
+			col = Color(1, 0.45, 0.4); txt = "🔴 Schub zeigt nicht nach vorne — Triebwerke nach vorne richten (oder Reverse aus)"
+		else:
+			col = Color(1, 0.45, 0.4); txt = "🔴 Zu wenig Schub zum Abheben"
 	elif stats.get("col_valid", false) and d < -0.5:
 		col = Color(1, 0.45, 0.4); txt = "🔴 Stark kopflastig — überschlägt sich"
 	else:
 		var warns: Array = []
-		if tw < 0.30:
-			warns.append("wenig Schub")
+		if up_tw >= 0.9 and tw < 0.5:
+			warns.append("Senkrechtschub-Stil — braucht Vorwärtsschub für sauberen Vorwärtsflug")
+		elif tw < 0.30:
+			warns.append("wenig Vorwärtsschub")
+		if offset > 0.6:
+			warns.append("Schub außermittig (kippt unter Last)")
 		if stats.get("col_valid", false) and d < 0.15:
 			warns.append("grenzwertig stabil (Leitwerk/Flügel weiter nach hinten)")
 		if not stats.get("has_gear", false):

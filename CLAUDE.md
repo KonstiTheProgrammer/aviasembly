@@ -210,7 +210,14 @@ Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetr
 **`1`/`2`/`3` orthografische Blueprint-Ansicht** Front/Seite/Oben, **`4`** frei (`set_view`/`_ortho_view`,
 Kamera `PROJECTION_ORTHOGONAL`; manuelles Drehen → zurück Perspektive) · Tab=Testflug.
 Statistik hat eine **„Fliegt's?"-Ampel** (`_update_ampel`): grün/gelb/rot aus Stabilität
-(col.z−com.z), Schub/Gewicht, Tragflächen & Fahrwerk + kurzer Tipp.
+(col.z−com.z), Schub & Fahrwerk + kurzer Tipp. Berücksichtigt die verstellbaren Antriebe
+(`compute_stats`): `tw`=**Vorwärts**-Schub/Gewicht (gedrehte/Reverse-Triebwerke zählen nur
+mit ihrer −Z-Komponente), `up_tw`=Senkrechtschub/Gewicht (VTOL-Erkennung), `thrust_offset`=
+effektiver Hebel des Netto-Schubs um den COM (außermittig/schräg → kippt). Rot: außermittiger
+Schub (`offset>1.4`, z. B. Düse hinten nach oben), Schub zeigt nicht nach vorne (Reverse/
+gedreht, `tw<0.12` & `up_tw<0.9`), zu wenig Schub, kopflastig, keine Flügel, Fahrwerk-Überlast.
+Gelb: Senkrechtschub-Stil (VTOL), wenig Vorwärtsschub, Schub leicht außermittig (`offset>0.6`),
+grenzwertig stabil, kein Fahrwerk, schwache Flügel.
 **Kein freies Schweben:** `_connected_set` (BFS ab Cockpit über AABB-Nachbarschaft
 `_part_world_aabb.grow(0.12)`) findet nicht verbundene Teile; `has_floating`/`floating_parts`.
 Schwebende Teile bekommen einen **roten Warn-Marker** (`_update_float_markers` in `_notify_changed`),
