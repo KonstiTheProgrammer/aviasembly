@@ -1041,16 +1041,17 @@ func _rebuild_fx() -> void:
 		st.damping_max = 3.8
 		add_child(st)
 		fx["startup"] = st
-		# Schwarzer Rauch: EIN kurzer, SEHR STARKER Rußstoß aus allen Stutzen beim Wechsel
-		# normal -> Nachbrenner (one-shot, explosiv). Bleibt nah (Dämpfung), klingt schnell ab.
-		var bk := _make_smoke(130, 1.0, 0.2, 0.95, Color(0.045, 0.045, 0.045, 0.62), 0.058, 3.5, 0.55, Vector3(0, 0.6, 0.35), 46.0)
+		# Schwarzer Rauch: EIN SEHR STARKER, etwas längerer Rußstoß aus allen Stutzen beim
+		# Wechsel normal -> Nachbrenner (one-shot). Viele Partikel + lange Lebenszeit + Emission
+		# über ein größeres Zeitfenster (niedrigere explosiveness) -> dicker, länger anhaltender Qualm.
+		var bk := _make_smoke(220, 2.4, 0.2, 1.0, Color(0.04, 0.04, 0.04, 0.66), 0.062, 3.9, 0.5, Vector3(0, 0.6, 0.35), 48.0)
 		bk.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
 		bk.emission_points = pts
 		bk.one_shot = true
-		bk.explosiveness = 0.85
+		bk.explosiveness = 0.55
 		bk.emitting = false
-		bk.damping_min = 2.6
-		bk.damping_max = 4.6
+		bk.damping_min = 2.0
+		bk.damping_max = 3.8
 		add_child(bk)
 		fx["black"] = bk
 		_exhaust_fx.append(fx)
