@@ -75,6 +75,9 @@ var _flame_shader_cache: Shader = null
 var _flame_mesh_cache := {}   # base_r -> ArrayMesh (Flammen-Kegel, Länge 1)
 var _vapor: Array = []        # CPUParticles3D an Flügelspitzen (Wirbelschleppen bei hoher G)
 var _damage_smoke: CPUParticles3D = null  # Rauchfahne, wenn das Flugzeug Teile verloren hat
+var _exhaust_fx: Array = []   # [{startup, soot, ignite}] Rauch-Emitter je Triebwerk (Auspuff)
+var _spawned := false         # erster _process-Frame -> Triebwerk "anlassen" = Startrauch-Stoß
+var _ab_smoke_on := false     # Flanke: Nachbrenner-Zündung -> einmaliger Rußstoß
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
 const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
 const FLAP_RATE := 0.28       # Ausfahr-/Einfahrgeschwindigkeit (1/s): voll ~3.5 s, pro Stufe ~1.8 s (realistisch träge)
@@ -245,6 +248,26 @@ func _process(delta: float) -> void:
 		var sparks = d["sparks"]
 		if is_instance_valid(sparks):
 			sparks.emitting = ab > 0.05
+	# Auspuff-Rauch: Triebwerk "anlassen" -> einmaliger Qualmstoß; Nachbrenner -> Ruß ----
+	if not _spawned and not _exhaust_fx.is_empty():
+		_spawned = true
+		for fxd in _exhaust_fx:
+			var su = fxd.get("startup")
+			if su != null and is_instance_valid(su):
+				su.restart()
+				su.emitting = true
+	var ab_smoke := _ab_spool > 0.06
+	if ab_smoke and not _ab_smoke_on:           # steigende Flanke = AB zündet -> Rußstoß
+		for fxd in _exhaust_fx:
+			var ig = fxd.get("ignite")
+			if ig != null and is_instance_valid(ig):
+				ig.restart()
+				ig.emitting = true
+	_ab_smoke_on = ab_smoke
+	for fxd in _exhaust_fx:
+		var so = fxd.get("soot")
+		if so != null and is_instance_valid(so):
+			so.emitting = ab_smoke
 	var vap_on := gforce > 4.5 or airspeed > 130.0
 	for v in _vapor:
 		if is_instance_valid(v):
@@ -907,6 +930,12 @@ func _rebuild_fx() -> void:
 	if is_instance_valid(_damage_smoke):
 		_damage_smoke.queue_free()
 	_damage_smoke = null
+	for fxd in _exhaust_fx:
+		for k in ["startup", "soot", "ignite"]:
+			var n = fxd.get(k)
+			if n != null and is_instance_valid(n):
+				n.queue_free()
+	_exhaust_fx.clear()
 	_afterburners.clear()
 	_vapor.clear()
 	# Schadensrauch: hat das Flugzeug Teile verloren (aber lebt noch) -> qualmt aus der Wunde
@@ -941,6 +970,42 @@ func _rebuild_fx() -> void:
 		var light: OmniLight3D = d["light"]
 		light.position = Vector3(0, 0, 0.4 * rfac)
 		_afterburners.append(d)
+	# Auspuff-Rauch-Emitter je Triebwerk: Startrauch (alle) + Nachbrenner-Ruß (nur Jets).
+	# Position relativ zum Körper (+Z = Heck); _fx_make-Partikel bleiben in der Welt -> trailen.
+	for e in engines:
+		var ejet: bool = e.get("jet", false)
+		var esc: Vector3 = e.get("scale", Vector3.ONE)
+		var elf: float = maxf(esc.z, 0.05)
+		var erf: float = maxf((esc.x + esc.y) * 0.5, 0.05)
+		var epos: Vector3 = e["pos"]
+		var fx := {}
+		# Startrauch: grau-weißer Qualmstoß aus dem Auspuff beim Anlassen (steigt + trailt zurück)
+		var st := _fx_make(22, 1.2, 0.5, 2.2, Color(0.66, 0.64, 0.6, 0.7), 0.15 * erf, false, 1.0, Vector3(0, 0.45, 1))
+		st.one_shot = true
+		st.explosiveness = 0.7
+		st.spread = 32.0
+		st.emitting = false
+		add_child(st)
+		st.position = epos + Vector3(0, 0.05, (1.0 if ejet else 0.15) * elf)
+		fx["startup"] = st
+		if ejet:
+			# Ruß-Fahne: dunkler Qualm aus der Düse, solange der Nachbrenner brennt
+			var so := _fx_make(26, 1.5, 2.0, 6.0, Color(0.1, 0.095, 0.09, 0.55), 0.2 * erf, false, 0.6, Vector3(0, 0.12, 1))
+			so.spread = 16.0
+			so.emitting = false
+			add_child(so)
+			so.position = epos + Vector3(0, 0, 1.35 * elf)
+			fx["soot"] = so
+			# Zünd-Stoß: dichter schwarzer Rußstoß im Moment der AB-Zündung
+			var ig := _fx_make(20, 1.1, 3.0, 8.0, Color(0.06, 0.06, 0.06, 0.7), 0.24 * erf, false, 0.8, Vector3(0, 0.2, 1))
+			ig.one_shot = true
+			ig.explosiveness = 0.85
+			ig.spread = 20.0
+			ig.emitting = false
+			add_child(ig)
+			ig.position = epos + Vector3(0, 0, 1.4 * elf)
+			fx["ignite"] = ig
+		_exhaust_fx.append(fx)
 	for pi in parts:
 		if pi.get("broken", false) or not pi["is_wing"] or String(pi["control"]) != "":
 			continue
