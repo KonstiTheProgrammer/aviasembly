@@ -34,20 +34,26 @@ bm = bmesh.new()
 rings = [ering(bm, *r) for r in FUSE]
 for i in range(len(rings)-1):
     bridge(bm, rings[i], rings[i+1], 0)
-lip_in = ering(bm, 2.45, 0.36, 0.36, 0.0)
-for j in range(N):
-    j2 = (j+1) % N
-    bm.faces.new((rings[0][j2], rings[0][j], lip_in[j], lip_in[j2])).material_index = 0
-duct = ering(bm, 1.9, 0.31, 0.31, 0.0)
-bridge(bm, lip_in, duct, 1)
-bm.faces.new(duct[::-1]).material_index = 1
+# Gerundete Einlauf-Lippe: Nasenring nach VORNE und nach INNEN gewölbt (echte Intake-Lippe)
+lip1 = ering(bm, 2.63, 0.425, 0.425, 0.0)
+lip2 = ering(bm, 2.65, 0.385, 0.385, 0.0)
+lip3 = ering(bm, 2.60, 0.350, 0.350, 0.0)
+bridge(bm, rings[0], lip1, 0)
+bridge(bm, lip1, lip2, 0)
+bridge(bm, lip2, lip3, 0)
+# Tiefer, sehr dunkler Einlaufschacht (kein sichtbarer Boden -> wirkt wie ein echter Kanal)
+d1 = ering(bm, 2.30, 0.345, 0.345, 0.0)
+d2 = ering(bm, 1.45, 0.325, 0.325, 0.0)
+d3 = ering(bm, 0.55, 0.300, 0.300, 0.0)
+bridge(bm, lip3, d1, 1); bridge(bm, d1, d2, 1); bridge(bm, d2, d3, 1)
+bm.faces.new(d3[::-1]).material_index = 1
 bm.faces.new(rings[-1]).material_index = 1   # Heck: dunkle Düsen-Stirnfläche
-# senkrechter Einlauf-Teiler (MiG-Merkmal): dünne Platte in der Nase
-for (z0, z1) in [(0.02, 0.34), (-0.34, -0.02)]:
-    v = [bm.verts.new(p) for p in [(0.012,2.52,z0),(0.012,2.52,z1),(0.012,1.95,z1),(0.012,1.95,z0),
-        (-0.012,2.52,z0),(-0.012,2.52,z1),(-0.012,1.95,z1),(-0.012,1.95,z0)]]
-    for f in [(0,1,2,3),(7,6,5,4),(4,5,1,0),(5,6,2,1),(6,7,3,2),(7,4,0,3)]:
-        bm.faces.new([v[k] for k in f]).material_index = 0
+# Senkrechter Einlauf-Teiler (durchgehende Wand, MiG-Merkmal), mit angeschrägter Vorderkante
+sv = [bm.verts.new(p) for p in [
+    (0.017, 2.60, 0.33), (0.017, 2.60, -0.33), (0.017, 0.85, -0.29), (0.017, 0.85, 0.29),
+    (-0.017, 2.60, 0.33), (-0.017, 2.60, -0.33), (-0.017, 0.85, -0.29), (-0.017, 0.85, 0.29)]]
+for f in [(0,1,2,3),(7,6,5,4),(4,5,1,0),(5,6,2,1),(6,7,3,2),(7,4,0,3)]:
+    bm.faces.new([sv[k] for k in f]).material_index = 0
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 me = bpy.data.meshes.new("Fuselage"); bm.to_mesh(me); bm.free()
 for p in me.polygons: p.use_smooth = True
