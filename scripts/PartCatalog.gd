@@ -224,6 +224,13 @@ static func _build() -> void:
 		"col_offset": Vector3(0, -0.52, 0), "metal": 0.5, "rough": 0.45, "retract": true,
 		"desc": "Im Flug mit G einfahren (Bein klappt hoch, Klappe schwenkt) -> weniger Widerstand. ~1050 kg.",
 	})
+	_add({
+		"id": "wheel_jet", "name": "Jet-Fahrwerk (Einzug)", "category": CAT_GEAR,
+		"mass": 55.0, "color": Color(0.17, 0.18, 0.21), "shape": "wheel", "gear_capacity": 1250.0,
+		"size": Vector3(0.32, 1.05, 0.6), "col_size": Vector3(0.3, 1.0, 0.55),
+		"col_offset": Vector3(0, -0.5, 0), "metal": 0.6, "rough": 0.4, "retract": true,
+		"desc": "Modernes Kampfjet-Fahrwerk: schlanker Öldämpfer-Beinholm, kleines Low-Profile-Rad mit Bremsscheibe. Einziehbar (G). ~1250 kg.",
+	})
 
 	# --- Bewaffnung (feuerbar: LEERTASTE = Kanone/Raketen, B = Bombe) ------
 	_add({
