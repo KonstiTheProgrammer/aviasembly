@@ -222,23 +222,35 @@ func _build_mig15() -> void:
 	var bc := _new_bc()
 	var SILVER := Color(0.80, 0.81, 0.84)
 	var DARK := Color(0.13, 0.13, 0.15)
-	_setup_root(bc, SILVER, Vector3(0.12, 0.12, 0.12))
+	# MODULAR aufgebaut (Wunsch): 1) Nasenteil mit Lufteinlauf (ein Stück), 2) generisches
+	# Rumpfsegment, 3) Cockpit, 4) generisches Rumpfsegment — dann Triebwerk/Flügel/Leitwerk.
+	# Alle Körperteile haben den GLEICHEN Querschnitt (1.3 x 1.1), damit sie bündig andocken.
+	# Die procedural-Wurzel (blaues Glas) wird winzig im Cockpit vergraben; sichtbar ist die
+	# schwarz verglaste Bubble-Kanzel (Design-Sprache).
+	_setup_root(bc, SILVER, Vector3(0.1, 0.1, 0.1))
 	var rp := _root_part(bc)
 	if rp:
-		rp.position = Vector3(0, 0.0, -0.6)
-	# Dedizierter MiG-15-Rumpf (Blender: Nasen-Einlauf + Teiler + Kanzel) @ origin
-	P(bc, "mig15_body", Vector3(0, 0, 0), Basis(), SILVER)
-	# Triebwerk axial im Rumpf (Düse/Flamme am Heck, Gondel versteckt)
-	P(bc, "jet_engine", Vector3(0, 0.02, 1.7), Basis(), SILVER, Vector3(0.48, 0.48, 1.5))
-	# Pfeilflügel (~35°), mittig — mit Grenzschichtzäunen (MiG-Detail)
-	PW(bc, "wing_swept", 0.0, 0.35, SILVER, Vector3(1.0, 1.0, 1.0))
-	P(bc, "wing_fence", Vector3(1.2, 0.14, 0.45), Basis(), SILVER)
+		rp.position = Vector3(0, 0.1, 0.0)
+	var FZ := Vector3(1.0, 1.0, 0.85)                                   # Rumpfsegmente etwas kürzer
+	# 1) FRONTTEIL: Nasen-Lufteinlauf (ein Stück)
+	P(bc, "jet_nose", Vector3(0, 0, -3.0), Basis(), SILVER)
+	# 2) generisches Rumpfsegment (beide Enden voll -> bündig an Nase & Cockpit)
+	P(bc, "fuselage", Vector3(0, 0, -1.5), Basis(), SILVER, FZ, 1.0, 1.0)
+	# 3) COCKPIT: Bubble-Kanzel (schwarzes Glas), Querschnitt auf Rumpf gestreckt
+	P(bc, "cockpit_bubble", Vector3(0, 0, 0.0), Basis(), SILVER, Vector3(1.0, 0.85, 0.82))
+	# 4) generisches Rumpfsegment, HINTEN auf die Düse zulaufend (Heckkonus)
+	P(bc, "fuselage", Vector3(0, 0, 1.5), Basis(), SILVER, FZ, 0.6, 1.0)
+	# Triebwerk axial im Heck (Düse/Flamme hinten, Gondel läuft aus dem Heckkonus)
+	P(bc, "jet_engine", Vector3(0, 0.0, 2.45), Basis(), SILVER, Vector3(0.5, 0.5, 1.45))
+	# Pfeilflügel (~35°), mittig-tief — mit Grenzschichtzaun (MiG-Detail)
+	PW(bc, "wing_swept", -0.12, 0.3, SILVER, Vector3(1.0, 1.0, 1.0))
+	P(bc, "wing_fence", Vector3(1.2, 0.02, 0.45), Basis(), SILVER)
 	# HOHE Seitenflosse + HOCH am Fin montiertes Höhenleitwerk (das MiG-15-Merkmal!)
-	P(bc, "v_stab", Vector3(0, 0.45, 2.7), _ny(), SILVER, Vector3(1.0, 1.5, 1.0))
-	PW(bc, "h_stab", 1.55, 2.7, SILVER, Vector3(0.95, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.5, 2.95), _ny(), SILVER, Vector3(1.0, 1.5, 1.0))
+	PW(bc, "h_stab", 1.45, 3.05, SILVER, Vector3(0.9, 1.0, 1.0))
 	# Dreirad-Jet-Fahrwerk: Bug (mittig) + Hauptfahrwerk am Flügel (Symmetrie)
-	P(bc, "wheel_jet", Vector3(0, -0.6, -1.4), Basis(), DARK)
-	P(bc, "wheel_jet", Vector3(0.6, -0.55, 0.45), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0, -0.6, -1.7), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0.6, -0.55, 0.55), Basis(), DARK)
 	_finish(bc, "mig15", "MiG-15")
 
 

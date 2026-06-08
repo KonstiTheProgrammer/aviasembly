@@ -132,6 +132,13 @@ static func _build() -> void:
 		"desc": "Dedizierter Me-262-Rumpf: dreieckiger Hai-Querschnitt, spitze Nase, flache Rahmen-Kanzel (Blender-Modell). Pfeilflügel + 2 Düsengondeln dran.",
 	})
 	_add({
+		"id": "jet_nose", "name": "Jet-Nasenteil (Lufteinlauf)", "category": CAT_BODY,
+		"mass": 95.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(1.32, 1.12, 2.0), "col_size": Vector3(1.2, 1.0, 1.9),
+		"metal": 0.55, "rough": 0.4,
+		"desc": "Vorderes Rumpfteil mit rundem Nasen-Lufteinlauf (Lippe + Teiler, tiefer dunkler Schacht). Querschnitt passt ans generische Rumpfsegment.",
+	})
+	_add({
 		"id": "mig15_body", "name": "MiG-15-Rumpf", "category": CAT_BODY,
 		"mass": 320.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
 		"size": Vector3(1.12, 1.4, 5.9), "col_size": Vector3(0.96, 1.05, 5.7),
