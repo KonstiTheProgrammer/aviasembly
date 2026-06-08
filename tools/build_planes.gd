@@ -235,11 +235,11 @@ func _build_mig15() -> void:
 	# 1) FRONTTEIL: Nasen-Lufteinlauf (ein Stück)
 	P(bc, "jet_nose", Vector3(0, 0, -3.0), Basis(), SILVER)
 	# 2) generisches Rumpfsegment (beide Enden voll -> bündig an Nase & Cockpit)
-	P(bc, "fuselage", Vector3(0, 0, -1.5), Basis(), SILVER, FZ, 1.0, 1.0)
-	# 3) COCKPIT: Bubble-Kanzel (schwarzes Glas), Querschnitt auf Rumpf gestreckt
-	P(bc, "cockpit_bubble", Vector3(0, 0, 0.0), Basis(), SILVER, Vector3(1.0, 0.85, 0.82))
+	P(bc, "fuselage", Vector3(0, 0, -1.6), Basis(), SILVER, FZ, 1.0, 1.0)
+	# 3) COCKPIT: dediziertes Cockpit-Segment (GLEICHER Querschnitt -> nahtlos), schwarzes Glas
+	P(bc, "jet_cockpit", Vector3(0, 0, 0.0), Basis(), SILVER)
 	# 4) generisches Rumpfsegment, HINTEN auf die Düse zulaufend (Heckkonus)
-	P(bc, "fuselage", Vector3(0, 0, 1.5), Basis(), SILVER, FZ, 0.6, 1.0)
+	P(bc, "fuselage", Vector3(0, 0, 1.6), Basis(), SILVER, FZ, 0.6, 1.0)
 	# Triebwerk axial im Heck (Düse/Flamme hinten, Gondel läuft aus dem Heckkonus)
 	P(bc, "jet_engine", Vector3(0, 0.0, 2.45), Basis(), SILVER, Vector3(0.5, 0.5, 1.45))
 	# Pfeilflügel (~35°), mittig-tief — mit Grenzschichtzaun (MiG-Detail)

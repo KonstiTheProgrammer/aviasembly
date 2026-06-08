@@ -139,6 +139,13 @@ static func _build() -> void:
 		"desc": "Vorderes Rumpfteil mit rundem Nasen-Lufteinlauf (Lippe + Teiler, tiefer dunkler Schacht). Querschnitt passt ans generische Rumpfsegment.",
 	})
 	_add({
+		"id": "jet_cockpit", "name": "Jet-Cockpit-Segment", "category": CAT_BODY,
+		"mass": 150.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(1.32, 1.44, 2.0), "col_size": Vector3(1.2, 1.2, 1.9),
+		"metal": 0.55, "rough": 0.4,
+		"desc": "Rumpfsegment mit schwarz verglaster Bubble-Kanzel. Gleicher Querschnitt wie das generische Rumpfsegment — dockt nahtlos an Nase & Rumpf an.",
+	})
+	_add({
 		"id": "mig15_body", "name": "MiG-15-Rumpf", "category": CAT_BODY,
 		"mass": 320.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
 		"size": Vector3(1.12, 1.4, 5.9), "col_size": Vector3(0.96, 1.05, 5.7),
