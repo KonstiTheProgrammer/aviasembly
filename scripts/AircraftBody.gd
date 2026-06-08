@@ -391,11 +391,14 @@ func recompute_aero() -> void:
 			# Schubrichtung = Blickrichtung des Triebwerks (-Z seiner Teil-Basis), KÖRPER-LOKAL.
 			# Bei 'reverse' (Prop-Option) kehrt sich die Richtung um (Schub nach hinten).
 			var ex: Transform3D = pi["xform"]
+			var eb := ex.basis.orthonormalized()      # Orientierung des Triebwerks (für FX-Ausrichtung)
+			if eb.determinant() < 0.0:                 # gespiegelte Teile: proper machen
+				eb.x = -eb.x
 			var edir: Vector3 = (-ex.basis.z).normalized()
 			if bool(pi.get("thrust_reverse", false)):
 				edir = -edir
 			eng.append({"id": pi.get("id", ""), "pos": pi["pos"], "thrust": et, "jet": pi["jet"],
-				"scale": pi.get("scale", Vector3.ONE), "dir": edir})
+				"scale": pi.get("scale", Vector3.ONE), "dir": edir, "basis": eb})
 			thr += et
 			if pi["prop"] != null and is_instance_valid(pi["prop"]):
 				prp.append({"node": pi["prop"], "jet": pi.get("jet", false)})
@@ -1014,7 +1017,10 @@ func _rebuild_fx() -> void:
 		d["rfac"] = rfac
 		var root: Node3D = d["root"]
 		add_child(root)
-		root.position = e["pos"] + Vector3(0, 0, 1.12 * lfac)   # an der (skalierten) Düse (+Z = Heck)
+		# Flamme MIT dem Triebwerk ausgerichtet: +Z des Triebwerks = Heck. Dreht man die Engine,
+		# dreht die Flamme (samt Funken/Licht, da Kinder von root) mit und schießt aus der Düse.
+		var eb: Basis = e.get("basis", Basis())
+		root.transform = Transform3D(eb, e["pos"] + eb.z * (1.12 * lfac))
 		root.visible = false
 		var sparks: CPUParticles3D = d["sparks"]
 		sparks.scale = Vector3(rfac, rfac, rfac)
@@ -1035,9 +1041,13 @@ func _rebuild_fx() -> void:
 			pts.append(to_local(ch.global_position))
 		if pts.is_empty():
 			pts.append(pi["pos"])
+		var exf: Transform3D = pi["xform"]
+		var eb := exf.basis.orthonormalized()   # Rauchrichtung mit dem Triebwerk mitdrehen
+		if eb.determinant() < 0.0:
+			eb.x = -eb.x
 		var fx := {}
 		# Startrauch: kräftiger grauer Qualmstoß aus allen Stutzen (one-shot, bleibt nah)
-		var st := _make_smoke(38, 0.9, 0.15, 0.7, Color(0.58, 0.56, 0.53, 0.55), 0.05, 3.0, 0.55, Vector3(0, 0.6, 0.35), 46.0)
+		var st := _make_smoke(38, 0.9, 0.15, 0.7, Color(0.58, 0.56, 0.53, 0.55), 0.05, 3.0, 0.55, eb * Vector3(0, 0.6, 0.35), 46.0)
 		st.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
 		st.emission_points = pts
 		st.one_shot = true
@@ -1050,7 +1060,7 @@ func _rebuild_fx() -> void:
 		# Schwarzer Rauch: EIN SEHR STARKER, etwas längerer Rußstoß aus allen Stutzen beim
 		# Wechsel normal -> Nachbrenner (one-shot). Viele Partikel + lange Lebenszeit + Emission
 		# über ein größeres Zeitfenster (niedrigere explosiveness) -> dicker, länger anhaltender Qualm.
-		var bk := _make_smoke(220, 2.4, 0.2, 1.0, Color(0.04, 0.04, 0.04, 0.66), 0.062, 3.9, 0.5, Vector3(0, 0.6, 0.35), 48.0)
+		var bk := _make_smoke(220, 2.4, 0.2, 1.0, Color(0.04, 0.04, 0.04, 0.66), 0.062, 3.9, 0.5, eb * Vector3(0, 0.6, 0.35), 48.0)
 		bk.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
 		bk.emission_points = pts
 		bk.one_shot = true
