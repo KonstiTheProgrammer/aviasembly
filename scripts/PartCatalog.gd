@@ -181,6 +181,13 @@ static func _build() -> void:
 	_wing("h_stab", "Höhenleitwerk (Pitch)", CAT_CTRL, 32.0, C_CTRL, 2.6, 1.1, 0.7, 0.25, 0.85, "pitch")
 	_wing("v_stab", "Seitenleitwerk (Yaw)", CAT_CTRL, 30.0, C_CTRL, 1.8, 1.3, 0.7, 0.7, 0.8, "yaw")
 	_wing("aileron", "Querruder (Roll)", CAT_CTRL, 16.0, C_CTRL, 1.8, 0.7, 0.55, 0.05, 0.7, "roll")
+	_add({
+		"id": "wing_fence", "name": "Grenzschichtzaun", "category": CAT_WING,
+		"mass": 3.0, "color": C_WING, "shape": "plate",
+		"size": Vector3(0.03, 0.16, 1.0), "col_size": Vector3(0.03, 0.16, 1.0),
+		"metal": 0.4, "rough": 0.5,
+		"desc": "Grenzschichtzaun (Wing Fence) — schmale Platte auf der Flügeloberseite gegen Strömungsabriss (MiG-15/-17-Detail).",
+	})
 	_wing("elevator", "Höhenruder klein", CAT_CTRL, 14.0, C_CTRL, 1.6, 0.7, 0.55, 0.05, 0.7, "pitch")
 
 	# --- Antrieb -----------------------------------------------------------
@@ -585,6 +592,12 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			var tube := _box_tube(ef, eb, 18)
 			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
+
+		"plate":
+			# Dünne, leicht verrundete Platte (z. B. Grenzschichtzaun auf dem Flügel)
+			var plm := BoxMesh.new()
+			plm.size = size
+			root.add_child(_mi(plm, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, Vector3.ONE))
 
 		"prism":
 			# Gechinter Stealth-Rumpf (F-22-Querschnitt). Beide Enden in X UND Y getrennt:
