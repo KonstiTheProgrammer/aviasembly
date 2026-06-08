@@ -19,7 +19,7 @@ def newmat(name, col, rough, metal, alpha=1.0):
         b.inputs["Alpha"].default_value = alpha; m.blend_method = 'BLEND'
     return m
 MB = newmat("body", (0.80, 0.81, 0.84), 0.45, 0.5)        # lackierbares Aluminium
-MG = newmat("glass", (0.13, 0.16, 0.19), 0.05, 0.0, 0.45)  # Kanzelglas
+MG = newmat("glass", (0.03, 0.03, 0.035), 0.08, 0.1)       # Kanzelglas: glänzend SCHWARZ (Design-Sprache)
 MF = newmat("frame", (0.13, 0.13, 0.14), 0.5, 0.55)        # Kanzelrahmen
 MS = newmat("scoopin", (0.035, 0.035, 0.04), 0.7, 0.2)     # Kühler-Einlauf (dunkel)
 MA = newmat("antiglare", (0.05, 0.05, 0.06), 0.6, 0.1)     # Sichtschutz/Anti-Glare: SCHWARZ
