@@ -1251,7 +1251,14 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			t *= clampf(1.0 - fe / PROP_VMAX, 0.0, 1.0) * _engine_spool
 		else:
 			t *= (_engine_spool + AB_BOOST * _ab_spool)
-		tf += edir * t
+		var force := edir * t
+		tf += force
+		# Off-Center-Schub erzeugt ein Drehmoment um den COM: ein hinten montiertes, nach
+		# oben zeigendes Triebwerk hebt das Heck -> die Nase kippt nach unten (vorne über).
+		# Sitzt der Schub auf der Achse durch den COM (normale Flieger), ist r×F ≈ 0.
+		var epos: Vector3 = e.get("pos", Vector3.ZERO)
+		var r := xf.basis * (epos - center_of_mass)
+		tt += r.cross(force)
 	# Bremsen bei negativem Gas: Luftbremse + (am Boden) Radbremse
 	if throttle < 0.0 and airspeed > 0.3:
 		var brake := -throttle

@@ -97,8 +97,15 @@ Kraftspikes). Das gebündelte Modell ist stabil und trotzdem physikalisch fundie
   nutzt den ECHTEN Staudruck (NICHT mit `LIFT_K` aufgebläht), damit Sturzflüge Tempo aufbauen.
   Kraft-Limit (`tf.limit_length`) ist nur NaN-/Runaway-Sicherung (`mass·130`) und klippt die
   normale Aero/den Schub bei Highspeed nicht mehr — sonst deckelte es die Sturzflug-Speed.
-- **Schub:** Summe der Triebwerke, **zentral durch den Schwerpunkt** (sonst „Pendel-
-  Raketen"-Instabilität!). Propellerschub fällt mit Tempo (`PROP_VMAX`), Jet konstant.
+- **Schub:** Pro Triebwerk in dessen **Blickrichtung** (`dir` = −Z der Teil-Basis, körper-
+  lokal; im Flug `basis*dir`). Zeigt eine Engine nach oben, schiebt sie nach oben. Die Kraft
+  greift an der **Triebwerksposition** an → off-center-Schub erzeugt ein **Drehmoment um den
+  COM** (`r×F`, `r = basis*(pos−center_of_mass)`, in `tt`): ein hinten montiertes, nach oben
+  zeigendes Triebwerk kippt die Nase nach unten (vorne über). Schub auf der COM-Achse (normale
+  Flieger, symmetrische Paare) → `r×F≈0`, also kein Zusatzmoment (keine Regression). Drehmoment
+  bleibt durch `tt.limit_length(mass·90)` + `MAX_ANGVEL` gedeckelt (kein NaN/Runaway).
+  **Reverse-Option** (Prop, Editor-Haken `thrust_reverse`) kehrt `dir` um (Bremse/Rückwärts).
+  Propellerschub fällt mit Tempo entlang der Schubrichtung (`PROP_VMAX`), Jet konstant.
   **Negativer Schub = Bremse** (Luftbremse + am Boden Radbremse).
 - **Statische Stabilität:** kleine Wetterfahnen-Momente (Nase folgt Anströmung),
   skaliert mit Leitwerksfläche (`pitch_area`/`yaw_area`).
