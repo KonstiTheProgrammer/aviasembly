@@ -157,6 +157,7 @@ func build_from_design(d: Array) -> void:
 		var xf: Transform3D = item.get("xform", Transform3D())
 		var psc: Vector3 = item.get("scale", Vector3.ONE)
 		var vol: float = psc.x * psc.y * psc.z      # Volumen-Faktor (Masse/Traglast)
+		var rev: bool = bool(item.get("thrust_reverse", false))   # Prop-Schub umkehren (Editor-Option)
 		# Flügel-Mittelspalt-Füllung (aus dem Editor): der Flügel ist um "fill" nach innen
 		# verlängert. Effektive Spann-Skalierung + nach innen verschobene Wurzel, damit der
 		# durchgehende Flügel auch IM FLUG sichtbar/wirksam ist (nicht nur im Editor).
@@ -226,7 +227,7 @@ func build_from_design(d: Array) -> void:
 			"gear_cap": p.get("gear_capacity", 0.0) * vol, "retract": p.get("retract", false),
 			# Strukturwert (Kollisions-Bruchschwelle); größere Teile sind etwas zäher.
 			"strength": PartCatalog.part_strength(p) * clampf(1.0 + (vol - 1.0) * 0.25, 0.6, 2.2),
-			"scale": psc,
+			"scale": psc, "thrust_reverse": rev,
 		}
 		if pinfo["is_wing"]:
 			var a_full: float = p.get("area", 0.0) * psx_eff * psc.z

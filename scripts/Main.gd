@@ -80,6 +80,7 @@ var sel_mode_btns: Array = []      # [Bewegen, Drehen, Skalieren] zum Hervorhebe
 var sel_taper_row: VBoxContainer   # Verjüngungs-Regler (nur für taper-fähige Rumpfteile)
 var sel_taper_front_row: HBoxContainer  # vorderes Ende (nur biends-Teile, z. B. F-22-Rumpf)
 var sel_taper_label: Label
+var sel_reverse_cb: CheckBox        # »Schub umkehren« (nur für Prop-Triebwerke sichtbar)
 
 # Ziele zum Abschießen (Luftballons/Luftschiffe) + Geschosse
 var targets_root: Node3D           # Container in fly_world für Ziele + Geschosse
@@ -1130,6 +1131,12 @@ func _build_selection_panel() -> void:
 	sel_taper_front_row = _make_taper_row("Vorne", build_ctrl.nudge_taper_front)
 	sel_taper_row.add_child(sel_taper_front_row)
 	sel_taper_row.add_child(_make_taper_row("Hinten", build_ctrl.nudge_taper))
+	sel_reverse_cb = CheckBox.new()
+	sel_reverse_cb.text = "↩  Schub umkehren"
+	sel_reverse_cb.tooltip_text = "Propeller schiebt in die ENTGEGENGESETZTE Richtung (z. B. als Bremse / Rückwärts)."
+	sel_reverse_cb.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
+	sel_reverse_cb.toggled.connect(build_ctrl.set_reverse_thrust)
+	v.add_child(sel_reverse_cb)
 	var dup := Button.new()
 	dup.text = "⧉  Duplizieren  (Strg+D)"
 	dup.add_theme_color_override("font_color", Color(0.6, 0.9, 1.0))
@@ -1175,6 +1182,10 @@ func _on_selection_changed(info: Dictionary) -> void:
 		sel_mode_btns[i].modulate = Color(0.5, 1.0, 0.6) if i == gm else Color(1, 1, 1)
 	if sel_mode_btns.size() >= 4:
 		sel_mode_btns[3].visible = biends
+	# »Schub umkehren« nur bei Prop-Triebwerken zeigen; Haken ohne Signal setzen
+	if sel_reverse_cb:
+		sel_reverse_cb.visible = info.get("is_prop", false)
+		sel_reverse_cb.set_pressed_no_signal(info.get("thrust_reverse", false))
 
 
 func _on_erase_tool() -> void:
@@ -1626,7 +1637,7 @@ func _save_design() -> void:
 			"color": [c.r, c.g, c.b, c.a], "scale": [s.x, s.y, s.z],
 			"taper": it.get("taper", 1.0), "taper_front": it.get("taper_front", 1.0),
 			"taper_y": it.get("taper_y", -1.0), "taper_front_y": it.get("taper_front_y", -1.0),
-			"fill": it.get("fill", 0.0)})
+			"fill": it.get("fill", 0.0), "thrust_reverse": it.get("thrust_reverse", false)})
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -1672,7 +1683,7 @@ func _load_design_from(path: String) -> bool:
 			var tpf: float = float(it.get("taper_front", 1.0))
 			var tpy: float = float(it.get("taper_y", -1.0))
 			var tpfy: float = float(it.get("taper_front_y", -1.0))
-			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf, "taper_y": tpy, "taper_front_y": tpfy, "fill": float(it.get("fill", 0.0))})
+			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf, "taper_y": tpy, "taper_front_y": tpfy, "fill": float(it.get("fill", 0.0)), "thrust_reverse": bool(it.get("thrust_reverse", false))})
 	if arr.is_empty():
 		return false
 	build_ctrl.load_design(arr)

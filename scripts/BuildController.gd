@@ -466,7 +466,21 @@ func _emit_selection() -> void:
 		"biends": p.get("biends", false),
 		"taper": selected_part.get_meta("taper", 1.0),
 		"taper_front": selected_part.get_meta("taper_front", 1.0),
+		"is_prop": String(p.get("shape", "")) == "prop",   # Reverse-Option nur für Prop-Triebwerke
+		"thrust_reverse": selected_part.get_meta("thrust_reverse", false),
 	})
+
+
+# Schub-Umkehr (Prop-Option) für das ausgewählte Teil setzen — auch am Spiegelpartner.
+func set_reverse_thrust(on: bool) -> void:
+	if selected_part == null:
+		return
+	selected_part.set_meta("thrust_reverse", on)
+	var m = selected_part.get_meta("mirror") if selected_part.has_meta("mirror") else null
+	if is_instance_valid(m):
+		m.set_meta("thrust_reverse", on)
+	_push_history()
+	_notify_changed()
 
 
 # --- Aktionen auf das ausgewählte Teil (vom UI-Panel aufgerufen) -----------
@@ -600,6 +614,12 @@ func duplicate_selected() -> void:
 	var sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
 	var cl: Color = selected_part.get_meta("color", Color(0, 0, 0, 0))
 	var np := _place_id(id, xf, sc, cl)
+	if np != null:
+		var rv: bool = selected_part.get_meta("thrust_reverse", false)   # Reverse-Flag mitklonen
+		np.set_meta("thrust_reverse", rv)
+		var nm = np.get_meta("mirror") if np.has_meta("mirror") else null
+		if is_instance_valid(nm):
+			nm.set_meta("thrust_reverse", rv)
 	_push_history()
 	_notify_changed()
 	if np != null:
@@ -1090,6 +1110,7 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 				part.get_meta("taper", -1.0), part.get_meta("taper_front", -1.0))
 			part.set_meta("mirror", m)
 			m.set_meta("mirror", part)
+			m.set_meta("thrust_reverse", part.get_meta("thrust_reverse", false))
 		else:
 			# vorhandenen Spiegel mitziehen (folgt auch bei ausgeschalteter Symmetrie)
 			m.transform = _mirror_xform(part.transform)
@@ -1517,6 +1538,7 @@ func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0
 		var mpart := _make_part(id, mt, col, pscale, taper, taper_front, taper_y, taper_front_y)
 		part.set_meta("mirror", mpart)
 		mpart.set_meta("mirror", part)
+		mpart.set_meta("thrust_reverse", part.get_meta("thrust_reverse", false))
 		_update_wing_fill(part)
 		_update_wing_fill(mpart)
 	return part
@@ -1911,6 +1933,7 @@ func get_design() -> Array:
 				"taper_y": child.get_meta("taper_y", -1.0),
 				"taper_front_y": child.get_meta("taper_front_y", -1.0),
 				"fill": child.get_meta("fill", 0.0),   # Flügel-Mittelspalt-Füllung (für Flug + Speichern)
+				"thrust_reverse": child.get_meta("thrust_reverse", false),   # Prop-Schub umkehren
 			})
 	return out
 
@@ -1920,10 +1943,11 @@ func load_design(arr: Array) -> void:
 	for item in arr:
 		var id: String = item.get("id", "")
 		if PartCatalog.has(id):
-			_make_part(id, item.get("xform", Transform3D()),
+			var np := _make_part(id, item.get("xform", Transform3D()),
 				item.get("color", Color(0, 0, 0, 0)), item.get("scale", Vector3.ONE),
 				item.get("taper", -1.0), item.get("taper_front", -1.0),
 				item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
+			np.set_meta("thrust_reverse", bool(item.get("thrust_reverse", false)))
 	_ensure_root()
 	_relink_mirrors()
 	_refresh_all_wing_fill()    # Mittelspalt-Füllung der geladenen Flügel herstellen
@@ -1999,7 +2023,8 @@ func compute_stats() -> Dictionary:
 	var mass := 0.0
 	var n := 0
 	var area := 0.0
-	var thrust := 0.0
+	var thrust := 0.0       # installierter Schub-Betrag (Anzeige)
+	var fwd_thrust := 0.0   # nach VORNE gerichteter Anteil (für die "Fliegt's?"-Ampel)
 	var gear_cap := 0.0
 	var wing_cap := 0.0
 	var drag_area := 0.0
@@ -2024,7 +2049,14 @@ func compute_stats() -> Dictionary:
 		var m: float = p.get("mass", 0.0) * vol
 		mass += m
 		n += 1
-		thrust += p.get("thrust", 0.0) * vol
+		var et: float = p.get("thrust", 0.0) * vol
+		thrust += et
+		if et > 0.0:
+			# Schubrichtung = Blickrichtung (-Z), bei umgekehrtem Prop nach hinten -> zählt negativ.
+			var edir: Vector3 = -child.transform.basis.z.normalized()
+			if bool(child.get_meta("thrust_reverse", false)):
+				edir = -edir
+			fwd_thrust += et * (-edir.z)   # nur die nach-vorne-Komponente treibt das Abheben
 		gear_cap += p.get("gear_capacity", 0.0) * vol
 		drag_area += PartCatalog.part_drag(p) * psc.x * psc.y
 		com += m * child.position
@@ -2042,7 +2074,7 @@ func compute_stats() -> Dictionary:
 		com /= mass
 	if col_w > 0.0:
 		col /= col_w
-	var tw: float = thrust / max(mass * 9.81, 0.001)
+	var tw: float = fwd_thrust / max(mass * 9.81, 0.001)   # Ampel nutzt den Vorwärts-Schub
 	var max_g: float = wing_cap / max(mass * 9.81, 0.001)
 	return {
 		"mass": mass, "parts": n, "area": area, "thrust": thrust,

@@ -388,8 +388,14 @@ func recompute_aero() -> void:
 			ya += pi["yaw_a"]
 		if float(pi["thrust"]) > 0.0:
 			var et: float = float(pi["thrust"]) * thrust_mult
+			# Schubrichtung = Blickrichtung des Triebwerks (-Z seiner Teil-Basis), KÖRPER-LOKAL.
+			# Bei 'reverse' (Prop-Option) kehrt sich die Richtung um (Schub nach hinten).
+			var ex: Transform3D = pi["xform"]
+			var edir: Vector3 = (-ex.basis.z).normalized()
+			if bool(pi.get("thrust_reverse", false)):
+				edir = -edir
 			eng.append({"id": pi.get("id", ""), "pos": pi["pos"], "thrust": et, "jet": pi["jet"],
-				"scale": pi.get("scale", Vector3.ONE)})
+				"scale": pi.get("scale", Vector3.ONE), "dir": edir})
 			thr += et
 			if pi["prop"] != null and is_instance_valid(pi["prop"]):
 				prp.append({"node": pi["prop"], "jet": pi.get("jet", false)})
@@ -1202,7 +1208,6 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var xf := state.transform
 	var v_lin := state.linear_velocity
 	var v_ang := state.angular_velocity
-	var fwd := -xf.basis.z
 
 	airspeed = v_lin.length()
 	altitude = xf.origin.y
@@ -1235,16 +1240,18 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var ab_target := clampf((throttle - 1.0) / 0.10, 0.0, 1.0)   # 0 bei 100 %, 1 bei 110 %
 	var sr := AB_SPOOL_UP if ab_target > _ab_spool else AB_SPOOL_DN
 	_ab_spool += (ab_target - _ab_spool) * clampf(sr * state.step, 0.0, 1.0)
-	var fs := v_lin.dot(fwd)
-	var thr := 0.0
+	# Jedes Triebwerk schiebt in SEINE Blickrichtung (zeigt es nach oben -> Schub nach oben).
+	# Zentral durch den COM angewandt (kein Hebel -> stabil, kein "Pendel-Raketen"-Effekt).
 	for e in engines:
+		var ld: Vector3 = e.get("dir", Vector3(0, 0, -1))
+		var edir := (xf.basis * ld).normalized()
 		var t: float = float(e["thrust"])
 		if not e.get("jet", false):
-			t *= clampf(1.0 - fs / PROP_VMAX, 0.0, 1.0)
-			thr += t * _engine_spool
+			var fe := v_lin.dot(edir)      # Propellerschub fällt mit dem Tempo ENTLANG der Schubrichtung
+			t *= clampf(1.0 - fe / PROP_VMAX, 0.0, 1.0) * _engine_spool
 		else:
-			thr += t * (_engine_spool + AB_BOOST * _ab_spool)
-	tf += fwd * thr
+			t *= (_engine_spool + AB_BOOST * _ab_spool)
+		tf += edir * t
 	# Bremsen bei negativem Gas: Luftbremse + (am Boden) Radbremse
 	if throttle < 0.0 and airspeed > 0.3:
 		var brake := -throttle
