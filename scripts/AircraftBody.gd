@@ -194,7 +194,7 @@ func _process(delta: float) -> void:
 	for p in props:
 		var pn = p["node"]
 		if is_instance_valid(pn):
-			pn.rotate_z((jet_spd if p["jet"] else prop_spd) * delta)
+			pn.rotate_z((jet_spd if p["jet"] else prop_spd) * float(p.get("spin", 1.0)) * delta)
 	# Bewegliche Flächen animieren (Scharnier dreht um lokale X-Achse). dn = Welt-"unten"-Vorzeichen.
 	# Klappe: Landestellung + gegensinniger Roll-Anteil (Flaperon). Ruder folgen Pitch/Yaw/Roll.
 	# _flap_vis wird in _integrate_forces (physikgetaktet) langsam gerampt -> hier nur lesen.
@@ -401,7 +401,8 @@ func recompute_aero() -> void:
 				"scale": pi.get("scale", Vector3.ONE), "dir": edir, "basis": eb})
 			thr += et
 			if pi["prop"] != null and is_instance_valid(pi["prop"]):
-				prp.append({"node": pi["prop"], "jet": pi.get("jet", false)})
+				prp.append({"node": pi["prop"], "jet": pi.get("jet", false),
+					"spin": float(PartCatalog.get_part(pi.get("id", "")).get("spin_mult", 1.0))})
 		if float(pi["gear_cap"]) > 0.0:
 			gc += pi["gear_cap"]
 			var gvis = pi["vis"]
@@ -1011,7 +1012,9 @@ func _rebuild_fx() -> void:
 		# Flamme an die Triebwerksgröße koppeln: radiale Skalierung = Düsendurchmesser,
 		# Längen-Skalierung schiebt die Düse (und damit den Flammenansatz) weiter nach hinten.
 		var sc: Vector3 = e.get("scale", Vector3.ONE)
-		var rfac: float = maxf((sc.x + sc.y) * 0.5, 0.05)
+		# Pro-Teil Flammen-Größe (kleine Triebwerke wie das Hilfstriebwerk haben eine kleinere Flamme)
+		var fscale: float = float(PartCatalog.get_part(e.get("id", "")).get("flame_scale", 1.0))
+		var rfac: float = maxf((sc.x + sc.y) * 0.5, 0.05) * fscale
 		var lfac: float = maxf(sc.z, 0.05)
 		var d := _build_afterburner()
 		d["rfac"] = rfac
@@ -1020,7 +1023,7 @@ func _rebuild_fx() -> void:
 		# Flamme MIT dem Triebwerk ausgerichtet: +Z des Triebwerks = Heck. Dreht man die Engine,
 		# dreht die Flamme (samt Funken/Licht, da Kinder von root) mit und schießt aus der Düse.
 		var eb: Basis = e.get("basis", Basis())
-		root.transform = Transform3D(eb, e["pos"] + eb.z * (1.12 * lfac))
+		root.transform = Transform3D(eb, e["pos"] + eb.z * (1.12 * lfac * fscale))
 		root.visible = false
 		var sparks: CPUParticles3D = d["sparks"]
 		sparks.scale = Vector3(rfac, rfac, rfac)
