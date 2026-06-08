@@ -20,6 +20,7 @@ func _process(_d: float) -> bool:
 	_build_mustang()
 	_build_me262()
 	_build_f86()
+	_build_mig15()
 	quit()
 	return true
 
@@ -214,6 +215,30 @@ func _build_f86() -> void:
 	P(bc, "wheel_jet", Vector3(0, -0.55, -1.8), Basis(), DARK)
 	P(bc, "wheel_jet", Vector3(0.7, -0.5, 0.55), Basis(), DARK)
 	_finish(bc, "f86", "F-86 Sabre")
+
+
+## 7) Mikojan-Gurewitsch MiG-15 — sowjetischer Pfeilflügel-Jet (Korea), hohes Leitwerk
+func _build_mig15() -> void:
+	var bc := _new_bc()
+	var SILVER := Color(0.80, 0.81, 0.84)
+	var DARK := Color(0.13, 0.13, 0.15)
+	_setup_root(bc, SILVER, Vector3(0.12, 0.12, 0.12))
+	var rp := _root_part(bc)
+	if rp:
+		rp.position = Vector3(0, 0.0, -0.6)
+	# Dedizierter MiG-15-Rumpf (Blender: Nasen-Einlauf + Teiler + Kanzel) @ origin
+	P(bc, "mig15_body", Vector3(0, 0, 0), Basis(), SILVER)
+	# Triebwerk axial im Rumpf (Düse/Flamme am Heck, Gondel versteckt)
+	P(bc, "jet_engine", Vector3(0, 0.02, 1.7), Basis(), SILVER, Vector3(0.48, 0.48, 1.5))
+	# Pfeilflügel (~35°), mittig
+	PW(bc, "wing_swept", 0.0, 0.35, SILVER, Vector3(1.0, 1.0, 1.0))
+	# HOHE Seitenflosse + HOCH am Fin montiertes Höhenleitwerk (das MiG-15-Merkmal!)
+	P(bc, "v_stab", Vector3(0, 0.45, 2.7), _ny(), SILVER, Vector3(1.0, 1.4, 1.0))
+	PW(bc, "h_stab", 1.15, 2.45, SILVER, Vector3(0.95, 1.0, 1.0))
+	# Dreirad-Jet-Fahrwerk: Bug (mittig) + Hauptfahrwerk am Flügel (Symmetrie)
+	P(bc, "wheel_jet", Vector3(0, -0.6, -1.4), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0.6, -0.55, 0.45), Basis(), DARK)
+	_finish(bc, "mig15", "MiG-15")
 
 
 func _save(design: Array, fname: String) -> void:

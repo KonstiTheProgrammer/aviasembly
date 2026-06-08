@@ -132,6 +132,13 @@ static func _build() -> void:
 		"desc": "Dedizierter Me-262-Rumpf: dreieckiger Hai-Querschnitt, spitze Nase, flache Rahmen-Kanzel (Blender-Modell). Pfeilflügel + 2 Düsengondeln dran.",
 	})
 	_add({
+		"id": "mig15_body", "name": "MiG-15-Rumpf", "category": CAT_BODY,
+		"mass": 320.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(1.12, 1.4, 5.9), "col_size": Vector3(0.96, 1.05, 5.7),
+		"metal": 0.9, "rough": 0.35,
+		"desc": "Dedizierter MiG-15-Rumpf: gedrungener Tonnen-Rumpf, runder Nasen-Einlauf mit Teiler, Bubble-Kanzel (Blender-Modell). Pfeilflügel + hohes Leitwerk dran.",
+	})
+	_add({
 		"id": "f86_body", "name": "F-86 Sabre-Rumpf", "category": CAT_BODY,
 		"mass": 330.0, "color": Color(0.82, 0.83, 0.86), "shape": "box",
 		"size": Vector3(1.05, 1.35, 6.6), "col_size": Vector3(0.9, 1.0, 6.4),
