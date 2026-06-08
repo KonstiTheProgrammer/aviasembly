@@ -125,6 +125,13 @@ static func _build() -> void:
 		"desc": "Dedizierter P-51-Rumpf mit Bubble-Kanzel und Bauch-Kühlerschacht (ein Stück, Blender-Modell). Triebwerk vorn, Flügel/Leitwerk dran.",
 	})
 	_add({
+		"id": "me262_body", "name": "Me-262-Rumpf", "category": CAT_BODY,
+		"mass": 320.0, "color": Color(0.64, 0.67, 0.69), "shape": "box",
+		"size": Vector3(0.8, 1.15, 6.2), "col_size": Vector3(0.72, 0.98, 6.0),
+		"metal": 0.45, "rough": 0.42,
+		"desc": "Dedizierter Me-262-Rumpf: dreieckiger Hai-Querschnitt, spitze Nase, flache Rahmen-Kanzel (Blender-Modell). Pfeilflügel + 2 Düsengondeln dran.",
+	})
+	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
 		"mass": 70.0, "color": C_BODY, "shape": "nose",
 		"size": Vector3(1.3, 1.1, 1.8),

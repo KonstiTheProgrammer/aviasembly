@@ -18,6 +18,7 @@ func _process(_d: float) -> bool:
 	_build_fokker()
 	_build_spitfire()
 	_build_mustang()
+	_build_me262()
 	quit()
 	return true
 
@@ -161,6 +162,33 @@ func _build_mustang() -> void:
 	P(bc, "wheel_retract", Vector3(0.82, -0.42, 0.10), Basis(), SILVER)
 	P(bc, "wheel_light", Vector3(0, -0.42, 3.15), Basis(), DARK)
 	_finish(bc, "mustang_p51", "P-51 Mustang")
+
+
+## 5) Messerschmitt Me 262 Schwalbe — erster einsatzfähiger Düsenjäger der Welt
+func _build_me262() -> void:
+	var bc := _new_bc()
+	var GREY := Color(0.64, 0.67, 0.69)        # RLM 76 hellgrau-blau
+	var DARK := Color(0.13, 0.13, 0.15)
+	# Cockpit-Wurzel verstecken — me262_body liefert die Kanzel
+	_setup_root(bc, GREY, Vector3(0.12, 0.12, 0.12))
+	var rp := _root_part(bc)
+	if rp:
+		rp.position = Vector3(0, -0.05, -0.5)
+	# Dedizierter Me-262-Rumpf (Blender: Hai-Querschnitt + Kanzel) @ origin
+	P(bc, "me262_body", Vector3(0, 0, 0), Basis(), GREY)
+	# Pfeilflügel (durchgehend, tief)
+	PW(bc, "wing_swept", -0.20, 0.25, GREY, Vector3(1.05, 1.0, 1.0))
+	# Zwei Jumo-004-Düsengondeln unter den Flügeln (Symmetrie spiegelt die linke)
+	P(bc, "jet_engine", Vector3(1.65, -0.5, 0.1), Basis(), GREY, Vector3(0.78, 0.78, 0.9))
+	# Leitwerk am Heck: durchgehendes Höhenleitwerk + hohe Seitenflosse
+	PW(bc, "h_stab", 0.32, 3.15, GREY)
+	P(bc, "v_stab", Vector3(0, 0.42, 3.3), _ny(), GREY, Vector3(1.0, 1.15, 1.0))
+	# 4x MK108 30mm in der Nase (tief in die Nase eingelassen -> Mündung bündig)
+	P(bc, "cannon", Vector3(0, -0.06, -1.55), Basis(), DARK, Vector3(0.85, 0.85, 0.9))
+	# Dreirad-Jet-Fahrwerk: Bug (mittig) + Hauptfahrwerk (Symmetrie, rumpfnah)
+	P(bc, "wheel_jet", Vector3(0, -0.5, -1.5), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0.5, -0.5, 0.55), Basis(), DARK)
+	_finish(bc, "me262", "Me 262 Schwalbe")
 
 
 func _save(design: Array, fname: String) -> void:
