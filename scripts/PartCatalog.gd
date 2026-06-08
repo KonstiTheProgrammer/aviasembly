@@ -116,6 +116,15 @@ static func _build() -> void:
 		"desc": "Gechinter Stealth-Rumpf — passt exakt an den Querschnitt des F-22-Kopfes. BEIDE Enden einzeln skalierbar (Panel »Vorne«/»Hinten«) → vorne breit, hinten schmal.",
 	})
 	_add({
+		"id": "mustang_body", "name": "P-51 Mustang-Rumpf", "category": CAT_BODY,
+		"mass": 290.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(0.95, 1.15, 5.2),
+		# Kollisions-/Verbindungsbox deckt die ganze Rumpflänge (Nase z≈-1.6 bis Heck z≈+3.6)
+		"col_size": Vector3(0.85, 1.0, 5.3), "col_offset": Vector3(0, 0.0, 0.96),
+		"metal": 1.0, "rough": 0.3,
+		"desc": "Dedizierter P-51-Rumpf mit Bubble-Kanzel und Bauch-Kühlerschacht (ein Stück, Blender-Modell). Triebwerk vorn, Flügel/Leitwerk dran.",
+	})
+	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
 		"mass": 70.0, "color": C_BODY, "shape": "nose",
 		"size": Vector3(1.3, 1.1, 1.8),
