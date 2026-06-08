@@ -127,7 +127,7 @@ static func _build() -> void:
 	_add({
 		"id": "me262_body", "name": "Me-262-Rumpf", "category": CAT_BODY,
 		"mass": 320.0, "color": Color(0.64, 0.67, 0.69), "shape": "box",
-		"size": Vector3(0.8, 1.15, 6.2), "col_size": Vector3(0.72, 0.98, 6.0),
+		"size": Vector3(0.8, 1.18, 6.65), "col_size": Vector3(0.72, 1.0, 6.4),
 		"metal": 0.45, "rough": 0.42,
 		"desc": "Dedizierter Me-262-Rumpf: dreieckiger Hai-Querschnitt, spitze Nase, flache Rahmen-Kanzel (Blender-Modell). Pfeilflügel + 2 Düsengondeln dran.",
 	})

@@ -42,12 +42,13 @@ def loft(name, SEC, rings, mats, cap_front=True, cap_back=True, front_mat=0, bac
     for m in mats: ob.data.materials.append(m)
     return ob
 
-# Rumpf: spitze Nase (+Y) -> Heck (-Y), dreieckiger Querschnitt
-FUSE = [(2.50,0.03,0.03,0.0),(2.10,0.13,0.15,-0.02),(1.50,0.26,0.32,-0.02),(0.80,0.36,0.46,-0.02),
- (0.0,0.39,0.50,0.0),(-0.90,0.35,0.46,0.03),(-1.90,0.26,0.36,0.08),(-2.90,0.15,0.24,0.14),(-3.70,0.055,0.13,0.21)]
+# Rumpf: lange spitze Nase (+Y, leicht abfallend) -> schlankes Heck (-Y), dreieckiger Querschnitt
+FUSE = [(2.88,0.025,0.04,-0.11),(2.45,0.12,0.15,-0.08),(1.85,0.24,0.31,-0.04),(1.10,0.33,0.44,-0.02),
+ (0.30,0.39,0.50,0.0),(-0.60,0.36,0.47,0.02),(-1.60,0.28,0.39,0.07),(-2.70,0.16,0.26,0.15),(-3.72,0.05,0.14,0.23)]
 loft("Fuselage", TRI, FUSE, [MB])
-# Flache Rahmen-Kanzel (schwarzes Glas), weit vorn
-CAN = [(1.62,0.09,0.06,0.34),(1.18,0.17,0.16,0.42),(0.68,0.18,0.19,0.46),(0.18,0.14,0.15,0.44),(-0.22,0.05,0.06,0.40)]
+# Lange, flache Rahmen-Kanzel (schwarzes Glas), weit vorn, läuft hinten in den Rücken aus
+CAN = [(1.74,0.08,0.05,0.40),(1.30,0.16,0.13,0.46),(0.82,0.185,0.16,0.49),
+ (0.24,0.165,0.14,0.47),(-0.38,0.09,0.08,0.42),(-0.95,0.03,0.03,0.37)]
 loft("Canopy", ELL, CAN, [MG, MF])
 
 PATH = "/Users/konstantinkanzler/Downloads/aviasembly/models/me262_body.glb"
