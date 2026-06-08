@@ -489,8 +489,14 @@ func nudge_scale(axis: int, factor: float) -> void:
 		return
 	var sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
 	var v := [sc.x, sc.y, sc.z]
-	v[axis] = clampf(float(v[axis]) * factor, 0.25, 6.0)
-	var new_sc := Vector3(v[0], v[1], v[2])
+	var new_sc: Vector3
+	if Input.is_key_pressed(KEY_SHIFT):
+		# Shift = UNIFORM: alle 3 Achsen mit demselben Faktor skalieren
+		new_sc = Vector3(clampf(sc.x * factor, 0.25, 6.0), clampf(sc.y * factor, 0.25, 6.0),
+			clampf(sc.z * factor, 0.25, 6.0))
+	else:
+		v[axis] = clampf(float(v[axis]) * factor, 0.25, 6.0)
+		new_sc = Vector3(v[0], v[1], v[2])
 	# Beim Skalieren die zur Rumpfmitte/Wurzel zeigende Fläche fix lassen -> kein Spalt.
 	var origin := _scale_anchor_origin(selected_part, axis, sc, new_sc)
 	_apply_sel_transform(selected_part.transform.basis, origin, new_sc)
@@ -1057,7 +1063,13 @@ func _update_transform_drag() -> void:
 		new_half = maxf((face_off + half0) * 0.5, base_i * 0.125)
 		var new_s: float = clampf(new_half * 2.0 / base_i, 0.25, 6.0)
 		var sc := _drag_scale0
-		if i == 0:
+		if Input.is_key_pressed(KEY_SHIFT):
+			# Shift = UNIFORM skalieren: alle 3 Achsen mit demselben Verhältnis wie die gezogene
+			var ratio: float = new_s / maxf(s0, 0.001)
+			sc = Vector3(clampf(_drag_scale0.x * ratio, 0.25, 6.0),
+				clampf(_drag_scale0.y * ratio, 0.25, 6.0),
+				clampf(_drag_scale0.z * ratio, 0.25, 6.0))
+		elif i == 0:
 			sc.x = new_s
 		elif i == 1:
 			sc.y = new_s
