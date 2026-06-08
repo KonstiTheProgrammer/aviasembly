@@ -947,6 +947,16 @@ func _build_afterburner() -> Dictionary:
 	}
 
 
+# Alle Auspuff-Stutzen-Knoten (exhaust_R0..L5) im Triebwerks-Visual finden.
+func _find_exhaust_nodes(n: Node) -> Array:
+	var out: Array = []
+	for ch in n.get_children():
+		if ch is Node3D and String(ch.name).to_lower().begins_with("exhaust"):
+			out.append(ch)
+		out.append_array(_find_exhaust_nodes(ch))
+	return out
+
+
 # FX-Emitter neu aufbauen (nach Bau/Bruch): Nachbrenner an Jet-Düsen, Wirbelschleppen an
 # Hauptflügelspitzen. Ein-/Ausschalten passiert je Frame im _process.
 func _rebuild_fx() -> void:
@@ -1000,28 +1010,40 @@ func _rebuild_fx() -> void:
 		var light: OmniLight3D = d["light"]
 		light.position = Vector3(0, 0, 0.4 * rfac)
 		_afterburners.append(d)
-	# Auspuff-Rauch NUR für die Spitfire-Engine (prop_engine_big):
-	# grauer Qualmstoß beim Anlassen + schwarzer Rauch bei 100..110 % Schub (Notleistung).
-	for e in engines:
-		if String(e.get("id", "")) != "prop_engine_big":
+	# Auspuff-Rauch NUR für die Spitfire-Engine (prop_engine_big), direkt AUS DEN EXHAUST-Stutzen.
+	# Viel Qualm (hohe Anzahl), aber bleibt NAH (kurze Lebenszeit + starke Dämpfung, kein weiter Trail).
+	for pi in parts:
+		if pi.get("broken", false) or String(pi.get("id", "")) != "prop_engine_big":
 			continue
-		var esc: Vector3 = e.get("scale", Vector3.ONE)
-		var ssz: float = clampf((esc.x + esc.y) * 0.5, 0.5, 1.3)   # Partikelgröße nur dezent skalieren
-		var epos: Vector3 = e["pos"]
+		var evis = pi.get("vis")
+		if evis == null or not is_instance_valid(evis):
+			continue
+		# Welt-Positionen der Auspuff-Stutzen (exhaust_*-Knoten) -> Emissionspunkte (körperlokal)
+		var pts := PackedVector3Array()
+		for ch in _find_exhaust_nodes(evis):
+			pts.append(to_local(ch.global_position))
+		if pts.is_empty():
+			pts.append(pi["pos"])
 		var fx := {}
-		# Startrauch: grauer Qualmstoß aus dem Auspuff beim Anlassen (one-shot, quillt auf & fadet)
-		var st := _make_smoke(26, 1.2, 0.4, 1.4, Color(0.60, 0.58, 0.55, 0.5), 0.05 * ssz, 3.2, 0.8, Vector3(0, 0.4, 1), 32.0)
+		# Startrauch: kräftiger grauer Qualmstoß aus allen Stutzen (one-shot, bleibt nah)
+		var st := _make_smoke(38, 0.9, 0.15, 0.7, Color(0.58, 0.56, 0.53, 0.55), 0.05, 3.0, 0.55, Vector3(0, 0.6, 0.35), 46.0)
+		st.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
+		st.emission_points = pts
 		st.one_shot = true
-		st.explosiveness = 0.65
+		st.explosiveness = 0.5
 		st.emitting = false
+		st.damping_min = 2.2
+		st.damping_max = 3.8
 		add_child(st)
-		st.position = epos + Vector3(0, 0.1, 0.1)
 		fx["startup"] = st
-		# Schwarzer Rauch: bei Vollgas (100..110 %) qualmt der Motor schwarz aus dem Auspuff
-		var bk := _make_smoke(44, 1.6, 0.8, 2.8, Color(0.06, 0.06, 0.06, 0.55), 0.05 * ssz, 3.8, 0.7, Vector3(0, 0.35, 1), 20.0)
+		# Schwarzer Rauch bei 100..110 %: VIEL dichter schwarzer Qualm aus allen Stutzen, bleibt nah
+		var bk := _make_smoke(90, 0.8, 0.2, 0.85, Color(0.05, 0.05, 0.05, 0.6), 0.055, 3.4, 0.6, Vector3(0, 0.6, 0.35), 44.0)
+		bk.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
+		bk.emission_points = pts
 		bk.emitting = false
+		bk.damping_min = 2.6
+		bk.damping_max = 4.6
 		add_child(bk)
-		bk.position = epos + Vector3(0, 0.1, 0.12)
 		fx["black"] = bk
 		_exhaust_fx.append(fx)
 	for pi in parts:
