@@ -28,30 +28,32 @@ def bridge(bm, a, b, mi):
         j2 = (j+1) % N; bm.faces.new((a[j], a[j2], b[j2], b[j])).material_index = mi
 
 # --- Gedrungener Tonnen-Rumpf, runder Querschnitt, vorne Einlauf, hinten Düse ---
-FUSE = [(2.55,0.44,0.44,0.0),(2.0,0.50,0.50,0.0),(1.0,0.55,0.55,0.0),(0.15,0.56,0.56,0.02),
- (-0.75,0.53,0.53,0.03),(-1.7,0.44,0.45,0.06),(-2.5,0.35,0.36,0.09),(-3.0,0.30,0.31,0.11),(-3.35,0.27,0.28,0.12)]
+FUSE = [(2.55,0.50,0.50,0.0),(2.0,0.55,0.55,0.0),(1.0,0.57,0.57,0.0),(0.15,0.57,0.57,0.02),
+ (-0.75,0.54,0.54,0.03),(-1.7,0.45,0.46,0.06),(-2.5,0.36,0.37,0.09),(-3.0,0.30,0.31,0.11),(-3.35,0.27,0.28,0.12)]
 bm = bmesh.new()
 rings = [ering(bm, *r) for r in FUSE]
 for i in range(len(rings)-1):
     bridge(bm, rings[i], rings[i+1], 0)
-# Gerundete Einlauf-Lippe: Nasenring nach VORNE und nach INNEN gewölbt (echte Intake-Lippe)
-lip1 = ering(bm, 2.63, 0.425, 0.425, 0.0)
-lip2 = ering(bm, 2.65, 0.385, 0.385, 0.0)
-lip3 = ering(bm, 2.60, 0.350, 0.350, 0.0)
+# DÜNNE Einlauf-Lippe: der Nasenring (r0.50) wickelt sich über eine schmale Kante nach innen
+# auf die Schachtwand (r~0.47) -> die Öffnung ist FAST der ganze Rumpfquerschnitt (echter MiG-Einlauf,
+# der Rumpf ist quasi ein offenes Rohr, KEIN kleines Loch in einer rundlichen Nase).
+lip1 = ering(bm, 2.585, 0.49, 0.49, 0.0)
+lip2 = ering(bm, 2.59, 0.475, 0.475, 0.0)
+lip3 = ering(bm, 2.575, 0.47, 0.47, 0.0)
 bridge(bm, rings[0], lip1, 0)
 bridge(bm, lip1, lip2, 0)
 bridge(bm, lip2, lip3, 0)
-# Tiefer, sehr dunkler Einlaufschacht (kein sichtbarer Boden -> wirkt wie ein echter Kanal)
-d1 = ering(bm, 2.30, 0.345, 0.345, 0.0)
-d2 = ering(bm, 1.45, 0.325, 0.325, 0.0)
-d3 = ering(bm, 0.55, 0.300, 0.300, 0.0)
+# Tiefer, sehr dunkler Einlaufschacht, leicht verjüngt -> man sieht den Kanal in die Tiefe
+d1 = ering(bm, 2.20, 0.46, 0.46, 0.0)
+d2 = ering(bm, 1.25, 0.42, 0.42, 0.0)
+d3 = ering(bm, 0.30, 0.37, 0.37, 0.0)
 bridge(bm, lip3, d1, 1); bridge(bm, d1, d2, 1); bridge(bm, d2, d3, 1)
 bm.faces.new(d3[::-1]).material_index = 1
 bm.faces.new(rings[-1]).material_index = 1   # Heck: dunkle Düsen-Stirnfläche
-# Senkrechter Einlauf-Teiler (durchgehende Wand, MiG-Merkmal), mit angeschrägter Vorderkante
+# Senkrechter Einlauf-Teiler über die VOLLE Einlauf-Höhe (das MiG-Merkmal)
 sv = [bm.verts.new(p) for p in [
-    (0.017, 2.60, 0.33), (0.017, 2.60, -0.33), (0.017, 0.85, -0.29), (0.017, 0.85, 0.29),
-    (-0.017, 2.60, 0.33), (-0.017, 2.60, -0.33), (-0.017, 0.85, -0.29), (-0.017, 0.85, 0.29)]]
+    (0.018, 2.575, 0.45), (0.018, 2.575, -0.45), (0.018, 0.40, -0.36), (0.018, 0.40, 0.36),
+    (-0.018, 2.575, 0.45), (-0.018, 2.575, -0.45), (-0.018, 0.40, -0.36), (-0.018, 0.40, 0.36)]]
 for f in [(0,1,2,3),(7,6,5,4),(4,5,1,0),(5,6,2,1),(6,7,3,2),(7,4,0,3)]:
     bm.faces.new([sv[k] for k in f]).material_index = 0
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
