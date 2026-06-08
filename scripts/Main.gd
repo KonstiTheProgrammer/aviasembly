@@ -81,6 +81,7 @@ const PRESETS := [
 	["spitfire", "Supermarine Spitfire"],
 	["mustang_p51", "P-51 Mustang"],
 	["me262", "Me 262 Schwalbe  ·  Erster Düsenjäger"],
+	["f86", "F-86 Sabre  ·  Korea-Düsenjäger"],
 	["jet", "Kampfjet  ·  F-22"],
 ]
 var sel_panel: Control             # Kontext-Panel für ausgewähltes Teil

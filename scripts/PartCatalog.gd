@@ -132,6 +132,13 @@ static func _build() -> void:
 		"desc": "Dedizierter Me-262-Rumpf: dreieckiger Hai-Querschnitt, spitze Nase, flache Rahmen-Kanzel (Blender-Modell). Pfeilflügel + 2 Düsengondeln dran.",
 	})
 	_add({
+		"id": "f86_body", "name": "F-86 Sabre-Rumpf", "category": CAT_BODY,
+		"mass": 330.0, "color": Color(0.82, 0.83, 0.86), "shape": "box",
+		"size": Vector3(1.05, 1.35, 6.6), "col_size": Vector3(0.9, 1.0, 6.4),
+		"metal": 1.0, "rough": 0.28,
+		"desc": "Dedizierter F-86-Sabre-Rumpf: runder Nasen-Lufteinlauf, Bubble-Kanzel (Blender-Modell). Pfeilflügel + Jet-Triebwerk (Heckdüse) dran.",
+	})
+	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
 		"mass": 70.0, "color": C_BODY, "shape": "nose",
 		"size": Vector3(1.3, 1.1, 1.8),

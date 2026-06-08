@@ -19,6 +19,7 @@ func _process(_d: float) -> bool:
 	_build_spitfire()
 	_build_mustang()
 	_build_me262()
+	_build_f86()
 	quit()
 	return true
 
@@ -189,6 +190,30 @@ func _build_me262() -> void:
 	P(bc, "wheel_jet", Vector3(0, -0.5, -1.5), Basis(), DARK)
 	P(bc, "wheel_jet", Vector3(0.5, -0.5, 0.55), Basis(), DARK)
 	_finish(bc, "me262", "Me 262 Schwalbe")
+
+
+## 6) North American F-86 Sabre — früher Pfeilflügel-Düsenjäger (Korea), Bare Metal
+func _build_f86() -> void:
+	var bc := _new_bc()
+	var SILVER := Color(0.82, 0.83, 0.86)
+	var DARK := Color(0.13, 0.13, 0.15)
+	_setup_root(bc, SILVER, Vector3(0.12, 0.12, 0.12))
+	var rp := _root_part(bc)
+	if rp:
+		rp.position = Vector3(0, 0.0, -0.6)
+	# Dedizierter F-86-Rumpf (Blender: Nasen-Einlauf + Kanzel) @ origin
+	P(bc, "f86_body", Vector3(0, 0, 0), Basis(), SILVER)
+	# Triebwerk axial im Rumpf (lang & schlank -> genug Schub, Gondel versteckt), Düse/Flamme am Heck
+	P(bc, "jet_engine", Vector3(0, 0.02, 1.92), Basis(), SILVER, Vector3(0.48, 0.48, 1.5))
+	# Pfeilflügel (~35°), mittig
+	PW(bc, "wing_swept", -0.08, 0.45, SILVER, Vector3(1.1, 1.0, 1.0))
+	# Gepfeiltes Leitwerk
+	PW(bc, "h_stab", 0.22, 3.0, SILVER)
+	P(bc, "v_stab", Vector3(0, 0.40, 3.2), _ny(), SILVER, Vector3(1.0, 1.1, 1.0))
+	# Dreirad-Jet-Fahrwerk: Bug (mittig) + Hauptfahrwerk am Flügel (Symmetrie)
+	P(bc, "wheel_jet", Vector3(0, -0.55, -1.8), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0.7, -0.5, 0.55), Basis(), DARK)
+	_finish(bc, "f86", "F-86 Sabre")
 
 
 func _save(design: Array, fname: String) -> void:
