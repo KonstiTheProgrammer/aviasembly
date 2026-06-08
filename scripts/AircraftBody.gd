@@ -77,6 +77,7 @@ var _vapor: Array = []        # CPUParticles3D an Flügelspitzen (Wirbelschleppe
 var _damage_smoke: CPUParticles3D = null  # Rauchfahne, wenn das Flugzeug Teile verloren hat
 var _exhaust_fx: Array = []   # [{startup, soot, ignite}] Rauch-Emitter je Triebwerk (Auspuff)
 var _spawned := false         # erster _process-Frame -> Triebwerk "anlassen" = Startrauch-Stoß
+var _ab_was_on := false       # Flanke normal->Nachbrenner -> EIN kurzer, sehr starker Rußstoß
 var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fährt smooth aus/ein)
 const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
 const FLAP_RATE := 0.28       # Ausfahr-/Einfahrgeschwindigkeit (1/s): voll ~3.5 s, pro Stufe ~1.8 s (realistisch träge)
@@ -255,11 +256,15 @@ func _process(delta: float) -> void:
 			if su != null and is_instance_valid(su):
 				su.restart()
 				su.emitting = true
-	var black_on := throttle >= 0.99            # Vollgas-Zone 100..110 % -> schwarzer Qualm
-	for fxd in _exhaust_fx:
-		var bk = fxd.get("black")
-		if bk != null and is_instance_valid(bk):
-			bk.emitting = black_on
+	# Schwarzer Rauch nur als EIN kurzer, starker Stoß beim Übergang normal -> Nachbrenner (>100 %)
+	var ab_now := throttle >= 1.0
+	if ab_now and not _ab_was_on:               # steigende Flanke: rein in den Nachbrenner
+		for fxd in _exhaust_fx:
+			var bk = fxd.get("black")
+			if bk != null and is_instance_valid(bk):
+				bk.restart()
+				bk.emitting = true
+	_ab_was_on = ab_now
 	var vap_on := gforce > 4.5 or airspeed > 130.0
 	for v in _vapor:
 		if is_instance_valid(v):
@@ -1036,10 +1041,13 @@ func _rebuild_fx() -> void:
 		st.damping_max = 3.8
 		add_child(st)
 		fx["startup"] = st
-		# Schwarzer Rauch bei 100..110 %: VIEL dichter schwarzer Qualm aus allen Stutzen, bleibt nah
-		var bk := _make_smoke(90, 0.8, 0.2, 0.85, Color(0.05, 0.05, 0.05, 0.6), 0.055, 3.4, 0.6, Vector3(0, 0.6, 0.35), 44.0)
+		# Schwarzer Rauch: EIN kurzer, SEHR STARKER Rußstoß aus allen Stutzen beim Wechsel
+		# normal -> Nachbrenner (one-shot, explosiv). Bleibt nah (Dämpfung), klingt schnell ab.
+		var bk := _make_smoke(130, 1.0, 0.2, 0.95, Color(0.045, 0.045, 0.045, 0.62), 0.058, 3.5, 0.55, Vector3(0, 0.6, 0.35), 46.0)
 		bk.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
 		bk.emission_points = pts
+		bk.one_shot = true
+		bk.explosiveness = 0.85
 		bk.emitting = false
 		bk.damping_min = 2.6
 		bk.damping_max = 4.6
