@@ -797,6 +797,44 @@ func _fx_make(amount: int, life: float, vmin: float, vmax: float, color: Color, 
 	return p
 
 
+# Weicher Rauch: kleine Kugeln, die über die Lebenszeit AUFQUELLEN (Curve) und AUSFADEN
+# (Alpha-Gradient) -> sieht aus wie echter Qualm statt fetter Blasen.
+func _make_smoke(amount: int, life: float, vmin: float, vmax: float, color: Color,
+		size: float, grow: float, grav_y: float, dir: Vector3, spread: float) -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	p.amount = amount
+	p.lifetime = life
+	p.local_coords = false       # in der Welt simulieren -> trailt hinter dem Flieger
+	p.direction = dir
+	p.spread = spread
+	p.initial_velocity_min = vmin
+	p.initial_velocity_max = vmax
+	p.gravity = Vector3(0, grav_y, 0)
+	p.damping_min = 0.8
+	p.damping_max = 1.8
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var sc := Curve.new()             # klein starten, aufquellen
+	sc.add_point(Vector2(0.0, 0.3))
+	sc.add_point(Vector2(1.0, grow))
+	p.scale_amount_curve = sc
+	var g := Gradient.new()           # über die Lebenszeit ausfaden
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	p.color_ramp = g
+	var mesh := SphereMesh.new()
+	mesh.radius = size
+	mesh.height = size * 2.0
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	var mm := StandardMaterial3D.new()
+	mm.albedo_color = color
+	mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mm.vertex_color_use_as_albedo = true
+	mesh.material = mm
+	p.mesh = mesh
+	return p
+
+
 # Additiver Flammen-Shader: Farbverlauf weiß→blau→orange→rot entlang der Länge (UV.y),
 # Mach-Diamanten im vorderen Bereich, Flackern. Wird von Kern- und Fahnenkegel geteilt.
 func _flame_shader() -> Shader:
@@ -970,40 +1008,37 @@ func _rebuild_fx() -> void:
 		var light: OmniLight3D = d["light"]
 		light.position = Vector3(0, 0, 0.4 * rfac)
 		_afterburners.append(d)
-	# Auspuff-Rauch-Emitter je Triebwerk: Startrauch (alle) + Nachbrenner-Ruß (nur Jets).
-	# Position relativ zum Körper (+Z = Heck); _fx_make-Partikel bleiben in der Welt -> trailen.
+	# Auspuff-Rauch je Triebwerk: Startrauch (alle) + Nachbrenner-Ruß (nur Jets).
+	# Position relativ zum Körper (+Z = Heck); Partikel bleiben in der Welt -> trailen.
 	for e in engines:
 		var ejet: bool = e.get("jet", false)
 		var esc: Vector3 = e.get("scale", Vector3.ONE)
 		var elf: float = maxf(esc.z, 0.05)
-		var erf: float = maxf((esc.x + esc.y) * 0.5, 0.05)
+		var ssz: float = clampf((esc.x + esc.y) * 0.5, 0.5, 1.25)   # Partikelgröße nur dezent skalieren
 		var epos: Vector3 = e["pos"]
 		var fx := {}
-		# Startrauch: grau-weißer Qualmstoß aus dem Auspuff beim Anlassen (steigt + trailt zurück)
-		var st := _fx_make(22, 1.2, 0.5, 2.2, Color(0.66, 0.64, 0.6, 0.7), 0.15 * erf, false, 1.0, Vector3(0, 0.45, 1))
+		# Startrauch: kleine graue Qualmwölkchen, quellen auf & faden (one-shot beim Anlassen)
+		var st := _make_smoke(30, 1.3, 0.4, 1.5, Color(0.72, 0.70, 0.66, 0.5), 0.055 * ssz, 3.4, 0.85, Vector3(0, 0.4, 1), 34.0)
 		st.one_shot = true
-		st.explosiveness = 0.7
-		st.spread = 32.0
+		st.explosiveness = 0.65
 		st.emitting = false
 		add_child(st)
-		st.position = epos + Vector3(0, 0.05, (1.0 if ejet else 0.15) * elf)
+		st.position = epos + Vector3(0, 0.05, (0.9 if ejet else 0.12) * elf)
 		fx["startup"] = st
 		if ejet:
-			# Ruß-Fahne: dunkler Qualm aus der Düse, solange der Nachbrenner brennt
-			var so := _fx_make(26, 1.5, 2.0, 6.0, Color(0.1, 0.095, 0.09, 0.55), 0.2 * erf, false, 0.6, Vector3(0, 0.12, 1))
-			so.spread = 16.0
+			# Nachbrenner-Ruß: graue Fahne hinter der Flamme, solange der AB brennt (auch bei 110 %)
+			var so := _make_smoke(48, 1.8, 1.5, 5.0, Color(0.27, 0.26, 0.24, 0.46), 0.05 * ssz, 4.6, 0.3, Vector3(0, 0.08, 1), 13.0)
 			so.emitting = false
 			add_child(so)
-			so.position = epos + Vector3(0, 0, 1.35 * elf)
+			so.position = epos + Vector3(0, 0.02, 2.2 * elf)
 			fx["soot"] = so
-			# Zünd-Stoß: dichter schwarzer Rußstoß im Moment der AB-Zündung
-			var ig := _fx_make(20, 1.1, 3.0, 8.0, Color(0.06, 0.06, 0.06, 0.7), 0.24 * erf, false, 0.8, Vector3(0, 0.2, 1))
+			# Zünd-Stoß: kräftigerer dunkler Rußstoß im Moment der AB-Zündung
+			var ig := _make_smoke(30, 1.2, 2.0, 6.0, Color(0.14, 0.13, 0.12, 0.55), 0.06 * ssz, 3.8, 0.5, Vector3(0, 0.16, 1), 18.0)
 			ig.one_shot = true
-			ig.explosiveness = 0.85
-			ig.spread = 20.0
+			ig.explosiveness = 0.8
 			ig.emitting = false
 			add_child(ig)
-			ig.position = epos + Vector3(0, 0, 1.4 * elf)
+			ig.position = epos + Vector3(0, 0.02, 1.5 * elf)
 			fx["ignite"] = ig
 		_exhaust_fx.append(fx)
 	for pi in parts:
