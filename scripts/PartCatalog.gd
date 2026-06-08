@@ -397,6 +397,35 @@ static func part_cost(p: Dictionary) -> int:
 	return int(round(maxf(c, 80.0) / 50.0)) * 50
 
 
+## STRUKTURWERT: wie hart ein Aufprall (Schließgeschwindigkeit in m/s entlang der
+## Kontaktnormale) sein darf, bevor das Teil bei einer Kollision ABBRICHT. Niedrig =
+## bricht leicht (Holz/Leichtbau, z. B. ein Stoff-/Holzflügel), hoch = robust (Metall-
+## Rumpf, Stealth-Chine). Bricht ein Teil, schluckt es den Stoß -> der Rest fliegt weiter.
+## Reihenfolge: ausdrücklicher "strength"-Wert > leichte Sonderfälle (Holz) > Kategorie-Default.
+static func part_strength(p: Dictionary) -> float:
+	if p.has("strength"):
+		return float(p["strength"])
+	var id: String = p.get("id", "")
+	# Holz/Leichtbau — brechen leicht weg:
+	if id == "strut": return 4.0          # dünne Holzstrebe
+	if id == "wing_straight": return 7.0  # einfacher (Holz-/Stoff-)Flügel
+	if id == "wing_short": return 8.0
+	if id == "winglet": return 9.0
+	var cat: String = p.get("category", "")
+	var shape: String = String(p.get("shape", ""))
+	match cat:
+		CAT_BODY:
+			if shape == "cyl": return 11.0   # Tank
+			if shape == "prism": return 28.0 # gechinter F-22-Rumpf (sehr robust)
+			return 22.0                       # Rumpf/Cockpit/Nase/Heck
+		CAT_WING: return 13.0                 # Metall-Tragflächen (überstehen mehr)
+		CAT_CTRL: return 10.0                 # Leitwerk/Ruder
+		CAT_PROP: return 20.0 if p.get("jet", false) else 15.0
+		CAT_GEAR: return 8.0
+		CAT_WEAPON: return 12.0
+	return 14.0
+
+
 static func col_size(p: Dictionary) -> Vector3:
 	return p.get("col_size", p.get("size", Vector3.ONE))
 

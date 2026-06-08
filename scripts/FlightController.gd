@@ -224,6 +224,8 @@ func build_from_design(d: Array) -> void:
 			"pitch_a": 0.0, "roll_a": 0.0, "yaw_a": 0.0,
 			"thrust": p.get("thrust", 0.0) * vol, "jet": p.get("jet", false),
 			"gear_cap": p.get("gear_capacity", 0.0) * vol, "retract": p.get("retract", false),
+			# Strukturwert (Kollisions-Bruchschwelle); größere Teile sind etwas zäher.
+			"strength": PartCatalog.part_strength(p) * clampf(1.0 + (vol - 1.0) * 0.25, 0.6, 2.2),
 			"scale": psc,
 		}
 		if pinfo["is_wing"]:

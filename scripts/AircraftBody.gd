@@ -124,10 +124,10 @@ var _airborne := false
 var _last_vy := 0.0
 var _last_vel := Vector3.ZERO # Geschwindigkeit im letzten Frame in der Luft (für Aufprall-Härte)
 const HARD_LAND := 3.0        # ab hier "harte Landung"
-const BREAK_LAND := 7.0       # ab hier bricht das Fahrwerk
-const CRASH_SPEED := 10.0     # Schließgeschwindigkeit (m/s) entlang Kontaktnormale, ab der ein
-                              # getroffenes (Nicht-Fahrwerk-)Teil + sein Außen-Teilbaum abreißt
-const EXPLODE_SPEED := 20.0   # ab hier: GANZES Flugzeug zerschellt (alle Teile fliegen weg + Toy-Explosion)
+const BREAK_LAND := 7.0       # (Altwert, jetzt über Fahrwerks-Strukturwert geregelt)
+const CRASH_SPEED := 10.0     # (Altwert, Bruch jetzt pro Teil über part_strength)
+const EXPLODE_SPEED := 28.0   # ab hier: GANZES Flugzeug zerschellt (selbst der Rumpf hält das
+                              # nicht mehr) — darunter brechen einzelne Teile gemäß Strukturwert
 var exploded := false         # ganzes Flugzeug zerschellt? (bis Reset)
 var _explode_pending := false # Explosion fürs nächste _process vorgemerkt (nicht in _integrate_forces!)
 
@@ -978,31 +978,41 @@ func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
 	var break_set := {}
 	var only_gear := true
 	var worst := 0.0
+	var core_fail := false
 	for i in n:
 		var nrm := state.get_contact_local_normal(i)
 		var closing := maxf(0.0, -_last_vel.dot(nrm))   # Tempo IN die getroffene Fläche
 		worst = maxf(worst, closing)
-		if closing <= BREAK_LAND:
-			continue
 		var idx := _nearest_part_index(state.transform, state.get_contact_local_position(i))
 		if idx < 0:
 			continue
-		if float(parts[idx]["gear_cap"]) > 0.0:
-			break_set[idx] = true               # Rad reißt schon bei harter Landung (> BREAK_LAND) AB (Trümmer)
-		elif closing > CRASH_SPEED:
-			break_set[idx] = true               # Struktur reißt erst beim echten Crash (> CRASH_SPEED) ab
-			only_gear = false
-	# Zu schnell in den Boden/ein Hindernis -> GANZES Flugzeug zerschellt (Toy-Explosion).
-	if worst > EXPLODE_SPEED:
+		# STRUKTURWERT entscheidet: hält das getroffene Teil dem Stoß stand?
+		var pstr: float = float(parts[idx].get("strength", 14.0))
+		if closing <= pstr:
+			continue                            # Teil hält -> kein Bruch
+		if bool(parts[idx].get("is_root", false)):
+			core_fail = true                    # Cockpit/Kern weggebrochen -> Totalverlust
+		else:
+			break_set[idx] = true               # Teil bricht ab (schluckt den Stoß)
+			if float(parts[idx].get("gear_cap", 0.0)) <= 0.0:
+				only_gear = false
+	# Totalschaden: Kern versagt ODER extrem harter Aufprall (über jede Struktur hinaus).
+	if core_fail or worst > EXPLODE_SPEED:
 		_explode_pending = true
 		landing_msg = "💥 ZERSCHELLT!"
 		_land_timer = 5.0
 		return
 	if not break_set.is_empty():
 		_queue_break(break_set.keys())
-		landing_msg = "💥 RÄDER ABGERISSEN!" if only_gear else "💥 CRASH — Teile abgerissen!"
+		# Aufprall ABSORBIERT: das/die gebrochene(n) Teil(e) schlucken den Stoß -> der Rest
+		# fliegt mit fast unveränderter Geschwindigkeit weiter (kaum Force aufs restliche Flugzeug),
+		# nur der Einschlag in die Fläche (senkrechte Komponente) wird abgefangen.
+		var keep := _last_vel
+		keep.y = maxf(keep.y, -1.5)
+		state.linear_velocity = keep * 0.92
+		landing_msg = "💥 Räder abgerissen!" if only_gear else "💥 Teil abgerissen!"
 		_land_timer = 4.0
-		shake_request = maxf(shake_request, 0.85)
+		shake_request = maxf(shake_request, 0.7)
 		return
 	# nichts abgerissen -> reine Landenoten
 	if descent > HARD_LAND:

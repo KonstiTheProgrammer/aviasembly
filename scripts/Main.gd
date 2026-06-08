@@ -855,6 +855,10 @@ func _part_stats_text(p: Dictionary) -> String:
 	if String(p.get("weapon", "")) != "":
 		lines.append("Waffe: %s" % String(p["weapon"]))
 	lines.append("Luftwiderstand cW·A: %.2f m²" % PartCatalog.part_drag(p))
+	# Strukturwert: wie viel Aufprall das Teil aushält, bevor es bei einer Kollision abreißt.
+	var st: float = PartCatalog.part_strength(p)
+	var stq: String = "sehr fragil" if st < 6.0 else ("fragil" if st < 10.0 else ("robust" if st < 16.0 else "sehr robust"))
+	lines.append("Struktur: %d  (%s — bricht bei Aufprall ab %d m/s)" % [int(round(st)), stq, int(round(st))])
 	lines.append("Preis: %d 🪙" % PartCatalog.part_cost(p))
 	return "\n".join(lines)
 
