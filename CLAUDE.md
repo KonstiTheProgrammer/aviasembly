@@ -114,8 +114,9 @@ Kraftspikes). Das gebündelte Modell ist stabil und trotzdem physikalisch fundie
   schnell knackig). Dazu aerodynamische **Drehdämpfung** `−ω_body · DAMP · (0.35+qfac)`
   gegen Überschwingen + statische Stabilität (Wetterfahne). KEIN Raten-Halte-Autopilot.
   **Roll immer knackig** (hohe Basis-`CTRL_ROLL`, von Assist-Dämpfung ausgenommen). **T**:
-  Assist an = mehr Nick/Gier-Dämpfung + sanftes Querlage-Ausnivellieren (`LEVEL_K`), aus =
-  roh/direkt. Eingabe wird im FlightController weich gerampt (`_ramp`, analoges Gefühl).
+  Assist an = mehr Nick/Gier-Dämpfung, aus = roh/direkt. KEIN Auto-Ausnivellieren der
+  Querlage mehr (auf Wunsch entfernt): mit A/D gesetzte Bank bleibt stehen.
+  Eingabe wird im FlightController weich gerampt (`_ramp`, analoges Gefühl).
 - **Luftdichte** sinkt mit Höhe: `ρ = RHO0·e^(−h/SCALE_H)`.
 - **Sicherheit:** Kräfte werden auf `mass·60`/`mass·90` begrenzt, NaN-Werte verworfen,
   Drehrate auf `MAX_ANGVEL` geklemmt.
@@ -127,7 +128,7 @@ Kraftspikes). Das gebündelte Modell ist stabil und trotzdem physikalisch fundie
 Kraft-Limit `tf=mass·130`/`tt=mass·90` (nur Sicherung),
 Direktsteuerung: Autorität `CTRL_PITCH=2.2`(+`3.5`·Fläche)/`CTRL_YAW=1.5`(+`3.0`)/
 `CTRL_ROLL=9.0`(+`6.0`), Dämpfung `DAMP_PITCH=5.5`/`DAMP_YAW=3.2`/`DAMP_ROLL=2.5`
-(Assist ×1.6 nur Nick/Gier), `LEVEL_K=1.0`, `qfac=clamp(q/180,0.04,2.0)`,
+(Assist ×1.6 nur Nick/Gier; kein Querlage-Auto-Leveling mehr), `qfac=clamp(q/180,0.04,2.0)`,
 Landung: `HARD_LAND=3`/`BREAK_LAND=7` m/s. Reifenreibung `friction=0.05`.
 `PartCatalog.WING_STRESS=3600` N/m² (Flügel-Belastbarkeit).
 Spawn: Startbahn `(0, spawn_height, 40)`, `spawn_height = 0.3 − tiefster Punkt`.

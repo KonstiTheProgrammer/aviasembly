@@ -34,7 +34,7 @@ const PITCH_STAB := 0.5       # statische Nick-Stabilität (Wetterfahne)
 const YAW_STAB := 0.6         # statische Gier-Stabilität (Wetterfahne)
 const PROP_VMAX := 140.0      # Speed, bei der Propellerschub -> 0 (Props oben raus schwächer als Jets)
 const MAX_ANGVEL := 8.0
-const LEVEL_K := 1.0          # sanftes Querlage-Ausnivellieren (nur Assist)
+# (Auto-Ausnivellieren der Querlage wurde auf Wunsch entfernt — Bank bleibt stehen.)
 
 # Direkte Steuerflächen-Steuerung (wie SimplePlanes): Eingabe = Auslenkung,
 # Drehmoment ~ Staudruck × Steuerfläche. Aerodynamische Dämpfung sorgt für satte,
@@ -1427,9 +1427,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var apq := 1.6 if assist else 1.0
 		var roll_d: float = 0.0 if barrel_roll != 0 else wb.z * DAMP_ROLL
 		tt += xf.basis * (-Vector3(wb.x * DAMP_PITCH * apq, wb.y * DAMP_YAW * apq, roll_d) * dfac)
-		# sanftes Ausnivellieren der Querlage, wenn kein Roll-Befehl (nur Assist; nicht im Fass-Roll).
-		if assist and not mouse_fly and barrel_roll == 0 and absf(in_roll) < 0.05 and airspeed > 6.0:
-			tt += xf.basis.z * (-xf.basis.x.y * LEVEL_K * mass)
+		# KEIN Auto-Ausnivellieren der Querlage mehr (Wunsch): mit A/D gesetzte Bank
+		# bleibt stehen, das Flugzeug dreht nicht von selbst zurück auf gerade.
+		# (Assist behält Nick-/Gier-Dämpfung; die Roll-DREHRATE wird weiter gedämpft,
+		# der Roll-WINKEL aber nicht mehr zurückgestellt.)
 
 	# --- Sicherheit & Anwenden ---------------------------------------------
 	if not tf.is_finite():
