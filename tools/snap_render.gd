@@ -54,11 +54,20 @@ func _setup() -> void:
 	root.add_child(vp)
 
 	var env := Environment.new()
+	# Spiegelnder Gradient-Himmel als Reflexions-/Ambient-Quelle (wie im Hangar) — damit
+	# Metall-Reflexe (z. B. der Einlauf-Ring) im Render SICHTBAR sind und prüfbar werden.
+	var sky_mat := ProceduralSkyMaterial.new()
+	sky_mat.sky_top_color = Color(0.28, 0.40, 0.66)
+	sky_mat.sky_horizon_color = Color(0.78, 0.85, 0.97)
+	sky_mat.ground_horizon_color = Color(0.62, 0.66, 0.72)
+	sky_mat.ground_bottom_color = Color(0.34, 0.37, 0.42)
+	var sky := Sky.new(); sky.sky_material = sky_mat
+	env.sky = sky
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.50, 0.55, 0.62)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.70, 0.76, 0.86)
-	env.ambient_light_energy = 0.95
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_energy = 1.0
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	var we := WorldEnvironment.new()
 	we.environment = env
