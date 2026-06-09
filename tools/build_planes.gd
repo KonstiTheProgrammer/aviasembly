@@ -242,15 +242,22 @@ func _build_mig15() -> void:
 	P(bc, "fuselage", Vector3(0, 0, 1.6), Basis(), SILVER, FZ, 0.6, 1.0)
 	# Triebwerk axial im Heck (Düse/Flamme hinten, Gondel läuft aus dem Heckkonus)
 	P(bc, "jet_engine", Vector3(0, 0.0, 2.45), Basis(), SILVER, Vector3(0.5, 0.5, 1.45))
-	# Pfeilflügel (~35°), mittig-tief — mit Grenzschichtzaun (MiG-Detail)
-	PW(bc, "wing_swept", -0.12, 0.3, SILVER, Vector3(1.0, 1.0, 1.0))
-	P(bc, "wing_fence", Vector3(1.2, 0.02, 0.45), Basis(), SILVER)
+	# Pfeilflügel (~35°), mittig-tief — etwas größer, mit Grenzschichtzaun (MiG-Detail)
+	PW(bc, "wing_swept", -0.12, 0.3, SILVER, Vector3(1.08, 1.0, 1.08))
+	P(bc, "wing_fence", Vector3(1.25, 0.03, 0.42), Basis(), SILVER)
 	# HOHE Seitenflosse + HOCH am Fin montiertes Höhenleitwerk (das MiG-15-Merkmal!)
-	P(bc, "v_stab", Vector3(0, 0.5, 2.95), _ny(), SILVER, Vector3(1.0, 1.5, 1.0))
-	PW(bc, "h_stab", 1.45, 3.05, SILVER, Vector3(0.9, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.5, 2.95), _ny(), SILVER, Vector3(1.05, 1.55, 1.0))
+	PW(bc, "h_stab", 1.5, 3.05, SILVER, Vector3(0.92, 1.0, 1.0))
 	# Dreirad-Jet-Fahrwerk: Bug (mittig) + Hauptfahrwerk am Flügel (Symmetrie)
 	P(bc, "wheel_jet", Vector3(0, -0.6, -1.7), Basis(), DARK)
 	P(bc, "wheel_jet", Vector3(0.6, -0.55, 0.55), Basis(), DARK)
+	# --- Sowjet-Hoheitsabzeichen: rote Sterne (Material bleibt rot, Farbe egal) ---
+	var bL := Basis(Vector3(-1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, -1))   # nach links (-X) gedreht
+	var bUp := Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))   # Normale nach oben (+Y)
+	P(bc, "red_star", Vector3(0.60, 0.0, 1.2), Basis(), SILVER, Vector3(1.0, 1.0, 1.0))   # Rumpf rechts (gespiegelt)
+	P(bc, "red_star", Vector3(0.09, 0.85, 2.7), Basis(), SILVER, Vector3(0.7, 0.7, 0.7))  # Seitenflosse rechts
+	P(bc, "red_star", Vector3(-0.09, 0.85, 2.7), bL, SILVER, Vector3(0.7, 0.7, 0.7))      # Seitenflosse links
+	P(bc, "red_star", Vector3(1.7, 0.06, 0.5), bUp, SILVER, Vector3(0.9, 0.9, 0.9))       # Flügel oben (gespiegelt)
 	_finish(bc, "mig15", "MiG-15")
 
 

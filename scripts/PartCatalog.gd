@@ -141,9 +141,16 @@ static func _build() -> void:
 	_add({
 		"id": "jet_cockpit", "name": "Jet-Cockpit-Segment", "category": CAT_BODY,
 		"mass": 150.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
-		"size": Vector3(1.32, 1.44, 2.0), "col_size": Vector3(1.2, 1.2, 1.9),
+		"size": Vector3(1.32, 1.5, 2.0), "col_size": Vector3(1.2, 1.2, 1.9),
 		"metal": 0.55, "rough": 0.4,
 		"desc": "Rumpfsegment mit schwarz verglaster Bubble-Kanzel. Gleicher Querschnitt wie das generische Rumpfsegment — dockt nahtlos an Nase & Rumpf an.",
+	})
+	_add({
+		"id": "red_star", "name": "Roter Stern (Markierung)", "category": CAT_BODY,
+		"mass": 2.0, "color": Color(0.72, 0.10, 0.11), "shape": "box",
+		"size": Vector3(0.06, 0.6, 0.6), "col_size": Vector3(0.12, 0.55, 0.55),
+		"metal": 0.1, "rough": 0.5,
+		"desc": "Flacher roter Sowjet-Stern als Hoheitsabzeichen. Flach auf Rumpf/Flügel/Leitwerk kleben (Default-Seite = rechts).",
 	})
 	_add({
 		"id": "mig15_body", "name": "MiG-15-Rumpf", "category": CAT_BODY,

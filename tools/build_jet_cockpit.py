@@ -41,7 +41,7 @@ bo.data.materials.append(MB)
 
 # --- Bubble-Kanzel (schwarzes Glas), leicht nach VORNE (+Y) versetzt, in den Rumpf eingelassen ---
 bm = bmesh.new()
-CAN = [(0.78,0.05,0.04,0.55),(0.50,0.20,0.17,0.62),(0.12,0.26,0.23,0.66),(-0.28,0.20,0.17,0.62),(-0.62,0.08,0.06,0.56)]
+CAN = [(0.92,0.05,0.04,0.55),(0.60,0.22,0.20,0.66),(0.20,0.30,0.27,0.73),(-0.20,0.25,0.22,0.68),(-0.58,0.10,0.08,0.57)]
 cr = [ering(bm, *r) for r in CAN]
 for i in range(len(cr)-1):
     bridge(bm, cr[i], cr[i+1], 0)
