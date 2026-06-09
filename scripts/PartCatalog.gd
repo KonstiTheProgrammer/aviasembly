@@ -227,8 +227,9 @@ static func _build() -> void:
 	# --- Tragflächen -------------------------------------------------------
 	_wing("wing_straight", "Gerade Tragfläche", CAT_WING, 70.0, C_WING, 4.4, 1.7, 1.7, 0.0, 1.05)
 	_wing("wing_tapered", "Trapezflügel", CAT_WING, 62.0, C_WING, 4.6, 1.9, 1.0, 0.4, 1.0)
-	_wing("wing_swept", "Pfeilflügel", CAT_WING, 66.0, C_WING, 4.6, 1.7, 1.0, 1.5, 0.95)
-	_wing("wing_delta", "Deltaflügel", CAT_WING, 88.0, C_WING, 3.6, 3.2, 0.4, 2.7, 0.9)
+	# Jet-Jäger-Flügel: EXTREM belastbar (×4 WING_STRESS) — für hohe G im Luftkampf gebaut.
+	_wing("wing_swept", "Pfeilflügel", CAT_WING, 66.0, C_WING, 4.6, 1.7, 1.0, 1.5, 0.95, "", 4.0)
+	_wing("wing_delta", "Deltaflügel", CAT_WING, 88.0, C_WING, 3.6, 3.2, 0.4, 2.7, 0.9, "", 4.0)
 	_wing("wing_short", "Stummelflügel", CAT_WING, 42.0, C_WING, 2.4, 1.5, 1.1, 0.2, 1.0)
 	_wing("wing_glider", "Segler-Flügel (lang)", CAT_WING, 95.0, C_WING, 6.8, 1.3, 0.75, 0.3, 1.25)
 	_wing("canard", "Canard-Flügel", CAT_WING, 30.0, C_WING, 1.8, 1.0, 0.6, 0.15, 1.0)
@@ -404,7 +405,9 @@ static func _add(p: Dictionary) -> void:
 
 
 static func _wing(id: String, name: String, cat: String, mass: float, color: Color,
-		span: float, rc: float, tc: float, sweep: float, lift: float, control: String = "") -> void:
+		span: float, rc: float, tc: float, sweep: float, lift: float, control: String = "",
+		stress := 1.0) -> void:
+	# stress = Festigkeits-Multiplikator auf WING_STRESS (Jet-Flügel >> Holz/Stoff-Flügel)
 	var thick := 0.16
 	var maxc: float = max(rc, tc)
 	var area := (rc + tc) * 0.5 * span
@@ -412,7 +415,7 @@ static func _wing(id: String, name: String, cat: String, mass: float, color: Col
 		"id": id, "name": name, "category": cat, "mass": mass, "color": color,
 		"shape": "wing", "span": span, "root_chord": rc, "tip_chord": tc,
 		"sweep": sweep, "thickness": thick, "is_wing": true, "area": area,
-		"lift": lift, "control": control, "orient_normal": true,
+		"lift": lift, "control": control, "orient_normal": true, "stress_mult": stress,
 		"col_size": Vector3(span, thick + 0.1, maxc + absf(sweep)),
 		"col_offset": Vector3(span * 0.5, 0.0, sweep * 0.5),
 		"metal": 0.15, "rough": 0.6,
@@ -515,6 +518,7 @@ static func part_strength(p: Dictionary) -> float:
 	if id == "wing_straight": return 7.0  # einfacher (Holz-/Stoff-)Flügel
 	if id == "wing_short": return 8.0
 	if id == "winglet": return 9.0
+	if id == "wing_swept" or id == "wing_delta": return 26.0  # Jet-Jäger-Flügel: extrem robust
 	var cat: String = p.get("category", "")
 	var shape: String = String(p.get("shape", ""))
 	match cat:

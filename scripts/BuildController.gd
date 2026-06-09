@@ -2106,7 +2106,7 @@ func compute_stats() -> Dictionary:
 			var exposed: float = PartCatalog.wing_exposed_fraction(child.transform, span_w, PartCatalog.col_offset(p).z * psc.z, body_boxes)
 			var a: float = a_full * exposed
 			area += a
-			wing_cap += a_full * PartCatalog.WING_STRESS
+			wing_cap += a_full * PartCatalog.WING_STRESS * p.get("stress_mult", 1.0)
 			col += a * child.position
 			col_w += a
 	if mass > 0.0:

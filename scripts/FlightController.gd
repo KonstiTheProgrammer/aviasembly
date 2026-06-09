@@ -276,7 +276,7 @@ func build_from_design(d: Array) -> void:
 			pinfo["span"] = span
 			pinfo["ar"] = clampf(span * span / maxf(a_full, 0.01), 0.6, 10.0)
 			pinfo["lift_coef"] = p.get("lift", 1.0)
-			pinfo["wing_cap"] = a_full * PartCatalog.WING_STRESS
+			pinfo["wing_cap"] = a_full * PartCatalog.WING_STRESS * p.get("stress_mult", 1.0)
 			pinfo["lift_part"] = a * up_align
 			var ctrl_part: float = a * (1.0 - up_align)
 			match pinfo["control"]:
