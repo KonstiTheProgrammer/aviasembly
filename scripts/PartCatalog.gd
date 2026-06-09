@@ -1292,14 +1292,8 @@ static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rou
 			Vector4(z0 + 0.05, hw - 0.045, hh - 0.04, cy),
 			Vector4(z0 + 0.75, hw - 0.09, hh - 0.08, cy),
 			Vector4(z0 + 1.65, hw - 0.16, hh - 0.15, cy)], 36, false, true), dark))
-		# Senkrechte Trennklinge — STROMLINIENFÖRMIG (Linsen-/Tropfenquerschnitt, gerundete
-		# Vorderkante) statt flaches Brett. Dünne, vertikal gestreckte Kugel = glatte Klinge.
-		var sm := make_material(Color(0.17, 0.17, 0.19), 0.25, 0.55)
-		var blade := SphereMesh.new()
-		blade.radius = 0.5; blade.height = 1.0
-		blade.radial_segments = 22; blade.rings = 11
-		root.add_child(_mi(blade, sm, Vector3(0, cy, z0 + 0.62), Vector3.ZERO,
-			Vector3(0.08, (hh - 0.04) * 1.85, 1.55)))
+		# (Kein senkrechter Teiler mehr — sah als Objekt im Loch deplatziert aus. Sauberer,
+		# tiefer, runder Einlauf wie bei den meisten MiG-15-Darstellungen.)
 	var can: Array = p.get("canopy", [])
 	if can.size() >= 5:
 		var zc: float = can[0]; var ln: float = can[1]; var cw: float = can[2]; var chh: float = can[3]; var base: float = can[4]
