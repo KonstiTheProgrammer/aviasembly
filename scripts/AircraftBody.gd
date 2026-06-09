@@ -26,7 +26,8 @@ const STALL_RECOVER := 2.2    # Nase-runter-Hilfe im Stall (Moment ~ mass; 0 = a
 const STALL_W := 0.12         # Stall-Übergangsbreite
 const CL_MAX := 1.5
 const OSWALD := 0.75          # Oswald-Faktor (induzierter Widerstand)
-const CD0 := 0.030            # Parasitärwiderstand
+const CD0 := 0.016            # Flügel-Profilwiderstand (Rumpf steckt schon in drag_area ->
+							  # höher = Doppelzählung, Flieger bremste in der Luft viel zu stark aus)
 const FLAP_LIFT := 0.55       # Landeklappen voll: zusätzlicher Auftriebsbeiwert ΔCl (mehr Auftrieb -> langsamer fliegen/abheben)
 const FLAP_DRAG := 0.06       # Landeklappen voll: zusätzlicher Profilwiderstand ΔCd (bremst im Anflug, steileres Sinken)
 const SIDE := 0.5             # Seitenkraft (Kurvenflug)
@@ -106,7 +107,8 @@ var parts: Array = []         # [{vis, cs, xform, csize, coffset, is_wing, contr
 var _break_queue: Array = []  # Teil-Indizes (Bruch-Wurzeln), abgearbeitet im _process (nicht in der Physik!)
 var _detach_queue: Array = []  # Teil-Indizes von verschossener Munition -> Visual entfernen + Aero neu
 var _recoil := Vector3.ZERO   # aufsummierter Rückstoß-Impuls (Waffenfeuer), im _integrate_forces angewandt
-const DRAG_K := 0.5           # parasitärer Modell-Widerstand (niedriger = schneller, v.a. im Sturzflug)
+const DRAG_K := 0.3           # parasitärer Modell-Widerstand (0.5 bremste ohne Schub VIEL zu hart:
+							  # 150->60 m/s in 5 s; jetzt rollt der Flieger realistisch träger aus)
 
 # Fahrwerk
 var gear_items: Array = []    # [{vis, cs, retract, base}]
@@ -158,6 +160,11 @@ func _ready() -> void:
 	can_sleep = false
 	continuous_cd = true
 	angular_damp = 0.3
+	# WICHTIG: REPLACE statt COMBINE — sonst wird linear_damp=0 mit dem Projekt-Default
+	# (0.1) KOMBINIERT und bremst versteckt mit 0.1·v (bei 140 m/s ~14 m/s² Phantom-
+	# Bremse, mehr als die ganze Aerodynamik!). Der Flieger soll NUR über die
+	# modellierten Widerstände Tempo verlieren.
+	linear_damp_mode = RigidBody3D.DAMP_MODE_REPLACE
 	linear_damp = 0.0
 	var pm := PhysicsMaterial.new()
 	pm.friction = 0.05
