@@ -39,9 +39,9 @@ func _process(delta: float) -> bool:
 	ac.in_pitch = 0.0
 	ac.in_roll = 0.0
 	ac.in_yaw = 0.0
-	# Spieler-Szenario: ab ~25 m/s (90 km/h) VOLL S ziehen und halten
-	if ac.airspeed > 25.0:
-		ac.in_pitch = 1.0
+	# Spieler-Szenario: ab ~30 m/s SANFT rotieren (nicht voll überziehen) und halten
+	if ac.airspeed > 30.0:
+		ac.in_pitch = 0.45
 	t += delta
 	if t >= next_print:
 		next_print += 0.25

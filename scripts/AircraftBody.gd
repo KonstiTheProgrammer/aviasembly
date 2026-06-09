@@ -14,8 +14,13 @@ extends RigidBody3D
 # Naturkonstanten / Tuning
 const RHO0 := 1.225           # Luftdichte Meereshöhe (kg/m³)
 const SCALE_H := 8500.0       # Atmosphären-Skalenhöhe (m)
-const LIFT_K := 2.9           # globaler Kraftfaktor (Spielgefühl: hebt früh & leicht ab)
-const INCIDENCE := 0.075      # ~4.3° Flügel-Einstellwinkel (hebt zügig ab)
+const LIFT_K := 2.9           # globaler Kraftfaktor (Spielgefühl: in der Luft leicht/arcadig)
+const INCIDENCE := 0.025      # ~1.4° Flügel-Einstellwinkel (KEIN Selbst-Abheben mehr -> zum Start mit W rotieren)
+# Abhebe-Gate: bei niedrigem Tempo wird der Auftrieb gedämpft -> erst Tempo aufbauen
+# (spürbar längere Rollstrecke). Ab LIFT_V1 voller Auftrieb -> in der Luft bleibt's leicht.
+const LIFT_LO := 0.30         # Auftriebs-Faktor im Stand/sehr langsam (fest am Boden)
+const LIFT_GATE_LO := 0.65    # Gate-Beginn = takeoff_v · 0.65 (darunter gedämpft)
+const LIFT_GATE_HI := 1.45    # voller Auftrieb ab takeoff_v · 1.45 (in der Luft arcadig)
 const STALL_A := 0.27         # Stall-Anstellwinkel (~15.5°)
 const STALL_W := 0.12         # Stall-Übergangsbreite
 const CL_MAX := 1.5
@@ -59,6 +64,7 @@ const SPOOL_DN := 2.2         # Auslauf etwas schneller
 
 # Vom FlightController gesetzt
 var wing_area := 0.0
+var takeoff_v := 35.0          # Referenz-Abhebegeschwindigkeit (skaliert das Abhebe-Gate)
 var eff_ar := 4.0
 var lift_scale := 1.0
 var pitch_area := 0.0
@@ -438,6 +444,10 @@ func recompute_aero() -> void:
 	mass = maxf(tm_eff, 1.0)
 	center_of_mass_mode = RigidBody3D.CENTER_OF_MASS_MODE_CUSTOM
 	center_of_mass = (com / tm) if tm > 0.0 else Vector3.ZERO
+	# Referenz-Abhebegeschwindigkeit aus der Flächenbelastung (v=√(2·W/(ρ·S·CL))).
+	# Daran wird das Abhebe-Gate ausgerichtet: leichte Props heben früh ab, schwere Jets
+	# brauchen mehr Tempo -> physikalisch korrekt skaliert über alle Flugzeuge.
+	takeoff_v = clampf(sqrt(2.0 * mass * 9.81 / maxf(RHO0 * wing_area, 1.0)), 14.0, 80.0) if wing_area > 0.1 else 35.0
 	_rebuild_fx()
 
 
@@ -1294,7 +1304,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# NACH der CL_MAX-Klemmung addiert, da Klappen den Maximalauftrieb real anheben.
 		cl += _flap_vis * FLAP_LIFT
 		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5 + _flap_vis * FLAP_DRAG
-		var lift_mag := q * wing_area * cl
+		# Abhebe-Gate: Auftrieb bei niedrigem Tempo dämpfen (längere Rollstrecke), ab
+		# der plane-spezifischen Abhebegeschwindigkeit voll -> in der Luft leicht/arcadig.
+		var lift_gate := lerpf(LIFT_LO, 1.0, smoothstep(takeoff_v * LIFT_GATE_LO, takeoff_v * LIFT_GATE_HI, sp))
+		var lift_mag := q * wing_area * cl * lift_gate
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
 		if not wings_broken and not arcade and barrel_roll == 0 and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
 			wings_broken = true
