@@ -1278,24 +1278,25 @@ static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rou
 	var last: Vector4 = stations[stations.size() - 1]
 	if p.get("intake", false):
 		var z0: float = first.x; var hw: float = first.y; var hh: float = first.z; var cy: float = first.w
-		# Einlauf-Lippe NUR nach innen+hinten gerundet (kein nach vorne stehender Ring ->
-		# kein greller Spiegel-„Heiligenschein"); matt, damit sie sich nicht abhebt.
+		# DÜNNE Lippe, nur leicht nach innen gerundet (kein vorstehender Ring, matt -> kein
+		# Spiegel-„Heiligenschein") -> WEITE Öffnung: man sieht tief in den Schacht, auch
+		# schräg von der Seite (beide Hälften sichtbar).
 		var lipmat := make_material(col, 0.10, 0.55)
 		root.add_child(_mi(_loft([
 			Vector4(z0, hw, hh, cy),
-			Vector4(z0 + 0.06, hw - 0.06, hh - 0.06, cy),
-			Vector4(z0 + 0.14, hw - 0.12, hh - 0.10, cy)], 36), lipmat))
-		# Tiefer matt-schwarzer Schacht direkt ab der Innenkante (füllt den Mund dunkel)
+			Vector4(z0 + 0.05, hw - 0.045, hh - 0.04, cy)], 36), lipmat))
+		# Weiter, tiefer matt-schwarzer Schacht (kaum verjüngt -> offener Kanal mit Tiefe)
 		var dark := make_material(Color(0.02, 0.02, 0.025), 0.0, 1.0)
 		dark.cull_mode = BaseMaterial3D.CULL_DISABLED
 		root.add_child(_mi(_loft([
-			Vector4(z0 + 0.14, hw - 0.12, hh - 0.10, cy),
-			Vector4(z0 + 0.7, hw - 0.16, hh - 0.14, cy),
-			Vector4(z0 + 1.5, hw - 0.22, hh - 0.20, cy)], 36, false, true), dark))
+			Vector4(z0 + 0.05, hw - 0.045, hh - 0.04, cy),
+			Vector4(z0 + 0.75, hw - 0.09, hh - 0.08, cy),
+			Vector4(z0 + 1.65, hw - 0.16, hh - 0.15, cy)], 36, false, true), dark))
+		# Schlanker senkrechter Teiler (blockiert die Sicht in den Kanal kaum)
 		var sm := make_material(Color(0.20, 0.20, 0.22), 0.15, 0.75)
 		sm.cull_mode = BaseMaterial3D.CULL_DISABLED
-		var sp := BoxMesh.new(); sp.size = Vector3(0.04, (hh - 0.10) * 2.0, 1.4)
-		root.add_child(_mi(sp, sm, Vector3(0, cy, z0 + 0.7)))
+		var sp := BoxMesh.new(); sp.size = Vector3(0.03, (hh - 0.05) * 2.0, 1.5)
+		root.add_child(_mi(sp, sm, Vector3(0, cy, z0 + 0.72)))
 	var can: Array = p.get("canopy", [])
 	if can.size() >= 5:
 		var zc: float = can[0]; var ln: float = can[1]; var cw: float = can[2]; var chh: float = can[3]; var base: float = can[4]
