@@ -167,6 +167,23 @@ static func _build() -> void:
 		"desc": "Flacher roter Sowjet-Stern als Hoheitsabzeichen. Flach auf Rumpf/Flügel/Leitwerk kleben (Default-Seite = rechts).",
 	})
 	_add({
+		"id": "mig15_hull", "name": "MiG-15-Rumpf (1 Stück, berechnet)", "category": CAT_BODY,
+		"mass": 470.0, "color": Color(0.80, 0.81, 0.84), "shape": "jet_hull",
+		"size": Vector3(1.34, 1.3, 7.1), "col_size": Vector3(1.2, 1.1, 6.8),
+		"metal": 0.55, "rough": 0.4,
+		"intake": true, "rear_cap": true,
+		# durchgehendes Loft-Profil: Vector4(z, halbbreite, halbhöhe, höhen-offset)
+		"stations": [
+			Vector4(-3.6, 0.50, 0.46, 0.0), Vector4(-3.3, 0.57, 0.52, 0.0),
+			Vector4(-2.7, 0.63, 0.57, 0.01), Vector4(-1.7, 0.66, 0.59, 0.03),
+			Vector4(-0.5, 0.66, 0.59, 0.05), Vector4(0.7, 0.63, 0.56, 0.06),
+			Vector4(1.7, 0.56, 0.50, 0.07), Vector4(2.5, 0.46, 0.42, 0.08),
+			Vector4(3.1, 0.38, 0.35, 0.09), Vector4(3.5, 0.33, 0.31, 0.10),
+		],
+		"canopy": [-0.6, 1.7, 0.30, 0.28, 0.42],
+		"desc": "Kompletter MiG-15-Rumpf als EINE durchgehend berechnete Fläche (Loft) — Nasen-Einlauf, Kanzel und Heckdüse integriert, keine Segment-Nähte.",
+	})
+	_add({
 		"id": "mig15_body", "name": "MiG-15-Rumpf", "category": CAT_BODY,
 		"mass": 320.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
 		"size": Vector3(1.12, 1.4, 5.9), "col_size": Vector3(0.96, 1.05, 5.7),
@@ -444,6 +461,7 @@ static func part_cd(p: Dictionary) -> float:
 		"pod": return 0.55         # runder Werfer-Pod
 		"box": return 1.05         # Würfel/Platte — der widerstandsstärkste Bluff-Körper
 		"prism": return 0.20       # gechinter Stealth-Rumpf — schlank/windschlüpfrig
+		"jet_hull": return 0.15    # durchgehend gelofteter Jet-Rumpf — sehr windschlüpfrig
 	return 0.9
 
 
@@ -460,6 +478,7 @@ static func _frontal_fill(shape: String) -> float:
 		"cyl", "jet", "nose", "missile", "bomb": return 0.80   # runder Querschnitt (~π/4)
 		"box", "wing": return 1.0  # füllt die Box / Stirnfläche ist real
 		"prism": return 0.78       # gechinter Querschnitt füllt ~78 % der Box
+		"jet_hull": return 0.80    # runder gelofteter Querschnitt (~π/4)
 	return 0.85
 
 
@@ -627,6 +646,11 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			var tube := _box_tube(ef, eb, 18)
 			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
+
+		"jet_hull":
+			# EIN durchgehend berechneter Rumpf (Loft durch Querschnitt-Stationen) — keine
+			# überlappenden Segmente, keine Nähte. Einlauf/Kanzel/Heck als saubere Aufsätze.
+			_jet_hull(root, p, col, metal, rough)
 
 		"plate":
 			# Dünne, leicht verrundete Platte (z. B. Grenzschichtzaun auf dem Flügel)
@@ -1179,6 +1203,91 @@ static func _box_tube(ef: Vector2, eb: Vector2, segs := 18) -> ArrayMesh:
 		st.add_index(cn); st.add_index(rb + s + 1); st.add_index(rb + s)
 	st.generate_normals()
 	return st.commit()
+
+
+# ---------------------------------------------------------------------------
+# LOFT-RUMPF-SYSTEM: berechnet EINE durchgehende Rumpfhaut aus Querschnitt-Stationen.
+# Statt mehrere Segmente zu überlappen (-> Nähte/Z-Fighting) entsteht so EINE einzige
+# glatte Fläche über die ganze Länge. Jede Station = Vector4(z, halbbreite, halbhöhe,
+# höhen-offset_cy). Smooth-Normalen -> komplett nahtlos.
+static func _loft(stations: Array, segs := 32, cap_front := false, cap_back := false) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := stations.size()
+	var stride := segs + 1
+	for ring in n:
+		var s4: Vector4 = stations[ring]
+		for k in stride:
+			var a: float = TAU * float(k) / float(segs)
+			st.add_vertex(Vector3(cos(a) * s4.y, s4.w + sin(a) * s4.z, s4.x))
+	for ring in n - 1:
+		for k in segs:
+			var i0 := ring * stride + k
+			var i1 := ring * stride + k + 1
+			var i2 := (ring + 1) * stride + k
+			var i3 := (ring + 1) * stride + k + 1
+			st.add_index(i0); st.add_index(i2); st.add_index(i1)
+			st.add_index(i1); st.add_index(i2); st.add_index(i3)
+	var verts := n * stride
+	if cap_front:
+		var f: Vector4 = stations[0]
+		st.add_vertex(Vector3(0, f.w, f.x))
+		var c0 := verts; verts += 1
+		for k in segs:
+			st.add_index(c0); st.add_index(k); st.add_index(k + 1)
+	if cap_back:
+		var b: Vector4 = stations[n - 1]
+		st.add_vertex(Vector3(0, b.w, b.x))
+		var cn := verts
+		var rb := (n - 1) * stride
+		for k in segs:
+			st.add_index(cn); st.add_index(rb + k + 1); st.add_index(rb + k)
+	st.generate_normals()
+	return st.commit()
+
+
+# Baut EINEN durchgehenden Jet-Rumpf aus p["stations"] + Aufsätze: Lufteinlauf vorn
+# (dünne Lippe + matt-schwarzer Schacht + Teiler), Bubble-Kanzel oben, Heck-Düsenkappe.
+static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rough: float) -> void:
+	var stations: Array = p.get("stations", [])
+	if stations.size() < 2:
+		return
+	var body_mat := make_material(col, metal, rough)
+	root.add_child(_mi(_loft(stations, 36), body_mat))
+	var first: Vector4 = stations[0]
+	var last: Vector4 = stations[stations.size() - 1]
+	if p.get("intake", false):
+		var z0: float = first.x; var hw: float = first.y; var hh: float = first.z; var cy: float = first.w
+		root.add_child(_mi(_loft([
+			Vector4(z0, hw, hh, cy),
+			Vector4(z0 - 0.03, hw - 0.03, hh - 0.03, cy),
+			Vector4(z0 + 0.02, hw - 0.07, hh - 0.06, cy)], 36), body_mat))
+		var dark := make_material(Color(0.02, 0.02, 0.025), 0.0, 1.0)
+		dark.cull_mode = BaseMaterial3D.CULL_DISABLED
+		root.add_child(_mi(_loft([
+			Vector4(z0 + 0.02, hw - 0.07, hh - 0.06, cy),
+			Vector4(z0 + 0.6, hw - 0.12, hh - 0.11, cy),
+			Vector4(z0 + 1.4, hw - 0.18, hh - 0.16, cy)], 36, false, true), dark))
+		var sm := make_material(Color(0.20, 0.20, 0.22), 0.15, 0.75)
+		sm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var sp := BoxMesh.new(); sp.size = Vector3(0.04, (hh - 0.06) * 2.0, 1.3)
+		root.add_child(_mi(sp, sm, Vector3(0, cy, z0 + 0.65)))
+	var can: Array = p.get("canopy", [])
+	if can.size() >= 5:
+		var zc: float = can[0]; var ln: float = can[1]; var cw: float = can[2]; var chh: float = can[3]; var base: float = can[4]
+		var glass := make_material(Color(0.03, 0.03, 0.035), 0.30, 0.08)
+		root.add_child(_mi(_loft([
+			Vector4(zc - ln * 0.52, 0.05, 0.04, base + 0.02),
+			Vector4(zc - ln * 0.22, cw * 0.82, chh * 0.80, base + chh * 0.55),
+			Vector4(zc + ln * 0.04, cw, chh, base + chh * 0.62),
+			Vector4(zc + ln * 0.32, cw * 0.80, chh * 0.74, base + chh * 0.50),
+			Vector4(zc + ln * 0.52, 0.05, 0.04, base + 0.02)], 32, true, true), glass))
+	if p.get("rear_cap", false):
+		var rmat := make_material(Color(0.05, 0.05, 0.06), 0.3, 0.4)
+		root.add_child(_mi(_loft([
+			Vector4(last.x, last.y, last.z, last.w),
+			Vector4(last.x + 0.06, last.y * 0.5, last.z * 0.5, last.w),
+			Vector4(last.x + 0.06, 0.05, 0.05, last.w)], 28, false, true), rmat))
 
 
 # Flaches Dreieck mit korrekter Wicklung: Normale zeigt in want_dir (sonst b/c tauschen).
