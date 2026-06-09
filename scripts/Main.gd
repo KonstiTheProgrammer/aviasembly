@@ -84,6 +84,9 @@ var _best_combo := 0               # beste Combo dieser Session
 var _flight_money0 := 0            # Guthaben bei Flugbeginn (für „verdient")
 var _flight_score := 0             # Punkte dieser Session
 var _wave_session := 0             # Token: jeder Flugstart erhöht es -> alte Wellen-Timer verfallen
+var _spin_nodes: Array = []        # Basis-Deko: drehende Nodes (Radar)
+var _blink_nodes: Array = []       # Basis-Deko: blinkende Lichter (Antennen)
+var _blink_t := 0.0
 const COMBO_WINDOW := 5.0          # Sekunden zwischen Abschüssen, um die Combo zu halten
 var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
 var upgrade_box: VBoxContainer     # Upgrade-Panel
@@ -226,7 +229,7 @@ func _setup_world() -> void:
 
 	# Flugplätze (Name, Position, Ausrichtung, Farbe)
 	airfields = [
-		{"name": "HEIMAT", "pos": Vector3(0, 0, -100), "heading": 0.0, "color": Color(0.9, 0.9, 0.95)},
+		{"name": "HEIMAT", "pos": Vector3(0, 0, -100), "heading": 0.0, "color": Color(0.9, 0.9, 0.95), "main": true},
 		{"name": "NORDFELD", "pos": Vector3(-1500, 0, -2000), "heading": 0.7, "color": Color(0.95, 0.75, 0.3)},
 		{"name": "OSTHAFEN", "pos": Vector3(2200, 0, -250), "heading": -1.15, "color": Color(0.45, 0.75, 0.98)},
 		{"name": "BERGPISTE", "pos": Vector3(900, 0, 2000), "heading": 2.3, "color": Color(0.95, 0.5, 0.45)},
@@ -362,6 +365,136 @@ func _build_airfield(af: Dictionary) -> void:
 	lbl.outline_size = 26
 	lbl.outline_modulate = Color(0, 0, 0, 0.9)
 	node.add_child(lbl)
+	# HEIMAT = Hauptbasis: großes Extra-Paket (Radar, Großhangar, Flutlicht, Helipad, …)
+	if af.get("main", false):
+		_build_main_base(node, af["color"])
+
+
+# Hauptbasis-Ausbau für HEIMAT: erweitertes Vorfeld, offener Großhangar (begehbar),
+# drehender Radarturm, Tower-Antenne mit Blinklicht, Flutlicht-Masten, Helipad,
+# Splitterschutz-Boxen (Blast Pens) mit GEPARKTEN Flugzeugen aus den Vorlagen.
+func _build_main_base(node: Node3D, col: Color) -> void:
+	var concrete := _flat_mat(Color(0.55, 0.56, 0.58), 0.9)
+	var dark := _flat_mat(Color(0.3, 0.31, 0.33), 0.85)
+	# --- Vorfeld nach Osten erweitern ---
+	_deco_box(node, Vector3(95.0, 0.03, 0.0), Vector3(40.0, 0.06, 150.0), concrete)
+	# --- Offener Großhangar (man sieht/rollt hinein): Rückwand, 2 Seiten, Dach ---
+	var hcol := col.darkened(0.15)
+	_deco_box(node, Vector3(112.0, 6.0, -15.0), Vector3(1.2, 12.0, 34.0), _flat_mat(hcol, 0.7))    # Rückwand
+	_collider_box(node, Vector3(112.0, 6.0, -15.0), Vector3(1.2, 12.0, 34.0))
+	for sz in [-32.0, 2.0]:
+		_deco_box(node, Vector3(101.0, 6.0, sz), Vector3(22.0, 12.0, 1.2), _flat_mat(hcol, 0.7))   # Seitenwände
+		_collider_box(node, Vector3(101.0, 6.0, sz), Vector3(22.0, 12.0, 1.2))
+	_deco_box(node, Vector3(101.0, 12.4, -15.0), Vector3(24.0, 0.8, 35.0), _flat_mat(hcol.darkened(0.25), 0.7))  # Dach
+	_collider_box(node, Vector3(101.0, 12.4, -15.0), Vector3(24.0, 0.8, 35.0))
+	_deco_box(node, Vector3(101.0, 0.05, -15.0), Vector3(22.0, 0.05, 33.0), dark)                  # dunkler Boden
+	_add_parked_plane(node, "spitfire", Vector3(102.0, 1.0, -15.0), 90.0)                          # Flieger IM Hangar
+	# --- Radarturm mit DREHENDER Schüssel ---
+	var rt := Vector3(45.0, 0.0, 105.0)
+	_deco_box(node, rt + Vector3(0, 7.0, 0), Vector3(4.0, 14.0, 4.0), _flat_mat(Color(0.6, 0.62, 0.65), 0.6))
+	_collider_box(node, rt + Vector3(0, 7.0, 0), Vector3(4.0, 14.0, 4.0))
+	var pivot := Node3D.new()
+	pivot.position = rt + Vector3(0, 14.6, 0)
+	node.add_child(pivot)
+	var dish := MeshInstance3D.new()
+	var dm := CylinderMesh.new()
+	dm.top_radius = 3.6
+	dm.bottom_radius = 3.6
+	dm.height = 0.5
+	dish.mesh = dm
+	dish.position = Vector3(0, 1.2, 0)
+	dish.rotation_degrees = Vector3(58, 0, 0)
+	dish.material_override = _flat_mat(Color(0.85, 0.87, 0.9), 0.4)
+	pivot.add_child(dish)
+	_spin_nodes.append(pivot)
+	# --- Tower-Antenne mit rotem Blinklicht (Tower steht bei 58/55) ---
+	_deco_box(node, Vector3(58.0, 28.0, 55.0), Vector3(0.4, 6.0, 0.4), _flat_mat(Color(0.7, 0.7, 0.72), 0.5))
+	var bl := MeshInstance3D.new()
+	var bs := SphereMesh.new()
+	bs.radius = 0.5
+	bs.height = 1.0
+	bl.mesh = bs
+	bl.position = Vector3(58.0, 31.6, 55.0)
+	bl.material_override = _emit_mat(Color(1.0, 0.15, 0.1), 3.0)
+	node.add_child(bl)
+	_blink_nodes.append(bl)
+	# --- 4 Flutlicht-Masten um das Vorfeld ---
+	for fp in [Vector3(40, 0, -52), Vector3(112, 0, 30), Vector3(40, 0, 72), Vector3(112, 0, 60)]:
+		_deco_box(node, fp + Vector3(0, 6.5, 0), Vector3(0.7, 13.0, 0.7), _flat_mat(Color(0.5, 0.5, 0.54), 0.6))
+		_collider_box(node, fp + Vector3(0, 6.5, 0), Vector3(0.9, 13.0, 0.9))
+		_deco_box(node, fp + Vector3(0, 13.2, 0), Vector3(2.4, 0.9, 1.0), _emit_mat(Color(1.0, 0.97, 0.85), 1.6))
+	# --- Helipad westlich der Bahn ---
+	var hp := Vector3(-40.0, 0.0, 70.0)
+	var pad := MeshInstance3D.new()
+	var pc := CylinderMesh.new()
+	pc.top_radius = 10.0
+	pc.bottom_radius = 10.0
+	pc.height = 0.08
+	pad.mesh = pc
+	pad.position = hp + Vector3(0, 0.04, 0)
+	pad.material_override = dark
+	node.add_child(pad)
+	var hl3 := Label3D.new()
+	hl3.text = "H"
+	hl3.font_size = 380
+	hl3.pixel_size = 0.05
+	hl3.modulate = Color(0.95, 0.95, 0.9)
+	hl3.position = hp + Vector3(0, 0.12, 0)
+	hl3.rotation_degrees = Vector3(-90, 0, 0)
+	node.add_child(hl3)
+	for ang in range(8):
+		var a := float(ang) * TAU / 8.0
+		_deco_light(node, hp + Vector3(cos(a) * 10.5, 0.3, sin(a) * 10.5), Color(1.0, 0.8, 0.25))
+	# --- Zwei Splitterschutz-Boxen (Blast Pens) mit geparkten Jets ---
+	for px in [52.0, 80.0]:
+		var pp := Vector3(px, 0.0, -68.0)
+		_deco_box(node, pp + Vector3(0, 2.6, -7.0), Vector3(16.0, 5.2, 1.6), dark)     # Rückwand
+		_collider_box(node, pp + Vector3(0, 2.6, -7.0), Vector3(16.0, 5.2, 1.6))
+		for sx in [-8.0, 8.0]:
+			_deco_box(node, pp + Vector3(sx, 2.6, 0.0), Vector3(1.6, 5.2, 15.0), dark)  # Seitenwälle
+			_collider_box(node, pp + Vector3(sx, 2.6, 0.0), Vector3(1.6, 5.2, 15.0))
+	_add_parked_plane(node, "f86", Vector3(52.0, 1.0, -66.0), 180.0)
+	_add_parked_plane(node, "mig15", Vector3(80.0, 1.0, -66.0), 180.0)
+	# --- Geparkte Mustang auf dem Vorfeld ---
+	_add_parked_plane(node, "mustang_p51", Vector3(62.0, 1.0, 35.0), 215.0)
+
+
+# Geparktes Deko-Flugzeug aus einer Vorlage (nur Visuals + ein grober Kollisionsblock).
+func _add_parked_plane(parent: Node3D, preset: String, pos: Vector3, yaw_deg: float) -> void:
+	var f := FileAccess.open("res://designs/%s.json" % preset, FileAccess.READ)
+	if f == null:
+		return
+	var arr = JSON.parse_string(f.get_as_text())
+	f.close()
+	if typeof(arr) != TYPE_ARRAY:
+		return
+	var root := Node3D.new()
+	root.position = pos
+	root.rotation_degrees = Vector3(0, yaw_deg, 0)
+	parent.add_child(root)
+	for item in arr:
+		var id: String = item.get("id", "")
+		if not PartCatalog.has(id):
+			continue
+		var p := PartCatalog.get_part(id)
+		var c = item.get("color", [0, 0, 0, 0])
+		var pcol := Color(c[0], c[1], c[2], c[3]) if (typeof(c) == TYPE_ARRAY and c.size() >= 4) else Color(0, 0, 0, 0)
+		var sc = item.get("scale", [1, 1, 1])
+		var scl := Vector3(sc[0], sc[1], sc[2]) if (typeof(sc) == TYPE_ARRAY and sc.size() >= 3) else Vector3.ONE
+		var tp := float(item.get("taper", -1.0))
+		if tp < 0.0:
+			tp = float(p.get("taper", 1.0))
+		var tpf := float(item.get("taper_front", -1.0))
+		if tpf < 0.0:
+			tpf = float(p.get("taper_front", 1.0))
+		var vis := PartCatalog.build_visual(p, pcol, tp, tpf, float(item.get("taper_y", -1.0)), float(item.get("taper_front_y", -1.0)))
+		vis.scale = scl
+		var holder := Node3D.new()
+		holder.transform = _array_to_xform(item.get("xform", []))
+		holder.add_child(vis)
+		root.add_child(holder)
+	# grober Kollisionsblock, damit man nicht durch geparkte Flieger hindurchfliegt
+	_collider_box(parent, pos + Vector3(0, 1.4, 0), Vector3(9.0, 3.0, 8.0))
 
 
 # Bahnnummer aus dem Heading (dekorativ, wie echte Runway-Designatoren 01-36).
@@ -1767,6 +1900,15 @@ func _respawn_balloon() -> void:
 
 # --- Survival: Wellen-System + Flug-Score ----------------------------------
 func _process(delta: float) -> void:
+	# Basis-Deko animieren (drehendes Radar, Blinklichter) — billig, läuft immer
+	for s in _spin_nodes:
+		if is_instance_valid(s):
+			s.rotate_y(delta * 0.9)
+	_blink_t += delta
+	var blink_on := fmod(_blink_t, 1.2) < 0.6
+	for b in _blink_nodes:
+		if is_instance_valid(b):
+			b.visible = blink_on
 	# Combo-Fenster herunterzählen (nur im Survival-Flug)
 	if mode != Mode.FLY or game == null or game.is_sandbox():
 		return
