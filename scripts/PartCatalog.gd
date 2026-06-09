@@ -1278,20 +1278,24 @@ static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rou
 	var last: Vector4 = stations[stations.size() - 1]
 	if p.get("intake", false):
 		var z0: float = first.x; var hw: float = first.y; var hh: float = first.z; var cy: float = first.w
+		# Einlauf-Lippe NUR nach innen+hinten gerundet (kein nach vorne stehender Ring ->
+		# kein greller Spiegel-„Heiligenschein"); matt, damit sie sich nicht abhebt.
+		var lipmat := make_material(col, 0.10, 0.55)
 		root.add_child(_mi(_loft([
 			Vector4(z0, hw, hh, cy),
-			Vector4(z0 - 0.03, hw - 0.03, hh - 0.03, cy),
-			Vector4(z0 + 0.02, hw - 0.07, hh - 0.06, cy)], 36), body_mat))
+			Vector4(z0 + 0.06, hw - 0.06, hh - 0.06, cy),
+			Vector4(z0 + 0.14, hw - 0.12, hh - 0.10, cy)], 36), lipmat))
+		# Tiefer matt-schwarzer Schacht direkt ab der Innenkante (füllt den Mund dunkel)
 		var dark := make_material(Color(0.02, 0.02, 0.025), 0.0, 1.0)
 		dark.cull_mode = BaseMaterial3D.CULL_DISABLED
 		root.add_child(_mi(_loft([
-			Vector4(z0 + 0.02, hw - 0.07, hh - 0.06, cy),
-			Vector4(z0 + 0.6, hw - 0.12, hh - 0.11, cy),
-			Vector4(z0 + 1.4, hw - 0.18, hh - 0.16, cy)], 36, false, true), dark))
+			Vector4(z0 + 0.14, hw - 0.12, hh - 0.10, cy),
+			Vector4(z0 + 0.7, hw - 0.16, hh - 0.14, cy),
+			Vector4(z0 + 1.5, hw - 0.22, hh - 0.20, cy)], 36, false, true), dark))
 		var sm := make_material(Color(0.20, 0.20, 0.22), 0.15, 0.75)
 		sm.cull_mode = BaseMaterial3D.CULL_DISABLED
-		var sp := BoxMesh.new(); sp.size = Vector3(0.04, (hh - 0.06) * 2.0, 1.3)
-		root.add_child(_mi(sp, sm, Vector3(0, cy, z0 + 0.65)))
+		var sp := BoxMesh.new(); sp.size = Vector3(0.04, (hh - 0.10) * 2.0, 1.4)
+		root.add_child(_mi(sp, sm, Vector3(0, cy, z0 + 0.7)))
 	var can: Array = p.get("canopy", [])
 	if can.size() >= 5:
 		var zc: float = can[0]; var ln: float = can[1]; var cw: float = can[2]; var chh: float = can[3]; var base: float = can[4]
