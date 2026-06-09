@@ -234,7 +234,8 @@ func _setup_world() -> void:
 
 	# Landschaft (nur Optik): See + Berge als Orientierung
 	_build_lake(Vector3(-1000, 0, 700), 650.0)
-	for hp in [Vector3(1300, 0, 1500), Vector3(-2000, 0, -600), Vector3(700, 0, -2100), Vector3(-300, 0, 2600), Vector3(2600, 0, 1400)]:
+	# (Berg ehem. bei 1300/1500 weggerückt — er ragte sonst ins Ende der 3× längeren BERGPISTE-Bahn)
+	for hp in [Vector3(1750, 0, 1300), Vector3(-2000, 0, -600), Vector3(700, 0, -2100), Vector3(-300, 0, 2600), Vector3(2600, 0, 1400)]:
 		_build_mountain(hp)
 	for af in airfields:
 		_build_airfield(af)
@@ -271,42 +272,84 @@ func _emit_mat(c: Color, e: float) -> StandardMaterial3D:
 	return m
 
 
+# Flughafen: 900-m-Bahn (3×) mit echter Markierung (Randlinien, Mittellinie, Piano-Keys,
+# Aufsetzpunkt-Blöcke, Bahnnummern), Randbefeuerung (weiß) + Schwellenlichter (grün) +
+# Anflugbefeuerung, Rollweg zum Vorfeld (Beton-Apron) mit Hangars, Tower, Windsack & Tanks.
+const RWY_LEN := 900.0
+const RWY_W := 30.0
+
+
 func _build_airfield(af: Dictionary) -> void:
 	var node := Node3D.new()
 	node.position = af["pos"]
 	node.rotation.y = af["heading"]
 	fly_world.add_child(node)
-	# Bahn
-	var strip := MeshInstance3D.new()
-	var sm := BoxMesh.new()
-	sm.size = Vector3(20, 0.14, 300)
-	strip.mesh = sm
-	strip.position = Vector3(0, 0.07, 0)
-	strip.material_override = _flat_mat(Color(0.17, 0.17, 0.19), 0.95)
-	node.add_child(strip)
-	# gestrichelte Mittellinie
-	for i in range(-6, 7):
-		var d := MeshInstance3D.new()
-		var dm := BoxMesh.new()
-		dm.size = Vector3(0.6, 0.04, 10)
-		d.mesh = dm
-		d.position = Vector3(0, 0.15, i * 22.0)
-		d.material_override = _emit_mat(Color(0.9, 0.9, 0.85), 0.25)
-		node.add_child(d)
-	# Schwellen-Markierungen an den Enden
-	for zz in [-142.0, 142.0]:
-		for x in [-7.0, -3.5, 0.0, 3.5, 7.0]:
-			var th := MeshInstance3D.new()
-			var tm := BoxMesh.new()
-			tm.size = Vector3(2.0, 0.04, 12)
-			th.mesh = tm
-			th.position = Vector3(x, 0.15, zz)
-			th.material_override = _emit_mat(Color(0.95, 0.95, 0.9), 0.2)
-			node.add_child(th)
-	# Hangars + Tower
-	_add_hangar(node, Vector3(-24, 0, -70), af["color"])
-	_add_hangar(node, Vector3(26, 0, -55), af["color"])
-	_add_tower(node, Vector3(-28, 0, 50))
+	var hl := RWY_LEN * 0.5
+	var asphalt := _flat_mat(Color(0.16, 0.16, 0.18), 0.95)
+	var concrete := _flat_mat(Color(0.55, 0.56, 0.58), 0.9)
+	var paint := _emit_mat(Color(0.93, 0.93, 0.88), 0.18)
+	var paint_y := _emit_mat(Color(0.95, 0.8, 0.2), 0.18)
+
+	# --- Bahn (flach, damit Räder nicht einsinken) + Schulter ---
+	_deco_box(node, Vector3(0, 0.04, 0), Vector3(RWY_W, 0.08, RWY_LEN), asphalt)
+	_deco_box(node, Vector3(0, 0.02, 0), Vector3(RWY_W + 8.0, 0.04, RWY_LEN + 30.0), _flat_mat(Color(0.28, 0.36, 0.26), 1.0))
+	# Randlinien (durchgehend, volle Länge)
+	for sx in [-1.0, 1.0]:
+		_deco_box(node, Vector3(sx * (RWY_W * 0.5 - 1.0), 0.1, 0), Vector3(0.7, 0.04, RWY_LEN - 24.0), paint)
+	# Mittellinie gestrichelt (30-m-Striche)
+	var nd := int(RWY_LEN / 60.0)
+	for i in range(-nd, nd + 1):
+		_deco_box(node, Vector3(0, 0.1, i * 60.0), Vector3(0.9, 0.04, 30.0), paint)
+	# Schwellen: "Piano-Keys" + Aufsetzpunkt-Blöcke + Touchdown-Paare
+	for se in [-1.0, 1.0]:
+		for x in [-12.0, -8.6, -5.2, -1.8, 1.8, 5.2, 8.6, 12.0]:
+			_deco_box(node, Vector3(x, 0.1, se * (hl - 12.0)), Vector3(1.9, 0.04, 16.0), paint)
+		for sx in [-1.0, 1.0]:
+			_deco_box(node, Vector3(sx * 6.0, 0.1, se * (hl - 150.0)), Vector3(3.0, 0.04, 22.0), paint)   # Aufsetzpunkt
+			_deco_box(node, Vector3(sx * 9.0, 0.1, se * (hl - 75.0)), Vector3(1.5, 0.04, 12.0), paint)    # TDZ
+		# Bahnnummer (flach auf der Bahn, je Richtung)
+		var num := _rwy_number(af["heading"], se < 0.0)
+		var nlbl := Label3D.new()
+		nlbl.text = num
+		nlbl.font_size = 220
+		nlbl.pixel_size = 0.05
+		nlbl.modulate = Color(0.93, 0.93, 0.88)
+		nlbl.position = Vector3(0, 0.12, se * (hl - 40.0))
+		nlbl.rotation_degrees = Vector3(-90, 0 if se > 0.0 else 180, 0)
+		node.add_child(nlbl)
+	# --- Befeuerung: Rand weiß, Schwelle grün, Anflug pulsfrei weiß ---
+	var nl := int(RWY_LEN / 75.0)
+	for i in range(-nl, nl + 1):
+		for sx in [-1.0, 1.0]:
+			_deco_light(node, Vector3(sx * (RWY_W * 0.5 + 1.4), 0.4, i * 75.0), Color(0.95, 0.95, 0.85))
+	for se in [-1.0, 1.0]:
+		for x in [-12.0, -6.0, 0.0, 6.0, 12.0]:
+			_deco_light(node, Vector3(x, 0.4, se * (hl + 2.0)), Color(0.25, 1.0, 0.4))
+		for k in range(1, 6):
+			_deco_light(node, Vector3(0, 0.6, se * (hl + 20.0 + k * 28.0)), Color(1.0, 0.95, 0.8))
+	# --- Rollweg + Vorfeld (Beton) ---
+	_deco_box(node, Vector3(34.0, 0.035, 10.0), Vector3(12.0, 0.07, 160.0), concrete)         # Rollweg parallel
+	_deco_box(node, Vector3(22.0, 0.035, -60.0), Vector3(24.0, 0.07, 12.0), concrete)         # Verbinder Nord
+	_deco_box(node, Vector3(22.0, 0.035, 80.0), Vector3(24.0, 0.07, 12.0), concrete)          # Verbinder Süd
+	_deco_box(node, Vector3(62.0, 0.035, 10.0), Vector3(45.0, 0.07, 110.0), concrete)         # Apron
+	_deco_box(node, Vector3(34.0, 0.09, 10.0), Vector3(0.5, 0.03, 150.0), paint_y)            # Rollweg-Gelblinie
+	# --- Gebäude aufs Vorfeld ---
+	_add_hangar(node, Vector3(68, 0, -20), af["color"])
+	_add_hangar(node, Vector3(68, 0, 15), af["color"])
+	_add_tower(node, Vector3(58, 0, 55))
+	_add_windsock(node, Vector3(-24, 0, -hl + 60.0))
+	# Tankstelle: zwei weiße Zylinder
+	for tz in [44.0, 52.0]:
+		var tank := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 3.0
+		cm.bottom_radius = 3.0
+		cm.height = 7.0
+		tank.mesh = cm
+		tank.position = Vector3(74.0, 3.5, tz)
+		tank.material_override = _flat_mat(Color(0.9, 0.9, 0.92), 0.4)
+		node.add_child(tank)
+		_collider_box(node, Vector3(74.0, 3.5, tz), Vector3(6.5, 7, 6.5))
 	# Namensschild hoch oben (immer sichtbar)
 	var lbl := Label3D.new()
 	lbl.text = af["name"]
@@ -319,6 +362,65 @@ func _build_airfield(af: Dictionary) -> void:
 	lbl.outline_size = 26
 	lbl.outline_modulate = Color(0, 0, 0, 0.9)
 	node.add_child(lbl)
+
+
+# Bahnnummer aus dem Heading (dekorativ, wie echte Runway-Designatoren 01-36).
+func _rwy_number(heading: float, far_end: bool) -> String:
+	var deg := fposmod(rad_to_deg(heading), 360.0)
+	var n := int(round(deg / 10.0))
+	if far_end:
+		n = (n + 18) % 36
+	if n <= 0:
+		n = 36
+	return "%02d" % n
+
+
+# Deko-Box ohne Kollision (Markierungen, Flächen).
+func _deco_box(parent: Node3D, pos: Vector3, size: Vector3, mat: Material) -> void:
+	var m := MeshInstance3D.new()
+	var b := BoxMesh.new()
+	b.size = size
+	m.mesh = b
+	m.position = pos
+	m.material_override = mat
+	parent.add_child(m)
+
+
+# Befeuerungs-Licht: kleine leuchtende Kugel (ohne Kollision, ohne echtes Licht -> billig).
+func _deco_light(parent: Node3D, pos: Vector3, col: Color) -> void:
+	var m := MeshInstance3D.new()
+	var s := SphereMesh.new()
+	s.radius = 0.35
+	s.height = 0.7
+	s.radial_segments = 8
+	s.rings = 4
+	m.mesh = s
+	m.position = pos
+	m.material_override = _emit_mat(col, 2.2)
+	parent.add_child(m)
+
+
+# Windsack: Mast + orangener Kegel (zeigt dekorativ quer zur Bahn).
+func _add_windsock(parent: Node3D, pos: Vector3) -> void:
+	var mast := MeshInstance3D.new()
+	var mm := CylinderMesh.new()
+	mm.top_radius = 0.12
+	mm.bottom_radius = 0.18
+	mm.height = 8.0
+	mast.mesh = mm
+	mast.position = pos + Vector3(0, 4, 0)
+	mast.material_override = _flat_mat(Color(0.75, 0.75, 0.78), 0.5)
+	parent.add_child(mast)
+	var sock := MeshInstance3D.new()
+	var sm := CylinderMesh.new()
+	sm.top_radius = 0.18
+	sm.bottom_radius = 0.55
+	sm.height = 3.2
+	sock.mesh = sm
+	sock.position = pos + Vector3(1.7, 7.6, 0)
+	sock.rotation_degrees = Vector3(0, 0, -90)
+	sock.material_override = _emit_mat(Color(1.0, 0.45, 0.1), 0.3)
+	parent.add_child(sock)
 
 
 func _add_hangar(parent: Node3D, pos: Vector3, col: Color) -> void:
@@ -483,9 +585,10 @@ func _build_obstacles() -> void:
 	var white := _flat_mat(Color(0.92, 0.92, 0.93), 0.7)
 	var rock := _flat_mat(Color(0.4, 0.38, 0.35), 1.0)
 
+	# (Alles HINTER dem Ende der 900-m-Bahn von HEIMAT — Bahn endet bei Welt-z ≈ -550.)
 	# Slalom-Pylonen abwechselnd links/rechts der Achse (zum Durchweben), Bahn bleibt frei
 	var pyh := 45.0
-	var z := -330.0
+	var z := -1030.0
 	var side := 1.0
 	for k in range(8):
 		var col: Material = red if (k % 2 == 0) else white
@@ -494,16 +597,16 @@ func _build_obstacles() -> void:
 		side = -side
 
 	# Drei Durchflug-Tore (zwei Pfeiler + Querbalken, Lücke offen) — leicht versetzt = Slalom
-	for g in [Vector3(0, 0, -380), Vector3(28, 0, -560), Vector3(-28, 0, -760)]:
+	for g in [Vector3(0, 0, -1080), Vector3(28, 0, -1260), Vector3(-28, 0, -1460)]:
 		_build_gate(root, g, concrete)
 
 	# Findlinge am Boden (zum Tieffliegen / Ausweichen)
-	for b in [Vector3(-55, 0, -180), Vector3(48, 0, -250), Vector3(-42, 0, -440), Vector3(60, 0, -610)]:
+	for b in [Vector3(-55, 0, -880), Vector3(48, 0, -950), Vector3(-42, 0, -1140), Vector3(60, 0, -1310)]:
 		var rr := randf_range(9.0, 15.0)
 		_solid_cyl(root, b + Vector3(0, rr * 0.35, 0), rr, rr * 0.7, rock)
 
 	# Sperrballons (WWI-Thema) in der Luft — grau, NICHT abschießbar, nur ausweichen
-	for bp in [Vector3(22, 55, -470), Vector3(-32, 72, -680)]:
+	for bp in [Vector3(22, 55, -1170), Vector3(-32, 72, -1380)]:
 		_build_balloon(root, bp)
 
 
