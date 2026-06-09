@@ -231,10 +231,10 @@ func _build_mig15() -> void:
 	var rp := _root_part(bc)
 	if rp:
 		rp.position = Vector3(0, 0.0, 0.0)
-	P(bc, "jet_nose", Vector3(0, 0, -3.0), Basis(), SILVER)                       # 1) Frontteil
-	P(bc, "jet_body", Vector3(0, 0, -1.28), Basis(), SILVER)                      # 2) generisch
-	P(bc, "jet_cockpit", Vector3(0, 0, 0.32), Basis(), SILVER)                    # 3) Cockpit
-	P(bc, "jet_body", Vector3(0, 0, 1.92), Basis(), SILVER, Vector3.ONE, 0.5, 1.0) # 4) generisch -> Heckkonus
+	P(bc, "jet_nose", Vector3(0, 0, -3.0), Basis(), SILVER)                       # 1) Frontteil (Blender)
+	P(bc, "jet_body", Vector3(0, 0, -1.25), Basis(), SILVER)                      # 2) generisch
+	P(bc, "jet_cockpit", Vector3(0, 0, 0.35), Basis(), SILVER)                    # 3) Cockpit
+	P(bc, "jet_body", Vector3(0, 0, 1.95), Basis(), SILVER, Vector3.ONE, 0.5, 1.0) # 4) generisch -> Heckkonus
 	# Triebwerk axial (Düse tritt aus dem Heckkonus aus); lang im Rumpf verborgen
 	P(bc, "jet_engine", Vector3(0, 0.05, 0.3), Basis(), SILVER, Vector3(0.5, 0.5, 1.5))
 	# Pfeilflügel (~35°), mittig-tief — etwas größer, mit Grenzschichtzaun (MiG-Detail)

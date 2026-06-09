@@ -136,12 +136,12 @@ static func _build() -> void:
 	_add({
 		"id": "jet_nose", "name": "Jet-Nasenteil (Lufteinlauf)", "category": CAT_BODY,
 		"mass": 95.0, "color": Color(0.80, 0.81, 0.84), "shape": "jet_hull",
-		"size": Vector3(1.34, 1.12, 1.95), "col_size": Vector3(1.25, 1.05, 2.0),
-		"metal": 0.55, "rough": 0.4, "intake": true,
+		"size": Vector3(1.336, 1.15, 1.89), "col_size": Vector3(1.28, 1.08, 1.9),
+		"metal": 0.6, "rough": 0.34, "intake": true,
 		"stations": [
 			Vector4(-1.0, 0.52, 0.47, 0.0), Vector4(-0.55, 0.61, 0.55, 0.0),
 			Vector4(0.1, 0.65, 0.55, 0.0), Vector4(0.92, 0.65, 0.55, 0.0)],
-		"desc": "Vorderes Rumpfteil mit rundem Nasen-Lufteinlauf (Lippe + Teiler, tiefer Schacht). Hinten offen, gleicher Querschnitt -> stoßbündig ans Rumpfsegment.",
+		"desc": "Hochwertiges Blender-Nasenteil: echte gerundete Einlauf-Lippe (Außenhaut rollt über die runde Vorderkante in den tiefen, matt-schwarzen Schacht). Querschnitt hinten = Rumpfsegment -> stoßbündig.",
 	})
 	_add({
 		"id": "jet_body", "name": "Jet-Rumpfsegment", "category": CAT_BODY,
