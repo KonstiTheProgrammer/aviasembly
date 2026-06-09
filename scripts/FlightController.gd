@@ -207,6 +207,7 @@ func build_from_design(d: Array) -> void:
 			vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
 		var prop := vis.find_child("Prop", true, false)
+		var wheel_node: Node3D = vis.find_child("Wheel", true, false)   # dreht beim Rollen
 		# Bewegliche Fläche: Hauptflügel = "FlapHinge" (Rolle "flap"), Steuerflügel = "CtrlHinge"
 		# (Rolle = control: pitch/roll/yaw). Wird im AircraftBody animiert.
 		var surf_node: Node3D = vis.find_child("FlapHinge", true, false)
@@ -218,29 +219,48 @@ func build_from_design(d: Array) -> void:
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
 		box.size = PartCatalog.col_size(p) * psc + (Vector3(fill, 0.0, 0.0) if has_fill else Vector3.ZERO)
-		cs.shape = box
 		# Korrekte (ggf. gespiegelte) Box-Mitte, aber mit proper Orientierung
 		# (det > 0), sonst wird der Trägheitstensor fehlerhaft -> Physik-Explosion.
 		var cob: Vector3 = PartCatalog.col_offset(p) * psc - (Vector3(fill * 0.5, 0.0, 0.0) if has_fill else Vector3.ZERO)
-		var center_local: Vector3 = xf * cob
-		var ori := xf.basis.orthonormalized()
-		if ori.determinant() < 0.0:
-			ori.x = -ori.x
-		cs.transform = Transform3D(ori, center_local)
-		body.add_child(cs)
-		# tiefsten Punkt fürs Aufsetzen auf der Bahn ermitteln
-		var ext: Vector3 = box.size * 0.5
-		for sx in [-1.0, 1.0]:
-			for sy in [-1.0, 1.0]:
-				for sz in [-1.0, 1.0]:
-					var corner: Vector3 = xf * (cob + Vector3(sx * ext.x, sy * ext.y, sz * ext.z))
-					min_y = minf(min_y, corner.y)
+		var is_gear := String(p.get("category", "")) == PartCatalog.CAT_GEAR
+		var wheel_r := 0.3
+		if is_gear:
+			# FAHRWERK = KUGEL statt Box: rollt glatt über den Boden. Die Box-KANTEN
+			# hackten beim Nicken/Rotieren in die Bahn -> Zittern + plötzlicher
+			# Geschwindigkeitsverlust ("Stottern") beim Start. Kugel = runder Kontakt.
+			wheel_r = PartCatalog.col_size(p).z * 0.5 * minf(psc.y, psc.z)
+			var sph := SphereShape3D.new()
+			sph.radius = wheel_r
+			cs.shape = sph
+			# Kugel-Unterkante = Box-Unterkante (gleiche Spawn-Höhe wie vorher)
+			var scenter := PartCatalog.col_offset(p) * psc
+			scenter.y = (PartCatalog.col_offset(p).y - PartCatalog.col_size(p).y * 0.5) * psc.y + wheel_r
+			var sc_local: Vector3 = xf * scenter
+			cs.transform = Transform3D(Basis(), sc_local)   # Kugel: Orientierung egal
+			body.add_child(cs)
+			min_y = minf(min_y, sc_local.y - wheel_r)
+		else:
+			cs.shape = box
+			var center_local: Vector3 = xf * cob
+			var ori := xf.basis.orthonormalized()
+			if ori.determinant() < 0.0:
+				ori.x = -ori.x
+			cs.transform = Transform3D(ori, center_local)
+			body.add_child(cs)
+			# tiefsten Punkt fürs Aufsetzen auf der Bahn ermitteln
+			var ext: Vector3 = box.size * 0.5
+			for sx in [-1.0, 1.0]:
+				for sy in [-1.0, 1.0]:
+					for sz in [-1.0, 1.0]:
+						var corner: Vector3 = xf * (cob + Vector3(sx * ext.x, sy * ext.y, sz * ext.z))
+						min_y = minf(min_y, corner.y)
 
 		# Alle Aero-Beiträge pro Teil vorberechnen -> AircraftBody kann nach einem
 		# Bruch das Modell aus den ÜBRIGEN Teilen neu zusammenrechnen.
 		var pinfo := {
 			"vis": vis, "cs": cs, "xform": xf, "csize": box.size, "coffset": cob,
 			"id": id, "pos": xf.origin, "prop": prop, "broken": false,
+			"wheel": wheel_node, "wheel_r": wheel_r,
 			"surf": surf_node, "surf_role": surf_role,
 			# Welt-"unten"-Vorzeichen aus der Flügel-Oberseite (basis.y.y); kippt bei Spiegelung
 			# NICHT (Mirror negiert nur X) -> beide Seiten schlagen gleich aus. Vertikale Flosse

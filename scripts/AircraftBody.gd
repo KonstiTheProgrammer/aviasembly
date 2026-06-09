@@ -75,6 +75,8 @@ var roll_area := 0.0
 var yaw_area := 0.0
 var engines: Array = []       # [{pos, thrust, jet}]
 var props: Array = []
+var wheels: Array = []        # [{node ("Wheel", Origin=Achse), r}] — rollen sichtbar am Boden
+var _wheel_spin := 0.0        # aktuelle Rad-Umfangsgeschwindigkeit (m/s, trudelt in der Luft aus)
 var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
 var _afterburners: Array = [] # [{root, plume, core, light, sparks, plume_mat, core_mat}] an Jet-Düsen
 var _ab_time := 0.0           # Flacker-/Diamanten-Animationszeit für den Nachbrenner-Shader
@@ -215,6 +217,19 @@ func _process(delta: float) -> void:
 		var pn = p["node"]
 		if is_instance_valid(pn):
 			pn.rotate_z((jet_spd if p["jet"] else prop_spd) * float(p.get("spin", 1.0)) * delta)
+	# Räder ROLLEN am Boden: Drehrate = Bodengeschwindigkeit / Radius (um die Achs-X).
+	# In der Luft trudeln sie langsam aus (kein abruptes Stehenbleiben).
+	if not wheels.is_empty():
+		var vfwd: float = -(global_transform.basis.transposed() * linear_velocity).z
+		if get_contact_count() > 0 and absf(vfwd) > 0.05:
+			_wheel_spin = vfwd
+		else:
+			_wheel_spin = move_toward(_wheel_spin, 0.0, 18.0 * delta)
+		if absf(_wheel_spin) > 0.02:
+			for w in wheels:
+				var wn = w["node"]
+				if is_instance_valid(wn):
+					wn.rotate_x(_wheel_spin / w["r"] * delta)
 	# Bewegliche Flächen animieren (Scharnier dreht um lokale X-Achse). dn = Welt-"unten"-Vorzeichen.
 	# Klappe: Landestellung + gegensinniger Roll-Anteil (Flaperon). Ruder folgen Pitch/Yaw/Roll.
 	# _flap_vis wird in _integrate_forces (physikgetaktet) langsam gerampt -> hier nur lesen.
@@ -386,6 +401,7 @@ func recompute_aero() -> void:
 	var prp: Array = []
 	var fl: Array = []
 	var gi: Array = []
+	var whl: Array = []
 	var gc := 0.0
 	for pi in parts:
 		if pi.get("broken", false):
@@ -439,6 +455,10 @@ func recompute_aero() -> void:
 					gdr = gdoor.transform
 			gi.append({"vis": gvis, "cs": pi["cs"], "retract": pi["retract"], "base": pi["xform"],
 				"leg": gleg, "door": gdoor, "leg_rest": glr, "door_rest": gdr})
+			# Rad-Node ("Wheel", Origin = Achse) fürs sichtbare Rollen am Boden
+			var wn = pi.get("wheel")
+			if wn != null and is_instance_valid(wn):
+				whl.append({"node": wn, "r": maxf(float(pi.get("wheel_r", 0.3)), 0.05)})
 	wing_area = wa
 	eff_ar = (ars / wa) if wa > 0.0 else 4.0
 	lift_scale = (lifts / wa) if wa > 0.0 else 1.0
@@ -452,6 +472,7 @@ func recompute_aero() -> void:
 	props = prp
 	surfaces = fl
 	gear_items = gi
+	wheels = whl
 	gear_capacity = gc
 	var tm_eff := tm * mass_mult
 	gear_overloaded = gc > 0.0 and tm_eff > gc
