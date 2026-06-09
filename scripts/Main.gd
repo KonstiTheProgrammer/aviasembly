@@ -1521,6 +1521,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 			modes.append("INVERS")
 		flight_hud.mode_text = "     ".join(modes)
 		flight_hud.mouse_fly = mf
+		flight_hud.lock_pos = d.get("lock", Vector2.ZERO)
+		flight_hud.lock_on = bool(d.get("lock_active", false)) and bool(d.get("lock_vis", false))
 		flight_hud.aim_pos = d.get("aim", Vector2.ZERO)
 		flight_hud.aim_vis = mf and bool(d.get("aim_vis", true))
 		flight_hud.nose_pos = d.get("nose", Vector2.ZERO)

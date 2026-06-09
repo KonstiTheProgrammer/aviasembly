@@ -15,6 +15,8 @@ var stall := false
 var aoa := 0.0              # Anstellwinkel (Grad) — fürs PFD
 var mode_text := ""         # aktive Sondermodi (Maus-Flug/Arcade/Invers) als Badge
 var mouse_fly := false
+var lock_pos := Vector2.ZERO       # erfasstes Lenkwaffen-Ziel
+var lock_on := false
 var aim_pos := Vector2.ZERO
 var aim_vis := false
 var nose_pos := Vector2.ZERO
@@ -47,6 +49,7 @@ func _draw() -> void:
 	_draw_speed_box()
 	_draw_alt_box()
 	_draw_reticle()
+	_draw_lock()
 	_draw_stall()
 
 
@@ -166,6 +169,23 @@ func _draw_reticle() -> void:
 		draw_line(c + Vector2(9, 0), c + Vector2(14, 0), Color(1, 1, 1, 0.6), 2.0)
 		draw_line(c + Vector2(0, -14), c + Vector2(0, -9), Color(1, 1, 1, 0.6), 2.0)
 		draw_circle(c, 1.5, Color(1, 1, 1, 0.7))
+
+
+# --- Lenkwaffen-Lock: pulsierende Eck-Klammern auf dem erfassten Ziel -------
+func _draw_lock() -> void:
+	if not lock_on:
+		return
+	var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.012)
+	var c := Color(1.0, 0.35, 0.3, 0.55 + 0.4 * pulse)
+	var s := 16.0
+	var arm := 7.0
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			var cn := lock_pos + Vector2(sx * s, sy * s)
+			draw_line(cn, cn - Vector2(sx * arm, 0), c, 2.0)
+			draw_line(cn, cn - Vector2(0, sy * arm), c, 2.0)
+	draw_string(_font, lock_pos + Vector2(-20.0, -s - 5.0), "LOCK",
+		HORIZONTAL_ALIGNMENT_CENTER, 40.0, 11, c)
 
 
 # --- Modus-Badge unter dem Kompass (nur aktive Sondermodi) ------------------

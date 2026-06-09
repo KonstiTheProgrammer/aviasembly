@@ -201,21 +201,31 @@ func _boom() -> void:
 	if par == null or not is_inside_tree() or not par.is_inside_tree():
 		return
 	var pos := global_position
-	var big := kind == "bomb"
+	# Explosionsgröße nach Geschosstyp: Kugel klein, Rakete mittel, Bombe groß.
+	var amount := 14
+	var pradius := 0.15
+	var vmax := 9.0
+	match kind:
+		"bomb":
+			amount = 80; pradius = 0.5; vmax = 34.0
+		"missile":
+			amount = 46; pradius = 0.32; vmax = 22.0
+		_:
+			amount = 14; pradius = 0.15; vmax = 9.0
 	var p := CPUParticles3D.new()
 	p.emitting = true
 	p.one_shot = true
-	p.amount = 60 if big else 16
-	p.lifetime = 0.8
+	p.amount = amount
+	p.lifetime = 0.9
 	p.explosiveness = 0.95
 	p.direction = Vector3.UP
 	p.spread = 180.0
 	p.initial_velocity_min = 4.0
-	p.initial_velocity_max = 30.0 if big else 10.0
+	p.initial_velocity_max = vmax
 	p.gravity = Vector3(0, -9.0, 0)
 	var mesh := SphereMesh.new()
-	mesh.radius = 0.4 if big else 0.18
-	mesh.height = 0.8 if big else 0.36
+	mesh.radius = pradius
+	mesh.height = pradius * 2.0
 	var mm := StandardMaterial3D.new()
 	mm.albedo_color = Color(1.0, 0.6, 0.15)
 	mm.emission_enabled = true
@@ -225,5 +235,24 @@ func _boom() -> void:
 	p.mesh = mesh
 	par.add_child(p)
 	p.global_position = pos
-	var tmr := p.get_tree().create_timer(1.5)
-	tmr.timeout.connect(p.queue_free)
+	p.get_tree().create_timer(1.6).timeout.connect(p.queue_free)
+	# Heller Mündungs-/Einschlag-Blitz bei Rakete & Bombe (kurzlebige Leucht-Kugel)
+	if kind != "bullet":
+		_flash(par, pos, 1.7 if kind == "bomb" else 1.0)
+
+
+func _flash(par: Node, pos: Vector3, scl: float) -> void:
+	var fm := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.9 * scl
+	sm.height = 1.8 * scl
+	fm.mesh = sm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.86, 0.45)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.8, 0.4)
+	mat.emission_energy_multiplier = 6.0
+	fm.material_override = mat
+	par.add_child(fm)
+	fm.global_position = pos
+	par.get_tree().create_timer(0.12).timeout.connect(fm.queue_free)

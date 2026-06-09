@@ -174,6 +174,10 @@ func begin_drag_from_palette(id: String) -> void:
 # ---------------------------------------------------------------------------
 # Kamera & Vorschau
 # ---------------------------------------------------------------------------
+var _heatmap_dirty := false        # Windkanal-Heatmap muss neu gerechnet werden
+var _heatmap_t := 0.0              # Throttle-Timer dafür
+
+
 func _process(delta: float) -> void:
 	# Tastatur-Zoom (+/- bzw. Numpad)
 	if Input.is_key_pressed(KEY_EQUAL) or Input.is_key_pressed(KEY_KP_ADD):
@@ -202,6 +206,14 @@ func _process(delta: float) -> void:
 			_hover_handle = hov
 			_set_handle_hl(_hover_handle, true)
 	_update_camera()
+	# Windkanal-Heatmap vom Editier-Frame entkoppeln: höchstens ~8×/s neu rechnen statt bei
+	# JEDEM Drag-Frame (das Strahlengitter macht sonst bis ~2400 Raycasts/Frame -> Ruckeln).
+	if wind_tunnel:
+		_heatmap_t -= delta
+		if _heatmap_dirty and _heatmap_t <= 0.0:
+			_heatmap_dirty = false
+			_heatmap_t = 0.12
+			_apply_drag_heatmap()
 
 
 func _physics_process(_delta: float) -> void:
@@ -2129,7 +2141,7 @@ func _notify_changed() -> void:
 		col_marker.position = stats["col"]
 		col_marker.visible = stats["col_valid"]
 	if wind_tunnel:
-		_apply_drag_heatmap()
+		_heatmap_dirty = true       # gedrosselt in _process neu rechnen (statt jeden Frame)
 	_update_float_markers()
 	design_changed.emit(stats)
 

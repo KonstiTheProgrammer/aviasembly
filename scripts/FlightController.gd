@@ -92,6 +92,9 @@ var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
 var nose_screen := Vector2.ZERO # Pixelposition der aktuellen Nasenrichtung
 var aim_visible := true         # Zielmarker im Bild?
 var nose_visible := true        # Nasenmarker im Bild?
+var lock_screen := Vector2.ZERO # Pixelposition des erfassten Ziels (Lenkwaffen-Lock)
+var lock_visible := false       # Lock-Ziel im Bild?
+var lock_active := false        # Lenkwaffe an Bord + Ziel voraus erfasst?
 # Survival-Upgrade-Multiplikatoren (von Main aus GameState gesetzt)
 var thrust_mult := 1.0
 var wing_mult := 1.0
@@ -762,11 +765,55 @@ func _heading_deg() -> float:
 	return fposmod(rad_to_deg(atan2(fwd.x, -fwd.z)), 360.0)
 
 
+func _has_guided_ammo() -> bool:
+	for w in weapons:
+		var ty: String = w.get("type", "")
+		if ty == "missile" or ty == "missile_heavy":
+			if int(w.get("ammo", -1)) != 0:
+				return true
+	return false
+
+
+# Lenkwaffen-Lock: nächstes Ziel im Kegel voraus erfassen (nur wenn Lenkwaffe mit Munition).
+func _update_lock() -> void:
+	lock_active = false
+	lock_visible = false
+	if camera == null or not camera.is_inside_tree() or not is_instance_valid(aircraft):
+		return
+	if not _has_guided_ammo():
+		return
+	var origin := aircraft.global_position
+	var fwd := -aircraft.global_transform.basis.z
+	var best: Node3D = null
+	var best_d := 1.0e20
+	for t in get_tree().get_nodes_in_group("target"):
+		if not is_instance_valid(t):
+			continue
+		var to: Vector3 = t.global_position - origin
+		var dist := to.length()
+		if dist < 2.0 or dist > 230.0:
+			continue
+		if fwd.dot(to / dist) < 0.86:        # ~30°-Kegel voraus
+			continue
+		if dist < best_d:
+			best_d = dist
+			best = t
+	if best == null or camera.is_position_behind(best.global_position):
+		return
+	lock_screen = camera.unproject_position(best.global_position)
+	lock_visible = true
+	lock_active = true
+
+
 func _emit_hud() -> void:
 	if not is_instance_valid(aircraft):
 		return
 	_update_markers()
+	_update_lock()
 	hud_changed.emit({
+		"lock": lock_screen,
+		"lock_vis": lock_visible,
+		"lock_active": lock_active,
 		"mouse_fly": mouse_fly,
 		"arcade": arcade,
 		"aim": aim_screen,
