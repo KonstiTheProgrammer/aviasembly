@@ -101,7 +101,6 @@ var _trim_pitch := 0.0          # Nick-Trim-Integrator (Maus-Flug): Nase exakt i
 var _bank_offset := 0.0         # mit A/D gesetzte, GEHALTENE Querlage (Offset der Kaskade)
 var _prev_horiz := 0.0          # Horizontalfehler des Vorframes (für die Fehler-Rate)
 var _horiz_rate := 0.0          # gefilterte Horizontalfehler-Änderungsrate (rad/s)
-var _audio: FlightAudio = null  # prozedurale Flug-Sounds (Triebwerk/Wind/Stall-Warnton)
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
 var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
 var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
@@ -147,12 +146,6 @@ func set_active(active: bool) -> void:
 	set_process(active)
 	set_physics_process(active)
 	set_process_unhandled_input(active)
-	# Flug-Sounds (prozedural): beim ersten Aktivieren erzeugen, im Hangar stumm.
-	if active and _audio == null:
-		_audio = FlightAudio.new()
-		add_child(_audio)
-	if _audio:
-		_audio.active = active
 	# Maus im Flug fangen (frei umschauen), im Hangar normal sichtbar.
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if active else Input.MOUSE_MODE_VISIBLE
 	if active and aircraft:
@@ -477,19 +470,6 @@ func _physics_process(delta: float) -> void:
 		aircraft.in_pitch = _ramp(aircraft.in_pitch, pitch, delta, 4.0, 6.0)
 		aircraft.in_roll = _ramp(aircraft.in_roll, roll, delta, 7.0, 9.0)
 		aircraft.in_yaw = _ramp(aircraft.in_yaw, yaw, delta, 4.0, 6.0)
-
-	# --- Flug-Sounds füttern (Triebwerk/Wind/Stall-Warnton, prozedural) --
-	if _audio != null:
-		_audio.spool = aircraft._engine_spool
-		_audio.ab = aircraft._ab_spool
-		var jets := 0
-		for e in aircraft.engines:
-			if e.get("jet", false):
-				jets += 1
-		_audio.is_jet = jets * 2 >= aircraft.engines.size() and not aircraft.engines.is_empty()
-		_audio.has_engine = not aircraft.engines.is_empty()
-		_audio.airspeed = aircraft.airspeed
-		_audio.stall = aircraft.stall and aircraft.airspeed > 12.0
 
 	# --- Waffen (Cooldown pro Waffe) ------------------------------------
 	for w in weapons:
