@@ -1411,11 +1411,20 @@ func _arcade_steer(state: PhysicsDirectBodyState3D) -> void:
 	# Soll-Querlage (kosmetisch): in die Kurve lehnen, proportional zum Horizontalfehler
 	var e := cur_basis.transposed() * fwd
 	var bank := clampf(atan2(e.x, -e.z) * 0.9, -1.15, 1.15)
-	# Ziel-Basis: Nase (-Z) auf fwd, um fwd gebankt
+	# Ziel-Basis: Nase (-Z) auf fwd, um fwd gebankt. Referenz-Up so wählen, dass es NIE
+	# (fast) parallel zu fwd ist -> sonst ist fwd×up0 ≈ 0 und .normalized() liefert NaN,
+	# was die ganze Orientierungs-Basis zerlegt (z. B. senkrecht zielen bei waagerechtem Flieger).
 	var up0 := Vector3.UP
 	if absf(fwd.dot(up0)) > 0.985:
 		up0 = cur_basis.y
-	var right0 := fwd.cross(up0).normalized()
+		if absf(fwd.dot(up0)) > 0.985:
+			up0 = cur_basis.x       # Flieger-Up ebenfalls parallel -> Seitenachse
+	var right0 := fwd.cross(up0)
+	if right0.length() < 0.001:      # Sicherung: garantiert nicht-degeneriert
+		right0 = fwd.cross(Vector3.RIGHT)
+		if right0.length() < 0.001:
+			right0 = fwd.cross(Vector3.BACK)
+	right0 = right0.normalized()
 	var up1 := right0.cross(fwd).normalized()
 	var tb := Basis(right0.rotated(fwd, bank), up1.rotated(fwd, bank), -fwd).orthonormalized()
 	# Orientierung smooth (exponentiell) zum Ziel slerpen -> reagiert sofort, ohne zu zappeln
