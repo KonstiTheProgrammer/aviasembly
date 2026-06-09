@@ -16,8 +16,11 @@ const FREE_LOOK_DIST := 14.0    # Free-Look: konstanter Orbit-Radius um die Flug
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
 const CAM_SHAKE_DECAY := 2.8    # Kamera-Shake klingt so schnell ab (1/s)
-const CAM_SHAKE_POS := 0.55     # Shake-Positionsausschlag (m bei vollem Trauma)
-const CAM_SHAKE_ROLL := 0.05    # Shake-Rollausschlag (rad)
+const CAM_SHAKE_POS := 1.1      # Shake-Positionsausschlag (m bei vollem Trauma) — satter Impact
+const CAM_SHAKE_ROLL := 0.1     # Shake-Rollausschlag (rad)
+const FOV_BASE := 64.0          # Grund-FOV der Verfolgerkamera
+const FOV_MAX := 74.0           # bei Highspeed weitet sich das Bild -> spürbares Speed-Gefühl
+const FOV_SPEED := 170.0        # Speed (m/s), bei der FOV_MAX erreicht ist
 const BARREL_HOLD := 0.32       # A/D so lange halten -> Fass-Roll (War-Thunder-Stil)
 # Landeklappen-Stufen (Taste F): Aus -> Start -> Landung. Wert = Klappenstellung 0..1.
 const FLAP_STAGES := [0.0, 0.5, 1.0]
@@ -497,6 +500,13 @@ func _fire_primary() -> void:
 					w["cd"] = 1.7
 					fired = true
 		if fired:
+			# Mündungsfeuer: kurzer Leucht-Blitz an der Mündung (Größe ~ Kaliber/Waffe)
+			var fscl := 1.0
+			if CALIBERS.has(w["type"]):
+				fscl = 0.5 + 0.35 * float(CALIBERS[w["type"]].get("tscl", 1.0))
+			else:
+				fscl = 1.3        # Raketen-Abgang: größerer Feuerstoß
+			_muzzle_flash(pos, fwd, fscl)
 			# Rückstoß: Impuls entgegen der Mündungsrichtung (nach hinten = -fwd).
 			aircraft.add_recoil(-fwd * float(RECOIL.get(w["type"], 0.0)))
 			# Kamera-Shake je nach Kaliber (aus dem Rückstoß abgeleitet)
@@ -523,6 +533,29 @@ func _drop_bomb() -> void:
 			w["ammo"] -= 1
 			if int(w["ammo"]) == 0:
 				aircraft.queue_detach(pidx)   # Bombe verschwindet vom Modell -> Aero neu
+
+
+# Kurzer Mündungsblitz: emissive Mini-Kugel + Funken-Burst, löscht sich nach ~70 ms.
+func _muzzle_flash(pos: Vector3, fwd: Vector3, scl: float) -> void:
+	var root := world_root if world_root != null else get_parent()
+	if root == null:
+		return
+	var fm := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.22 * scl
+	sm.height = 0.44 * scl
+	fm.mesh = sm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.85, 0.4)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.75, 0.3)
+	mat.emission_energy_multiplier = 7.0
+	fm.material_override = mat
+	root.add_child(fm)
+	fm.global_position = pos + fwd * 0.7
+	get_tree().create_timer(0.07).timeout.connect(func():
+		if is_instance_valid(fm):
+			fm.queue_free())
 
 
 func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float,
@@ -621,6 +654,9 @@ func _process(delta: float) -> void:
 	_cam_shake = minf(_cam_shake + aircraft.shake_request, 1.4)
 	aircraft.shake_request = 0.0
 	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
+	# FOV-Speed-Zoom: weitet sich mit dem Tempo (sanft nachgeführt) -> Speed-Gefühl
+	var fov_target := lerpf(FOV_BASE, FOV_MAX, clampf(aircraft.airspeed / FOV_SPEED, 0.0, 1.0))
+	camera.fov = lerpf(camera.fov, fov_target, clampf(delta * 2.5, 0.0, 1.0))
 	var t := aircraft.global_transform
 	if free_look:
 		# C halten: Kamera orbitet als KUGEL (konstanter Abstand) um die Flugzeug-Mitte (Schwerpunkt).

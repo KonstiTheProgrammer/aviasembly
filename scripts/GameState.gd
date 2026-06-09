@@ -129,8 +129,11 @@ func set_flag(id: String, v := true) -> void:
 func save() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
+		# nicht still scheitern — sonst geht Fortschritt unbemerkt verloren
+		push_warning("GameState: Speichern fehlgeschlagen (err %d)" % FileAccess.get_open_error())
 		return
 	f.store_string(JSON.stringify({
+		"version": 1,
 		"mode": mode, "money": money, "unlocked": unlocked,
 		"missions_done": missions_done, "upgrades": upgrades, "flags": flags,
 	}))
@@ -142,11 +145,14 @@ func load_state() -> void:
 		return
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
+		push_warning("GameState: Laden fehlgeschlagen (err %d)" % FileAccess.get_open_error())
 		return
 	var data = JSON.parse_string(f.get_as_text())
 	f.close()
 	if typeof(data) != TYPE_DICTIONARY:
+		push_warning("GameState: Spielstand korrupt — starte mit frischem Stand")
 		return
+	# "version" (ab v1) für künftige Format-Migrationen verfügbar
 	mode = int(data.get("mode", GameMode.NONE))
 	money = int(data.get("money", 0))
 	unlocked = data.get("unlocked", {})

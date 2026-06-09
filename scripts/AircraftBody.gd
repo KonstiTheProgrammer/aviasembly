@@ -22,6 +22,7 @@ const LIFT_LO := 0.30         # Auftriebs-Faktor im Stand/sehr langsam (fest am 
 const LIFT_GATE_LO := 0.65    # Gate-Beginn = takeoff_v · 0.65 (darunter gedämpft)
 const LIFT_GATE_HI := 1.45    # voller Auftrieb ab takeoff_v · 1.45 (in der Luft arcadig)
 const STALL_A := 0.27         # Stall-Anstellwinkel (~15.5°)
+const STALL_RECOVER := 2.2    # Nase-runter-Hilfe im Stall (Moment ~ mass; 0 = aus)
 const STALL_W := 0.12         # Stall-Übergangsbreite
 const CL_MAX := 1.5
 const OSWALD := 0.75          # Oswald-Faktor (induzierter Widerstand)
@@ -31,7 +32,7 @@ const FLAP_DRAG := 0.06       # Landeklappen voll: zusätzlicher Profilwiderstan
 const SIDE := 0.5             # Seitenkraft (Kurvenflug)
 const PITCH_STAB := 0.5       # statische Nick-Stabilität (Wetterfahne)
 const YAW_STAB := 0.6         # statische Gier-Stabilität (Wetterfahne)
-const PROP_VMAX := 170.0      # Speed, bei der Propellerschub -> 0
+const PROP_VMAX := 140.0      # Speed, bei der Propellerschub -> 0 (Props oben raus schwächer als Jets)
 const MAX_ANGVEL := 8.0
 const LEVEL_K := 1.0          # sanftes Querlage-Ausnivellieren (nur Assist)
 
@@ -139,6 +140,7 @@ const EXPLODE_SPEED := 28.0   # ab hier: GANZES Flugzeug zerschellt (selbst der 
                               # nicht mehr) — darunter brechen einzelne Teile gemäß Strukturwert
 var exploded := false         # ganzes Flugzeug zerschellt? (bis Reset)
 var _explode_pending := false # Explosion fürs nächste _process vorgemerkt (nicht in _integrate_forces!)
+var _dust_pending := 0.0      # Aufsetz-Staub fürs nächste _process (Sinkrate; 0 = nichts)
 
 # Telemetrie
 var airspeed := 0.0
@@ -177,6 +179,10 @@ func _process(delta: float) -> void:
 		var roots: Array = _break_queue.duplicate()
 		_break_queue.clear()
 		_break_subtree(roots)
+	# Aufsetz-Staub (in _integrate_forces vorgemerkt; Node-Spawn nur hier)
+	if _dust_pending > 0.0:
+		_spawn_landing_dust(_dust_pending)
+		_dust_pending = 0.0
 	# Verschossene Munition: Teil-Visual entfernen (ist weggeflogen) + Flugmodell neu rechnen.
 	if not _detach_queue.is_empty():
 		var changed := false
@@ -1117,6 +1123,8 @@ func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
 	if exploded:
 		return
 	var descent := maxf(0.0, -_last_vy)         # vertikale Sinkrate (für die Landenote)
+	if descent > 0.6:
+		_dust_pending = descent                 # Staub-Burst (Spawn deferred nach _process)
 	var n := state.get_contact_count()
 	var break_set := {}
 	var only_gear := true
@@ -1181,6 +1189,42 @@ func _nearest_part_index(body_xf: Transform3D, wpos: Vector3) -> int:
 			bestd = d
 			best = i
 	return best
+
+
+# Brauner Staub-Burst am Boden beim Aufsetzen (Menge ~ Sinkrate). Nur aus _process rufen!
+func _spawn_landing_dust(descent: float) -> void:
+	var par := get_parent()
+	if par == null or not is_inside_tree():
+		return
+	var p := CPUParticles3D.new()
+	p.emitting = true
+	p.one_shot = true
+	p.amount = clampi(int(8.0 + descent * 9.0), 8, 56)
+	p.lifetime = 1.1
+	p.explosiveness = 0.9
+	p.direction = Vector3.UP
+	p.spread = 75.0
+	p.initial_velocity_min = 1.5
+	p.initial_velocity_max = 3.0 + descent * 1.2
+	p.gravity = Vector3(0, -3.5, 0)
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 1.4
+	p.scale_amount_min = 0.8
+	p.scale_amount_max = 1.6
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.30
+	mesh.height = 0.60
+	var mm := StandardMaterial3D.new()
+	mm.albedo_color = Color(0.62, 0.54, 0.42, 0.55)   # sandiger Staub, halbtransparent
+	mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material = mm
+	p.mesh = mesh
+	par.add_child(p)
+	p.global_position = Vector3(global_position.x, 0.25, global_position.z)
+	get_tree().create_timer(2.0).timeout.connect(func():
+		if is_instance_valid(p):
+			p.queue_free())
 
 
 # Beim Neustart: Fahrwerk wiederherstellen (außer dauerhaft überlastet)
@@ -1306,7 +1350,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var cd := CD0 + cl * cl / (PI * eff_ar * OSWALD) + sigma * (1.0 - cos(2.0 * aoa)) * 0.5 + _flap_vis * FLAP_DRAG
 		# Abhebe-Gate: Auftrieb bei niedrigem Tempo dämpfen (längere Rollstrecke), ab
 		# der plane-spezifischen Abhebegeschwindigkeit voll -> in der Luft leicht/arcadig.
-		var lift_gate := lerpf(LIFT_LO, 1.0, smoothstep(takeoff_v * LIFT_GATE_LO, takeoff_v * LIFT_GATE_HI, sp))
+		# LANDEKLAPPEN senken die Gate-Schwelle (-25 % bei voll): sonst fräße das Gate im
+		# langsamen Landeanflug genau den Auftrieb weg, den die Klappen liefern sollen.
+		var gate_v := takeoff_v * (1.0 - _flap_vis * 0.25)
+		var lift_gate := lerpf(LIFT_LO, 1.0, smoothstep(gate_v * LIFT_GATE_LO, gate_v * LIFT_GATE_HI, sp))
 		var lift_mag := q * wing_area * cl * lift_gate
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
 		if not wings_broken and not arcade and barrel_roll == 0 and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
@@ -1328,6 +1375,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		tt += xf.basis.y * (beta * q * (0.3 + yaw_area) * YAW_STAB)
 		aoa_deg = rad_to_deg(absf(aoa))
 		stall = absf(aoa) > STALL_A
+		# STALL-RECOVERY: im Abriss drückt ein sanftes Nase-runter-Moment (massebasiert,
+		# wirkt auch bei wenig Staudruck) die Nase zur Anströmung -> Tempo baut sich auf,
+		# Überziehen wird ERHOLBAR statt Kontrollverlust. Voller Zug am Höhenruder
+		# (absichtliches Überziehen) hebt die Hilfe auf; Arcade/Fass-Rolle ausgenommen.
+		if stall and not arcade and barrel_roll == 0:
+			var rec := (1.0 - clampf(in_pitch, 0.0, 1.0)) * sigma
+			tt += xf.basis.x * (-signf(aoa) * mass * STALL_RECOVER * rec)
 	else:
 		aoa_deg = 0.0
 		stall = false

@@ -55,7 +55,6 @@ var flight_root: Control
 var stats_label: Label
 var ampel_label: Label              # "Fliegt's?"-Ampel (grün/gelb/rot + Tipp)
 var hud_label: Label
-var stall_label: Label
 var land_label: Label
 var flight_hud: FlightHud           # Primary-Flight-Display (Kompass, Speed/Höhe, Zielkreis)
 var tool_label: Label
@@ -85,7 +84,7 @@ var _best_combo := 0               # beste Combo dieser Session
 var _flight_money0 := 0            # Guthaben bei Flugbeginn (für „verdient")
 var _flight_score := 0             # Punkte dieser Session
 var _wave_session := 0             # Token: jeder Flugstart erhöht es -> alte Wellen-Timer verfallen
-const COMBO_WINDOW := 4.0          # Sekunden zwischen Abschüssen, um die Combo zu halten
+const COMBO_WINDOW := 5.0          # Sekunden zwischen Abschüssen, um die Combo zu halten
 var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
 var upgrade_box: VBoxContainer     # Upgrade-Panel
 var mode_overlay: Control          # Modus-Auswahl-Overlay
@@ -1353,12 +1352,8 @@ func _build_flight_ui() -> void:
 	hud_label = _lbl("", 15)
 	hv.add_child(hud_label)
 
-	# Stall-Warnung mitte oben
-	stall_label = _lbl("⚠  STRÖMUNGSABRISS  ⚠", 26, Color(1, 0.3, 0.25))
-	stall_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rect(stall_label, 0.5, 0, 0.5, 0, -260, 70, 260, 110)
-	stall_label.visible = false
-	flight_root.add_child(stall_label)
+	# (Stall-Warnung zeichnet das PFD selbst: FlightHud._draw_stall — pulsierender
+	#  Rahmen + Banner. Das frühere stall_label hier war eine Doppelung.)
 
 	# Survival-HUD oben rechts (Welle / Abschüsse / Combo / Score)
 	survival_label = _lbl("", 15, Color(0.7, 1.0, 0.8))
@@ -1528,7 +1523,6 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.aim_vis = mf and bool(d.get("aim_vis", true))
 		flight_hud.nose_pos = d.get("nose", Vector2.ZERO)
 		flight_hud.nose_vis = mf and bool(d.get("nose_vis", true))
-	stall_label.visible = d.get("stall", false) and d.get("speed", 0.0) > 4.0
 	if land_label:
 		var lm: String = d.get("land_msg", "")
 		land_label.text = lm
@@ -1688,7 +1682,9 @@ func _clear_targets() -> void:
 
 func _start_wave(n: int) -> void:
 	_wave = n
-	var diff := 1.0 + 0.12 * float(n - 1)            # spätere Wellen driften schneller
+	# Spätere Wellen driften schneller — flach ansteigend + gedeckelt, damit Welle 10+
+	# fordernd bleibt, aber schaffbar (vorher +12 %/Welle ungedeckelt -> W10 unspielbar).
+	var diff := minf(1.0 + 0.06 * float(n - 1), 1.6)
 	var balloons := 4 + n * 2
 	var airships := int(n * 0.5)                       # ab Welle 2 ein Luftschiff, Welle 4 zwei …
 	for i in balloons:
@@ -1701,7 +1697,7 @@ func _start_wave(n: int) -> void:
 
 
 func _wave_cleared() -> void:
-	var bonus := 100 + _wave * 100
+	var bonus := 150 + _wave * 150        # höherer Wellen-Bonus -> Geldfluss stagniert spät nicht
 	game.add_money(bonus)
 	_flight_score += bonus
 	_toast("✅  WELLE %d GESCHAFFT!   Bonus +%d 🪙" % [_wave, bonus])
@@ -1728,11 +1724,11 @@ func _update_survival_hud() -> void:
 
 
 func _rank_for(s: int) -> String:
-	if s >= 4000:
+	if s >= 3500:
 		return "🥇 Ass!"
-	if s >= 2000:
+	if s >= 1500:
 		return "🥈 Veteran"
-	if s >= 800:
+	if s >= 500:
 		return "🥉 Pilot"
 	return "Rekrut"
 
@@ -1906,6 +1902,9 @@ func _design_data() -> Array:
 func _write_design(path: String) -> bool:
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
+		# NICHT still scheitern: Spieler würde sonst unbemerkt sein Design verlieren.
+		_toast("⚠ Speichern fehlgeschlagen (%s, Fehler %d)" % [path, FileAccess.get_open_error()])
+		push_warning("Design-Speichern fehlgeschlagen: %s (err %d)" % [path, FileAccess.get_open_error()])
 		return false
 	f.store_string(JSON.stringify(_design_data()))
 	f.close()
@@ -1915,7 +1914,9 @@ func _write_design(path: String) -> bool:
 # --- Benannte Speicher-Slots (user://hangar/<name>.json) ------------------------
 func _ensure_slot_dir() -> void:
 	if not DirAccess.dir_exists_absolute(SLOT_DIR):
-		DirAccess.make_dir_recursive_absolute(SLOT_DIR)
+		var err := DirAccess.make_dir_recursive_absolute(SLOT_DIR)
+		if err != OK:
+			_toast("⚠ Speicher-Ordner konnte nicht angelegt werden (Fehler %d)" % err)
 
 
 func _safe_name(n: String) -> String:
@@ -2091,7 +2092,7 @@ func _load_design_from(path: String) -> bool:
 		return false
 	var arr: Array = []
 	for it in data:
-		if typeof(it) == TYPE_DICTIONARY and it.has("id") and it.has("xform"):
+		if typeof(it) == TYPE_DICTIONARY and it.has("id") and typeof(it.get("xform")) == TYPE_ARRAY:
 			var col := Color(0, 0, 0, 0)
 			if it.has("color") and typeof(it["color"]) == TYPE_ARRAY and it["color"].size() >= 4:
 				var ca: Array = it["color"]
@@ -2118,6 +2119,14 @@ func _xform_to_array(t: Transform3D) -> Array:
 
 
 func _array_to_xform(a: Array) -> Transform3D:
+	# Korruptes/verkürztes JSON darf das Laden nicht crashen -> Identität als Fallback.
+	if a.size() < 12:
+		push_warning("Design: ungültige xform (%d Werte) — ersetze durch Identität" % a.size())
+		return Transform3D.IDENTITY
+	for v in a:
+		if typeof(v) != TYPE_FLOAT and typeof(v) != TYPE_INT:
+			push_warning("Design: nicht-numerische xform — ersetze durch Identität")
+			return Transform3D.IDENTITY
 	return Transform3D(
 		Basis(Vector3(a[0], a[1], a[2]), Vector3(a[3], a[4], a[5]), Vector3(a[6], a[7], a[8])),
 		Vector3(a[9], a[10], a[11]))
