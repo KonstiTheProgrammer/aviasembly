@@ -67,9 +67,9 @@ const AIM_TRIM_BAND := 0.06     # NUR nahe am Ziel integrieren (sonst lädt er s
 								# auf und schiebt ÜBER den Punkt -> Überschieß-Quelle)
 const BANK_OFFSET_RATE := 2.2   # A/D-Bank-Offset-Verstellrate (rad/s) im Maus-Flug
 const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
-const CAM_LEAD := 0.85          # Geschwindigkeits-Vorhalt der Kamera (0..1): kompensiert den
-								# Lerp-Schleppfehler (~v/Rate) -> Abstand wächst bei Speed kaum
-								# noch (Rest ~15 % bleibt als dezentes "Zieh"-Gefühl)
+const CAM_LEAD := 0.65          # Geschwindigkeits-Vorhalt der Kamera (0..1): kompensiert den
+								# Lerp-Schleppfehler (~v/Rate) größtenteils -> ~35 % bleiben als
+								# sichtbares "Zieh"-Gefühl bei Speed (bei 100 m/s ~4-6 m extra)
 const UP_BLEND_LO := 0.90       # ab |aim·UP| beginnt die Up-Referenz-Blende (Kamera)
 const UP_BLEND_HI := 0.98       # voll auf Flugzeug-Up geblendet -> kein Horizont-Sprung senkrecht
 const AIM_BANK_MAX := 1.25      # max. Querlage in Kurven (~72°, sicherer Abstand zu 90°)
