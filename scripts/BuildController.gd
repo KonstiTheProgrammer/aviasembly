@@ -1558,6 +1558,9 @@ func _clear_wind_tunnel() -> void:
 			_recolor(child, child.get_meta("color", Color(0, 0, 0, 0)))
 	if com_marker:
 		com_marker.visible = true
+	if col_marker:                                  # COL-Marker ebenfalls wiederherstellen
+		col_marker.visible = compute_stats().get("col_valid", false)
+	_heatmap_dirty = false                          # Debounce-Flag sauber zurücksetzen
 
 
 # Platziert ein Teil (mit Symmetrie, falls aktiv und außermittig)

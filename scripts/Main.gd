@@ -84,6 +84,7 @@ var _combo_t := 0.0                # Restzeit des Combo-Fensters
 var _best_combo := 0               # beste Combo dieser Session
 var _flight_money0 := 0            # Guthaben bei Flugbeginn (für „verdient")
 var _flight_score := 0             # Punkte dieser Session
+var _wave_session := 0             # Token: jeder Flugstart erhöht es -> alte Wellen-Timer verfallen
 const COMBO_WINDOW := 4.0          # Sekunden zwischen Abschüssen, um die Combo zu halten
 var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
 var upgrade_box: VBoxContainer     # Upgrade-Panel
@@ -707,7 +708,7 @@ func _show_controls_hint() -> void:
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	box.add_child(lbl)
 	_hint_box = box
-	get_tree().create_timer(12.0).timeout.connect(func():
+	get_tree().create_timer(12.0, false).timeout.connect(func():   # pause-bewusst
 		if is_instance_valid(box):
 			box.queue_free())
 
@@ -1633,10 +1634,13 @@ func _on_target_killed(reward: int, _pos: Vector3) -> void:
 		_toast("💥 +%d 🪙   ×%d COMBO!" % [gain, _combo])
 	else:
 		_toast("💥 Abschuss! +%d 🪙" % gain)
-	_alive -= 1
+	# Wellen-Fortschritt nur zählen, solange die Welle noch läuft -> _alive wird nie negativ
+	# und _wave_cleared() feuert genau EINMAL (beim Übergang auf 0), nicht bei Nachzüglern.
+	if _alive > 0:
+		_alive -= 1
+		if _alive == 0:
+			_wave_cleared()
 	_update_survival_hud()
-	if _alive <= 0:
-		_wave_cleared()
 
 
 func _respawn_balloon() -> void:
@@ -1666,6 +1670,7 @@ func _begin_flight() -> void:
 	_kills = 0; _combo = 0; _best_combo = 0; _combo_t = 0.0; _flight_score = 0
 	_flight_money0 = game.money
 	_wave = 0
+	_wave_session += 1            # entwertet evtl. noch laufende Wellen-Timer voriger Flüge
 	_clear_targets()
 	_start_wave(1)
 	if survival_label:
@@ -1685,7 +1690,7 @@ func _start_wave(n: int) -> void:
 	_wave = n
 	var diff := 1.0 + 0.12 * float(n - 1)            # spätere Wellen driften schneller
 	var balloons := 4 + n * 2
-	var airships := int(n / 2)                        # ab Welle 2 ein Luftschiff, Welle 4 zwei …
+	var airships := int(n * 0.5)                       # ab Welle 2 ein Luftschiff, Welle 4 zwei …
 	for i in balloons:
 		_make_target("balloon", _rand_target_pos(40.0, 210.0), _TARGET_COLORS[i % _TARGET_COLORS.size()], diff)
 	for i in airships:
@@ -1702,7 +1707,11 @@ func _wave_cleared() -> void:
 	_toast("✅  WELLE %d GESCHAFFT!   Bonus +%d 🪙" % [_wave, bonus])
 	_update_survival_hud()
 	var nw := _wave + 1
-	get_tree().create_timer(3.5).timeout.connect(func(): _next_wave(nw))
+	var sess := _wave_session
+	# pause-bewusster Timer (false), und nur feuern, wenn dieselbe Flug-Session noch läuft
+	get_tree().create_timer(3.5, false).timeout.connect(func():
+		if sess == _wave_session and mode == Mode.FLY:
+			_next_wave(nw))
 
 
 func _next_wave(n: int) -> void:
