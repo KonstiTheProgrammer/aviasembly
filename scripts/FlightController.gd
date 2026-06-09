@@ -66,6 +66,9 @@ const AIM_TRIM_MAX := 0.3       # Trim-Klemmung (Anti-Windup)
 const AIM_TRIM_BAND := 0.06     # NUR nahe am Ziel integrieren (sonst lädt er sich im Anflug
 								# auf und schiebt ÜBER den Punkt -> Überschieß-Quelle)
 const BANK_OFFSET_RATE := 2.2   # A/D-Bank-Offset-Verstellrate (rad/s) im Maus-Flug
+const AIM_HORIZ_D := 0.38       # Vorhalt (s) auf die Horizontalfehler-RATE: der Regler sieht,
+								# wie schnell die Nase schon einschwenkt, und bremst RECHTZEITIG
+								# vor dem Ziel ab -> kein Überschwingen/Pendeln des Nasenmarkers
 const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
 const CAM_LEAD := 0.65          # Geschwindigkeits-Vorhalt der Kamera (0..1): kompensiert den
 								# Lerp-Schleppfehler (~v/Rate) größtenteils -> ~35 % bleiben als
@@ -96,6 +99,8 @@ var sens_mult := 1.0            # Maus-Flug-Empfindlichkeit (0.5–2.0, Pause-Me
 var _cam_aim := Vector3(0, 0, -1)   # GEGLÄTTETE Kamera-Blickrichtung im Maus-Flug (gegen Ruckeln)
 var _trim_pitch := 0.0          # Nick-Trim-Integrator (Maus-Flug): Nase exakt in der Kreismitte
 var _bank_offset := 0.0         # mit A/D gesetzte, GEHALTENE Querlage (Offset der Kaskade)
+var _prev_horiz := 0.0          # Horizontalfehler des Vorframes (für die Fehler-Rate)
+var _horiz_rate := 0.0          # gefilterte Horizontalfehler-Änderungsrate (rad/s)
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
 var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
 var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
@@ -415,9 +420,16 @@ func _physics_process(delta: float) -> void:
 			_bank_offset = 0.0       # Fass-Rolle übernimmt -> kein verwaister Offset danach
 		else:
 			_bank_offset = clampf(_bank_offset + roll * BANK_OFFSET_RATE * delta, -AIM_BANK_MAX, AIM_BANK_MAX)
+		# FEHLER-RATE (gefiltert): wie schnell schließt die Nase schon aufs Ziel? Der
+		# Vorhalt (PD statt P) lässt den Regler RECHTZEITIG ausbanken, statt mit Schwung
+		# über den Kreis zu schwenken und zurückzupendeln ("beste Route" zum Ziel).
+		var hr := clampf(wrapf(horiz - _prev_horiz, -PI, PI) / maxf(delta, 1e-5), -3.0, 3.0)
+		_prev_horiz = horiz
+		_horiz_rate = lerpf(_horiz_rate, hr, clampf(delta * 15.0, 0.0, 1.0))
+		var horiz_lead := horiz + _horiz_rate * AIM_HORIZ_D
 		# Bank-to-turn-Kaskade. Achsen "vertauscht" (in_roll>0 dreht physikalisch links),
 		# daher Vorzeichen negiert -> Ziel rechts = Rechtskurve.
-		var target_bank := clampf(-horiz * AIM_BANK_K + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
+		var target_bank := clampf(-horiz_lead * AIM_BANK_K + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
 		var d_roll := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
 		var roll_cmd := clampf((d_roll - wb.z) * AIM_ROLL_P, -1.0, 1.0)
 		# Nick: Vertikalfehler -> BEGRENZTE Soll-Nickrate -> GEDÄMPFTE Auslenkung (kein Jagen).
@@ -666,6 +678,8 @@ func _toggle_mouse_fly() -> void:
 		_aim_smooth = _aim_dir()
 		_trim_pitch = 0.0
 		_bank_offset = 0.0
+		_prev_horiz = 0.0
+		_horiz_rate = 0.0
 		# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt beim M-Drücken.
 		if camera != null:
 			_cam_aim = -camera.global_transform.basis.z
