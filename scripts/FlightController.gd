@@ -67,6 +67,9 @@ const AIM_TRIM_BAND := 0.06     # NUR nahe am Ziel integrieren (sonst lädt er s
 								# auf und schiebt ÜBER den Punkt -> Überschieß-Quelle)
 const BANK_OFFSET_RATE := 2.2   # A/D-Bank-Offset-Verstellrate (rad/s) im Maus-Flug
 const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
+const CAM_LEAD := 0.85          # Geschwindigkeits-Vorhalt der Kamera (0..1): kompensiert den
+								# Lerp-Schleppfehler (~v/Rate) -> Abstand wächst bei Speed kaum
+								# noch (Rest ~15 % bleibt als dezentes "Zieh"-Gefühl)
 const UP_BLEND_LO := 0.90       # ab |aim·UP| beginnt die Up-Referenz-Blende (Kamera)
 const UP_BLEND_HI := 0.98       # voll auf Flugzeug-Up geblendet -> kein Horizont-Sprung senkrecht
 const AIM_BANK_MAX := 1.25      # max. Querlage in Kurven (~72°, sicherer Abstand zu 90°)
@@ -740,6 +743,9 @@ func _process(delta: float) -> void:
 		var upk := clampf((absf(_cam_aim.dot(Vector3.UP)) - UP_BLEND_LO) / (UP_BLEND_HI - UP_BLEND_LO), 0.0, 1.0)
 		var up_ref := Vector3.UP.lerp(t.basis.y, upk).normalized()
 		var cam_pos := t.origin - _cam_aim * 12.0 + Vector3.UP * 3.2
+		# Geschwindigkeits-Vorhalt: der 8/s-Lerp hinkt sonst ~v/8 m hinterher (bei 100 m/s
+		# über 12 m extra Abstand!) -> Vorhalt hält die Distanz auch bei Highspeed stabil.
+		cam_pos += aircraft.linear_velocity * (CAM_LEAD / 8.0)
 		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 8.0, 0.0, 1.0))
 		# Blickpunkt etwas ÜBER dem Flieger -> Kamera neigt sich hoch -> Flieger sitzt tiefer im Bild
 		camera.look_at(t.origin + _cam_aim * 30.0 + Vector3.UP * CAM_LOOK_ABOVE, up_ref)
@@ -752,6 +758,8 @@ func _process(delta: float) -> void:
 		look_yaw = lerpf(look_yaw, 0.0, k)
 		look_pitch = lerpf(look_pitch, 0.0, k)
 	var desired := t.origin + _cam_offset(t)
+	# Geschwindigkeits-Vorhalt (s.o.): hält den Verfolger-Abstand auch bei Highspeed stabil.
+	desired += aircraft.linear_velocity * (CAM_LEAD / 6.0)
 	camera.global_position = camera.global_position.lerp(desired, clamp(delta * 6.0, 0.0, 1.0))
 	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
 	_apply_cam_shake()
