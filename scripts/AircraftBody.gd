@@ -44,6 +44,7 @@ const CTRL_PITCH := 2.2       # Nick-Autorität (Basis + pro Steuerfläche)
 const CTRL_PITCH_A := 3.5
 const CTRL_YAW := 1.5
 const CTRL_YAW_A := 3.0
+const COORD_BANK := 0.32      # Auto-Ruderkoordination: Gier-Beimischung pro rad Querlage (Tastatur)
 const CTRL_ROLL := 9.0        # Rollen immer knackig (auch ohne Querruder)
 const CTRL_ROLL_A := 6.0
 const DAMP_PITCH := 5.5       # aerodynamische Drehdämpfung (verhindert Überdrehen)
@@ -1375,6 +1376,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		tt += xf.basis.y * (beta * q * (0.3 + yaw_area) * YAW_STAB)
 		aoa_deg = rad_to_deg(absf(aoa))
 		stall = absf(aoa) > STALL_A
+		# STALL-BUFFET: kurz VOR dem Abriss schüttelt die Zelle spürbar (ansteigend) ->
+		# man FÜHLT die Grenze, bevor das STALL-Banner kommt. Physischer Jitter (Nase
+		# zittert leicht) + dezentes Kamera-Zittern; Arcade/Fass-Roll ausgenommen.
+		var buf := smoothstep(STALL_A * 0.72, STALL_A, absf(aoa)) * clampf(sp / 30.0, 0.0, 1.0)
+		if buf > 0.02 and not arcade and barrel_roll == 0:
+			tt += xf.basis * (Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)) * (buf * mass * 0.6))
+			shake_request = maxf(shake_request, buf * 0.4 * state.step)
 		# STALL-RECOVERY: im Abriss drückt ein sanftes Nase-runter-Moment (massebasiert,
 		# wirkt auch bei wenig Staudruck) die Nase zur Anströmung -> Tempo baut sich auf,
 		# Überziehen wird ERHOLBAR statt Kontrollverlust. Voller Zug am Höhenruder
@@ -1420,6 +1428,14 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			in_yaw * inv * (CTRL_YAW + CTRL_YAW_A * yaw_area),
 			roll_cmd)
 		tt += xf.basis * (cmd * qfac * mass * (MOUSE_AUTH if mouse_fly else 1.0))
+		# AUTO-RUDERKOORDINATION (nur Tastatur-Modus): bei Querlage automatisch etwas
+		# Seitenruder in die Kurve -> Kurven ziehen sauber/koordiniert statt zu schmieren,
+		# ohne Q/E-Gefummel. Vorzeichen: Bank links (atan2>0, wie in_roll>0) -> Gier links.
+		# Bewusst OHNE inv (Aerodynamik-Hilfe, keine Spieler-Eingabe).
+		if not mouse_fly and barrel_roll == 0:
+			var cbank := atan2(xf.basis.x.y, xf.basis.y.y)
+			var coord := clampf(cbank * COORD_BANK, -0.45, 0.45)
+			tt += xf.basis.y * (coord * (CTRL_YAW + CTRL_YAW_A * yaw_area) * qfac * mass)
 		# Aerodynamische Drehdämpfung (gegen Schwingen) — wächst mit Tempo.
 		# Im Fass-Roll die ROLL-Dämpfung aus (sonst kommt die Rolle nicht auf Touren);
 		# Nick/Gier bleiben gedämpft. Assist verstärkt nur Nick/Gier.
