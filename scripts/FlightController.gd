@@ -58,8 +58,11 @@ const AIM_LOOK_SENS_BASE := 0.005   # Maus -> Blick-/Zielrichtung (rad pro Pixel
 const AIM_SMOOTH_SLOW := 14.0   # Glättung bei Mikro-Korrekturen (stark -> kein Maus-Zittern)
 const AIM_SMOOTH_FAST := 40.0   # Glättung bei Flicks (fast roh -> kein Schleppfehler)
 const AIM_SMOOTH_REF := 4.0     # Zielbewegung (rad/s), ab der voll auf FAST geblendet wird
-const AIM_DEADZONE := 0.01      # innerer Totbereich (rad) am Ziel -> kein Marker-Zittern
-const AIM_DEADZONE_SOFT := 0.03 # äußere Kante: bis hier wird der Fehler weich eingeblendet (kein Knick)
+const AIM_DEADZONE := 0.002     # innerer Totbereich (rad) — winzig, damit die Nase EXAKT zentriert
+const AIM_DEADZONE_SOFT := 0.008 # äußere Kante: bis hier wird der Fehler weich eingeblendet (kein Knick)
+const AIM_TRIM_I := 0.4         # Trim-Integrator (1/s): eliminiert den stationären Versatz zur Kreismitte
+const AIM_TRIM_MAX := 0.5       # Trim-Klemmung (Anti-Windup)
+const AIM_BANK_HOLD := 0.05     # |horiz| (rad), unter dem eine MANUELL gesetzte Bank gehalten wird
 const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
 const UP_BLEND_LO := 0.90       # ab |aim·UP| beginnt die Up-Referenz-Blende (Kamera)
 const UP_BLEND_HI := 0.98       # voll auf Flugzeug-Up geblendet -> kein Horizont-Sprung senkrecht
@@ -85,6 +88,8 @@ var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
 var sens_mult := 1.0            # Maus-Flug-Empfindlichkeit (0.5–2.0, Pause-Menü; persistiert)
 var _cam_aim := Vector3(0, 0, -1)   # GEGLÄTTETE Kamera-Blickrichtung im Maus-Flug (gegen Ruckeln)
+var _trim_pitch := 0.0          # Nick-Trim-Integrator (Maus-Flug): Nase exakt in der Kreismitte
+var _manual_bank := false       # Spieler hat mit A/D gerollt -> Bank halten statt ausnivellieren
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
 var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
 var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
@@ -394,19 +399,37 @@ func _physics_process(delta: float) -> void:
 		var horiz := _soft_dead(atan2(e.x, -e.z))             # +rechts, ±π hinten
 		var vert := _soft_dead(atan2(e.y, sqrt(e.x * e.x + e.z * e.z)))  # +oben
 		var wb := b.transposed() * aircraft.angular_velocity   # Körperraten (x=Nick, y=Gier, z=Roll)
-		# Roll: Bank-to-turn-Kaskade. Achsen "vertauscht" (in_roll>0 dreht physikalisch links),
-		# daher Vorzeichen negiert -> Ziel rechts = Rechtskurve. Querlage als asin(basis.x.y)
-		# (gleiches Vorzeichen wie in_roll, sonst Mitkopplung).
 		# Querlage als atan2 (voller Bereich, kippt nicht bei 90° wie asin -> kein Taumeln).
 		var current_bank := atan2(b.x.y, b.y.y)
-		var target_bank := clampf(-horiz * AIM_BANK_K, -AIM_BANK_MAX, AIM_BANK_MAX)
-		var d_roll := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
-		var roll_cmd := clampf((d_roll - wb.z) * AIM_ROLL_P, -1.0, 1.0)
+		# MANUELLES ROLLEN (A/D) hat im Maus-Flug VORRANG: solange gedrückt, pausiert die
+		# Bank-to-turn-Kaskade (roll = Tasten-Eingabe wirkt direkt). Nach dem Loslassen wird
+		# die gesetzte Bank GEHALTEN (nur Roll-Raten-Dämpfung, KEIN Auto-Ausnivellieren) —
+		# bis die Maus wieder deutlich lenkt (|horiz| > 2·AIM_BANK_HOLD): dann übernimmt die
+		# Kaskade, denn das Tracking (Nase -> Kreismitte) hat Priorität.
+		var roll_cmd := 0.0
+		if absf(roll) > 0.01:
+			_manual_bank = true
+		elif absf(horiz) > AIM_BANK_HOLD * 2.0:
+			_manual_bank = false
+		if absf(roll) <= 0.01:
+			if _manual_bank:
+				roll_cmd = clampf(-wb.z * AIM_ROLL_P, -1.0, 1.0)   # Bank halten: nur Dämpfung
+			else:
+				# Bank-to-turn-Kaskade. Achsen "vertauscht" (in_roll>0 dreht physikalisch
+				# links), daher Vorzeichen negiert -> Ziel rechts = Rechtskurve.
+				var target_bank := clampf(-horiz * AIM_BANK_K, -AIM_BANK_MAX, AIM_BANK_MAX)
+				var d_roll := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
+				roll_cmd = clampf((d_roll - wb.z) * AIM_ROLL_P, -1.0, 1.0)
 		# Nick: Vertikalfehler -> BEGRENZTE Soll-Nickrate -> GEDÄMPFTE Auslenkung (kein Jagen).
 		# Kurvenzug NUR wenn gebankt (·|sin(bank)|): sonst zieht die Nase vor dem Einrollen
 		# nutzlos nach oben -> Zeitverlust. So rollt es erst zügig ein und zieht dann durch.
 		var d_pitch := clampf(vert * AIM_PITCH_K, -AIM_PITCH_RATE_MAX, AIM_PITCH_RATE_MAX)
-		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL * absf(sin(current_bank)), -1.0, 1.0)
+		# TRIM-INTEGRATOR: gleicht den stationären Versatz aus (Schwerkraft zieht die Nase
+		# unter die Kreismitte; rein proportional bliebe ein konstanter Restfehler). Nur bei
+		# kleinen Fehlern integrieren (große Manöver = transient, kein Windup) + geklemmt.
+		if absf(vert) < 0.5 and aircraft.airspeed > 10.0:
+			_trim_pitch = clampf(_trim_pitch + vert * AIM_TRIM_I * delta, -AIM_TRIM_MAX, AIM_TRIM_MAX)
+		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + _trim_pitch + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL * absf(sin(current_bank)), -1.0, 1.0)
 		# Gier: leicht koordiniert Richtung Ziel + gedämpft (vertauscht -> negiert).
 		var yaw_cmd := clampf(-horiz * AIM_YAW_K - wb.y * AIM_YAW_D, -1.0, 1.0)
 		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
@@ -635,6 +658,8 @@ func _toggle_mouse_fly() -> void:
 		look_yaw = atan2(f.x, -f.z)
 		look_pitch = asin(clampf(f.y, -1.0, 1.0))
 		_aim_smooth = _aim_dir()
+		_trim_pitch = 0.0
+		_manual_bank = false
 		# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt beim M-Drücken.
 		if camera != null:
 			_cam_aim = -camera.global_transform.basis.z
