@@ -12,6 +12,8 @@ var climb := 0.0
 var throttle := 0.0
 var gforce := 1.0
 var stall := false
+var aoa := 0.0              # Anstellwinkel (Grad) — fürs PFD
+var mode_text := ""         # aktive Sondermodi (Maus-Flug/Arcade/Invers) als Badge
 var mouse_fly := false
 var aim_pos := Vector2.ZERO
 var aim_vis := false
@@ -41,9 +43,11 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	_draw_compass()
+	_draw_modes()
 	_draw_speed_box()
 	_draw_alt_box()
 	_draw_reticle()
+	_draw_stall()
 
 
 # --- Kompass-Leiste oben (scrollt mit dem Kurs) -----------------------------
@@ -106,6 +110,10 @@ func _draw_speed_box() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, 110.0, 30, spd_col)
 	draw_string(_font, Vector2(bx + 12.0, by + 23.0), "km/h  ·  %d m/s" % int(round(speed_ms)),
 		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 12, DIM)
+	# Anstellwinkel direkt unter der Speed-Box (rot ab Stall-Nähe)
+	var aoa_col: Color = Color(1, 0.45, 0.3) if stall else (Color(1, 0.8, 0.35) if aoa > 11.0 else DIM)
+	draw_string(_font, Vector2(bx + 12.0, by + 48.0), "AoA  %d°" % int(round(aoa)),
+		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 13, aoa_col)
 	# Schub-/Bremsbalken am linken Rand der Box (über 100 % = Nachbrenner-Zone)
 	var bar := Rect2(bx - 8.0, by - 30.0, 5.0, 60.0)
 	draw_rect(bar, Color(0, 0, 0, 0.5))
@@ -158,3 +166,36 @@ func _draw_reticle() -> void:
 		draw_line(c + Vector2(9, 0), c + Vector2(14, 0), Color(1, 1, 1, 0.6), 2.0)
 		draw_line(c + Vector2(0, -14), c + Vector2(0, -9), Color(1, 1, 1, 0.6), 2.0)
 		draw_circle(c, 1.5, Color(1, 1, 1, 0.7))
+
+
+# --- Modus-Badge unter dem Kompass (nur aktive Sondermodi) ------------------
+func _draw_modes() -> void:
+	if mode_text == "":
+		return
+	var fw: float = _font.get_string_size(mode_text, HORIZONTAL_ALIGNMENT_CENTER, -1, 14).x + 22.0
+	var y := 84.0
+	var r := Rect2(size.x * 0.5 - fw * 0.5, y, fw, 22.0)
+	draw_rect(r, Color(0, 0, 0, 0.5))
+	draw_rect(r, Color(0.5, 0.85, 1.0, 0.55), false, 1.5)
+	draw_string(_font, Vector2(r.position.x, y + 16.0), mode_text,
+		HORIZONTAL_ALIGNMENT_CENTER, fw, 14, Color(0.6, 0.95, 1.0))
+
+
+# --- Prominente Stall-Warnung (pulsierender Rahmen + Banner) ----------------
+func _draw_stall() -> void:
+	if not stall or speed_ms < 4.0:
+		return
+	var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.013)
+	# roter Rahmen am Bildrand
+	var edge := Color(1.0, 0.22, 0.18, 0.18 + 0.32 * pulse)
+	var t := 10.0
+	draw_rect(Rect2(0, 0, size.x, t), edge)
+	draw_rect(Rect2(0, size.y - t, size.x, t), edge)
+	draw_rect(Rect2(0, 0, t, size.y), edge)
+	draw_rect(Rect2(size.x - t, 0, t, size.y), edge)
+	# STALL-Banner über der Bildmitte
+	var bw := 200.0
+	var bx := size.x * 0.5 - bw * 0.5
+	var by := size.y * 0.30
+	draw_string(_font, Vector2(bx, by), "STALL",
+		HORIZONTAL_ALIGNMENT_CENTER, bw, 30, Color(1.0, 0.3, 0.24, 0.65 + 0.35 * pulse))

@@ -60,6 +60,10 @@ var land_label: Label
 var flight_hud: FlightHud           # Primary-Flight-Display (Kompass, Speed/Höhe, Zielkreis)
 var tool_label: Label
 var toast_label: Label
+var pause_overlay: Control          # Pause-Menü (Esc)
+var _paused := false
+var _prev_mouse := Input.MOUSE_MODE_VISIBLE
+var _hint_box: Control              # einmaliger Steuer-Hinweis beim ersten Flug
 var snap_cb: CheckBox               # Auto-Andocken an/aus (Bau-Editor)
 var drag_view_btn: Button
 var part_buttons: Dictionary = {}
@@ -585,6 +589,10 @@ func _set_mode(m: int) -> void:
 			flight_ctrl.mass_mult = game.mass_mult()
 		flight_ctrl.build_from_design(build_ctrl.get_design())
 		flight_ctrl.set_active(true)
+		# Einmaliger Steuer-Hinweis beim allerersten Flug
+		if game != null and not game.flag("controls_hint"):
+			game.set_flag("controls_hint")
+			_show_controls_hint()
 
 
 func _input(event: InputEvent) -> void:
@@ -596,11 +604,8 @@ func _input(event: InputEvent) -> void:
 			_toggle_fullscreen()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_ESCAPE:
-			# Esc: Vollbild verlassen (Fenster), sonst Spiel beenden
-			if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN:
-				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-			else:
-				get_tree().quit()
+			# Esc öffnet das Pause-Menü (Weiter / Hangar / Beenden). Vollbild via F11.
+			_set_pause(true)
 			get_viewport().set_input_as_handled()
 
 
@@ -609,7 +614,86 @@ func _toggle_fullscreen() -> void:
 		DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN \
 		else DisplayServer.WINDOW_MODE_FULLSCREEN
 	DisplayServer.window_set_mode(win)
-	_toast("Vollbild: " + ("AN  (F11 / Esc zum Verlassen)" if win == DisplayServer.WINDOW_MODE_FULLSCREEN else "aus"))
+	_toast("Vollbild: " + ("AN  (F11)" if win == DisplayServer.WINDOW_MODE_FULLSCREEN else "aus"))
+
+
+# --- Pause-Menü (Esc) -------------------------------------------------------
+func _set_pause(p: bool) -> void:
+	if _paused == p:
+		return
+	_paused = p
+	if p and pause_overlay == null:
+		_build_pause_overlay()
+	if pause_overlay:
+		pause_overlay.visible = p
+	if p:
+		_prev_mouse = Input.mouse_mode
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	else:
+		Input.mouse_mode = _prev_mouse
+	get_tree().paused = p
+
+
+func _build_pause_overlay() -> void:
+	pause_overlay = ColorRect.new()
+	(pause_overlay as ColorRect).color = Color(0.03, 0.05, 0.09, 0.82)
+	pause_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pause_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_overlay.process_mode = Node.PROCESS_MODE_ALWAYS   # bleibt bei get_tree().paused bedienbar
+	pause_overlay.visible = false
+	ui.add_child(pause_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pause_overlay.add_child(center)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	v.custom_minimum_size = Vector2(300, 0)
+	center.add_child(v)
+	var t := _lbl("⏸  PAUSE", 30, Color(0.6, 1.0, 0.7))
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(t)
+	var b_resume := Button.new()
+	b_resume.text = "▶  Weiter"
+	b_resume.pressed.connect(func(): _set_pause(false))
+	v.add_child(b_resume)
+	var b_hangar := Button.new()
+	b_hangar.text = "🛠  Zum Hangar"
+	b_hangar.pressed.connect(_pause_to_hangar)
+	v.add_child(b_hangar)
+	var b_quit := Button.new()
+	b_quit.text = "✕  Spiel beenden"
+	b_quit.pressed.connect(func(): get_tree().quit())
+	v.add_child(b_quit)
+
+
+func _pause_to_hangar() -> void:
+	_paused = false
+	get_tree().paused = false
+	if pause_overlay:
+		pause_overlay.visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if mode != Mode.BUILD:
+		_set_mode(Mode.BUILD)
+
+
+# Einmaliger Steuer-Hinweis beim allerersten Flug (blendet nach 12 s aus).
+func _show_controls_hint() -> void:
+	if is_instance_valid(_hint_box):
+		_hint_box.queue_free()
+	var box := ColorRect.new()
+	box.color = Color(0.03, 0.06, 0.10, 0.85)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rect(box, 0.5, 0, 0.5, 0, -300, 84, 300, 246)
+	ui.add_child(box)
+	var lbl := _lbl("🛩  STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-Flug    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	box.add_child(lbl)
+	_hint_box = box
+	get_tree().create_timer(12.0).timeout.connect(func():
+		if is_instance_valid(box):
+			box.queue_free())
 
 
 # ===========================================================================
@@ -1405,6 +1489,14 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.throttle = d.get("throttle", 0.0)
 		flight_hud.gforce = d.get("gforce", 1.0)
 		flight_hud.stall = d.get("stall", false)
+		flight_hud.aoa = d.get("aoa", 0.0)
+		# Modus-Badge im PFD: nur aktive Sondermodi (lenken stark um -> sichtbar machen)
+		var modes: Array = []
+		if mf:
+			modes.append("ARCADE" if arc else "MAUS-FLUG")
+		if d.get("inverted", false):
+			modes.append("INVERS")
+		flight_hud.mode_text = "     ".join(modes)
 		flight_hud.mouse_fly = mf
 		flight_hud.aim_pos = d.get("aim", Vector2.ZERO)
 		flight_hud.aim_vis = mf and bool(d.get("aim_vis", true))
@@ -1542,7 +1634,7 @@ func _build_upgrades_ui() -> void:
 			b.text = "%s — MAX" % u["name"]
 			b.disabled = true
 		else:
-			var cost := 600 * (lvl + 1)
+			var cost := 500 * (lvl + 1)
 			b.text = "%s  [Lv %d]  %d 🪙" % [u["name"], lvl, cost]
 			b.pressed.connect(_on_buy_upgrade.bind(u["key"], cost))
 		upgrade_box.add_child(b)

@@ -13,13 +13,14 @@ const STARTER := [
 	"cockpit", "fuselage", "nose", "tailcone", "strut",
 	"wing_straight", "h_stab", "v_stab", "prop_engine", "wheel", "wheel_light", "mg",
 ]
-const START_MONEY := 1500
+const START_MONEY := 2200            # etwas mehr Startkapital -> frühere Progression spürbar
 
 var mode: int = GameMode.NONE
 var money: int = 0
 var unlocked: Dictionary = {}        # part_id -> true
 var missions_done: Dictionary = {}   # mission_id -> true
 var upgrades: Dictionary = {"thrust": 0, "wing": 0, "light": 0}
+var flags: Dictionary = {}           # einmalige Merker (z. B. Steuer-Hinweis gesehen)
 
 signal changed()   # Geld/Unlock/Upgrade hat sich geändert
 
@@ -114,6 +115,16 @@ func complete_mission(id: String, reward: int) -> int:
 	return reward
 
 
+# Einmalige Merker (persistiert), z. B. ob der Steuer-Hinweis schon gezeigt wurde.
+func flag(id: String) -> bool:
+	return bool(flags.get(id, false))
+
+
+func set_flag(id: String, v := true) -> void:
+	flags[id] = v
+	save()
+
+
 # --- Persistenz ------------------------------------------------------------
 func save() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -121,7 +132,7 @@ func save() -> void:
 		return
 	f.store_string(JSON.stringify({
 		"mode": mode, "money": money, "unlocked": unlocked,
-		"missions_done": missions_done, "upgrades": upgrades,
+		"missions_done": missions_done, "upgrades": upgrades, "flags": flags,
 	}))
 	f.close()
 
@@ -140,6 +151,7 @@ func load_state() -> void:
 	money = int(data.get("money", 0))
 	unlocked = data.get("unlocked", {})
 	missions_done = data.get("missions_done", {})
+	flags = data.get("flags", {})
 	var up = data.get("upgrades", {})
 	for k in ["thrust", "wing", "light"]:
 		upgrades[k] = int(up.get(k, 0))
