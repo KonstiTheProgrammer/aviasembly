@@ -129,6 +129,7 @@ func _ready() -> void:
 	targets_root = Node3D.new()
 	fly_world.add_child(targets_root)
 	flight_ctrl.world_root = targets_root
+	flight_ctrl.sens_mult = game.mouse_sens   # persistierte Maus-Flug-Empfindlichkeit anwenden
 	_spawn_targets()
 	_setup_ui()
 	if not _load_design():
@@ -672,6 +673,24 @@ func _build_pause_overlay() -> void:
 	b_resume.text = "▶  Weiter"
 	b_resume.pressed.connect(func(): _set_pause(false))
 	v.add_child(b_resume)
+	# Maus-Flug-Empfindlichkeit (0.5–2.0, persistiert in GameState)
+	var srow := HBoxContainer.new()
+	srow.add_theme_constant_override("separation", 8)
+	v.add_child(srow)
+	srow.add_child(_lbl("🖱 Maus-Empfindlichkeit:", 14, Color(0.8, 0.88, 1.0)))
+	var sval := _lbl("×%.1f" % game.mouse_sens, 15, Color(0.7, 1.0, 0.8))
+	var sminus := Button.new(); sminus.text = "−"; sminus.custom_minimum_size = Vector2(38, 0)
+	var splus := Button.new(); splus.text = "+"; splus.custom_minimum_size = Vector2(38, 0)
+	var apply_sens := func(d: float):
+		game.mouse_sens = clampf(snappedf(game.mouse_sens + d, 0.1), 0.5, 2.0)
+		flight_ctrl.sens_mult = game.mouse_sens
+		game.save()
+		sval.text = "×%.1f" % game.mouse_sens
+	sminus.pressed.connect(func(): apply_sens.call(-0.1))
+	splus.pressed.connect(func(): apply_sens.call(0.1))
+	srow.add_child(sminus)
+	srow.add_child(sval)
+	srow.add_child(splus)
 	var b_hangar := Button.new()
 	b_hangar.text = "🛠  Zum Hangar"
 	b_hangar.pressed.connect(_pause_to_hangar)

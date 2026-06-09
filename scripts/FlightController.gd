@@ -54,9 +54,15 @@ const RECOIL := {
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
-const AIM_LOOK_SENS := 0.005    # Maus -> Blick-/Zielrichtung (rad pro Pixel)
-const AIM_SMOOTH := 24.0        # nur LEICHTE Glättung der Zielrichtung (kaum Lag) -> reaktionsschnell
-const AIM_DEADZONE := 0.01      # Totbereich (rad) am Ziel -> kein Marker-Zittern (Limit-Cycle)
+const AIM_LOOK_SENS_BASE := 0.005   # Maus -> Blick-/Zielrichtung (rad pro Pixel), × sens_mult
+const AIM_SMOOTH_SLOW := 14.0   # Glättung bei Mikro-Korrekturen (stark -> kein Maus-Zittern)
+const AIM_SMOOTH_FAST := 40.0   # Glättung bei Flicks (fast roh -> kein Schleppfehler)
+const AIM_SMOOTH_REF := 4.0     # Zielbewegung (rad/s), ab der voll auf FAST geblendet wird
+const AIM_DEADZONE := 0.01      # innerer Totbereich (rad) am Ziel -> kein Marker-Zittern
+const AIM_DEADZONE_SOFT := 0.03 # äußere Kante: bis hier wird der Fehler weich eingeblendet (kein Knick)
+const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
+const UP_BLEND_LO := 0.90       # ab |aim·UP| beginnt die Up-Referenz-Blende (Kamera)
+const UP_BLEND_HI := 0.98       # voll auf Flugzeug-Up geblendet -> kein Horizont-Sprung senkrecht
 const AIM_BANK_MAX := 1.25      # max. Querlage in Kurven (~72°, sicherer Abstand zu 90°)
 const AIM_BANK_K := 2.4         # Horizontal-Zielfehler (rad) -> Soll-Querlage (stark in die Kurve)
 const AIM_BANK_P := 6.5         # Querlage-Fehler -> Soll-Rollrate (schnelles Einrollen, kostet keine G)
@@ -77,6 +83,8 @@ var throttle := 0.0
 var spawn_height := 2.0
 var look_yaw := 0.0             # freies Umschauen (Maus) — horizontal
 var look_pitch := 0.0           # vertikal
+var sens_mult := 1.0            # Maus-Flug-Empfindlichkeit (0.5–2.0, Pause-Menü; persistiert)
+var _cam_aim := Vector3(0, 0, -1)   # GEGLÄTTETE Kamera-Blickrichtung im Maus-Flug (gegen Ruckeln)
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
 var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
 var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
@@ -372,18 +380,19 @@ func _physics_process(delta: float) -> void:
 	if mouse_fly:
 		var b := aircraft.global_transform.basis
 		aircraft.aim_world = _aim_dir()   # Arcade-Lenkung (AircraftBody) nutzt die rohe Zielrichtung
-		# Geglättete Zielrichtung -> der Regler folgt nicht jedem Maus-Ruckeln (smoother Flugweg).
+		# ADAPTIVE Zielglättung: Mikro-Korrekturen stark glätten (kein Maus-Zittern),
+		# schnelle Flicks fast roh durchlassen (kein Schleppfehler -> kein Überkorrigieren).
 		# lerp+normalize statt Vector3.slerp: slerp wirft bei fast-parallelen Vektoren
 		# "axis must be normalized" (interne Achse aus ~0-Kreuzprodukt). lerp ist robust.
-		_aim_smooth = _aim_smooth.lerp(_aim_dir(), clampf(delta * AIM_SMOOTH, 0.0, 1.0)).normalized()
+		var aim_speed := (_aim_dir() - _aim_smooth).length() / maxf(delta, 1e-5)
+		var sf := lerpf(AIM_SMOOTH_SLOW, AIM_SMOOTH_FAST, clampf(aim_speed / AIM_SMOOTH_REF, 0.0, 1.0))
+		_aim_smooth = _aim_smooth.lerp(_aim_dir(), clampf(delta * sf, 0.0, 1.0)).normalized()
 		var e := b.transposed() * _aim_smooth     # Zielrichtung im Körpersystem (Nase = -Z)
-		var horiz := atan2(e.x, -e.z)             # Horizontalwinkel zum Ziel: +rechts, ±π hinten
-		var vert := atan2(e.y, sqrt(e.x * e.x + e.z * e.z))  # Vertikalwinkel: +oben
-		# Kleiner Totbereich nahe am Ziel -> kein Mikro-Zittern (Limit-Cycle) der Nase/Marker.
-		if absf(horiz) < AIM_DEADZONE:
-			horiz = 0.0
-		if absf(vert) < AIM_DEADZONE:
-			vert = 0.0
+		# WEICHER Totbereich (Smoothstep-Einblendung statt Snap-to-Zero): der Integrator
+		# baut nahe dem Ziel sanft ab statt mit Rest-Auslenkung einzufrieren -> kein
+		# Pendeln/Zittern um den Zielkreis (Limit-Cycle stirbt an der Quelle).
+		var horiz := _soft_dead(atan2(e.x, -e.z))             # +rechts, ±π hinten
+		var vert := _soft_dead(atan2(e.y, sqrt(e.x * e.x + e.z * e.z)))  # +oben
 		var wb := b.transposed() * aircraft.angular_velocity   # Körperraten (x=Nick, y=Gier, z=Roll)
 		# Roll: Bank-to-turn-Kaskade. Achsen "vertauscht" (in_roll>0 dreht physikalisch links),
 		# daher Vorzeichen negiert -> Ziel rechts = Rechtskurve. Querlage als asin(basis.x.y)
@@ -592,8 +601,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mouse_fly:
 			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
 			# Nach rechts schauen -> rechts; nach hinten schauen -> Flieger dreht ganz herum.
-			look_yaw = wrapf(look_yaw + event.relative.x * AIM_LOOK_SENS, -PI, PI)
-			look_pitch = clampf(look_pitch - event.relative.y * AIM_LOOK_SENS, -1.45, 1.45)
+			look_yaw = wrapf(look_yaw + event.relative.x * AIM_LOOK_SENS_BASE * sens_mult, -PI, PI)
+			look_pitch = clampf(look_pitch - event.relative.y * AIM_LOOK_SENS_BASE * sens_mult, -1.45, 1.45)
 		else:
 			# Umschauen: Kamera frei um das Flugzeug schwenken
 			look_yaw = clampf(look_yaw - event.relative.x * LOOK_SENS, -PI, PI)
@@ -626,6 +635,9 @@ func _toggle_mouse_fly() -> void:
 		look_yaw = atan2(f.x, -f.z)
 		look_pitch = asin(clampf(f.y, -1.0, 1.0))
 		_aim_smooth = _aim_dir()
+		# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt beim M-Drücken.
+		if camera != null:
+			_cam_aim = -camera.global_transform.basis.z
 	else:
 		look_yaw = 0.0
 		look_pitch = 0.0
@@ -642,6 +654,18 @@ func _toggle_arcade() -> void:
 func _aim_dir() -> Vector3:
 	var cp := cos(look_pitch)
 	return Vector3(sin(look_yaw) * cp, sin(look_pitch), -cos(look_yaw) * cp)
+
+
+# Weicher Totbereich: unter AIM_DEADZONE = 0, bis AIM_DEADZONE_SOFT per Smoothstep
+# eingeblendet, darüber unverändert -> kein „Knick" an der Totbereichs-Kante.
+func _soft_dead(err: float) -> float:
+	var ae := absf(err)
+	if ae < AIM_DEADZONE:
+		return 0.0
+	if ae < AIM_DEADZONE_SOFT:
+		var s := (ae - AIM_DEADZONE) / (AIM_DEADZONE_SOFT - AIM_DEADZONE)
+		return signf(err) * s * s * (3.0 - 2.0 * s) * ae
+	return err
 
 
 # ---------------------------------------------------------------------------
@@ -680,14 +704,17 @@ func _process(delta: float) -> void:
 	if mouse_fly:
 		# Kamera blickt in die ZIELRICHTUNG (Maus), Flugzeug im Vordergrund -> du siehst,
 		# wohin du zeigst und wie die Nase nachzieht. Kein Zurückschwenken (Ziel bleibt stehen).
-		var aim := _aim_dir()
-		var up_ref := Vector3.UP
-		if absf(aim.dot(Vector3.UP)) > 0.97:
-			up_ref = t.basis.y
-		var cam_pos := t.origin - aim * 12.0 + Vector3.UP * 3.2
-		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 6.0, 0.0, 1.0))
+		# WICHTIG: die Kamera folgt einer EIGENEN geglätteten Richtung (_cam_aim, 12/s wie
+		# Free-Look) — vorher ruckte das harte look_at entlang der rohen Maus bei jedem Tick.
+		_cam_aim = _cam_aim.lerp(_aim_dir(), clampf(delta * CAM_AIM_SMOOTH, 0.0, 1.0)).normalized()
+		# Up-Referenz WEICH von Welt-UP auf Flugzeug-Up blenden, statt bei 0.97 hart zu
+		# flippen -> kein sichtbarer Horizont-Sprung beim Senkrechtziehen.
+		var upk := clampf((absf(_cam_aim.dot(Vector3.UP)) - UP_BLEND_LO) / (UP_BLEND_HI - UP_BLEND_LO), 0.0, 1.0)
+		var up_ref := Vector3.UP.lerp(t.basis.y, upk).normalized()
+		var cam_pos := t.origin - _cam_aim * 12.0 + Vector3.UP * 3.2
+		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 8.0, 0.0, 1.0))
 		# Blickpunkt etwas ÜBER dem Flieger -> Kamera neigt sich hoch -> Flieger sitzt tiefer im Bild
-		camera.look_at(t.origin + aim * 30.0 + Vector3.UP * CAM_LOOK_ABOVE, up_ref)
+		camera.look_at(t.origin + _cam_aim * 30.0 + Vector3.UP * CAM_LOOK_ABOVE, up_ref)
 		_apply_cam_shake()
 		return
 	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken

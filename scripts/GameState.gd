@@ -21,6 +21,7 @@ var unlocked: Dictionary = {}        # part_id -> true
 var missions_done: Dictionary = {}   # mission_id -> true
 var upgrades: Dictionary = {"thrust": 0, "wing": 0, "light": 0}
 var flags: Dictionary = {}           # einmalige Merker (z. B. Steuer-Hinweis gesehen)
+var mouse_sens := 1.0                # Maus-Flug-Empfindlichkeit (0.5–2.0), Pause-Menü
 
 signal changed()   # Geld/Unlock/Upgrade hat sich geändert
 
@@ -136,6 +137,7 @@ func save() -> void:
 		"version": 1,
 		"mode": mode, "money": money, "unlocked": unlocked,
 		"missions_done": missions_done, "upgrades": upgrades, "flags": flags,
+		"mouse_sens": mouse_sens,
 	}))
 	f.close()
 
@@ -158,6 +160,7 @@ func load_state() -> void:
 	unlocked = data.get("unlocked", {})
 	missions_done = data.get("missions_done", {})
 	flags = data.get("flags", {})
+	mouse_sens = clampf(float(data.get("mouse_sens", 1.0)), 0.5, 2.0)
 	var up = data.get("upgrades", {})
 	for k in ["thrust", "wing", "light"]:
 		upgrades[k] = int(up.get(k, 0))
