@@ -21,6 +21,7 @@ func _process(_d: float) -> bool:
 	_build_me262()
 	_build_f86()
 	_build_mig15()
+	_build_sturmjet()
 	quit()
 	return true
 
@@ -254,6 +255,37 @@ func _build_mig15() -> void:
 	P(bc, "red_star", Vector3(-0.08, 0.9, 1.95), bL, SILVER, Vector3(0.6, 0.6, 0.6))      # Seitenflosse links
 	P(bc, "red_star", Vector3(1.7, 0.0, 0.55), bUp, SILVER, Vector3(0.9, 0.9, 0.9))       # Flügel oben (gespiegelt)
 	_finish(bc, "mig15", "MiG-15")
+
+
+## 7) Sturmjet — schwer bewaffneter Delta-Abfangjäger. Zeigt ALLE vier Waffentypen
+##    (Raketenwerfer/Salve, Zielsuchrakete, schwere Lenkrakete, Bombe) + Delta-Flügel.
+func _build_sturmjet() -> void:
+	var bc := _new_bc()
+	var GREY := Color(0.42, 0.46, 0.43)        # mattgrün-grau (Tarnung)
+	var DARK := Color(0.13, 0.13, 0.15)
+	# Nahtloser Loft-Rumpf (wie MiG): Nase + Rumpf + Cockpit + Heckkonus
+	_setup_root(bc, GREY, Vector3(0.1, 0.1, 0.1))
+	var rp := _root_part(bc)
+	if rp:
+		rp.position = Vector3(0, 0, 0)
+	P(bc, "jet_nose", Vector3(0, 0, -3.0), Basis(), GREY)
+	P(bc, "jet_body", Vector3(0, 0, -1.25), Basis(), GREY)
+	P(bc, "jet_cockpit", Vector3(0, 0, 0.35), Basis(), GREY)
+	P(bc, "jet_body", Vector3(0, 0, 1.95), Basis(), GREY, Vector3.ONE, 0.5, 1.0)
+	P(bc, "jet_engine", Vector3(0, 0.05, 0.3), Basis(), GREY, Vector3(0.55, 0.55, 1.55))
+	# Delta-Flügel (durchgehend) + hohes Kreuz-Leitwerk
+	PW(bc, "wing_delta", -0.1, 0.5, GREY, Vector3(1.15, 1.0, 1.15))
+	P(bc, "v_stab", Vector3(0, 0.5, 2.2), _ny(), GREY, Vector3(1.05, 1.5, 1.0))
+	PW(bc, "h_stab", 1.3, 2.35, GREY, Vector3(0.9, 1.0, 1.0))
+	# --- BEWAFFNUNG: alle vier Waffentypen unter den Flügeln (Symmetrie spiegelt) ---
+	P(bc, "missile_heavy", Vector3(0.95, -0.42, 0.45), Basis(), DARK)   # schwere Lenkrakete (innen)
+	P(bc, "rocket_pod", Vector3(1.45, -0.36, 0.35), Basis(), DARK)      # Raketenwerfer (Salve)
+	P(bc, "missile", Vector3(2.05, -0.3, 0.4), Basis(), DARK)           # Zielsuchrakete (außen)
+	P(bc, "bomb", Vector3(0.55, -0.5, 0.7), Basis(), DARK)             # Bombe (Rumpf-nah)
+	# Dreirad-Jet-Fahrwerk
+	P(bc, "wheel_jet", Vector3(0, -0.62, -1.4), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0.65, -0.55, 0.5), Basis(), DARK)
+	_finish(bc, "sturmjet", "Sturmjet · schwer bewaffnet")
 
 
 func _save(design: Array, fname: String) -> void:

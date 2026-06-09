@@ -83,7 +83,9 @@ const PRESETS := [
 	["me262", "Me 262 Schwalbe  ·  Erster Düsenjäger"],
 	["f86", "F-86 Sabre  ·  Korea-Düsenjäger"],
 	["mig15", "MiG-15  ·  Sowjet-Düsenjäger"],
-	["jet", "Kampfjet  ·  F-22"],
+	["f22", "F-22 Raptor  ·  Stealth-Jäger"],
+	["sturmjet", "Sturmjet  ·  schwer bewaffnet"],
+	["jet", "Kampfjet  ·  Delta-Canard"],
 ]
 var sel_panel: Control             # Kontext-Panel für ausgewähltes Teil
 var sel_title: Label

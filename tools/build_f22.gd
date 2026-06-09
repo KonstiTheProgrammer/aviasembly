@@ -80,6 +80,7 @@ func _save(design: Array) -> void:
 			"taper": it.get("taper", 1.0),
 			"taper_front": it.get("taper_front", 1.0),
 		})
-	var f := FileAccess.open("user://aircraft_design.json", FileAccess.WRITE)
+	DirAccess.make_dir_recursive_absolute("res://designs")
+	var f := FileAccess.open("res://designs/f22.json", FileAccess.WRITE)
 	f.store_string(JSON.stringify(data))
 	f.close()
