@@ -139,6 +139,20 @@ static func _build() -> void:
 		"desc": "Vorderes Rumpfteil mit rundem Nasen-Lufteinlauf (Lippe + Teiler, tiefer dunkler Schacht). Querschnitt passt ans generische Rumpfsegment.",
 	})
 	_add({
+		"id": "jet_body", "name": "Jet-Rumpfsegment", "category": CAT_BODY,
+		"mass": 110.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(1.32, 1.12, 1.64), "col_size": Vector3(1.2, 1.0, 1.5),
+		"metal": 0.55, "rough": 0.4,
+		"desc": "Generisches Jet-Rumpfsegment mit Teleskop-Steckstoß — steckt nahtlos in Nase/Cockpit/Heck.",
+	})
+	_add({
+		"id": "jet_tail", "name": "Jet-Heckkonus", "category": CAT_BODY,
+		"mass": 95.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(1.32, 1.12, 1.9), "col_size": Vector3(1.2, 1.0, 1.7),
+		"metal": 0.55, "rough": 0.4,
+		"desc": "Hinteres Rumpfsegment, läuft auf das Düsenrohr zu. Buchse vorn — dockt nahtlos an.",
+	})
+	_add({
 		"id": "jet_cockpit", "name": "Jet-Cockpit-Segment", "category": CAT_BODY,
 		"mass": 150.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
 		"size": Vector3(1.32, 1.5, 2.0), "col_size": Vector3(1.2, 1.2, 1.9),
