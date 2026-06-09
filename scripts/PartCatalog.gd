@@ -131,33 +131,38 @@ static func _build() -> void:
 		"metal": 0.45, "rough": 0.42,
 		"desc": "Dedizierter Me-262-Rumpf: dreieckiger Hai-Querschnitt, spitze Nase, flache Rahmen-Kanzel (Blender-Modell). Pfeilflügel + 2 Düsengondeln dran.",
 	})
+	# --- Modulare Jet-Rumpf-Abschnitte: jeder ist ein gelofteter Abschnitt mit GLEICHEM
+	#     Querschnitt (0.65 x 0.55) -> stoßbündig aneinander (kein Overlap, keine Naht). ---
 	_add({
 		"id": "jet_nose", "name": "Jet-Nasenteil (Lufteinlauf)", "category": CAT_BODY,
-		"mass": 95.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
-		"size": Vector3(1.32, 1.12, 2.0), "col_size": Vector3(1.2, 1.0, 1.9),
-		"metal": 0.55, "rough": 0.4,
-		"desc": "Vorderes Rumpfteil mit rundem Nasen-Lufteinlauf (Lippe + Teiler, tiefer dunkler Schacht). Querschnitt passt ans generische Rumpfsegment.",
+		"mass": 95.0, "color": Color(0.80, 0.81, 0.84), "shape": "jet_hull",
+		"size": Vector3(1.34, 1.12, 1.95), "col_size": Vector3(1.25, 1.05, 2.0),
+		"metal": 0.55, "rough": 0.4, "intake": true,
+		"stations": [
+			Vector4(-1.0, 0.52, 0.47, 0.0), Vector4(-0.55, 0.61, 0.55, 0.0),
+			Vector4(0.1, 0.65, 0.55, 0.0), Vector4(0.92, 0.65, 0.55, 0.0)],
+		"desc": "Vorderes Rumpfteil mit rundem Nasen-Lufteinlauf (Lippe + Teiler, tiefer Schacht). Hinten offen, gleicher Querschnitt -> stoßbündig ans Rumpfsegment.",
 	})
 	_add({
 		"id": "jet_body", "name": "Jet-Rumpfsegment", "category": CAT_BODY,
-		"mass": 110.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
-		"size": Vector3(1.32, 1.12, 1.64), "col_size": Vector3(1.2, 1.0, 1.5),
+		"mass": 110.0, "color": Color(0.80, 0.81, 0.84), "shape": "jet_hull",
+		"size": Vector3(1.34, 1.12, 1.6), "col_size": Vector3(1.25, 1.05, 1.78),
 		"metal": 0.55, "rough": 0.4,
-		"desc": "Generisches Jet-Rumpfsegment mit Teleskop-Steckstoß — steckt nahtlos in Nase/Cockpit/Heck.",
-	})
-	_add({
-		"id": "jet_tail", "name": "Jet-Heckkonus", "category": CAT_BODY,
-		"mass": 95.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
-		"size": Vector3(1.32, 1.12, 1.9), "col_size": Vector3(1.2, 1.0, 1.7),
-		"metal": 0.55, "rough": 0.4,
-		"desc": "Hinteres Rumpfsegment, läuft auf das Düsenrohr zu. Buchse vorn — dockt nahtlos an.",
+		"stations": [
+			Vector4(-0.8, 0.65, 0.55, 0.0), Vector4(0.0, 0.66, 0.555, 0.0),
+			Vector4(0.8, 0.65, 0.55, 0.0)],
+		"desc": "Generisches Jet-Rumpfsegment (gelofteter Tubus). Beide Enden offen & gleicher Querschnitt -> stoßbündig. Mit »Hinten«-Taper wird daraus ein Heckkonus (Düse).",
 	})
 	_add({
 		"id": "jet_cockpit", "name": "Jet-Cockpit-Segment", "category": CAT_BODY,
-		"mass": 150.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
-		"size": Vector3(1.32, 1.5, 2.0), "col_size": Vector3(1.2, 1.2, 1.9),
+		"mass": 150.0, "color": Color(0.80, 0.81, 0.84), "shape": "jet_hull",
+		"size": Vector3(1.34, 1.5, 1.6), "col_size": Vector3(1.25, 1.2, 1.78),
 		"metal": 0.55, "rough": 0.4,
-		"desc": "Rumpfsegment mit schwarz verglaster Bubble-Kanzel. Gleicher Querschnitt wie das generische Rumpfsegment — dockt nahtlos an Nase & Rumpf an.",
+		"stations": [
+			Vector4(-0.8, 0.65, 0.55, 0.0), Vector4(0.0, 0.66, 0.555, 0.0),
+			Vector4(0.8, 0.65, 0.55, 0.0)],
+		"canopy": [-0.05, 1.25, 0.30, 0.27, 0.42],
+		"desc": "Rumpfsegment mit schwarz verglaster Bubble-Kanzel. Gleicher Querschnitt wie das generische Rumpfsegment -> stoßbündig an Nase & Rumpf.",
 	})
 	_add({
 		"id": "red_star", "name": "Roter Stern (Markierung)", "category": CAT_BODY,
@@ -648,9 +653,9 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 				Vector3.ZERO, size))
 
 		"jet_hull":
-			# EIN durchgehend berechneter Rumpf (Loft durch Querschnitt-Stationen) — keine
-			# überlappenden Segmente, keine Nähte. Einlauf/Kanzel/Heck als saubere Aufsätze.
-			_jet_hull(root, p, col, metal, rough)
+			# Gelofteter Rumpf-Abschnitt (Loft durch Querschnitt-Stationen). Stoßbündig an
+			# Nachbarn (gleicher Querschnitt) -> keine Naht; taper formt ein Heckkonus-Ende.
+			_jet_hull(root, p, col, metal, rough, ef, eb)
 
 		"plate":
 			# Dünne, leicht verrundete Platte (z. B. Grenzschichtzaun auf dem Flügel)
@@ -1246,12 +1251,27 @@ static func _loft(stations: Array, segs := 32, cap_front := false, cap_back := f
 	return st.commit()
 
 
-# Baut EINEN durchgehenden Jet-Rumpf aus p["stations"] + Aufsätze: Lufteinlauf vorn
-# (dünne Lippe + matt-schwarzer Schacht + Teiler), Bubble-Kanzel oben, Heck-Düsenkappe.
-static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rough: float) -> void:
-	var stations: Array = p.get("stations", [])
-	if stations.size() < 2:
+# Baut EINEN gelofteten Rumpf-ABSCHNITT aus p["stations"] + Aufsätze: Lufteinlauf vorn
+# (Lippe + matt-schwarzer Schacht + Teiler), Bubble-Kanzel oben, Heck-Düsenkappe.
+# ef/eb = Front-/Heck-Skalierung (taper_front/taper) -> Enden in X/Y verjüngen. So kann
+# EIN generisches Segment gerade (taper 1) ODER als Heckkonus (taper < 1) verwendet werden.
+# Ein verjüngtes Heck (eb < 0.9) bekommt automatisch eine dunkle Düsenkappe; gerade Enden
+# bleiben OFFEN -> stoßbündig (gleicher Querschnitt) an den Nachbarn, ohne Überlappung.
+static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rough: float,
+		ef := Vector2.ONE, eb := Vector2.ONE) -> void:
+	var raw: Array = p.get("stations", [])
+	if raw.size() < 2:
 		return
+	# Stationen über die Länge per ef/eb skalieren (vorne -> hinten interpolieren).
+	var zmin: float = raw[0].x
+	var zmax: float = raw[raw.size() - 1].x
+	var span: float = maxf(zmax - zmin, 0.0001)
+	var stations: Array = []
+	for s in raw:
+		var t: float = (s.x - zmin) / span
+		var sx: float = lerp(ef.x, eb.x, t)
+		var sy: float = lerp(ef.y, eb.y, t)
+		stations.append(Vector4(s.x, s.y * sx, s.z * sy, s.w * sy))
 	var body_mat := make_material(col, metal, rough)
 	root.add_child(_mi(_loft(stations, 36), body_mat))
 	var first: Vector4 = stations[0]
@@ -1282,7 +1302,8 @@ static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rou
 			Vector4(zc + ln * 0.04, cw, chh, base + chh * 0.62),
 			Vector4(zc + ln * 0.32, cw * 0.80, chh * 0.74, base + chh * 0.50),
 			Vector4(zc + ln * 0.52, 0.05, 0.04, base + 0.02)], 32, true, true), glass))
-	if p.get("rear_cap", false):
+	# Heck-Düsenkappe: explizit (rear_cap) ODER automatisch bei verjüngtem Heck (Heckkonus).
+	if p.get("rear_cap", false) or eb.x < 0.9:
 		var rmat := make_material(Color(0.05, 0.05, 0.06), 0.3, 0.4)
 		root.add_child(_mi(_loft([
 			Vector4(last.x, last.y, last.z, last.w),

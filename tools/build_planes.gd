@@ -222,32 +222,36 @@ func _build_mig15() -> void:
 	var bc := _new_bc()
 	var SILVER := Color(0.80, 0.81, 0.84)
 	var DARK := Color(0.13, 0.13, 0.15)
-	# RUMPF = EIN durchgehend berechnetes Loft-Teil (mig15_hull): Nasen-Einlauf, Bubble-
-	# Kanzel und Heckdüse sind in EINER glatten Fläche integriert -> keine Segment-Nähte,
-	# keine Überlappungen mehr. Die procedural-Wurzel wird winzig im Rumpf vergraben.
+	# MODULAR aus 4 gelofteten Abschnitten — alle mit GLEICHEM Querschnitt (0.65 x 0.55),
+	# stoßbündig aneinander (kein Overlap -> keine Naht, keine Zacken):
+	#   1) Frontteil (eigenes Modell, Lufteinlauf)  2) generisches Rumpfsegment
+	#   3) Cockpit (eigenes Modell, Kanzel)          4) generisches Rumpfsegment (hinten,
+	#      per Taper als Heckkonus -> Düse). Wurzel winzig im Rumpf vergraben.
 	_setup_root(bc, SILVER, Vector3(0.1, 0.1, 0.1))
 	var rp := _root_part(bc)
 	if rp:
 		rp.position = Vector3(0, 0.0, 0.0)
-	P(bc, "mig15_hull", Vector3(0, 0, 0), Basis(), SILVER)
-	# Triebwerk im Heck (Schub + Flamme; Düse sitzt im Heckkonus des Rumpfs, auf der
-	# Rumpf-Mittellinie -> Schub durch den COM)
-	P(bc, "jet_engine", Vector3(0, 0.05, 2.6), Basis(), SILVER, Vector3(0.5, 0.5, 1.45))
+	P(bc, "jet_nose", Vector3(0, 0, -3.0), Basis(), SILVER)                       # 1) Frontteil
+	P(bc, "jet_body", Vector3(0, 0, -1.28), Basis(), SILVER)                      # 2) generisch
+	P(bc, "jet_cockpit", Vector3(0, 0, 0.32), Basis(), SILVER)                    # 3) Cockpit
+	P(bc, "jet_body", Vector3(0, 0, 1.92), Basis(), SILVER, Vector3.ONE, 0.5, 1.0) # 4) generisch -> Heckkonus
+	# Triebwerk axial (Düse tritt aus dem Heckkonus aus); lang im Rumpf verborgen
+	P(bc, "jet_engine", Vector3(0, 0.05, 0.3), Basis(), SILVER, Vector3(0.5, 0.5, 1.5))
 	# Pfeilflügel (~35°), mittig-tief — etwas größer, mit Grenzschichtzaun (MiG-Detail)
 	PW(bc, "wing_swept", -0.12, 0.3, SILVER, Vector3(1.08, 1.0, 1.08))
 	P(bc, "wing_fence", Vector3(1.25, 0.03, 0.42), Basis(), SILVER)
 	# HOHE Seitenflosse + HOCH am Fin montiertes Höhenleitwerk (das MiG-15-Merkmal!)
-	P(bc, "v_stab", Vector3(0, 0.5, 2.8), _ny(), SILVER, Vector3(1.05, 1.55, 1.0))
-	PW(bc, "h_stab", 1.5, 2.9, SILVER, Vector3(0.92, 1.0, 1.0))
+	P(bc, "v_stab", Vector3(0, 0.5, 2.2), _ny(), SILVER, Vector3(1.05, 1.55, 1.0))
+	PW(bc, "h_stab", 1.45, 2.35, SILVER, Vector3(0.92, 1.0, 1.0))
 	# Dreirad-Jet-Fahrwerk: Bug (mittig) + Hauptfahrwerk am Flügel (Symmetrie)
-	P(bc, "wheel_jet", Vector3(0, -0.6, -1.7), Basis(), DARK)
-	P(bc, "wheel_jet", Vector3(0.6, -0.55, 0.55), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0, -0.6, -1.4), Basis(), DARK)
+	P(bc, "wheel_jet", Vector3(0.6, -0.55, 0.4), Basis(), DARK)
 	# --- Sowjet-Hoheitsabzeichen: rote Sterne (Material bleibt rot, Farbe egal) ---
 	var bL := Basis(Vector3(-1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, -1))   # nach links (-X) gedreht
 	var bUp := Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1))   # Normale nach oben (+Y)
 	P(bc, "red_star", Vector3(0.57, 0.0, 1.35), Basis(), SILVER, Vector3(1.0, 1.0, 1.0))  # Rumpf rechts (gespiegelt)
-	P(bc, "red_star", Vector3(0.09, 0.95, 2.7), Basis(), SILVER, Vector3(0.65, 0.65, 0.65)) # Seitenflosse rechts
-	P(bc, "red_star", Vector3(-0.09, 0.95, 2.7), bL, SILVER, Vector3(0.65, 0.65, 0.65))   # Seitenflosse links
+	P(bc, "red_star", Vector3(0.08, 0.9, 1.95), Basis(), SILVER, Vector3(0.6, 0.6, 0.6))  # Seitenflosse rechts
+	P(bc, "red_star", Vector3(-0.08, 0.9, 1.95), bL, SILVER, Vector3(0.6, 0.6, 0.6))      # Seitenflosse links
 	P(bc, "red_star", Vector3(1.7, 0.0, 0.55), bUp, SILVER, Vector3(0.9, 0.9, 0.9))       # Flügel oben (gespiegelt)
 	_finish(bc, "mig15", "MiG-15")
 
