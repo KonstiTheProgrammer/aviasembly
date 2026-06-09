@@ -15,7 +15,9 @@ var _drift := Vector3.ZERO
 var _dead := false
 
 
-func setup(p_kind: String, pos: Vector3, col: Color) -> void:
+func setup(p_kind: String, pos: Vector3, col: Color, diff := 1.0) -> void:
+	# diff >= 1: skaliert die Driftgeschwindigkeit (höhere Wellen -> schnellere, schwerer
+	# zu treffende Ziele). 1.0 = Grundtempo.
 	kind = p_kind
 	position = pos
 	_base = pos
@@ -25,13 +27,13 @@ func setup(p_kind: String, pos: Vector3, col: Color) -> void:
 		hp = 4.0
 		hit_radius = 6.5
 		reward = 600
-		_drift = Vector3(cos(ang), 0, sin(ang)) * randf_range(5.0, 9.0)
+		_drift = Vector3(cos(ang), 0, sin(ang)) * randf_range(5.0, 9.0) * diff
 		_build_airship(col)
 	else:
 		hp = 1.0
 		hit_radius = 2.8
 		reward = 120
-		_drift = Vector3(cos(ang), 0, sin(ang)) * randf_range(1.5, 4.0)
+		_drift = Vector3(cos(ang), 0, sin(ang)) * randf_range(1.5, 4.0) * diff
 		_build_balloon(col)
 
 

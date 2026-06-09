@@ -74,6 +74,17 @@ var _cat_open: Dictionary = {}     # Kategorie -> auf-/zugeklappt
 var game: GameState
 var money_label: Label             # Hangar
 var fly_money_label: Label         # Flug-HUD
+var survival_label: Label          # Flug-HUD: Welle / Abschüsse / Combo / Score (Survival)
+# --- Survival-Wellen & Flug-Score ---
+var _wave := 0                     # aktuelle Welle (0 = keine läuft)
+var _alive := 0                    # noch lebende Wellen-Ziele
+var _kills := 0                    # Abschüsse dieser Flug-Session
+var _combo := 0                    # aktuelle Abschuss-Combo
+var _combo_t := 0.0                # Restzeit des Combo-Fensters
+var _best_combo := 0               # beste Combo dieser Session
+var _flight_money0 := 0            # Guthaben bei Flugbeginn (für „verdient")
+var _flight_score := 0             # Punkte dieser Session
+const COMBO_WINDOW := 4.0          # Sekunden zwischen Abschüssen, um die Combo zu halten
 var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
 var upgrade_box: VBoxContainer     # Upgrade-Panel
 var mode_overlay: Control          # Modus-Auswahl-Overlay
@@ -567,6 +578,7 @@ func _set_mode(m: int) -> void:
 	if m == Mode.FLY and mode == Mode.BUILD and build_ctrl != null and build_ctrl.has_floating():
 		_toast("⚠ %d Teil(e) hängen frei (rot markiert) — erst verbinden, dann Start" % build_ctrl.floating_count())
 		return
+	var was_fly := (mode == Mode.FLY)
 	mode = m
 	var building := (m == Mode.BUILD)
 	build_ctrl.set_active(building)
@@ -582,6 +594,9 @@ func _set_mode(m: int) -> void:
 	if building:
 		flight_ctrl.set_active(false)
 		flight_ctrl.clear_aircraft()
+		# Aus dem Survival-Flug zurück -> Flug-Auswertung zeigen
+		if was_fly and game != null and not game.is_sandbox() and _wave > 0:
+			_show_result_screen()
 	else:
 		if game != null:
 			flight_ctrl.thrust_mult = game.thrust_mult()
@@ -589,6 +604,7 @@ func _set_mode(m: int) -> void:
 			flight_ctrl.mass_mult = game.mass_mult()
 		flight_ctrl.build_from_design(build_ctrl.get_design())
 		flight_ctrl.set_active(true)
+		_begin_flight()        # Survival: Welle 1 starten + Score zurücksetzen
 		# Einmaliger Steuer-Hinweis beim allerersten Flug
 		if game != null and not game.flag("controls_hint"):
 			game.set_flag("controls_hint")
@@ -1343,6 +1359,13 @@ func _build_flight_ui() -> void:
 	stall_label.visible = false
 	flight_root.add_child(stall_label)
 
+	# Survival-HUD oben rechts (Welle / Abschüsse / Combo / Score)
+	survival_label = _lbl("", 15, Color(0.7, 1.0, 0.8))
+	survival_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_rect(survival_label, 1, 0, 1, 0, -300, 44, -14, 120)
+	survival_label.visible = false
+	flight_root.add_child(survival_label)
+
 	# Lande-/Schadensmeldung mitte
 	land_label = _lbl("", 22, Color(1, 0.85, 0.3))
 	land_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1579,26 +1602,147 @@ func _rand_target_pos(ymin: float, ymax: float) -> Vector3:
 	return Vector3(randf_range(-380.0, 380.0), randf_range(ymin, ymax), randf_range(-750.0, -30.0))
 
 
-func _make_target(kind: String, pos: Vector3, col: Color) -> void:
+func _make_target(kind: String, pos: Vector3, col: Color, diff := 1.0) -> void:
 	var t := Target.new()
 	targets_root.add_child(t)
-	t.setup(kind, pos, col)
+	t.setup(kind, pos, col, diff)
 	t.killed.connect(_on_target_killed)
 
 
 func _on_target_killed(reward: int, _pos: Vector3) -> void:
-	if game != null:
+	if game == null:
+		return
+	if game.is_sandbox():
+		# Sandbox: freies Zielfeld, Nachschub-Ballon (Geld egal)
 		game.add_money(reward)
-	_toast("💥 Abschuss! +%d 🪙" % reward)
-	# Nachschub: nach kurzer Zeit einen neuen Ballon einfliegen lassen
-	var tmr := get_tree().create_timer(7.0)
-	tmr.timeout.connect(_respawn_balloon)
+		_toast("💥 Abschuss! +%d 🪙" % reward)
+		get_tree().create_timer(7.0).timeout.connect(_respawn_balloon)
+		return
+	# Survival: Combo, Score, Wellen-Fortschritt
+	_kills += 1
+	_combo += 1
+	_combo_t = COMBO_WINDOW
+	_best_combo = maxi(_best_combo, _combo)
+	var mult := 1.0 + 0.25 * float(_combo - 1)        # ×1, ×1.25, ×1.5, …
+	var gain := int(round(float(reward) * mult))
+	game.add_money(gain)
+	_flight_score += gain
+	if _combo >= 3:
+		_toast("💥 +%d 🪙   ×%d COMBO!" % [gain, _combo])
+	else:
+		_toast("💥 Abschuss! +%d 🪙" % gain)
+	_alive -= 1
+	_update_survival_hud()
+	if _alive <= 0:
+		_wave_cleared()
 
 
 func _respawn_balloon() -> void:
-	if targets_root == null:
+	if targets_root == null or (game != null and not game.is_sandbox()):
 		return
 	_make_target("balloon", _rand_target_pos(40.0, 210.0), _TARGET_COLORS[randi() % _TARGET_COLORS.size()])
+
+
+# --- Survival: Wellen-System + Flug-Score ----------------------------------
+func _process(delta: float) -> void:
+	# Combo-Fenster herunterzählen (nur im Survival-Flug)
+	if mode != Mode.FLY or game == null or game.is_sandbox():
+		return
+	if _combo_t > 0.0:
+		_combo_t -= delta
+		if _combo_t <= 0.0 and _combo > 0:
+			_combo = 0
+			_update_survival_hud()
+
+
+func _begin_flight() -> void:
+	# Beim Start in den Flug: Survival = frische Session + Welle 1; Sandbox = Feld bleibt.
+	if game == null or game.is_sandbox():
+		if survival_label:
+			survival_label.visible = false
+		return
+	_kills = 0; _combo = 0; _best_combo = 0; _combo_t = 0.0; _flight_score = 0
+	_flight_money0 = game.money
+	_wave = 0
+	_clear_targets()
+	_start_wave(1)
+	if survival_label:
+		survival_label.visible = true
+
+
+func _clear_targets() -> void:
+	if targets_root == null:
+		return
+	for t in targets_root.get_children():
+		if t.is_in_group("target"):
+			t.queue_free()
+	_alive = 0
+
+
+func _start_wave(n: int) -> void:
+	_wave = n
+	var diff := 1.0 + 0.12 * float(n - 1)            # spätere Wellen driften schneller
+	var balloons := 4 + n * 2
+	var airships := int(n / 2)                        # ab Welle 2 ein Luftschiff, Welle 4 zwei …
+	for i in balloons:
+		_make_target("balloon", _rand_target_pos(40.0, 210.0), _TARGET_COLORS[i % _TARGET_COLORS.size()], diff)
+	for i in airships:
+		_make_target("airship", _rand_target_pos(130.0, 250.0), Color(0.72, 0.74, 0.8), diff)
+	_alive = balloons + airships
+	_toast("🌊  WELLE %d  —  %d Ziele" % [n, _alive])
+	_update_survival_hud()
+
+
+func _wave_cleared() -> void:
+	var bonus := 100 + _wave * 100
+	game.add_money(bonus)
+	_flight_score += bonus
+	_toast("✅  WELLE %d GESCHAFFT!   Bonus +%d 🪙" % [_wave, bonus])
+	_update_survival_hud()
+	var nw := _wave + 1
+	get_tree().create_timer(3.5).timeout.connect(func(): _next_wave(nw))
+
+
+func _next_wave(n: int) -> void:
+	if mode != Mode.FLY or game == null or game.is_sandbox():
+		return
+	_start_wave(n)
+
+
+func _update_survival_hud() -> void:
+	if survival_label == null:
+		return
+	var combo_txt := ("    ×%d COMBO" % _combo) if _combo >= 2 else ""
+	survival_label.text = "WELLE %d  ·  übrig %d\nAbschüsse %d%s\nScore %d" % [_wave, _alive, _kills, combo_txt, _flight_score]
+
+
+func _rank_for(s: int) -> String:
+	if s >= 4000:
+		return "🥇 Ass!"
+	if s >= 2000:
+		return "🥈 Veteran"
+	if s >= 800:
+		return "🥉 Pilot"
+	return "Rekrut"
+
+
+func _show_result_screen() -> void:
+	if game == null or game.is_sandbox():
+		return
+	if survival_label:
+		survival_label.visible = false
+	var earned := maxi(game.money - _flight_money0, 0)
+	var v := _dialog_shell("🏁  Flug-Auswertung")
+	v.add_child(_lbl("Erreichte Welle:    %d" % _wave, 17))
+	v.add_child(_lbl("Abschüsse:    %d" % _kills, 17))
+	v.add_child(_lbl("Beste Combo:    ×%d" % _best_combo, 17))
+	v.add_child(_lbl("Flug-Score:    %d" % _flight_score, 17))
+	v.add_child(_lbl("Verdient:    +%d 🪙" % earned, 18, Color(1.0, 0.86, 0.3)))
+	v.add_child(_lbl("Rang:    %s" % _rank_for(_flight_score), 22, Color(0.7, 1.0, 0.8)))
+	var ok := Button.new()
+	ok.text = "Weiter"
+	ok.pressed.connect(_close_dialog)
+	v.add_child(ok)
 
 
 # ===========================================================================
