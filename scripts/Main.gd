@@ -371,6 +371,19 @@ func _build_airfield(af: Dictionary) -> void:
 			_deco_light(node, Vector3(x, 0.4, se * (hl + 2.0)), Color(0.25, 1.0, 0.4))
 		for k in range(1, 6):
 			_deco_light(node, Vector3(0, 0.6, se * (hl + 20.0 + k * 28.0)), Color(1.0, 0.95, 0.8))
+	# --- REIFENSPUREN in der Aufsetzzone (dunkle Abrieb-Streifen, leicht versetzt) ---
+	var rubber := _flat_mat(Color(0.09, 0.09, 0.10), 1.0)
+	for se in [-1.0, 1.0]:
+		for sx in [-1.0, 1.0]:
+			for k in 4:
+				var off := Vector3(sx * (4.6 + float(k) * 0.9), 0.085, se * (hl - 105.0 - float(k) * 14.0))
+				_deco_box(node, off, Vector3(0.55, 0.015, 26.0 - float(k) * 3.0), rubber)
+	# --- PAPI: 4-Lampen-Reihe links neben jeder Schwelle (2 weiß / 2 rot) ---
+	for se in [-1.0, 1.0]:
+		for k in 4:
+			var pp := Vector3(-(RWY_W * 0.5 + 6.0 + float(k) * 3.2), 0.5, se * (hl - 130.0))
+			_deco_box(node, pp - Vector3(0, 0.25, 0), Vector3(0.5, 0.5, 0.5), _flat_mat(Color(0.25, 0.26, 0.3), 0.8))
+			_deco_light(node, pp + Vector3(0, 0.15, 0), Color(1.0, 0.97, 0.9) if k < 2 else Color(1.0, 0.18, 0.12))
 	# --- Rollweg + Vorfeld (Beton) ---
 	_deco_box(node, Vector3(34.0, 0.035, 10.0), Vector3(12.0, 0.07, 160.0), concrete)         # Rollweg parallel
 	_deco_box(node, Vector3(22.0, 0.035, -60.0), Vector3(24.0, 0.07, 12.0), concrete)         # Verbinder Nord
@@ -464,6 +477,7 @@ func _build_main_base(node: Node3D, col: Color) -> void:
 		_deco_box(node, fp + Vector3(0, 6.5, 0), Vector3(0.7, 13.0, 0.7), _flat_mat(Color(0.5, 0.5, 0.54), 0.6))
 		_collider_box(node, fp + Vector3(0, 6.5, 0), Vector3(0.9, 13.0, 0.9))
 		_deco_box(node, fp + Vector3(0, 13.2, 0), Vector3(2.4, 0.9, 1.0), _emit_mat(Color(1.0, 0.97, 0.85), 1.6))
+	_build_base_life(node)
 	# --- Helipad westlich der Bahn ---
 	var hp := Vector3(-40.0, 0.0, 70.0)
 	var pad := MeshInstance3D.new()
@@ -501,6 +515,125 @@ func _build_main_base(node: Node3D, col: Color) -> void:
 
 
 # Geparktes Deko-Flugzeug aus einer Vorlage (nur Visuals + ein grober Kollisionsblock).
+# "Leben" auf dem Vorfeld: Tankwagen, Feuerwehr, Gepäckzug, Pylonen, Schilder,
+# Parkpositions-Linien, Drehfeuer auf dem Tower, Antennen-Farm. Alles Low-Poly-
+# Boxen/Zylinder aus den vorhandenen Helfern — billig, aber der Platz wirkt benutzt.
+func _build_base_life(node: Node3D) -> void:
+	var yellow := _flat_mat(Color(0.95, 0.78, 0.1), 0.6)
+	var red := _flat_mat(Color(0.82, 0.16, 0.1), 0.55)
+	var metal := _flat_mat(Color(0.72, 0.74, 0.78), 0.35)
+	var darkm := _flat_mat(Color(0.22, 0.23, 0.26), 0.8)
+	var line_y := _flat_mat(Color(0.95, 0.8, 0.15), 0.9)
+	# --- TANKWAGEN (gelb) auf dem Vorfeld ---
+	_deco_truck(node, Vector3(88.0, 0.0, 20.0), 35.0, yellow, true)
+	# --- FEUERWEHR: kleines Haus + roter Truck davor ---
+	var fh := Vector3(50.0, 0.0, 88.0)
+	_deco_box(node, fh + Vector3(0, 3.0, 0), Vector3(12.0, 6.0, 10.0), red)
+	_collider_box(node, fh + Vector3(0, 3.0, 0), Vector3(12.0, 6.0, 10.0))
+	_deco_box(node, fh + Vector3(0, 6.3, 0), Vector3(13.0, 0.6, 11.0), _flat_mat(Color(0.92, 0.92, 0.95), 0.7))
+	_deco_box(node, fh + Vector3(-3.0, 2.2, 5.1), Vector3(4.5, 4.4, 0.2), darkm)   # Tor
+	_deco_truck(node, fh + Vector3(4.0, 0.0, 9.0), 90.0, red, false)
+	# --- GEPÄCK-ZUG: Zugmaschine + 2 Anhänger ---
+	var bz := Vector3(78.0, 0.0, 42.0)
+	_deco_box(node, bz + Vector3(0, 0.8, 0), Vector3(2.0, 1.2, 3.0), metal)
+	_collider_box(node, bz + Vector3(0, 0.8, 0), Vector3(2.0, 1.2, 3.0))
+	for i in [1, 2]:
+		_deco_box(node, bz + Vector3(0, 0.7, 3.6 * float(i)), Vector3(1.8, 1.0, 2.6), darkm)
+		_deco_box(node, bz + Vector3(0, 1.35, 3.6 * float(i)), Vector3(1.6, 0.5, 2.2), yellow)
+	# --- PYLONEN-Reihe am Vorfeldrand ---
+	var cone := _flat_mat(Color(1.0, 0.45, 0.1), 0.6)
+	for i in 6:
+		var cp := Vector3(72.0, 0.0, -40.0 + float(i) * 6.0)
+		var cm := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.05
+		cyl.bottom_radius = 0.35
+		cyl.height = 0.9
+		cm.mesh = cyl
+		cm.position = cp + Vector3(0, 0.45, 0)
+		cm.material_override = cone
+		node.add_child(cm)
+	# --- PARKPOSITIONEN: gelbe Führungslinien + Stopplinie (3 Stellplätze) ---
+	for i in 3:
+		var px := 86.0
+		var pz := -36.0 + float(i) * 16.0
+		_deco_box(node, Vector3(px, 0.07, pz), Vector3(10.0, 0.02, 0.35), line_y)          # Einrolllinie
+		_deco_box(node, Vector3(px - 5.0, 0.07, pz), Vector3(0.35, 0.02, 5.0), line_y)     # Stopp-T
+	# --- TAXIWAY-SCHILDER (gelb auf schwarz) ---
+	for spz in [-30.0, 10.0, 50.0]:
+		_deco_box(node, Vector3(63.0, 0.55, spz), Vector3(0.25, 1.1, 1.8), darkm)
+		_deco_box(node, Vector3(63.0, 0.75, spz), Vector3(0.3, 0.5, 1.5), yellow)
+	# --- DREHFEUER auf dem Tower (rotierender Doppel-Strahl, grün/weiß) ---
+	var beacon_pivot := Node3D.new()
+	beacon_pivot.position = Vector3(58.0, 26.0, 55.0)
+	node.add_child(beacon_pivot)
+	var b1 := MeshInstance3D.new()
+	var bb := BoxMesh.new()
+	bb.size = Vector3(2.6, 0.25, 0.25)
+	b1.mesh = bb
+	b1.position = Vector3(1.3, 0, 0)
+	b1.material_override = _emit_mat(Color(1.0, 1.0, 0.9), 4.0)
+	beacon_pivot.add_child(b1)
+	var b2 := MeshInstance3D.new()
+	b2.mesh = bb
+	b2.position = Vector3(-1.3, 0, 0)
+	b2.material_override = _emit_mat(Color(0.2, 1.0, 0.4), 4.0)
+	beacon_pivot.add_child(b2)
+	_spin_nodes.append(beacon_pivot)
+	# --- ANTENNEN-FARM hinterm Tower ---
+	for i in 3:
+		var ap := Vector3(66.0 + float(i) * 4.0, 0.0, 62.0)
+		var hgt := 9.0 + float(i) * 3.0
+		_deco_box(node, ap + Vector3(0, hgt * 0.5, 0), Vector3(0.25, hgt, 0.25), metal)
+		_deco_light(node, ap + Vector3(0, hgt + 0.3, 0), Color(1.0, 0.2, 0.15))
+
+
+# Low-Poly-Truck: Kabine + Aufbau (Tank-Zylinder beim Tanker, Kasten bei der Feuerwehr).
+func _deco_truck(parent: Node3D, pos: Vector3, yaw_deg: float, body_mat: Material, tanker: bool) -> void:
+	var t := Node3D.new()
+	t.position = pos
+	t.rotation_degrees = Vector3(0, yaw_deg, 0)
+	parent.add_child(t)
+	var darkm := _flat_mat(Color(0.18, 0.19, 0.22), 0.8)
+	_deco_box(t, Vector3(0, 0.55, 2.6), Vector3(2.2, 1.5, 1.6), body_mat)       # Kabine
+	_deco_box(t, Vector3(0, 1.05, 2.55), Vector3(1.9, 0.7, 1.2), _flat_mat(Color(0.6, 0.75, 0.85), 0.2))  # Scheiben
+	if tanker:
+		var cyl := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 1.0
+		cm.bottom_radius = 1.0
+		cm.height = 4.6
+		cyl.mesh = cm
+		cyl.rotation_degrees = Vector3(90, 0, 0)
+		cyl.position = Vector3(0, 1.25, -0.6)
+		cyl.material_override = body_mat
+		t.add_child(cyl)
+	else:
+		_deco_box(t, Vector3(0, 1.15, -0.6), Vector3(2.2, 2.0, 4.6), body_mat)
+		_deco_box(t, Vector3(0, 2.35, -0.6), Vector3(0.5, 0.4, 2.0), _flat_mat(Color(0.9, 0.9, 0.95), 0.4))
+	for wz in [1.9, -1.9]:
+		for wx in [-1.05, 1.05]:
+			var wm := MeshInstance3D.new()
+			var wc := CylinderMesh.new()
+			wc.top_radius = 0.45
+			wc.bottom_radius = 0.45
+			wc.height = 0.4
+			wm.mesh = wc
+			wm.rotation_degrees = Vector3(0, 0, 90)
+			wm.position = Vector3(wx, 0.45, wz)
+			wm.material_override = darkm
+			t.add_child(wm)
+	var cb := StaticBody3D.new()
+	cb.collision_layer = 1
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = Vector3(2.4, 2.6, 7.0)
+	cs.shape = bs
+	cs.position = Vector3(0, 1.3, 0.3)
+	cb.add_child(cs)
+	t.add_child(cb)
+
+
 func _add_parked_plane(parent: Node3D, preset: String, pos: Vector3, yaw_deg: float) -> void:
 	var f := FileAccess.open("res://designs/%s.json" % preset, FileAccess.READ)
 	if f == null:
