@@ -45,6 +45,8 @@ var ground_mesh: MeshInstance3D
 var blueprint_grid: MeshInstance3D
 var airfields: Array = []
 var world_env: WorldEnvironment
+var hangar_lights: Node3D           # Studio-Beleuchtung NUR für den Bau-Modus
+var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
 var env_sky: Environment
 var env_blueprint: Environment
 
@@ -183,30 +185,72 @@ func _setup_world() -> void:
 	env_blueprint.background_mode = Environment.BG_COLOR
 	env_blueprint.background_color = Color(0.04, 0.13, 0.30)
 	env_blueprint.sky = sky_bp
-	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env_blueprint.ambient_light_energy = 1.15
+	# NEUTRALER Ambient (Studio) statt Blau-Flut vom Himmel: die Teile zeigen ihre
+	# ECHTE Lackfarbe; der blaue Gradient-Himmel bleibt nur REFLEXIONS-Quelle
+	# (Metall spiegelt weiter blau-gradient, Drehen bleibt sichtbar).
+	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env_blueprint.ambient_light_color = Color(0.66, 0.69, 0.74)
+	env_blueprint.ambient_light_energy = 0.85
 	env_blueprint.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_ACES
+	# Kontakt-Tiefe + sanftes Leuchten (Auswahl-Glow/Materialien poppen)
+	env_blueprint.ssao_enabled = true
+	env_blueprint.ssao_intensity = 1.6
+	env_blueprint.ssao_radius = 1.6
+	env_blueprint.glow_enabled = true
+	env_blueprint.glow_intensity = 0.35
+	env_blueprint.glow_strength = 0.95
+	env_blueprint.glow_hdr_threshold = 1.05
 
 	world_env = WorldEnvironment.new()
 	world_env.environment = env_sky
 	add_child(world_env)
 
-	# Sonne
+	# --- Flug-Beleuchtung: Sonne + Fülllicht (nur im Flug aktiv) ---
+	sky_lights = Node3D.new()
+	add_child(sky_lights)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-52, -47, 0)
 	sun.light_energy = 1.15
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 300.0
-	add_child(sun)
-
-	# Fülllicht von UNTEN (kein Schatten) -> Flugzeug-Unterseite ist nicht mehr stockdunkel,
-	# man sieht es auch von unten. Etwas seitlich für plastischere Optik.
+	sky_lights.add_child(sun)
 	var underfill := DirectionalLight3D.new()
 	underfill.rotation_degrees = Vector3(62, 130, 0)
 	underfill.light_energy = 0.55
 	underfill.shadow_enabled = false
-	add_child(underfill)
+	sky_lights.add_child(underfill)
+
+	# --- HANGAR-STUDIO-RIG (nur im Bau-Modus aktiv): klassisches 3-Punkt-Licht ---
+	# Key warm + Schatten (Form), Fill kühl von rechts (weiche Schattenseite),
+	# Rim von hinten-oben (Kantenlicht trennt vom dunklen Raum), Underfill dezent.
+	hangar_lights = Node3D.new()
+	add_child(hangar_lights)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-48, -36, 0)
+	key.light_energy = 1.45
+	key.light_color = Color(1.0, 0.97, 0.92)
+	key.shadow_enabled = true
+	key.directional_shadow_max_distance = 80.0
+	key.shadow_blur = 1.6
+	hangar_lights.add_child(key)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-22, 118, 0)
+	fill.light_energy = 0.5
+	fill.light_color = Color(0.72, 0.82, 1.0)
+	fill.shadow_enabled = false
+	hangar_lights.add_child(fill)
+	var rim := DirectionalLight3D.new()
+	rim.rotation_degrees = Vector3(-30, 168, 0)
+	rim.light_energy = 0.85
+	rim.light_color = Color(0.85, 0.92, 1.0)
+	rim.shadow_enabled = false
+	hangar_lights.add_child(rim)
+	var hfill := DirectionalLight3D.new()
+	hfill.rotation_degrees = Vector3(58, 40, 0)
+	hfill.light_energy = 0.3
+	hfill.shadow_enabled = false
+	hangar_lights.add_child(hfill)
 
 	# Boden-Kollision (unendliche Ebene)
 	var ground_body := StaticBody3D.new()
@@ -828,6 +872,10 @@ func _set_mode(m: int) -> void:
 	world_env.environment = env_blueprint if building else env_sky
 	blueprint_grid.visible = building
 	fly_world.visible = not building
+	if hangar_lights != null:
+		hangar_lights.visible = building   # Studio-Rig nur im Hangar
+	if sky_lights != null:
+		sky_lights.visible = not building  # Sonne nur im Flug
 
 	if building:
 		flight_ctrl.set_active(false)
