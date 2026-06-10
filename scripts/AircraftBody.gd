@@ -1562,22 +1562,35 @@ func _mouse_steer(state: PhysicsDirectBodyState3D) -> void:
 	var qa := cur.get_rotation_quaternion()
 	var qb := tb.get_rotation_quaternion()
 	var ang := qa.angle_to(qb)
+	# Drehraten-Budget aus DREI physikalischen Grenzen:
+	#  (1) Basisrate, (2) Struktur-G/v, (3) was der FLÜGEL bei diesem Tempo an
+	#  Auftrieb wirklich liefert (∝ v): Kurvenrate = a/v = ½ρ·v·K·S·CLmax·Marge/m.
+	# Ohne (3) riss die Kinematik die Nase bei 40 m/s mit 160°/s hoch (AoA 40°!),
+	# der Speed starb -> Salto -> Boden. Jetzt: langsam = sanft, schnell = G-limitiert.
+	var cap := MOUSE_TURN_RATE
 	if ang > 1e-4:
 		var gmax := 70.0
 		if wing_capacity > 0.0 and mass > 1.0:
 			gmax = clampf(wing_capacity / mass * 0.7, 30.0, 300.0)
-		var cap := minf(MOUSE_TURN_RATE, gmax / maxf(airspeed, 18.0))
-		cap *= clampf(airspeed / 22.0, 0.25, 1.0)
+		var rho := RHO0 * exp(-altitude / SCALE_H)
+		var cap_lift := 0.5 * rho * airspeed * LIFT_K * wing_area * CL_MAX * 0.65 / maxf(mass, 1.0)
+		cap = clampf(minf(minf(MOUSE_TURN_RATE, gmax / maxf(airspeed, 10.0)), cap_lift), 0.3, MOUSE_TURN_RATE)
 		var step := minf(ang * clampf(MOUSE_TURN_RESP * state.step, 0.0, 1.0), cap * state.step)
 		var nb := Basis(qa.slerp(qb, step / ang))
 		var nxf := state.transform
 		nxf.basis = nb
 		state.transform = nxf
-	# Geschwindigkeit folgt der Nase (Betrag bleibt — Energie kommt weiter aus den Kräften).
+	# Die Kinematik BESITZT die Drehrate: Rest-Drehmomente (Wetterfahne/Stall-Recovery/
+	# Buffet) würden sonst UNGEDÄMPFT obendrauf rotieren (gemessen: 105°/s statt 77°/s
+	# Budget) -> genau das alte "Ausrasten". Drehimpuls hart ausnullen.
+	state.angular_velocity = state.angular_velocity.move_toward(Vector3.ZERO, 30.0 * state.step)
+	# Geschwindigkeit folgt der Nase (Betrag bleibt — Energie kommt weiter aus den
+	# Kräften). Folge-Rate NIE schneller als das Drehraten-Budget (sonst schiebt die
+	# Richtung der Nase voraus, obwohl der Flügel das nicht tragen könnte).
 	var spd := state.linear_velocity.length()
 	if spd > 1.0:
 		var nd := -state.transform.basis.z
-		var k := clampf(MOUSE_VEL_FOLLOW * state.step, 0.0, 1.0)
+		var k := clampf(minf(MOUSE_VEL_FOLLOW, cap) * state.step, 0.0, 1.0)
 		var newdir := state.linear_velocity.lerp(nd * spd, k)
 		if newdir.length() > 0.1:
 			state.linear_velocity = newdir.normalized() * spd
