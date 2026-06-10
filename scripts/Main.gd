@@ -188,7 +188,7 @@ func _setup_world() -> void:
 	env_blueprint.background_mode = Environment.BG_SKY
 	env_blueprint.sky = sky_bp
 	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env_blueprint.ambient_light_energy = 1.0
+	env_blueprint.ambient_light_energy = 1.3
 	env_blueprint.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env_blueprint.ssao_enabled = true
@@ -223,29 +223,25 @@ func _setup_world() -> void:
 	# Rim von hinten-oben (Kantenlicht trennt vom dunklen Raum), Underfill dezent.
 	hangar_lights = Node3D.new()
 	add_child(hangar_lights)
-	var key := DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-50, -32, 0)
-	key.light_energy = 1.2
-	key.light_color = Color(1.0, 0.97, 0.90)   # warme Vormittagssonne
-	key.shadow_enabled = true
-	key.directional_shadow_max_distance = 80.0
-	key.shadow_blur = 2.2                       # weiche, freundliche Schatten
-	hangar_lights.add_child(key)
-	var fill := DirectionalLight3D.new()
-	fill.rotation_degrees = Vector3(-24, 120, 0)
-	fill.light_energy = 0.3
-	fill.light_color = Color(0.78, 0.86, 1.0)   # Himmels-Aufheller
-	fill.shadow_enabled = false
-	hangar_lights.add_child(fill)
-	var rim := DirectionalLight3D.new()
-	rim.rotation_degrees = Vector3(-28, 170, 0)
-	rim.light_energy = 0.35
-	rim.light_color = Color(0.9, 0.94, 1.0)
-	rim.shadow_enabled = false
-	hangar_lights.add_child(rim)
+	# KEINE SONNE (Nutzerwunsch): weiches, richtungsarmes Softbox-Licht wie an
+	# einem bedeckten Tag — keine Schatten, keine harte Lichtkante. Zwei ganz
+	# schwache, schattenlose Aufheller geben den Teilen minimale Plastizität,
+	# die Hauptarbeit macht der helle Himmels-Ambient.
+	var soft_top := DirectionalLight3D.new()
+	soft_top.rotation_degrees = Vector3(-62, -20, 0)
+	soft_top.light_energy = 0.45
+	soft_top.light_color = Color(1.0, 0.99, 0.96)
+	soft_top.shadow_enabled = false
+	hangar_lights.add_child(soft_top)
+	var soft_side := DirectionalLight3D.new()
+	soft_side.rotation_degrees = Vector3(-18, 135, 0)
+	soft_side.light_energy = 0.22
+	soft_side.light_color = Color(0.85, 0.90, 1.0)
+	soft_side.shadow_enabled = false
+	hangar_lights.add_child(soft_side)
 	var hfill := DirectionalLight3D.new()
 	hfill.rotation_degrees = Vector3(58, 40, 0)
-	hfill.light_energy = 0.3
+	hfill.light_energy = 0.28
 	hfill.shadow_enabled = false
 	hangar_lights.add_child(hfill)
 
