@@ -180,8 +180,8 @@ func _setup_world() -> void:
 	var psm_bp := ProceduralSkyMaterial.new()
 	psm_bp.sky_top_color = Color(0.42, 0.64, 0.90)
 	psm_bp.sky_horizon_color = Color(0.87, 0.92, 0.97)
-	psm_bp.ground_horizon_color = Color(0.80, 0.85, 0.89)
-	psm_bp.ground_bottom_color = Color(0.56, 0.62, 0.68)
+	psm_bp.ground_horizon_color = Color(0.86, 0.91, 0.96)
+	psm_bp.ground_bottom_color = Color(0.76, 0.81, 0.87)
 	psm_bp.sky_energy_multiplier = 1.0
 	sky_bp.sky_material = psm_bp
 	env_blueprint = Environment.new()
@@ -232,17 +232,20 @@ func _setup_world() -> void:
 	soft_top.light_energy = 0.45
 	soft_top.light_color = Color(1.0, 0.99, 0.96)
 	soft_top.shadow_enabled = false
+	soft_top.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY   # keine Sonnenscheibe im Himmel
 	hangar_lights.add_child(soft_top)
 	var soft_side := DirectionalLight3D.new()
 	soft_side.rotation_degrees = Vector3(-18, 135, 0)
 	soft_side.light_energy = 0.22
 	soft_side.light_color = Color(0.85, 0.90, 1.0)
 	soft_side.shadow_enabled = false
+	soft_side.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	hangar_lights.add_child(soft_side)
 	var hfill := DirectionalLight3D.new()
 	hfill.rotation_degrees = Vector3(58, 40, 0)
 	hfill.light_energy = 0.28
 	hfill.shadow_enabled = false
+	hfill.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	hangar_lights.add_child(hfill)
 
 	# Boden-Kollision (unendliche Ebene)
