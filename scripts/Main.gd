@@ -1742,7 +1742,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(flight_hud)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · C halten: 👀 Umsehen · 🔫 LEERTASTE (Bullet-Drop — höher zielen!) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · C halten: 👀 Umsehen · 🔫 LEERTASTE (gelber Pipper = echter Treffpunkt) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
@@ -1894,6 +1894,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.aim_vis = mf and bool(d.get("aim_vis", true))
 		flight_hud.nose_pos = d.get("nose", Vector2.ZERO)
 		flight_hud.nose_vis = mf and bool(d.get("nose_vis", true))
+		flight_hud.gun_pos = d.get("gun", Vector2.ZERO)
+		flight_hud.gun_vis = bool(d.get("gun_vis", false))
 	if land_label:
 		var lm: String = d.get("land_msg", "")
 		land_label.text = lm

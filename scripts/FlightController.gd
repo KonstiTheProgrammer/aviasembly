@@ -144,6 +144,10 @@ var _aim_cmd := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr 
 var _nose_px := Vector2.ZERO    # geglättete Nasenmarker-Pixelposition
 var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
 var nose_screen := Vector2.ZERO # Pixelposition der aktuellen Nasenrichtung
+var gun_screen := Vector2.ZERO   # ballistisches Fadenkreuz: wohin die Kugeln WIRKLICH fliegen
+var gun_visible := false
+var _gun_px := Vector2.ZERO      # pixelgeglättet (wie der Nasenmarker)
+var lock_dist := 0.0             # Entfernung zum erfassten Ziel (Referenz für den Pipper)
 var aim_visible := true         # Zielmarker im Bild?
 var nose_visible := true        # Nasenmarker im Bild?
 var lock_screen := Vector2.ZERO # Pixelposition des erfassten Ziels (Lenkwaffen-Lock)
@@ -978,6 +982,33 @@ func _update_markers() -> void:
 	else:
 		_nose_px = Vector2.ZERO
 		nose_screen = ctr
+	# BALLISTISCHER PIPPER: wohin fliegen die Kugeln WIRKLICH? Erste Kanone mit
+	# Munition: v0 = Flugzeug-Geschwindigkeit + Mündungsgeschwindigkeit nach vorn,
+	# darüber der kaliberabhängige Bullet-Drop bis zur Referenzdistanz (erfasstes
+	# Ziel oder 400 m). Deckt Eigenfahrt-Versatz UND Drop ab — im Gegensatz zum
+	# alten statischen Bildmitte-Kreuz, das nichts mit der Flugbahn zu tun hatte.
+	gun_visible = false
+	for w in weapons:
+		var ty := String(w.get("type", ""))
+		if not CALIBERS.has(ty) or int(w.get("ammo", -1)) == 0:
+			continue
+		var pidx: int = int(w.get("part_idx", -1))
+		if pidx >= 0 and pidx < aircraft.parts.size() and aircraft.parts[pidx].get("broken", false):
+			continue
+		var cal: Dictionary = CALIBERS[ty]
+		var fwd := -aircraft.global_transform.basis.z
+		var v0: Vector3 = aircraft.linear_velocity + fwd * float(cal["speed"])
+		var dist := lock_dist if (lock_active and lock_visible and lock_dist > 10.0) else 400.0
+		var tfly := dist / maxf(v0.dot(fwd), 60.0)
+		var pp: Vector3 = _muzzle(w["off"]) + v0 * tfly + Vector3.UP * (-0.5 * float(cal["drop"]) * tfly * tfly)
+		if not camera.is_position_behind(pp):
+			var rawg := camera.unproject_position(pp)
+			_gun_px = rawg if _gun_px == Vector2.ZERO else _gun_px.lerp(rawg, AIM_MARK_SMOOTH)
+			gun_screen = _gun_px
+			gun_visible = true
+		else:
+			_gun_px = Vector2.ZERO
+		break
 
 
 # Restmunition der begrenzten Waffen (Raketen/Lenkwaffen/Bomben) je Kategorie summiert.
@@ -1052,6 +1083,7 @@ func _update_lock() -> void:
 	if best == null or camera.is_position_behind(best.global_position):
 		return
 	lock_screen = camera.unproject_position(best.global_position)
+	lock_dist = best_d
 	lock_visible = true
 	lock_active = true
 
@@ -1069,6 +1101,8 @@ func _emit_hud() -> void:
 		"arcade": arcade,
 		"aim": aim_screen,
 		"nose": nose_screen,
+		"gun": gun_screen,
+		"gun_vis": gun_visible,
 		"aim_vis": aim_visible,
 		"nose_vis": nose_visible,
 		"throttle": throttle,
