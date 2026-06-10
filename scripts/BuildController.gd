@@ -178,6 +178,10 @@ func begin_drag_from_palette(id: String) -> void:
 # ---------------------------------------------------------------------------
 # Kamera & Vorschau
 # ---------------------------------------------------------------------------
+var _sel_glow_nodes: Array = []    # Overlay-Meshes der Auswahl-Animation
+var _sel_glow_mat: ShaderMaterial = null
+var _sel_glow_tween: Tween = null
+var _sel_glow_shader: Shader = null
 var _heatmap_dirty := false        # Windkanal-Heatmap muss neu gerechnet werden
 var _heatmap_t := 0.0              # Throttle-Timer dafür
 
@@ -455,6 +459,7 @@ func _axis_vec(i: int) -> Vector3:
 func _select_part(part: Node3D) -> void:
 	selected_part = part
 	_build_handles()
+	_apply_sel_glow(part)
 	_emit_selection()
 
 
@@ -464,6 +469,7 @@ func _deselect() -> void:
 	_moving_sel = false
 	_rotating = false
 	_clear_handles()
+	_clear_sel_glow()
 	selection_changed.emit({})
 
 
@@ -1378,9 +1384,95 @@ func _paint_hovered(_hit: Dictionary) -> void:
 	_notify_changed()
 
 
+# --- Auswahl-Animation: pulsierender Fresnel-Glow + einmaliger Scan-Sweep ----
+# Pro Mesh des gewählten Teils wird ein additives Overlay-Mesh (gleiche Geometrie,
+# Kind des Originals -> folgt jeder Bewegung) mit Rim-Shader eingehängt. Beim
+# Anwählen blitzt es auf (flash 1->0) und ein Scan-Band läuft von unten nach
+# oben durchs Teil; danach bleibt ein sanftes Puls-Glimmen (TIME im Shader).
+func _get_sel_glow_shader() -> Shader:
+	if _sel_glow_shader == null:
+		_sel_glow_shader = Shader.new()
+		_sel_glow_shader.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never, cull_back;
+uniform vec3 glow_col : source_color = vec3(0.35, 0.75, 1.0);
+uniform float flash = 0.0;
+uniform float sweep = -1.0;
+uniform float ymin = 0.0;
+uniform float ymax = 1.0;
+varying vec3 wpos;
+void vertex() { wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
+void fragment() {
+	float fr = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.6);
+	float puls = 0.5 + 0.5 * sin(TIME * 4.6);
+	float a = fr * (0.30 + 0.30 * puls + flash * 1.7);
+	if (sweep >= 0.0) {
+		float band_y = mix(ymin, ymax, sweep);
+		float band = 1.0 - smoothstep(0.0, 0.16, abs(wpos.y - band_y));
+		a += band * (1.2 + flash);
+	}
+	ALBEDO = glow_col * a;
+}
+"""
+	return _sel_glow_shader
+
+
+func _apply_sel_glow(part: Node3D) -> void:
+	_clear_sel_glow()
+	if part == null:
+		return
+	var vis: Node = part.get_node_or_null("Visual")
+	if vis == null:
+		return
+	var ab := _part_world_aabb(part)
+	_sel_glow_mat = ShaderMaterial.new()
+	_sel_glow_mat.shader = _get_sel_glow_shader()
+	_sel_glow_mat.set_shader_parameter("ymin", ab.position.y - 0.05)
+	_sel_glow_mat.set_shader_parameter("ymax", ab.end.y + 0.05)
+	_sel_glow_mat.set_shader_parameter("flash", 1.0)
+	_sel_glow_mat.set_shader_parameter("sweep", 0.0)
+	_attach_glow(vis)
+	_sel_glow_tween = create_tween()
+	_sel_glow_tween.set_parallel(true)
+	_sel_glow_tween.tween_property(_sel_glow_mat, "shader_parameter/flash", 0.0, 0.65) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_sel_glow_tween.tween_property(_sel_glow_mat, "shader_parameter/sweep", 1.0, 0.45) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_sel_glow_tween.chain().tween_callback(func() -> void:
+		if _sel_glow_mat != null:
+			_sel_glow_mat.set_shader_parameter("sweep", -1.0))
+
+
+func _attach_glow(node: Node) -> void:
+	for ch in node.get_children():
+		_attach_glow(ch)
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var src := node as MeshInstance3D
+		var ov := MeshInstance3D.new()
+		ov.set_meta("sel_glow", true)   # vom Windkanal-Shader ausnehmen
+		ov.mesh = src.mesh
+		ov.material_override = _sel_glow_mat
+		ov.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		src.add_child(ov)   # Kind mit Identitäts-Transform -> folgt 1:1
+		_sel_glow_nodes.append(ov)
+
+
+func _clear_sel_glow() -> void:
+	if _sel_glow_tween != null and _sel_glow_tween.is_valid():
+		_sel_glow_tween.kill()
+	_sel_glow_tween = null
+	for n in _sel_glow_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_sel_glow_nodes = []
+	_sel_glow_mat = null
+
+
 func _recolor(part: Node, c: Color) -> void:
 	part.set_meta("color", c)
 	_rebuild_visual(part)
+	if part == selected_part:
+		_apply_sel_glow(selected_part)   # Visual wurde neu gebaut -> Glow neu anhängen
 
 
 # Visual aus den aktuellen Metadaten (Farbe + beide Taper-Enden + pscale) neu bauen.
@@ -1659,7 +1751,7 @@ func _get_wind_shader() -> Shader:
 
 
 func _apply_wind_shader(node: Node, heat_color: Color, glow: float) -> void:
-	if node == null:
+	if node == null or (node is MeshInstance3D and node.get_meta("sel_glow", false)):
 		return
 	for ch in node.get_children():
 		_apply_wind_shader(ch, heat_color, glow)
