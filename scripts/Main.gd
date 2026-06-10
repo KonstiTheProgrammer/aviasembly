@@ -956,7 +956,7 @@ func _show_controls_hint() -> void:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rect(box, 0.5, 0, 0.5, 0, -300, 84, 300, 246)
 	ui.add_child(box)
-	var lbl := _lbl("🛩  STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-Flug    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	var lbl := _lbl("🛩  STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-/Tastatur-Flug (Start: MAUS)    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
 	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1636,7 +1636,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(flight_hud)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Umschauen · M: Maus-Flug · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · C halten: 👀 Umsehen · 🔫 LEERTASTE (Bullet-Drop — höher zielen!) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · C halten: 👀 Umsehen · 🔫 LEERTASTE (Bullet-Drop — höher zielen!) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)

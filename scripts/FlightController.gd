@@ -60,6 +60,8 @@ const AIM_CMD_SLEW := 6.0       # Slew-Limit der kommandierten Richtung (rad/s) 
 const AIM_PITCH_CLAMP := 1.52   # Marker-Pitch-Klemme (~87°; echtes 90° ist in Yaw/Pitch singulär)
 const INS_KP_H := 2.2           # Instructor: Horizontalfehler -> Bahnrate (1/s)
 const INS_KP_V := 2.5           # Instructor: Fehlerwinkel -> Drehrate (1/s, linearer Endanflug)
+const AUTH_HEADROOM := 0.85     # Anteil der physisch erreichbaren Drehrate, den der Instructor
+								# kommandiert (Rest = Regelreserve der inneren Raten-Schleife)
 const AIM_TURN_ACC := 1.5       # angenommene Kurvenraten-Beschleunigung (rad/s²) für die
 								# STOPP-PLANUNG der Großkreis-Rate: w = sqrt(2·a·err)
 								# bremst die Drehung VOR dem Ziel ab (kein Durchziehen)
@@ -132,7 +134,7 @@ var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
 var _flook_basis := Basis()     # geglättete Orbit-Orientierung (Position folgt dem Flieger STARR)
 var _flook_was := false         # war Free-Look letzten Frame aktiv? (für sanften Einstieg)
 var _mouse_idle := 0.0
-var mouse_fly := false          # Maus-Flug an? (Maus = Weltzielrichtung, Nase folgt)
+var mouse_fly := true           # Maus-Flug an? (STANDARD wie War Thunder; M = Tastatur-Modus)
 var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, nur im Maus-Flug)
 var _roll_hold := 0.0           # wie lange A/D schon gehalten (für Fass-Roll)
 var _roll_dir := 0              # aktuelle Roll-Halterichtung (+1=A, -1=D, 0=keine)
@@ -176,6 +178,8 @@ func set_active(active: bool) -> void:
 	if active and aircraft:
 		look_yaw = 0.0
 		look_pitch = 0.0
+		if mouse_fly:
+			_reset_mouse_state()   # Maus-Flug ist Standard: sauber an der Nase starten
 		_snap_camera()
 
 
@@ -505,8 +509,14 @@ func _physics_process(delta: float) -> void:
 		# Zug war bei 200 m/s strukturell instabil: 26-57° Overshoot, Messer-Drift,
 		# weil wh_cap=g·tan(BANK)/v Dauer-Kurven auf ~3 G deckelte und die Bank-
 		# Trigonometrie im Nick-Pfad jede Roll-Bewegung in Seitenfehler umsetzte.)
-		var pitch_max := _tab(v, PITCH_RATE_TAB)
-		var roll_max := _tab(v, ROLL_RATE_TAB)
+		# DER INSTRUCTOR LIEST DEN BAU: Obergrenze = was DIESE Zelle physisch dreht
+		# (Steuerflächen!), nicht nur die globale Feel-Tabelle. Großes Leitwerk =
+		# schnelle Befehle, Mini-Ruder = ehrlich träge. Vorher kommandierten die
+		# Tabellen Raten, die der Bau nicht fliegen kann -> innere Schleife
+		# sättigte (Dauer-Vollausschlag) = schwammig + Schleppfehler.
+		var auth := _auth_rates()
+		var pitch_max := minf(_tab(v, PITCH_RATE_TAB), auth.x * AUTH_HEADROOM)
+		var roll_max := minf(_tab(v, ROLL_RATE_TAB), auth.z * AUTH_HEADROOM)
 		var nose_w := -b.z
 		var g_lim := clampf(aircraft.wing_capacity / maxf(aircraft.mass * 9.81, 1.0), 3.0, 14.0)
 		var n_turn := G_SOFT * g_lim     # Dauer-G knapp unterm Limiter-Einsatz
@@ -525,7 +535,8 @@ func _physics_process(delta: float) -> void:
 			w_des_w = w_des_w.normalized() * w_cap
 		var w_b_des := b.transposed() * w_des_w
 		var d_pitch := clampf(w_b_des.x, -pitch_max, pitch_max)
-		var yaw_track := clampf(w_b_des.y, -0.3, 0.3)   # Ruder hilft mit, dominiert nie
+		var yaw_cap := minf(0.3, auth.y * AUTH_HEADROOM)
+		var yaw_track := clampf(w_b_des.y, -yaw_cap, yaw_cap)   # Ruder hilft mit, dominiert nie
 		# ROLL = Zugebene ausrichten: bei großem Fehler phi-PD in die Manöverebene
 		# (Latch gegen ±π-Flackern), bei kleinem Fehler Kurvengleichungs-Bank aus der
 		# horizontalen Komponente der Soll-Drehrate (wh_eff). Nur der ROLL-Kanal
@@ -762,27 +773,32 @@ func _unhandled_input(event: InputEvent) -> void:
 func _toggle_mouse_fly() -> void:
 	mouse_fly = not mouse_fly
 	if mouse_fly and is_instance_valid(aircraft):
-		# Zielrichtung auf die aktuelle Nasenrichtung setzen -> kein Ruck beim Einschalten.
-		var f := -aircraft.global_transform.basis.z
-		look_yaw = atan2(f.x, -f.z)
-		look_pitch = asin(clampf(f.y, -1.0, 1.0))
-		_aim_cmd = _aim_dir()
-		_trim_pitch = 0.0
-		_bank_offset = 0.0
-		_prev_horiz = 0.0
-		_horiz_rate = 0.0
-		_prev_phi = 0.0
-		_phi_rate = 0.0
-		_rnp_on = false
-		_k_rnp = 0.0
-		_aim_prev = _aim_cmd
-		_aim_ff = Vector3.ZERO
-		# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt beim M-Drücken.
-		if camera != null:
-			_cam_aim = -camera.global_transform.basis.z
+		_reset_mouse_state()
 	else:
 		look_yaw = 0.0
 		look_pitch = 0.0
+
+
+# Regler-/Zielzustand frisch an der aktuellen Nase ausrichten (kein Ruck beim
+# Einschalten oder Flugstart). Wird von set_active UND _toggle_mouse_fly genutzt.
+func _reset_mouse_state() -> void:
+	var f := -aircraft.global_transform.basis.z
+	look_yaw = atan2(f.x, -f.z)
+	look_pitch = asin(clampf(f.y, -1.0, 1.0))
+	_aim_cmd = _aim_dir()
+	_trim_pitch = 0.0
+	_bank_offset = 0.0
+	_prev_horiz = 0.0
+	_horiz_rate = 0.0
+	_prev_phi = 0.0
+	_phi_rate = 0.0
+	_rnp_on = false
+	_k_rnp = 0.0
+	_aim_prev = _aim_cmd
+	_aim_ff = Vector3.ZERO
+	# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt.
+	if camera != null:
+		_cam_aim = -camera.global_transform.basis.z
 
 
 # Arcade-Lenkung umschalten. Braucht den Maus-Flug -> ggf. mit einschalten.
@@ -790,6 +806,20 @@ func _toggle_arcade() -> void:
 	arcade = not arcade
 	if arcade and not mouse_fly:
 		_toggle_mouse_fly()
+
+
+# Physisch erreichbare DAUER-Drehraten (x=Nick, y=Gier, z=Roll, rad/s) DIESES Baus:
+# Torque-Gleichgewicht Steuer-Autorität (CTRL + CTRL_A·Fläche)·qfac·MOUSE_AUTH gegen
+# Dämpfung DAMP·apq·(0.35+qfac) — exakt die Formeln aus AircraftBody._integrate_forces.
+func _auth_rates() -> Vector3:
+	var rho := AircraftBody.RHO0 * exp(-maxf(aircraft.global_position.y, 0.0) / AircraftBody.SCALE_H)
+	var qf := clampf(0.5 * rho * aircraft.airspeed * aircraft.airspeed / 180.0, 0.04, 2.0)
+	var apq := 1.6 if aircraft.assist else 1.0
+	var dn := 0.35 + qf
+	return Vector3(
+		(AircraftBody.CTRL_PITCH + AircraftBody.CTRL_PITCH_A * aircraft.pitch_area) * qf * AircraftBody.MOUSE_AUTH / (AircraftBody.DAMP_PITCH * apq * dn),
+		(AircraftBody.CTRL_YAW + AircraftBody.CTRL_YAW_A * aircraft.yaw_area) * qf * AircraftBody.MOUSE_AUTH / (AircraftBody.DAMP_YAW * apq * dn),
+		(AircraftBody.CTRL_ROLL + AircraftBody.CTRL_ROLL_A * aircraft.roll_area) * qf * AircraftBody.MOUSE_AUTH / (AircraftBody.DAMP_ROLL * dn))
 
 
 # Zielrichtung (Weltkoordinaten) aus look_yaw/look_pitch. yaw=0,pitch=0 -> -Z (vorne/Nord).

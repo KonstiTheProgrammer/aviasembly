@@ -251,9 +251,17 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links; **lange halten → Fass-Roll**) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
-`M` **Maus-Flug** umschalten · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
-**Maus-Flug (GROSSKREIS-INSTRUCTOR, Taste `M`):** Maus zeigt eine WELTRICHTUNG
-(`look_yaw/pitch`, ROH — kein Glättungs-Lag); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
+`M` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
+**Maus-Flug (GROSSKREIS-INSTRUCTOR, STANDARD; `M` = Tastatur-Modus):** Maus zeigt eine
+WELTRICHTUNG (`look_yaw/pitch`, ROH — kein Glättungs-Lag); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
+`mouse_fly=true` als Default; `set_active(true)` ruft `_reset_mouse_state()` (Aim an der
+Nase ausrichten, Filter/Trim nullen — auch vom M-Toggle genutzt).
+**DER INSTRUCTOR LIEST DEN BAU (`_auth_rates()`):** Obergrenze der kommandierten Nick-/
+Roll-/Gier-Raten = physisch erreichbare Dauer-Drehrate DIESER Zelle aus dem Torque-
+Gleichgewicht (CTRL+CTRL_A·Steuerfläche)·qfac·MOUSE_AUTH = DAMP·apq·(0.35+qfac) — exakt
+die AircraftBody-Formeln, ×`AUTH_HEADROOM=0.85` Regelreserve, min() mit den Feel-Tabellen.
+Großes Leitwerk = schnelle Befehle, Mini-/kein Ruder = ehrlich träge OHNE Sättigungs-Lag
+(`tools`-Beleg: Bau ohne h_stab konvergiert 2.6°/0 Pendel statt Dauer-Vollausschlag).
 Signalfluss (FlightController, `if mouse_fly:`): Maus → `_aim_cmd` (nur Slew-Limit
 `AIM_CMD_SLEW=6 rad/s`) → **EIN Gesetz für Nick/Gier (kein Modus-Blending!)**:
 Soll-Drehvektor (Welt) = Achse(`Nase×Ziel`)·Rate; Rate = min(G-Budget
