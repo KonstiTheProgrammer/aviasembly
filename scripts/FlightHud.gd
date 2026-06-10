@@ -171,19 +171,16 @@ func _draw_reticle() -> void:
 		draw_line(c + Vector2(9, 0), c + Vector2(14, 0), Color(1, 1, 1, 0.6), 2.0)
 		draw_line(c + Vector2(0, -14), c + Vector2(0, -9), Color(1, 1, 1, 0.6), 2.0)
 		draw_circle(c, 1.5, Color(1, 1, 1, 0.7))
-	# BALLISTISCHER PIPPER (beide Modi): Kreis + Außenticks + Punkt — dort schlagen
-	# die Kugeln ein (Eigenfahrt + Bullet-Drop eingerechnet, Referenz 400 m/Lock).
+	# BALLISTISCHER PIPPER (beide Modi): feiner Kreis + Mittelpunkt, ruhig & clean —
+	# dort schlagen die Kugeln ein (Eigenfahrt + Bullet-Drop, Referenz 400 m/Lock).
 	if gun_vis:
 		var g := gun_pos
-		var oc := Color(0, 0, 0, 0.5)
+		var oc := Color(0, 0, 0, 0.45)
 		var gc := Color(1.0, 0.84, 0.25, 0.95)
-		draw_arc(g, 9.0, 0.0, TAU, 40, oc, 3.4, true)
-		draw_arc(g, 9.0, 0.0, TAU, 40, gc, 1.6, true)
-		for a in [0.0, PI * 0.5, PI, PI * 1.5]:
-			var d := Vector2(cos(a), sin(a))
-			draw_line(g + d * 11.0, g + d * 18.0, oc, 3.4, true)
-			draw_line(g + d * 11.0, g + d * 18.0, gc, 1.6, true)
-		draw_circle(g, 1.7, gc)
+		draw_arc(g, 10.0, 0.0, TAU, 48, oc, 2.8, true)   # dunkle Kontur dahinter
+		draw_arc(g, 10.0, 0.0, TAU, 48, gc, 1.3, true)   # feiner gelber Ring
+		draw_circle(g, 2.2, oc)
+		draw_circle(g, 1.5, gc)
 
 
 # --- Lenkwaffen-Lock: pulsierende Eck-Klammern auf dem erfassten Ziel -------
