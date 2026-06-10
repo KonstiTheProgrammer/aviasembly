@@ -51,7 +51,8 @@ const CTRL_ROLL_A := 6.0
 const DAMP_PITCH := 5.5       # aerodynamische Drehdämpfung (verhindert Überdrehen)
 const DAMP_YAW := 3.2
 const DAMP_ROLL := 2.5
-const MOUSE_AUTH := 1.4       # Maus-Flug: mehr Steuer-Autorität -> Soll-Raten schneller (Obergrenze: darüber überzieht/stallt der Nick)
+const MOUSE_AUTH := 1.4
+const MOUSE_ASSIST := 1.6      # kinematischer Pursuit-Stütz-Slerp (1/s) im Maus-Flug, skaliert mit Tempo       # Maus-Flug: mehr Steuer-Autorität -> Soll-Raten schneller (Obergrenze: darüber überzieht/stallt der Nick)
 const ARCADE_RESP := 6.0      # Arcade: wie schnell/smooth die Orientierung aufs Ziel slerpt (1/s) — exponentiell, kein Überschwingen
 const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase folgt (fliegt wohin sie zeigt, kein Schlittern)
 const BARREL_RATE := 5.0      # Fass-Roll: Ziel-Rollrate (rad/s) ~ 1 Rolle / 1,25 s (physikalisch geregelt)
@@ -76,7 +77,8 @@ var yaw_area := 0.0
 var engines: Array = []       # [{pos, thrust, jet}]
 var props: Array = []
 var wheels: Array = []        # [{node ("Wheel", Origin=Achse), r}] — rollen sichtbar am Boden
-var _wheel_spin := 0.0        # aktuelle Rad-Umfangsgeschwindigkeit (m/s, trudelt in der Luft aus)
+var _wheel_spin := 0.0
+var _overload_t := 0.0        # wie lange die Flügel-Last schon ÜBER dem Limit liegt (s)        # aktuelle Rad-Umfangsgeschwindigkeit (m/s, trudelt in der Luft aus)
 var surfaces: Array = []      # [{node, role, dn, side}] bewegliche Flächen: Klappen + Ruder
 var _afterburners: Array = [] # [{root, plume, core, light, sparks, plume_mat, core_mat}] an Jet-Düsen
 var _ab_time := 0.0           # Flacker-/Diamanten-Animationszeit für den Nachbrenner-Shader
@@ -129,7 +131,8 @@ var flaps := 0.0              # Landeklappen 0..1 (vom FlightController, Taste F
 var inverted := false         # Q: Steuerung umkehren
 var mouse_fly := false        # Maus-Flug aktiv? (dann kein Assist-Auto-Leveling — Bank-Regler nivelliert selbst)
 var arcade := false           # Arcade-Lenkung? (kinematisch: Nase dreht super-smooth aufs Ziel, keine Stall-/G-Grenze)
-var aim_world := Vector3(0, 0, -1)  # Zielrichtung (Welt), vom FlightController im Arcade-Modus gesetzt
+var aim_world := Vector3(0, 0, -1)  # Zielrichtung (Welt), vom FlightController je Frame gesetzt
+var mouse_bank_offset := 0.0   # gehaltene A/D-Querlage (vom FlightController) -> fließt in die Ziel-Lage
 var barrel_roll := 0          # 0=aus, ±1=Fass-Roll-Richtung (A/D lange halten) — kinematische, saubere Rolle
 
 # Landung / Schaden
@@ -1384,8 +1387,23 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var gate_v := takeoff_v * (1.0 - _flap_vis * 0.25)
 		var lift_gate := lerpf(LIFT_LO, 1.0, smoothstep(gate_v * LIFT_GATE_LO, gate_v * LIFT_GATE_HI, sp))
 		var lift_mag := q * wing_area * cl * lift_gate
-		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen
-		if not wings_broken and not arcade and barrel_roll == 0 and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
+		# G-LIMITER im MAUS-FLUG (wie Fly-by-Wire): der Auftrieb wird weich auf ~80 %
+		# der Flügel-Belastbarkeit gekappt -> der Regler kann ziehen so viel er will,
+		# die Struktur bricht nicht (das war das "Schleudern" bei Highspeed: transienter
+		# AoA bis CL_MAX = das Vielfache des Limits). Tastatur-Modus bleibt ungeschützt.
+		if mouse_fly and not arcade and barrel_roll == 0 and wing_capacity > 0.0:
+			var glim := wing_capacity * 0.8
+			if absf(lift_mag) > glim:
+				lift_mag = signf(lift_mag) * glim
+		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen.
+		# NUR bei ANHALTENDER Überlast (>0.12 s): Einzel-Tick-Spitzen (Regler-Transienten,
+		# numerisches Rauschen bei Highspeed) reißen keine Flügel mehr ab — echtes
+		# Dauer-Überziehen über dem Limit weiterhin schon.
+		if not arcade and barrel_roll == 0 and wing_capacity > 0.0 and absf(lift_mag) > wing_capacity:
+			_overload_t += state.step
+		else:
+			_overload_t = maxf(_overload_t - state.step * 2.0, 0.0)
+		if not wings_broken and _overload_t > 0.12:
 			wings_broken = true
 			_queue_break(_wing_root_indices())   # Abtrennen erst im _process (nicht im Physik-Schritt)
 			landing_msg = "💥 FLÜGEL ÜBERLASTET — abgerissen!"
@@ -1475,6 +1493,26 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# bleibt stehen, das Flugzeug dreht nicht von selbst zurück auf gerade.
 		# (Assist behält Nick-/Gier-Dämpfung; die Roll-DREHRATE wird weiter gedämpft,
 		# der Roll-WINKEL aber nicht mehr zurückgestellt.)
+		# MAUS-STABILISIERUNG: zusätzlich zum physischen Regler zieht ein SANFTER
+		# kinematischer Slerp die Lage Richtung Pursuit-Ziel (wie Arcade, aber nur
+		# anteilig — Physik bleibt dominant). Der Torque-Regler wurde bei ~70 m/s
+		# getunt; bei hohem Tempo schwang die Nase sonst weit übers Ziel (gemessen:
+		# 31° bei 140 m/s, 180°-Wende schwang komplett durch -> "Schleudern").
+		# Skaliert mit dem Tempo: genau dort stützen, wo die Kaskade kollabiert.
+		if mouse_fly and barrel_roll == 0 and not wings_broken \
+				and aim_world.length() > 0.5 and airspeed > 12.0:
+			var ka := clampf(MOUSE_ASSIST * clampf(airspeed / 70.0, 0.6, 2.2) * state.step, 0.0, 0.15)
+			var tb := _pursuit_basis(xf.basis)
+			var qa := xf.basis.get_rotation_quaternion()
+			var qb := tb.get_rotation_quaternion()
+			# Schritt-Winkel hart kappen (max ~28°/s): sonst springt die Lage pro Tick ->
+			# AoA-Sprung -> Lift-Spike (riss bei Highspeed die Flügel ab).
+			var ang := qa.angle_to(qb)
+			ka = minf(ka, deg_to_rad(28.0) * state.step / maxf(ang, 1e-4))
+			var nb := Basis(qa.slerp(qb, ka))
+			var nxf := state.transform
+			nxf.basis = nb
+			state.transform = nxf
 
 	# --- Sicherheit & Anwenden ---------------------------------------------
 	if not tf.is_finite():
@@ -1501,18 +1539,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 # Arcade-Lenkung: dreht die Orientierung kinematisch (per Slerp) super-smooth Richtung
 # Zielrichtung und lässt die Geschwindigkeit der Nase folgen. Unabhängig von Ruder-
 # Autorität/Stall/G -> butterweiches, direktes Lenken (kein Trudeln, kein Überschwingen).
-func _arcade_steer(state: PhysicsDirectBodyState3D) -> void:
-	var cur_basis := state.transform.basis
-	var fwd := aim_world
-	if fwd.length() < 0.01:
-		return
-	fwd = fwd.normalized()
-	# Soll-Querlage (kosmetisch): in die Kurve lehnen, proportional zum Horizontalfehler
+# Pursuit-Ziel-Lage: Nase (-Z) auf aim_world, in die Kurve gebankt (+ gehaltener
+# A/D-Bank-Offset). Referenz-Up so wählen, dass es NIE (fast) parallel zu fwd ist ->
+# sonst ist fwd×up0 ≈ 0 und .normalized() liefert NaN (Basis zerlegt).
+func _pursuit_basis(cur_basis: Basis) -> Basis:
+	var fwd := aim_world.normalized()
 	var e := cur_basis.transposed() * fwd
-	var bank := clampf(atan2(e.x, -e.z) * 0.9, -1.15, 1.15)
-	# Ziel-Basis: Nase (-Z) auf fwd, um fwd gebankt. Referenz-Up so wählen, dass es NIE
-	# (fast) parallel zu fwd ist -> sonst ist fwd×up0 ≈ 0 und .normalized() liefert NaN,
-	# was die ganze Orientierungs-Basis zerlegt (z. B. senkrecht zielen bei waagerechtem Flieger).
+	var bank := clampf(atan2(e.x, -e.z) * 0.9 + mouse_bank_offset, -1.25, 1.25)
 	var up0 := Vector3.UP
 	if absf(fwd.dot(up0)) > 0.985:
 		up0 = cur_basis.y
@@ -1525,7 +1558,14 @@ func _arcade_steer(state: PhysicsDirectBodyState3D) -> void:
 			right0 = fwd.cross(Vector3.BACK)
 	right0 = right0.normalized()
 	var up1 := right0.cross(fwd).normalized()
-	var tb := Basis(right0.rotated(fwd, bank), up1.rotated(fwd, bank), -fwd).orthonormalized()
+	return Basis(right0.rotated(fwd, bank), up1.rotated(fwd, bank), -fwd).orthonormalized()
+
+
+func _arcade_steer(state: PhysicsDirectBodyState3D) -> void:
+	var cur_basis := state.transform.basis
+	if aim_world.length() < 0.01:
+		return
+	var tb := _pursuit_basis(cur_basis)
 	# Orientierung smooth (exponentiell) zum Ziel slerpen -> reagiert sofort, ohne zu zappeln
 	var k := clampf(ARCADE_RESP * state.step, 0.0, 1.0)
 	var nb := Basis(cur_basis.get_rotation_quaternion().slerp(tb.get_rotation_quaternion(), k))

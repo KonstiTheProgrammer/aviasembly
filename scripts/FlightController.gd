@@ -415,7 +415,8 @@ func _physics_process(delta: float) -> void:
 	# Vertikalfehler -> Nick; Zug proportional zum Horizontalfehler zieht durch die Kurve.
 	if mouse_fly:
 		var b := aircraft.global_transform.basis
-		aircraft.aim_world = _aim_dir()   # Arcade-Lenkung (AircraftBody) nutzt die rohe Zielrichtung
+		aircraft.aim_world = _aim_dir()   # Pursuit-Ziel (Arcade + Maus-Stabilisierung im Body)
+		aircraft.mouse_bank_offset = _bank_offset
 		# ADAPTIVE Zielglättung: Mikro-Korrekturen stark glätten (kein Maus-Zittern),
 		# schnelle Flicks fast roh durchlassen (kein Schleppfehler -> kein Überkorrigieren).
 		# lerp+normalize statt Vector3.slerp: slerp wirft bei fast-parallelen Vektoren
@@ -455,7 +456,16 @@ func _physics_process(delta: float) -> void:
 		# Nick: Vertikalfehler -> BEGRENZTE Soll-Nickrate -> GEDÄMPFTE Auslenkung (kein Jagen).
 		# Kurvenzug NUR wenn gebankt (·|sin(bank)|): sonst zieht die Nase vor dem Einrollen
 		# nutzlos nach oben -> Zeitverlust. So rollt es erst zügig ein und zieht dann durch.
-		var d_pitch := clampf(vert * AIM_PITCH_K, -AIM_PITCH_RATE_MAX, AIM_PITCH_RATE_MAX)
+		# G-LIMIT auf die Soll-Nickrate: geforderte G = v·ω wachsen LINEAR mit dem Tempo —
+		# die fixe Raten-Kappe forderte bei 140 m/s ~33 G -> Flügelbruch -> "Schleudern".
+		# Kappe = 65 % der Flügel-Belastbarkeit (oder 7 G ohne Flügel-Daten): schnelle
+		# Flieger ziehen physikalisch korrekt größere Kurvenradien, nichts bricht.
+		var gmax := 7.0 * 9.81
+		if aircraft.wing_capacity > 0.0 and aircraft.mass > 1.0:
+			gmax = clampf(aircraft.wing_capacity / aircraft.mass * 0.65, 3.0 * 9.81, 30.0 * 9.81)
+		var rate_cap := minf(AIM_PITCH_RATE_MAX, gmax / maxf(aircraft.airspeed, 20.0))
+		var d_pitch := clampf(vert * AIM_PITCH_K, -rate_cap, rate_cap)
+		var pull_scl := clampf(rate_cap / AIM_PITCH_RATE_MAX, 0.25, 1.0)   # Kurvenzug mit-skalieren
 		# TRIM-INTEGRATOR: gleicht den stationären Versatz aus (Schwerkraft zieht die Nase
 		# unter die Kreismitte; rein proportional bliebe ein konstanter Restfehler).
 		# NUR im engen Band ums Ziel integrieren UND nur bei ruhiger Nickrate — sonst lädt
@@ -465,7 +475,7 @@ func _physics_process(delta: float) -> void:
 			_trim_pitch = clampf(_trim_pitch + vert * AIM_TRIM_I * delta, -AIM_TRIM_MAX, AIM_TRIM_MAX)
 		elif absf(vert) > 0.2:
 			_trim_pitch = move_toward(_trim_pitch, 0.0, 0.6 * delta)
-		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + _trim_pitch + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL * absf(sin(current_bank)), -1.0, 1.0)
+		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + _trim_pitch + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL * pull_scl * absf(sin(current_bank)), -1.0, 1.0)
 		# Gier: leicht koordiniert Richtung Ziel + gedämpft (vertauscht -> negiert).
 		var yaw_cmd := clampf(-horiz * AIM_YAW_K - wb.y * AIM_YAW_D, -1.0, 1.0)
 		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
