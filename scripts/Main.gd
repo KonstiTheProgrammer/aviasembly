@@ -12,9 +12,9 @@ const SLOT_DIR := "user://hangar"                  # benannte eigene Speicher-Sl
 const _BLUEPRINT_GRID_SHADER := "
 shader_type spatial;
 render_mode unshaded, cull_back;
-uniform vec3 line_color : source_color = vec3(0.40, 0.74, 1.0);
-uniform vec3 major_color : source_color = vec3(0.78, 0.92, 1.0);
-uniform vec3 bg_color : source_color = vec3(0.04, 0.13, 0.30);
+uniform vec3 line_color : source_color = vec3(0.55, 0.67, 0.82);
+uniform vec3 major_color : source_color = vec3(0.38, 0.53, 0.72);
+uniform vec3 bg_color : source_color = vec3(0.78, 0.83, 0.88);
 uniform float cell = 1.0;
 uniform float fade_dist = 95.0;
 varying vec3 wpos;
@@ -173,34 +173,31 @@ func _setup_world() -> void:
 	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum). Hintergrund bleibt dunkel,
 	# aber ein blauer Gradient-Himmel dient als REFLEXIONS- und Ambient-Quelle -> metallische
 	# Teile spiegeln (oben hell, unten dunkel) und das Drehen ändert die Reflexion sichtbar.
+	# HELLER TAGESLICHT-EDITOR (Feeling wie im Original-Aviassembly): freundlicher
+	# blauer Himmel mit fast weißem Horizont als Hintergrund UND Licht-/Reflexions-
+	# quelle — kein dunkler Raum mehr, das Flugzeug steht wie draußen am Flugfeld.
 	var sky_bp := Sky.new()
 	var psm_bp := ProceduralSkyMaterial.new()
-	psm_bp.sky_top_color = Color(0.10, 0.26, 0.52)
-	psm_bp.sky_horizon_color = Color(0.40, 0.60, 0.85)
-	psm_bp.ground_horizon_color = Color(0.10, 0.20, 0.36)
-	psm_bp.ground_bottom_color = Color(0.03, 0.08, 0.18)
-	psm_bp.sky_energy_multiplier = 0.9
+	psm_bp.sky_top_color = Color(0.42, 0.64, 0.90)
+	psm_bp.sky_horizon_color = Color(0.87, 0.92, 0.97)
+	psm_bp.ground_horizon_color = Color(0.80, 0.85, 0.89)
+	psm_bp.ground_bottom_color = Color(0.56, 0.62, 0.68)
+	psm_bp.sky_energy_multiplier = 1.0
 	sky_bp.sky_material = psm_bp
 	env_blueprint = Environment.new()
-	env_blueprint.background_mode = Environment.BG_COLOR
-	env_blueprint.background_color = Color(0.04, 0.13, 0.30)
+	env_blueprint.background_mode = Environment.BG_SKY
 	env_blueprint.sky = sky_bp
-	# NEUTRALER Ambient (Studio) statt Blau-Flut vom Himmel: die Teile zeigen ihre
-	# ECHTE Lackfarbe; der blaue Gradient-Himmel bleibt nur REFLEXIONS-Quelle
-	# (Metall spiegelt weiter blau-gradient, Drehen bleibt sichtbar).
-	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env_blueprint.ambient_light_color = Color(0.66, 0.69, 0.74)
-	env_blueprint.ambient_light_energy = 0.85
+	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env_blueprint.ambient_light_energy = 1.0
 	env_blueprint.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_ACES
-	# Kontakt-Tiefe + sanftes Leuchten (Auswahl-Glow/Materialien poppen)
 	env_blueprint.ssao_enabled = true
-	env_blueprint.ssao_intensity = 1.6
-	env_blueprint.ssao_radius = 1.6
+	env_blueprint.ssao_intensity = 1.1
+	env_blueprint.ssao_radius = 1.4
 	env_blueprint.glow_enabled = true
-	env_blueprint.glow_intensity = 0.35
-	env_blueprint.glow_strength = 0.95
-	env_blueprint.glow_hdr_threshold = 1.05
+	env_blueprint.glow_intensity = 0.3
+	env_blueprint.glow_strength = 0.9
+	env_blueprint.glow_hdr_threshold = 1.1
 
 	world_env = WorldEnvironment.new()
 	world_env.environment = env_sky
@@ -227,23 +224,23 @@ func _setup_world() -> void:
 	hangar_lights = Node3D.new()
 	add_child(hangar_lights)
 	var key := DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-48, -36, 0)
-	key.light_energy = 1.45
-	key.light_color = Color(1.0, 0.97, 0.92)
+	key.rotation_degrees = Vector3(-50, -32, 0)
+	key.light_energy = 1.2
+	key.light_color = Color(1.0, 0.97, 0.90)   # warme Vormittagssonne
 	key.shadow_enabled = true
 	key.directional_shadow_max_distance = 80.0
-	key.shadow_blur = 1.6
+	key.shadow_blur = 2.2                       # weiche, freundliche Schatten
 	hangar_lights.add_child(key)
 	var fill := DirectionalLight3D.new()
-	fill.rotation_degrees = Vector3(-22, 118, 0)
-	fill.light_energy = 0.5
-	fill.light_color = Color(0.72, 0.82, 1.0)
+	fill.rotation_degrees = Vector3(-24, 120, 0)
+	fill.light_energy = 0.3
+	fill.light_color = Color(0.78, 0.86, 1.0)   # Himmels-Aufheller
 	fill.shadow_enabled = false
 	hangar_lights.add_child(fill)
 	var rim := DirectionalLight3D.new()
-	rim.rotation_degrees = Vector3(-30, 168, 0)
-	rim.light_energy = 0.85
-	rim.light_color = Color(0.85, 0.92, 1.0)
+	rim.rotation_degrees = Vector3(-28, 170, 0)
+	rim.light_energy = 0.35
+	rim.light_color = Color(0.9, 0.94, 1.0)
 	rim.shadow_enabled = false
 	hangar_lights.add_child(rim)
 	var hfill := DirectionalLight3D.new()
@@ -1288,7 +1285,7 @@ func _build_hangar_ui() -> void:
 	_build_selection_panel()
 
 	# --- Hinweisleiste unten ---
-	var hint := _lbl("Aus Liste ziehen = bauen (rastet am Teil unter der Maus) · Teil ziehen = andocken wo du hinzeigst (Anbauten wandern mit · Alt = nur das Teil) · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.9, 0.9, 0.9))
+	var hint := _lbl("Aus Liste ziehen = bauen (rastet am Teil unter der Maus) · Teil ziehen = andocken wo du hinzeigst (Anbauten wandern mit · Alt = nur das Teil) · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.25, 0.32, 0.42))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 320, -34, -10, -8)
 	build_root.add_child(hint)
