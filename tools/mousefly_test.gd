@@ -90,7 +90,7 @@ func _next_case() -> void:
 	# Flick: Ziel springt auf die Fall-Richtung, Glättung startet an der Nase (wie _toggle)
 	fc.look_yaw = float(c["yaw"])
 	fc.look_pitch = float(c["pitch"])
-	fc._aim_smooth = -ac.global_transform.basis.z
+	fc._aim_cmd = -ac.global_transform.basis.z
 	t = 0.0
 	t99 = -1.0
 	settled = false

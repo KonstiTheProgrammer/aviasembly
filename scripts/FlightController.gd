@@ -55,10 +55,27 @@ const RECOIL := {
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
 #     das Flugzeug dreht die Nase dorthin (Pursuit). look_yaw/look_pitch = Zielrichtung.
 const AIM_LOOK_SENS_BASE := 0.005   # Maus -> Blick-/Zielrichtung (rad pro Pixel), × sens_mult
-const AIM_SMOOTH_SLOW := 10.0   # Glättung bei Mikro-Korrekturen (stark -> kein Maus-Zittern)
-const AIM_SMOOTH_FAST := 22.0   # Glättung bei Flicks (~alter Wert: das Ziel führt die Nase
-								# SANFT — schneller ließ den Regler heiß ankommen -> Überschießen)
-const AIM_SMOOTH_REF := 4.0     # Zielbewegung (rad/s), ab der voll auf FAST geblendet wird
+const AIM_CMD_SLEW := 6.0       # Slew-Limit der kommandierten Richtung (rad/s) — praktisch roh,
+								# kappt nur Extrem-Flicks (WT localDirYawPitchRot-Äquivalent)
+const AIM_PITCH_CLAMP := 1.52   # Marker-Pitch-Klemme (~87°; echtes 90° ist in Yaw/Pitch singulär)
+const INS_KP_H := 2.2           # Instructor: Horizontalfehler -> Bahnrate (1/s)
+const INS_KP_V := 2.5           # Instructor: Vertikalfehler -> Nickrate (1/s)
+const INS_YAW_BETA := 0.8       # Schiebewinkel-Koordination (β -> 0, WT AosPid)
+const INS_YAW_AIM := 0.6        # Ruder-Feinzielen bei kleinem Fehler
+const RNP_OFF := 0.45           # Blende koordinierte Kurve -> Roll-and-Pull: Beginn (rad)
+const RNP_ON := 0.9             # ... voll Roll-and-Pull ab hier (rad)
+const RNP_ROLL_KP := 4.0        # Roll-and-Pull: Rollrate in die Zugebene (1/s)
+const LATCH_ON := 2.6           # Richtungs-Latch an (Gesamtfehler, rad)
+const LATCH_OFF := 2.0          # ... und wieder frei
+const AOA_MAX := 0.78 * 0.27    # AoA-Limit = 0.78·STALL_A (~12°) — Instructor kann nicht stallen
+const AOA_MIN := -0.39 * 0.27   # negatives AoA-Limit (asymmetrisch, wie WT)
+const AOA_PUSH := 6.0           # AoA-Limiter-Härte (1/s); über dem Limit: aktives Zurückdrücken
+const G_SOFT := 0.75            # G-Limiter: weiches Anschmiegen ab 75 % des Strukturlimits
+const G_HARD := 0.92            # ... voll gedeckelt bei 92 % (WT overloadMult-Bereich)
+const G_NEG := 0.45             # negatives G-Limit = 45 % des positiven
+# Speedabhängige Raten-Tabellen (WT RateMax-Struktur): [v (m/s), rate (rad/s)]
+const PITCH_RATE_TAB := [[20.0, 0.9], [60.0, 1.5], [120.0, 1.2], [250.0, 0.8]]
+const ROLL_RATE_TAB := [[15.0, 2.2], [60.0, 4.5], [140.0, 4.0], [250.0, 3.0]]
 const AIM_DEADZONE := 0.002     # innerer Totbereich (rad) — winzig, damit die Nase EXAKT zentriert
 const AIM_DEADZONE_SOFT := 0.008 # äußere Kante: bis hier wird der Fehler weich eingeblendet (kein Knick)
 const AIM_TRIM_I := 0.25        # Trim-Integrator (1/s): eliminiert den stationären Versatz zur Kreismitte
@@ -66,10 +83,7 @@ const AIM_TRIM_MAX := 0.3       # Trim-Klemmung (Anti-Windup)
 const AIM_TRIM_BAND := 0.06     # NUR nahe am Ziel integrieren (sonst lädt er sich im Anflug
 								# auf und schiebt ÜBER den Punkt -> Überschieß-Quelle)
 const BANK_OFFSET_RATE := 2.2   # A/D-Bank-Offset-Verstellrate (rad/s) im Maus-Flug
-const AIM_PLAN_AGG := 1.6       # Planer-Aggressivität: Bahn-Beschleunigung a_h = g/v·AGG für die
-								# Stopp-Distanz-Planung (höher = später/härter anbremsen)
 const AIM_ROLL_ACC := 6.0       # angenommene Roll-Winkelbeschleunigung (rad/s²) für die Roll-Planung
-const AIM_PITCH_ACC := 1.8      # angenommene Nick-"Bahn"-Beschleunigung (rad/s²) für die Nick-Planung
 const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
 const CAM_LEAD := 0.65          # Geschwindigkeits-Vorhalt der Kamera (0..1): kompensiert den
 								# Lerp-Schleppfehler (~v/Rate) größtenteils -> ~35 % bleiben als
@@ -77,15 +91,8 @@ const CAM_LEAD := 0.65          # Geschwindigkeits-Vorhalt der Kamera (0..1): ko
 const UP_BLEND_LO := 0.90       # ab |aim·UP| beginnt die Up-Referenz-Blende (Kamera)
 const UP_BLEND_HI := 0.98       # voll auf Flugzeug-Up geblendet -> kein Horizont-Sprung senkrecht
 const AIM_BANK_MAX := 1.25      # max. Querlage in Kurven (~72°, sicherer Abstand zu 90°)
-const AIM_BANK_K := 2.4         # Horizontal-Zielfehler (rad) -> Soll-Querlage (stark in die Kurve)
-const AIM_BANK_P := 6.5         # Querlage-Fehler -> Soll-Rollrate (schnelles Einrollen, kostet keine G)
-const AIM_ROLL_RATE_MAX := 5.5  # max. Rollrate (rad/s) -> sehr zügiges Einrollen (atan2-Messung -> kein Überbank-Taumeln)
 const AIM_ROLL_P := 2.0         # Rollraten-Fehler -> Roll-Auslenkung (straffe Ratenführung)
-const AIM_PITCH_K := 2.2        # Vertikal-Zielfehler (rad) -> Soll-Nickrate
-const AIM_PITCH_RATE_MAX := 2.3 # max. Nickrate (rad/s) -> schnell, aber unter Stall
 const AIM_PITCH_RATE_P := 1.5   # Nickraten-Fehler -> Auslenkung (gut gedämpft, kein Überziehen)
-const AIM_TURN_PULL := 0.7      # Höhenruder-Zug proportional zum Horizontalfehler (zieht durch die Kurve, getapert)
-const AIM_YAW_K := 0.5          # Ruderkoordination Richtung Ziel (direkteres Anvisieren)
 const AIM_YAW_D := 0.3          # Gier-Dämpfung
 const AIM_MARK_SMOOTH := 0.5    # Nasenmarker-Pixelglättung (Lerp/Frame)
 
@@ -115,7 +122,7 @@ var _roll_hold := 0.0           # wie lange A/D schon gehalten (für Fass-Roll)
 var _roll_dir := 0              # aktuelle Roll-Halterichtung (+1=A, -1=D, 0=keine)
 var _flap_stage := 0            # Landeklappen-Stufe (Index in FLAP_STAGES), Taste F schaltet weiter
 var _cam_shake := 0.0           # aktuelles Kamera-Shake-„Trauma" (0..~1.4), klingt ab
-var _aim_smooth := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr -> smoother)
+var _aim_cmd := Vector3(0, 0, -1)  # geglättete Zielrichtung (Regler folgt ihr -> smoother)
 var _nose_px := Vector2.ZERO    # geglättete Nasenmarker-Pixelposition
 var aim_screen := Vector2.ZERO  # Pixelposition Zielmarker (fürs HUD)
 var nose_screen := Vector2.ZERO # Pixelposition der aktuellen Nasenrichtung
@@ -417,96 +424,95 @@ func _physics_process(delta: float) -> void:
 	# Vertikalfehler -> Nick; Zug proportional zum Horizontalfehler zieht durch die Kurve.
 	if mouse_fly:
 		var b := aircraft.global_transform.basis
-		aircraft.aim_world = _aim_dir()   # Pursuit-Ziel (Arcade + Maus-Stabilisierung im Body)
+		aircraft.aim_world = _aim_dir()   # ROH (Arcade-Pfad + HUD)
 		aircraft.mouse_bank_offset = _bank_offset
-		# ADAPTIVE Zielglättung: Mikro-Korrekturen stark glätten (kein Maus-Zittern),
-		# schnelle Flicks fast roh durchlassen (kein Schleppfehler -> kein Überkorrigieren).
-		# lerp+normalize statt Vector3.slerp: slerp wirft bei fast-parallelen Vektoren
-		# "axis must be normalized" (interne Achse aus ~0-Kreuzprodukt). lerp ist robust.
-		var aim_speed := (_aim_dir() - _aim_smooth).length() / maxf(delta, 1e-5)
-		var sf := lerpf(AIM_SMOOTH_SLOW, AIM_SMOOTH_FAST, clampf(aim_speed / AIM_SMOOTH_REF, 0.0, 1.0))
-		_aim_smooth = _aim_smooth.lerp(_aim_dir(), clampf(delta * sf, 0.0, 1.0)).normalized()
-		var e := b.transposed() * _aim_smooth     # Zielrichtung im Körpersystem (Nase = -Z)
-		# WEICHER Totbereich (Smoothstep-Einblendung statt Snap-to-Zero): der Integrator
-		# baut nahe dem Ziel sanft ab statt mit Rest-Auslenkung einzufrieren -> kein
-		# Pendeln/Zittern um den Zielkreis (Limit-Cycle stirbt an der Quelle).
+		# ===== WT-INSTRUCTOR (War-Thunder-Stil): Marker roh, Slew-Limit, PID-Kaskade,
+		# AoA-/G-Limiter auf MESSWERTE, Roll-and-Pull bei großen Fehlern. ============
+		# [B] Kommandierte Richtung: ROHE Maus, nur Drehraten-(Slew-)Limit — KEIN Lerp-
+		# Lag (WT glättet die Maus nicht; Schleppfehler war eine Überschwing-Quelle).
+		var raw_aim := _aim_dir()
+		var ang_cmd := _aim_cmd.angle_to(raw_aim)
+		if ang_cmd > 1e-4:
+			var sl_axis := _aim_cmd.cross(raw_aim)
+			if sl_axis.length() > 1e-6:
+				_aim_cmd = _aim_cmd.rotated(sl_axis.normalized(), minf(AIM_CMD_SLEW * delta, ang_cmd)).normalized()
+			else:
+				_aim_cmd = raw_aim
+		# [C] Fehlerzerlegung im Körpersystem (Nase = -Z)
+		var e := b.transposed() * _aim_cmd
 		var horiz := _soft_dead(atan2(e.x, -e.z))             # +rechts, ±π hinten
 		var vert := _soft_dead(atan2(e.y, sqrt(e.x * e.x + e.z * e.z)))  # +oben
-		var wb := b.transposed() * aircraft.angular_velocity   # Körperraten (x=Nick, y=Gier, z=Roll)
-		# Querlage als atan2 (voller Bereich, kippt nicht bei 90° wie asin -> kein Taumeln).
+		var err_total := acos(clampf(-e.z, -1.0, 1.0))        # Gesamtfehler 0..π
+		var wb := b.transposed() * aircraft.angular_velocity
 		var current_bank := atan2(b.x.y, b.y.y)
-		# A/D verstellt einen PERSISTENTEN Bank-Offset (gehaltene Querlage). Die bewährte
-		# Kaskade läuft IMMER weiter (kein hartes Umschalten -> kein Stottern) und zielt
-		# auf "Offset + Lenkbedarf": am Ziel zentriert = Bank bleibt exakt auf dem Offset
-		# stehen, beim Maus-Lenken bankt es um den Offset herum (Tracking gewinnt).
+		var v := maxf(aircraft.airspeed, 12.0)
+		# A/D = gehaltener Bank-Offset (WT "manual roll control")
 		if aircraft.barrel_roll != 0:
-			_bank_offset = 0.0       # Fass-Rolle übernimmt -> kein verwaister Offset danach
+			_bank_offset = 0.0
 		else:
 			_bank_offset = clampf(_bank_offset + roll * BANK_OFFSET_RATE * delta, -AIM_BANK_MAX, AIM_BANK_MAX)
-		# ===== MANÖVER-PLANER (denkt wie ein Pilot, fliegt physisch) ==================
-		# 1) Was darf die Bahn überhaupt drehen? G-Limit (Struktur) UND verfügbarer
-		#    Auftrieb bei DIESEM Tempo (∝ v) begrenzen die Bahn-Drehrate w_max = a/v.
-		var v := maxf(aircraft.airspeed, 12.0)
-		var gmax := 7.0 * 9.81
-		if aircraft.wing_capacity > 0.0 and aircraft.mass > 1.0:
-			gmax = clampf(aircraft.wing_capacity / aircraft.mass * 0.65, 3.0 * 9.81, 30.0 * 9.81)
-		var rho := 1.225 * exp(-aircraft.altitude / 8500.0)
-		var a_lift := 0.5 * rho * v * v * 2.9 * maxf(aircraft.wing_area, 1.0) * 1.5 * 0.6 / maxf(aircraft.mass, 1.0)
-		var a_turn := minf(gmax, a_lift)
-		var w_max := a_turn / v
-		# 2) HORIZONTAL: Stopp-Distanz-Planung (Doppelintegrator): maximale Anflugrate,
-		#    mit der man am Kreis noch ANHALTEN kann -> w = √(2·a_h·|Fehler|). Die
-		#    Bahn-Beschleunigung a_h kommt aus dem Einrollen (Roll-getrieben, ~g/v-skaliert).
-		var a_h := 9.81 / v * AIM_PLAN_AGG
-		# AUSROLL-VORHALT: das Ausrollen aus der Bank dauert t≈|bank|/Rollrate — in der
-		# Zeit dreht die Kurve WEITER. Der Planer rechnet den Fehler um (Rate × Ausroll-
-		# zeit) kleiner -> die Bank beginnt früh genug abzubauen, die Nase rollt exakt
-		# in den Kreis aus statt durchzuziehen.
+		# [D] Modusblende: koordinierte Kurve <-> ROLL-AND-PULL (großer Fehler: erst in
+		# die Zugebene rollen, dann ziehen — WT rollAndPullUpWishDir). Latch hält die
+		# Rollrichtung durch die ±π-Flackerzone (180°-Wenden, Ziel unten = Split-S).
+		var k_rnp := smoothstep(RNP_OFF, RNP_ON, err_total)
+		var phi := atan2(e.x, e.y)        # Ziel relativ zur Zugebene (0 = genau "oben")
+		if err_total > LATCH_ON:
+			if _turn_dir == 0:
+				_turn_dir = 1 if phi >= 0.0 else -1
+			phi = absf(phi) * float(_turn_dir)
+		elif err_total < LATCH_OFF:
+			_turn_dir = 0
+		# [E] Soll-Raten mit speedabhängigen Tabellen (WT RateMax-Struktur)
+		var pitch_max := _tab(v, PITCH_RATE_TAB)
+		var roll_max := _tab(v, ROLL_RATE_TAB)
+		# E1: koordinierte Kurve — Winkel-P + Ausroll-Vorhalt -> Bahnrate -> Soll-Bank
+		# (echte Kurvengleichung w = g·tan(bank)/v; Vorzeichen: Ziel rechts -> Bank negativ)
 		var hr := clampf(wrapf(horiz - _prev_horiz, -PI, PI) / maxf(delta, 1e-5), -3.0, 3.0)
 		_prev_horiz = horiz
 		_horiz_rate = lerpf(_horiz_rate, hr, clampf(delta * 15.0, 0.0, 1.0))
-		var t_unwind := absf(current_bank) / AIM_ROLL_RATE_MAX + 0.12
-		var horiz_plan := horiz + _horiz_rate * t_unwind
-		if signf(horiz_plan) != signf(horiz):
-			horiz_plan = 0.0
-		# RICHTUNGS-LATCH: nahe 180° flackert das Fehler-Vorzeichen (±π) -> die Bank
-		# würde hin- und herspringen. Einmal gewählte Drehrichtung wird gehalten,
-		# bis die Wende klar unter ~115° ist.
-		var hsign := signf(horiz)
-		if absf(horiz) > 2.6:
-			if _turn_dir == 0:
-				_turn_dir = 1 if horiz >= 0.0 else -1
-			hsign = float(_turn_dir)
-		elif absf(horiz) < 2.0:
-			_turn_dir = 0
-		var wh_des := hsign * minf(w_max, sqrt(2.0 * a_h * absf(horiz_plan)))
-		# 3) Soll-Bank aus der ECHTEN Kurvengleichung w = g·tan(bank)/v (realistisch!)
-		#    (Vorzeichen: Ziel rechts (horiz>0) -> Rechtskurve -> negative Bank.)
+		var t_unwind := absf(current_bank) / roll_max + 0.12
+		var horiz_lead := horiz + _horiz_rate * t_unwind
+		if signf(horiz_lead) != signf(horiz):
+			horiz_lead = 0.0
+		var wh_cap := 9.81 * tan(AIM_BANK_MAX) / v
+		var wh_des := clampf(INS_KP_H * horiz_lead, -wh_cap, wh_cap)
 		var target_bank := clampf(-atan(wh_des * v / 9.81) + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
-		# 4) ROLLEN dorthin — ebenfalls stopp-geplant (kein Überrollen der Ziel-Bank)
-		var dbank := target_bank - current_bank
-		var wr_des := signf(dbank) * minf(AIM_ROLL_RATE_MAX, sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)))
+		var dbank := wrapf(target_bank - current_bank, -PI, PI)
+		var wr_coord := signf(dbank) * minf(roll_max, sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)))
+		var wv_des := clampf(INS_KP_V * vert, -pitch_max, pitch_max)
+		var dp_coord := wv_des * absf(cos(current_bank)) + absf(wh_des) * absf(sin(current_bank))
+		# E2: Roll-and-Pull — in die Zielebene rollen (phi -> 0), pull erst eingerollt
+		var wr_rnp := clampf(-phi * RNP_ROLL_KP, -roll_max, roll_max)
+		var pull_gate := pow(clampf(cos(phi), 0.0, 1.0), 2.0)
+		var dp_rnp := minf(INS_KP_V * err_total, pitch_max) * pull_gate
+		# E3: Blenden + AOA-LIMITER (primär, geschlossener Kreis auf MESS-AoA — der
+		# Instructor KANN den Stall nicht kommandieren; über dem Limit drückt er aktiv
+		# zurück) + G-LIMITER (sekundär, weiches Anschmiegen ans Strukturlimit).
+		var wr_des := lerpf(wr_coord, wr_rnp, k_rnp)
+		var d_pitch := clampf(lerpf(dp_coord, dp_rnp, k_rnp), -pitch_max, pitch_max)
+		var aoa_hi := AOA_PUSH * (AOA_MAX - aircraft.aoa_signed)
+		var aoa_lo := AOA_PUSH * (AOA_MIN - aircraft.aoa_signed)
+		d_pitch = clampf(d_pitch, aoa_lo, aoa_hi)
+		var g_lim := clampf(aircraft.wing_capacity / maxf(aircraft.mass * 9.81, 1.0), 3.0, 14.0)
+		var gl := aircraft.load_factor
+		if d_pitch > 0.0 and gl > 0.0:
+			d_pitch *= 1.0 - smoothstep(G_SOFT * g_lim, G_HARD * g_lim, gl)
+		elif d_pitch < 0.0 and gl < 0.0:
+			d_pitch *= 1.0 - smoothstep(G_SOFT * g_lim * G_NEG, G_HARD * g_lim * G_NEG, -gl)
+		# [F] innere Raten-Schleifen + Auto-Trim + Schiebewinkel-Gier (β -> 0, WT AosPid)
 		var roll_cmd := clampf((wr_des - wb.z) * AIM_ROLL_P, -1.0, 1.0)
-		# 5) VERTIKAL: stopp-geplante Nickrate, gedeckelt durch w_max (G-Limit)
-		var wv_des := signf(vert) * minf(w_max, sqrt(2.0 * AIM_PITCH_ACC * absf(vert)))
-		# 6) Körper-Nickrate = Vertikalanteil (bankabhängig) + Kurvenzug (geplante Bahn-
-		#    rate, durch die Bank gezogen) — das "erst einrollen, dann ziehen" eines Piloten.
-		var d_pitch := clampf(wv_des * absf(cos(current_bank)) + absf(wh_des) * absf(sin(current_bank)), -w_max, w_max)
-		# TRIM-INTEGRATOR: gleicht den stationären Versatz aus (Schwerkraft zieht die Nase
-		# unter die Kreismitte; rein proportional bliebe ein konstanter Restfehler).
-		# NUR im engen Band ums Ziel integrieren UND nur bei ruhiger Nickrate — sonst lädt
-		# er sich im Anflug auf und schiebt die Nase ÜBER den Punkt. Bei großen Manövern
-		# blutet er aus (Decay), damit kein veralteter Trim nachschiebt.
 		if absf(vert) < AIM_TRIM_BAND and absf(wb.x) < 0.4 and aircraft.airspeed > 10.0:
 			_trim_pitch = clampf(_trim_pitch + vert * AIM_TRIM_I * delta, -AIM_TRIM_MAX, AIM_TRIM_MAX)
 		elif absf(vert) > 0.2:
 			_trim_pitch = move_toward(_trim_pitch, 0.0, 0.6 * delta)
 		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + _trim_pitch, -1.0, 1.0)
-		# Gier: leicht koordiniert Richtung Ziel + gedämpft (vertauscht -> negiert).
-		var yaw_cmd := clampf(-horiz * AIM_YAW_K - wb.y * AIM_YAW_D, -1.0, 1.0)
+		var v_b := b.transposed() * aircraft.linear_velocity
+		var beta := atan2(v_b.x, absf(v_b.z) + 0.6)
+		var horiz_fine := clampf(horiz, -0.12, 0.12) * (1.0 - k_rnp)
+		var yaw_cmd := clampf(-beta * INS_YAW_BETA - horiz_fine * INS_YAW_AIM - wb.y * AIM_YAW_D, -1.0, 1.0)
+		# Übergabe: Tastatur bleibt ADDITIV (WT: Tasten helfen dem Instructor); A/D nur
+		# über den Bank-Offset (kein rohes Gegen-Rollen).
 		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
-		# A/D wirkt im Maus-Flug NUR über den Bank-Offset (Kaskade folgt ihm sauber) —
-		# rohes Mit-Rollen würde gegen die Kaskade kämpfen (Zappeln).
 		roll = roll_cmd
 		yaw = clampf(yaw + yaw_cmd, -1.0, 1.0)
 
@@ -670,7 +676,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
 			# Nach rechts schauen -> rechts; nach hinten schauen -> Flieger dreht ganz herum.
 			look_yaw = wrapf(look_yaw + event.relative.x * AIM_LOOK_SENS_BASE * sens_mult, -PI, PI)
-			look_pitch = clampf(look_pitch - event.relative.y * AIM_LOOK_SENS_BASE * sens_mult, -1.45, 1.45)
+			look_pitch = clampf(look_pitch - event.relative.y * AIM_LOOK_SENS_BASE * sens_mult, -AIM_PITCH_CLAMP, AIM_PITCH_CLAMP)
 		else:
 			# Umschauen: Kamera frei um das Flugzeug schwenken
 			look_yaw = clampf(look_yaw - event.relative.x * LOOK_SENS, -PI, PI)
@@ -702,7 +708,7 @@ func _toggle_mouse_fly() -> void:
 		var f := -aircraft.global_transform.basis.z
 		look_yaw = atan2(f.x, -f.z)
 		look_pitch = asin(clampf(f.y, -1.0, 1.0))
-		_aim_smooth = _aim_dir()
+		_aim_cmd = _aim_dir()
 		_trim_pitch = 0.0
 		_bank_offset = 0.0
 		_prev_horiz = 0.0
@@ -726,6 +732,17 @@ func _toggle_arcade() -> void:
 func _aim_dir() -> Vector3:
 	var cp := cos(look_pitch)
 	return Vector3(sin(look_yaw) * cp, sin(look_pitch), -cos(look_yaw) * cp)
+
+
+# Stückweise lineare Tabelle [[x, y], ...] auswerten (Raten über Geschwindigkeit).
+func _tab(x: float, tab: Array) -> float:
+	if x <= tab[0][0]:
+		return tab[0][1]
+	for i in range(1, tab.size()):
+		if x <= tab[i][0]:
+			var f: float = (x - tab[i - 1][0]) / (tab[i][0] - tab[i - 1][0])
+			return lerpf(tab[i - 1][1], tab[i][1], f)
+	return tab[tab.size() - 1][1]
 
 
 # Weicher Totbereich: unter AIM_DEADZONE = 0, bis AIM_DEADZONE_SOFT per Smoothstep

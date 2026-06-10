@@ -153,6 +153,8 @@ var _dust_pending := 0.0      # Aufsetz-Staub fürs nächste _process (Sinkrate;
 var airspeed := 0.0
 var altitude := 0.0
 var aoa_deg := 0.0
+var aoa_signed := 0.0         # AoA MIT Vorzeichen (rad) — für den Instructor-AoA-Limiter
+var load_factor := 0.0        # signierter Lastfaktor lift/(m·g) — für den Instructor-G-Limiter
 var climb := 0.0
 var stall := false
 var gforce := 1.0
@@ -1386,14 +1388,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var gate_v := takeoff_v * (1.0 - _flap_vis * 0.25)
 		var lift_gate := lerpf(LIFT_LO, 1.0, smoothstep(gate_v * LIFT_GATE_LO, gate_v * LIFT_GATE_HI, sp))
 		var lift_mag := q * wing_area * cl * lift_gate
-		# G-LIMITER im MAUS-FLUG (wie Fly-by-Wire): der Auftrieb wird weich auf ~80 %
-		# der Flügel-Belastbarkeit gekappt -> der Regler kann ziehen so viel er will,
-		# die Struktur bricht nicht (das war das "Schleudern" bei Highspeed: transienter
-		# AoA bis CL_MAX = das Vielfache des Limits). Tastatur-Modus bleibt ungeschützt.
-		if mouse_fly and not arcade and barrel_roll == 0 and wing_capacity > 0.0:
-			var glim := wing_capacity * 0.8
-			if absf(lift_mag) > glim:
-				lift_mag = signf(lift_mag) * glim
+		# (Der frühere Force-Clamp aufs Lift ist raus: Limitierung passiert jetzt auf der
+		# KOMMANDO-Seite im Instructor (AoA-/G-Limiter auf Messwerte) — die Physik bleibt
+		# unverfälscht. Backstop: 0.12-s-Überlast-Fenster + Flügelbruch darunter.)
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen.
 		# NUR bei ANHALTENDER Überlast (>0.12 s): Einzel-Tick-Spitzen (Regler-Transienten,
 		# numerisches Rauschen bei Highspeed) reißen keine Flügel mehr ab — echtes
@@ -1420,6 +1417,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		tt += xf.basis.x * (-aoa * q * (0.3 + pitch_area) * PITCH_STAB)
 		tt += xf.basis.y * (beta * q * (0.3 + yaw_area) * YAW_STAB)
 		aoa_deg = rad_to_deg(absf(aoa))
+		aoa_signed = aoa
+		load_factor = lift_mag / maxf(mass * 9.81, 1.0)
 		stall = absf(aoa) > STALL_A
 		# STALL-BUFFET: kurz VOR dem Abriss schüttelt die Zelle spürbar (ansteigend) ->
 		# man FÜHLT die Grenze, bevor das STALL-Banner kommt. Physischer Jitter (Nase
@@ -1437,6 +1436,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 			tt += xf.basis.x * (-signf(aoa) * mass * STALL_RECOVER * rec)
 	else:
 		aoa_deg = 0.0
+		aoa_signed = 0.0
+		load_factor = 0.0
 		stall = false
 	wing_status = "GEBROCHEN ⚠" if wings_broken else "ok"
 
