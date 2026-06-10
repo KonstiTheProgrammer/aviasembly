@@ -583,7 +583,7 @@ func delete_selected() -> void:
 func _on_right_click() -> void:
 	if erase_mode or paint_mode or _carrying:
 		return
-	var part := _part_from_hit(_raycast_mouse(BUILD_LAYER))
+	var part := _pick_part_at_mouse()
 	if part == null:
 		return
 	if part != selected_part:
@@ -810,13 +810,16 @@ func _build_move_handles() -> void:
 		h.set_meta("axis", i)
 		h.set_meta("sign", 1.0)
 		h.set_meta("base_col", GIZ_COLS[i])
-		# Collider entlang der Achse (greifbarer Schaft)
+		# Collider entlang der Achse: LÄNGER als der Schaft (die Pfeilspitze sitzt
+		# bei 0.95-1.2 und lag außerhalb der alten ±0.75-Box -> Klicks auf die
+		# Spitze gingen ins Leere) und großzügig dick (leichter zu treffen).
 		var cs := CollisionShape3D.new()
 		var box := BoxShape3D.new()
-		if i == 0: box.size = Vector3(1.5, 0.4, 0.4)
-		elif i == 1: box.size = Vector3(0.4, 1.5, 0.4)
-		else: box.size = Vector3(0.4, 0.4, 1.5)
+		if i == 0: box.size = Vector3(2.6, 0.55, 0.55)
+		elif i == 1: box.size = Vector3(0.55, 2.6, 0.55)
+		else: box.size = Vector3(0.55, 0.55, 2.6)
 		cs.shape = box
+		cs.position = axis * 0.25   # asymmetrisch: deckt -1.05 .. +1.55 ab (inkl. Spitze)
 		h.add_child(cs)
 		# Schaft
 		var shaft := MeshInstance3D.new()
@@ -943,7 +946,7 @@ func _transform_left_press() -> void:
 			_begin_handle_drag(hc)
 			return
 	# 2) Teil getroffen -> auswählen + verschieben
-	var part := _part_from_hit(_raycast_mouse(BUILD_LAYER))
+	var part := _pick_part_at_mouse()
 	if part != null:
 		if part != selected_part:
 			_select_part(part)
@@ -1362,8 +1365,8 @@ func set_symmetry(b: bool) -> void:
 
 
 # --- Lackieren --------------------------------------------------------------
-func _paint_hovered(hit: Dictionary) -> void:
-	var part := _part_from_hit(hit)
+func _paint_hovered(_hit: Dictionary) -> void:
+	var part := _pick_part_at_mouse()   # smarter Pick: trifft auch eingebettete Teile
 	if part == null:
 		return
 	_recolor(part, paint_color)
@@ -1703,7 +1706,7 @@ func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0
 
 
 func _delete_hovered() -> void:
-	var part := _part_from_hit(_raycast_mouse())
+	var part := _pick_part_at_mouse()
 	if part == null or part.get_meta("is_root", false):
 		return
 	if part == selected_part:
@@ -2030,6 +2033,41 @@ func _raycast_mouse(mask := BUILD_LAYER, exclude: Array[RID] = []) -> Dictionary
 	q.collide_with_areas = false
 	q.exclude = exclude
 	return space.intersect_ray(q)
+
+
+# Teil unter der Maus — präziser als der rohe erste Ray-Treffer: Boxen großer
+# Teile umschließen oft kleinere sichtbare Anbauten (Kanone im Rumpf, MG am
+# Flügel) — dann gewann immer die große Hülle, nicht das Teil, auf das man
+# ZEIGT. Hier werden die Treffer im Nahbereich des ersten eingesammelt und das
+# VOLUMENKLEINSTE gewinnt (das eingebettete/aufgesetzte Teil ist das gemeinte).
+func _pick_part_at_mouse() -> Node3D:
+	var ex: Array[RID] = []
+	var first_d := -1.0
+	var best: Node3D = null
+	var best_vol := INF
+	var ro := camera.project_ray_origin(get_viewport().get_mouse_position()) if camera != null else Vector3.ZERO
+	for i in 5:
+		var hit := _raycast_mouse(BUILD_LAYER, ex)
+		if hit.is_empty():
+			break
+		var part := _part_from_hit(hit)
+		if part != null:
+			var d: float = (Vector3(hit["position"]) - ro).length()
+			if first_d < 0.0:
+				first_d = d
+			if d > first_d + 0.9:
+				break   # zu weit hinter dem ersten Treffer -> anderes Teil, kein Nest
+			var pdef := PartCatalog.get_part(part.get_meta("part_id"))
+			var cz: Vector3 = PartCatalog.col_size(pdef) * part.get_meta("pscale", Vector3.ONE)
+			var vol: float = cz.x * cz.y * cz.z
+			if vol < best_vol:
+				best_vol = vol
+				best = part
+		var col = hit.get("collider")
+		if col == null:
+			break
+		ex.append((col as CollisionObject3D).get_rid())
+	return best
 
 
 func _part_from_hit(hit: Dictionary) -> Node3D:
