@@ -204,7 +204,7 @@ Querruder, kein Auftrieb.
 
 ## Steuerung
 **Hangar:** Palette-Teil wählen → ziehen=setzen · **vorhandenes Teil klicken=auswählen**
-(Griffe+Panel: skalieren/drehen/löschen), **Body ziehen=verschieben** · leerer Raum/Rechtsmaus=drehen ·
+(Griffe+Panel: skalieren/drehen/löschen), **Body ziehen=verschieben** (AUSWÄRTIGER TEILBAUM wandert mit — `_capture_move_kids`, BFS wie beim Flügelbruch; Alt = nur das Teil) · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
 `Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · **`Strg+D` duplizieren** (Klon+Spiegel, `duplicate_selected`) ·
 **Pfeiltasten** = ausgewähltes Teil fein verschieben (`nudge_selected`, 0.25er) ·

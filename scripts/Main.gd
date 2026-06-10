@@ -1240,7 +1240,7 @@ func _build_hangar_ui() -> void:
 	_build_selection_panel()
 
 	# --- Hinweisleiste unten ---
-	var hint := _lbl("Aus Liste ziehen = bauen (rastet am Teil unter der Maus) · Teil ziehen = andocken wo du hinzeigst · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.9, 0.9, 0.9))
+	var hint := _lbl("Aus Liste ziehen = bauen (rastet am Teil unter der Maus) · Teil ziehen = andocken wo du hinzeigst (Anbauten wandern mit · Alt = nur das Teil) · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.9, 0.9, 0.9))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 320, -34, -10, -8)
 	build_root.add_child(hint)

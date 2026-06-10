@@ -77,6 +77,8 @@ var _drag_origin0 := Vector3.ZERO
 var _drag_taper0 := 1.0           # Enden-Drag: Taper-Wert des Endes beim Greifen
 var _drag_half := 1.0             # Enden-Drag: halbe Höhe (Sensitivität)
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
+var _move_kids: Array = []        # Anbauten (auswärtiger Teilbaum), die beim Verschieben mitwandern
+var _move_sel_p0 := Vector3.ZERO  # Startposition des gewählten Teils für den Kid-Versatz
 var _move_plane := Plane()
 var _move_grab := Vector3.ZERO
 var _edit_xf0 := Transform3D()    # Snapshot bei Drag-Beginn (History nur bei echter Änderung)
@@ -653,9 +655,11 @@ func duplicate_selected() -> void:
 func nudge_selected(delta_world: Vector3) -> void:
 	if selected_part == null:
 		return
+	_capture_move_kids()
 	_apply_sel_transform(selected_part.transform.basis,
 		selected_part.position + delta_world,
 		selected_part.get_meta("pscale", Vector3.ONE))
+	_move_kids = []
 	_emit_selection()
 	_push_history()
 
@@ -1017,10 +1021,55 @@ func _begin_handle_drag(handle: Node3D) -> void:
 	_drag_scale0 = selected_part.get_meta("pscale", Vector3.ONE)
 	_drag_origin0 = selected_part.position
 	if _drag_kind == "move":
+		_capture_move_kids()   # Anbauten wandern auch beim Pfeil-Ziehen mit
 		_drag_axis_w = _axis_vec(_drag_axis_i) * _drag_sign   # WELT-Achse (global, nicht lokal)
 	else:  # scale -> lokale Teil-Achse strecken
 		_drag_axis_w = (selected_part.global_transform.basis * _axis_vec(_drag_axis_i)).normalized() * _drag_sign
 	_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
+
+
+# Auswärtiger TEILBAUM des gewählten Teils: alles, was NUR über dieses Teil am
+# Cockpit hängt (gleiche Logik wie der Verbindungs-Baum beim Flügelbruch) —
+# wandert beim Verschieben MIT. Alt-Taste gedrückt = nur das Teil allein.
+func _capture_move_kids() -> void:
+	_move_kids = []
+	if selected_part == null:
+		return
+	_move_sel_p0 = selected_part.position
+	if Input.is_key_pressed(KEY_ALT) or selected_part.get_meta("is_root", false):
+		return
+	var parts: Array = []
+	var root: Node3D = null
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			parts.append(c)
+			if c.get_meta("is_root", false):
+				root = c
+	if root == null:
+		return
+	var boxes := {}
+	for pp in parts:
+		boxes[pp] = _part_world_aabb(pp).grow(0.12)
+	# 1) Was ist OHNE Weg durch das gewählte Teil vom Cockpit erreichbar?
+	var reach := {selected_part: true, root: true}
+	var queue: Array = [root]
+	while not queue.is_empty():
+		var cur = queue.pop_back()
+		for o in parts:
+			if not reach.has(o) and boxes[cur].intersects(boxes[o]):
+				reach[o] = true
+				queue.append(o)
+	# 2) Auswärts vom gewählten Teil: alles, was nur über IHN dranhängt
+	var sub := {}
+	queue = [selected_part]
+	while not queue.is_empty():
+		var cur = queue.pop_back()
+		for o in parts:
+			if not reach.has(o) and not sub.has(o) and boxes[cur].intersects(boxes[o]):
+				sub[o] = true
+				queue.append(o)
+	for o in sub:
+		_move_kids.append({"n": o, "p0": (o as Node3D).position})
 
 
 func _begin_move() -> void:
@@ -1028,6 +1077,7 @@ func _begin_move() -> void:
 	_drag_handle = null
 	_edit_xf0 = selected_part.transform
 	_edit_sc0 = selected_part.get_meta("pscale", Vector3.ONE)
+	_capture_move_kids()
 	var n := -camera.global_transform.basis.z      # Kamera-Blickrichtung
 	var o := selected_part.global_position
 	_move_plane = Plane(n, o.dot(n))
@@ -1122,6 +1172,15 @@ func _apply_sel_transform(new_basis: Basis, origin: Vector3, sc: Vector3) -> voi
 	selected_part.transform = Transform3D(new_basis, origin)
 	_apply_part_scale(selected_part, sc)
 	_sync_mirror(selected_part, sc)
+	# ANBAUTEN MITNEHMEN: der beim Move-Start eingesammelte Teilbaum folgt 1:1
+	# dem Versatz (inkl. Spiegel-Sync je Anbau -> die Gegenseite zieht mit).
+	if not _move_kids.is_empty():
+		var off := origin - _move_sel_p0
+		for k in _move_kids:
+			var kn = k["n"]
+			if is_instance_valid(kn):
+				kn.position = k["p0"] + off
+				_sync_mirror(kn, kn.get_meta("pscale", Vector3.ONE))
 	_update_handles()
 	_notify_changed()
 
@@ -1207,7 +1266,12 @@ func _plane_ray() -> Vector3:
 func _snap_move_to_hovered(part: Node3D) -> Variant:
 	var ex: Array[RID] = []
 	var mirror = part.get_meta("mirror") if part.has_meta("mirror") else null
-	for n in [part, mirror]:
+	var ex_nodes: Array = [part, mirror]
+	for k in _move_kids:
+		ex_nodes.append(k["n"])
+		var km = k["n"].get_meta("mirror") if (is_instance_valid(k["n"]) and k["n"].has_meta("mirror")) else null
+		ex_nodes.append(km)
+	for n in ex_nodes:
 		if n != null and is_instance_valid(n):
 			for c in n.get_children():
 				if c is CollisionObject3D:
@@ -1249,6 +1313,7 @@ func _transform_release() -> void:
 	_moving_sel = false
 	_rotating = false
 	_left_orbit = false
+	_move_kids = []
 
 
 # ---------------------------------------------------------------------------
