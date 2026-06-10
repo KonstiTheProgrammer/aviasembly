@@ -66,9 +66,10 @@ const AIM_TRIM_MAX := 0.3       # Trim-Klemmung (Anti-Windup)
 const AIM_TRIM_BAND := 0.06     # NUR nahe am Ziel integrieren (sonst lädt er sich im Anflug
 								# auf und schiebt ÜBER den Punkt -> Überschieß-Quelle)
 const BANK_OFFSET_RATE := 2.2   # A/D-Bank-Offset-Verstellrate (rad/s) im Maus-Flug
-const AIM_HORIZ_D := 0.38       # Vorhalt (s) auf die Horizontalfehler-RATE: der Regler sieht,
-								# wie schnell die Nase schon einschwenkt, und bremst RECHTZEITIG
-								# vor dem Ziel ab -> kein Überschwingen/Pendeln des Nasenmarkers
+const AIM_PLAN_AGG := 1.6       # Planer-Aggressivität: Bahn-Beschleunigung a_h = g/v·AGG für die
+								# Stopp-Distanz-Planung (höher = später/härter anbremsen)
+const AIM_ROLL_ACC := 6.0       # angenommene Roll-Winkelbeschleunigung (rad/s²) für die Roll-Planung
+const AIM_PITCH_ACC := 1.8      # angenommene Nick-"Bahn"-Beschleunigung (rad/s²) für die Nick-Planung
 const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
 const CAM_LEAD := 0.65          # Geschwindigkeits-Vorhalt der Kamera (0..1): kompensiert den
 								# Lerp-Schleppfehler (~v/Rate) größtenteils -> ~35 % bleiben als
@@ -99,6 +100,7 @@ var sens_mult := 1.0            # Maus-Flug-Empfindlichkeit (0.5–2.0, Pause-Me
 var _cam_aim := Vector3(0, 0, -1)   # GEGLÄTTETE Kamera-Blickrichtung im Maus-Flug (gegen Ruckeln)
 var _trim_pitch := 0.0          # Nick-Trim-Integrator (Maus-Flug): Nase exakt in der Kreismitte
 var _bank_offset := 0.0         # mit A/D gesetzte, GEHALTENE Querlage (Offset der Kaskade)
+var _turn_dir := 0              # Richtungs-Latch für 180°-Wenden (um ±π flackert das Vorzeichen)
 var _prev_horiz := 0.0          # Horizontalfehler des Vorframes (für die Fehler-Rate)
 var _horiz_rate := 0.0          # gefilterte Horizontalfehler-Änderungsrate (rad/s)
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
@@ -441,31 +443,55 @@ func _physics_process(delta: float) -> void:
 			_bank_offset = 0.0       # Fass-Rolle übernimmt -> kein verwaister Offset danach
 		else:
 			_bank_offset = clampf(_bank_offset + roll * BANK_OFFSET_RATE * delta, -AIM_BANK_MAX, AIM_BANK_MAX)
-		# FEHLER-RATE (gefiltert): wie schnell schließt die Nase schon aufs Ziel? Der
-		# Vorhalt (PD statt P) lässt den Regler RECHTZEITIG ausbanken, statt mit Schwung
-		# über den Kreis zu schwenken und zurückzupendeln ("beste Route" zum Ziel).
-		var hr := clampf(wrapf(horiz - _prev_horiz, -PI, PI) / maxf(delta, 1e-5), -3.0, 3.0)
-		_prev_horiz = horiz
-		_horiz_rate = lerpf(_horiz_rate, hr, clampf(delta * 15.0, 0.0, 1.0))
-		var horiz_lead := horiz + _horiz_rate * AIM_HORIZ_D
-		# Bank-to-turn-Kaskade. Achsen "vertauscht" (in_roll>0 dreht physikalisch links),
-		# daher Vorzeichen negiert -> Ziel rechts = Rechtskurve.
-		var target_bank := clampf(-horiz_lead * AIM_BANK_K + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
-		var d_roll := clampf((target_bank - current_bank) * AIM_BANK_P, -AIM_ROLL_RATE_MAX, AIM_ROLL_RATE_MAX)
-		var roll_cmd := clampf((d_roll - wb.z) * AIM_ROLL_P, -1.0, 1.0)
-		# Nick: Vertikalfehler -> BEGRENZTE Soll-Nickrate -> GEDÄMPFTE Auslenkung (kein Jagen).
-		# Kurvenzug NUR wenn gebankt (·|sin(bank)|): sonst zieht die Nase vor dem Einrollen
-		# nutzlos nach oben -> Zeitverlust. So rollt es erst zügig ein und zieht dann durch.
-		# G-LIMIT auf die Soll-Nickrate: geforderte G = v·ω wachsen LINEAR mit dem Tempo —
-		# die fixe Raten-Kappe forderte bei 140 m/s ~33 G -> Flügelbruch -> "Schleudern".
-		# Kappe = 65 % der Flügel-Belastbarkeit (oder 7 G ohne Flügel-Daten): schnelle
-		# Flieger ziehen physikalisch korrekt größere Kurvenradien, nichts bricht.
+		# ===== MANÖVER-PLANER (denkt wie ein Pilot, fliegt physisch) ==================
+		# 1) Was darf die Bahn überhaupt drehen? G-Limit (Struktur) UND verfügbarer
+		#    Auftrieb bei DIESEM Tempo (∝ v) begrenzen die Bahn-Drehrate w_max = a/v.
+		var v := maxf(aircraft.airspeed, 12.0)
 		var gmax := 7.0 * 9.81
 		if aircraft.wing_capacity > 0.0 and aircraft.mass > 1.0:
 			gmax = clampf(aircraft.wing_capacity / aircraft.mass * 0.65, 3.0 * 9.81, 30.0 * 9.81)
-		var rate_cap := minf(AIM_PITCH_RATE_MAX, gmax / maxf(aircraft.airspeed, 20.0))
-		var d_pitch := clampf(vert * AIM_PITCH_K, -rate_cap, rate_cap)
-		var pull_scl := clampf(rate_cap / AIM_PITCH_RATE_MAX, 0.25, 1.0)   # Kurvenzug mit-skalieren
+		var rho := 1.225 * exp(-aircraft.altitude / 8500.0)
+		var a_lift := 0.5 * rho * v * v * 2.9 * maxf(aircraft.wing_area, 1.0) * 1.5 * 0.6 / maxf(aircraft.mass, 1.0)
+		var a_turn := minf(gmax, a_lift)
+		var w_max := a_turn / v
+		# 2) HORIZONTAL: Stopp-Distanz-Planung (Doppelintegrator): maximale Anflugrate,
+		#    mit der man am Kreis noch ANHALTEN kann -> w = √(2·a_h·|Fehler|). Die
+		#    Bahn-Beschleunigung a_h kommt aus dem Einrollen (Roll-getrieben, ~g/v-skaliert).
+		var a_h := 9.81 / v * AIM_PLAN_AGG
+		# AUSROLL-VORHALT: das Ausrollen aus der Bank dauert t≈|bank|/Rollrate — in der
+		# Zeit dreht die Kurve WEITER. Der Planer rechnet den Fehler um (Rate × Ausroll-
+		# zeit) kleiner -> die Bank beginnt früh genug abzubauen, die Nase rollt exakt
+		# in den Kreis aus statt durchzuziehen.
+		var hr := clampf(wrapf(horiz - _prev_horiz, -PI, PI) / maxf(delta, 1e-5), -3.0, 3.0)
+		_prev_horiz = horiz
+		_horiz_rate = lerpf(_horiz_rate, hr, clampf(delta * 15.0, 0.0, 1.0))
+		var t_unwind := absf(current_bank) / AIM_ROLL_RATE_MAX + 0.12
+		var horiz_plan := horiz + _horiz_rate * t_unwind
+		if signf(horiz_plan) != signf(horiz):
+			horiz_plan = 0.0
+		# RICHTUNGS-LATCH: nahe 180° flackert das Fehler-Vorzeichen (±π) -> die Bank
+		# würde hin- und herspringen. Einmal gewählte Drehrichtung wird gehalten,
+		# bis die Wende klar unter ~115° ist.
+		var hsign := signf(horiz)
+		if absf(horiz) > 2.6:
+			if _turn_dir == 0:
+				_turn_dir = 1 if horiz >= 0.0 else -1
+			hsign = float(_turn_dir)
+		elif absf(horiz) < 2.0:
+			_turn_dir = 0
+		var wh_des := hsign * minf(w_max, sqrt(2.0 * a_h * absf(horiz_plan)))
+		# 3) Soll-Bank aus der ECHTEN Kurvengleichung w = g·tan(bank)/v (realistisch!)
+		#    (Vorzeichen: Ziel rechts (horiz>0) -> Rechtskurve -> negative Bank.)
+		var target_bank := clampf(-atan(wh_des * v / 9.81) + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
+		# 4) ROLLEN dorthin — ebenfalls stopp-geplant (kein Überrollen der Ziel-Bank)
+		var dbank := target_bank - current_bank
+		var wr_des := signf(dbank) * minf(AIM_ROLL_RATE_MAX, sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)))
+		var roll_cmd := clampf((wr_des - wb.z) * AIM_ROLL_P, -1.0, 1.0)
+		# 5) VERTIKAL: stopp-geplante Nickrate, gedeckelt durch w_max (G-Limit)
+		var wv_des := signf(vert) * minf(w_max, sqrt(2.0 * AIM_PITCH_ACC * absf(vert)))
+		# 6) Körper-Nickrate = Vertikalanteil (bankabhängig) + Kurvenzug (geplante Bahn-
+		#    rate, durch die Bank gezogen) — das "erst einrollen, dann ziehen" eines Piloten.
+		var d_pitch := clampf(wv_des * absf(cos(current_bank)) + absf(wh_des) * absf(sin(current_bank)), -w_max, w_max)
 		# TRIM-INTEGRATOR: gleicht den stationären Versatz aus (Schwerkraft zieht die Nase
 		# unter die Kreismitte; rein proportional bliebe ein konstanter Restfehler).
 		# NUR im engen Band ums Ziel integrieren UND nur bei ruhiger Nickrate — sonst lädt
@@ -475,7 +501,7 @@ func _physics_process(delta: float) -> void:
 			_trim_pitch = clampf(_trim_pitch + vert * AIM_TRIM_I * delta, -AIM_TRIM_MAX, AIM_TRIM_MAX)
 		elif absf(vert) > 0.2:
 			_trim_pitch = move_toward(_trim_pitch, 0.0, 0.6 * delta)
-		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + _trim_pitch + clampf(absf(horiz), 0.0, 1.5) * AIM_TURN_PULL * pull_scl * absf(sin(current_bank)), -1.0, 1.0)
+		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + _trim_pitch, -1.0, 1.0)
 		# Gier: leicht koordiniert Richtung Ziel + gedämpft (vertauscht -> negiert).
 		var yaw_cmd := clampf(-horiz * AIM_YAW_K - wb.y * AIM_YAW_D, -1.0, 1.0)
 		pitch = clampf(pitch + pitch_cmd, -1.0, 1.0)
