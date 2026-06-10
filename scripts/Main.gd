@@ -41,10 +41,10 @@ var build_ctrl: BuildController
 var flight_ctrl: FlightController
 
 var fly_world: Node3D
-var ground_mesh: MeshInstance3D
 var blueprint_grid: MeshInstance3D
 var airfields: Array = []
 var world_env: WorldEnvironment
+var terrain: TerrainWorld           # seed-basierte Landschaft (Chunks um den Spieler)
 var hangar_lights: Node3D           # Studio-Beleuchtung NUR für den Bau-Modus
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
 var env_sky: Environment
@@ -167,7 +167,7 @@ func _setup_world() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.74, 0.82, 0.92)
-	env.fog_density = 0.00012   # dünn, damit ferne Flugplätze sichtbar bleiben
+	env.fog_density = 0.00006   # sehr dünn — das Terrain-Panorama soll tragen
 	env_sky = env
 
 	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum). Hintergrund bleibt dunkel,
@@ -248,25 +248,20 @@ func _setup_world() -> void:
 	hfill.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	hangar_lights.add_child(hfill)
 
-	# Boden-Kollision (unendliche Ebene)
+	# Boden-Kollision: unendliche Ebene auf MEERES-Niveau (-6 m) — Sicherheitsnetz
+	# unter allem + "Wasseroberfläche" zum Notwassern. Land-Kollision liefert das Terrain.
 	var ground_body := StaticBody3D.new()
 	ground_body.collision_layer = 1
 	ground_body.collision_mask = 0
+	ground_body.position = Vector3(0, TerrainWorld.SEA_Y, 0)
 	var gcs := CollisionShape3D.new()
 	gcs.shape = WorldBoundaryShape3D.new()
 	ground_body.add_child(gcs)
 	add_child(ground_body)
 
-	# Flug-Welt: Boden, Landschaft, Flugplätze (nur im Flug sichtbar)
+	# Flug-Welt: Terrain, Flugplätze (nur im Flug sichtbar)
 	fly_world = Node3D.new()
 	add_child(fly_world)
-
-	ground_mesh = MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(12000, 12000)
-	ground_mesh.mesh = pm
-	ground_mesh.material_override = _flat_mat(Color(0.34, 0.5, 0.3), 1.0)
-	fly_world.add_child(ground_mesh)
 
 	# Flugplätze (Name, Position, Ausrichtung, Farbe)
 	airfields = [
@@ -276,11 +271,22 @@ func _setup_world() -> void:
 		{"name": "BERGPISTE", "pos": Vector3(900, 0, 2000), "heading": 2.3, "color": Color(0.95, 0.5, 0.45)},
 	]
 
-	# Landschaft (nur Optik): See + Berge als Orientierung
-	_build_lake(Vector3(-1000, 0, 700), 650.0)
-	# (Berg ehem. bei 1300/1500 weggerückt — er ragte sonst ins Ende der 3× längeren BERGPISTE-Bahn)
-	for hp in [Vector3(1750, 0, 1300), Vector3(-2000, 0, -600), Vector3(700, 0, -2100), Vector3(-300, 0, 2600), Vector3(2600, 0, 1400)]:
-		_build_mountain(hp)
+	# SEED-BASIERTES TERRAIN ersetzt die flache Platte + Deko-Berge/-See.
+	# Jeder Flugplatz bekommt eine Einebnungs-Zone (HEIMAT größer — dort liegt
+	# auch der Hindernis-Parcours). Seed kommt aus dem Spielstand (einmal
+	# gewürfelt, dann stabil — dieselbe Welt bei jedem Start).
+	if game.world_seed == 0:
+		game.world_seed = randi() % 1000000
+		game.save()
+	terrain = TerrainWorld.new()
+	var flat_zones: Array = []
+	for af in airfields:
+		var is_main: bool = af.get("main", false)
+		flat_zones.append({"pos": af["pos"], "r_flat": 1700.0 if is_main else 750.0,
+			"r_blend": 2300.0 if is_main else 1200.0})
+	terrain.setup(game.world_seed, flat_zones)
+	fly_world.add_child(terrain)
+	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	for af in airfields:
 		_build_airfield(af)
 	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
@@ -770,60 +776,8 @@ func _add_tower(parent: Node3D, pos: Vector3) -> void:
 	_collider_box(parent, pos + Vector3(0, 13.5, 0), Vector3(8, 27, 8))
 
 
-func _build_mountain(pos: Vector3) -> void:
-	var c := CylinderMesh.new()
-	c.bottom_radius = randf_range(240, 380)
-	c.top_radius = 8.0
-	c.height = randf_range(320, 560)
-	c.radial_segments = 6
-	var m := MeshInstance3D.new()
-	m.mesh = c
-	m.position = pos + Vector3(0, c.height * 0.5, 0)
-	m.material_override = _flat_mat(Color(0.33, 0.3, 0.27), 1.0)
-	fly_world.add_child(m)
-	var sc := CylinderMesh.new()
-	sc.bottom_radius = 75.0
-	sc.top_radius = 8.0
-	sc.height = c.height * 0.26
-	sc.radial_segments = 6
-	var snow := MeshInstance3D.new()
-	snow.mesh = sc
-	snow.position = pos + Vector3(0, c.height - sc.height * 0.5, 0)
-	snow.material_override = _flat_mat(Color(0.92, 0.94, 0.98), 0.85)
-	fly_world.add_child(snow)
-	# solide Kollision: Zylinder-Kern innerhalb des Sichtkegels (Berg = solides Hindernis)
-	var msb := StaticBody3D.new()
-	msb.collision_layer = 1
-	msb.collision_mask = 0
-	msb.position = pos + Vector3(0, c.height * 0.5, 0)
-	fly_world.add_child(msb)
-	var mcs := CollisionShape3D.new()
-	var mcyl := CylinderShape3D.new()
-	mcyl.radius = c.bottom_radius * 0.62
-	mcyl.height = c.height
-	mcs.shape = mcyl
-	msb.add_child(mcs)
 
 
-func _build_lake(pos: Vector3, r: float) -> void:
-	var c := CylinderMesh.new()
-	c.top_radius = r
-	c.bottom_radius = r
-	c.height = 0.5
-	c.radial_segments = 40
-	var lake := MeshInstance3D.new()
-	lake.mesh = c
-	lake.position = pos + Vector3(0, 0.2, 0)
-	var lm := StandardMaterial3D.new()
-	lm.albedo_color = Color(0.2, 0.45, 0.7)
-	lm.metallic = 0.7
-	lm.roughness = 0.08
-	lake.material_override = lm
-	fly_world.add_child(lake)
-
-
-# --- Hindernisse (solide: kollidieren mit Flugzeug & Trümmern, Layer 1) ---------
-# Reiner Kollisionskörper (unsichtbar) an pos mit Box-Form.
 func _collider_box(parent: Node3D, pos: Vector3, size: Vector3) -> void:
 	var sb := StaticBody3D.new()
 	sb.collision_layer = 1
@@ -2195,6 +2149,10 @@ func _respawn_balloon() -> void:
 
 # --- Survival: Wellen-System + Flug-Score ----------------------------------
 func _process(delta: float) -> void:
+	# Terrain-Chunks um den Spieler streamen (nur im Flug nötig)
+	if mode == Mode.FLY and terrain != null and flight_ctrl != null \
+			and is_instance_valid(flight_ctrl.aircraft):
+		terrain.update_center(flight_ctrl.aircraft.global_position)
 	# Basis-Deko animieren (drehendes Radar, Blinklichter) — billig, läuft immer
 	for s in _spin_nodes:
 		if is_instance_valid(s):

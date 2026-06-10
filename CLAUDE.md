@@ -80,6 +80,17 @@ scripts/FlightController.gd class_name FlightController. Baut AircraftBody aus d
                          Spawn/Reset (Reset = komplettes Neuaufbauen).
 scripts/AircraftBody.gd  class_name AircraftBody extends RigidBody3D. Das Flugmodell +
                          Schaden (Fahrwerk, Flügelbruch, Landung).
+scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain (FastNoise
+                         fBm, 384-m-Chunks, 8-m-Raster, Flatshading via Vertex-Colors +
+                         Mini-Shader ALBEDO=COLOR — StandardMaterial ignorierte die Farben).
+                         Streaming um den Spieler (Queue 2 Builds/Frame, Main._process ruft
+                         update_center im Flug; build_now_around = Spawn synchron).
+                         Flugplätze werden EINGEEBNET (height *= smoothstep(r_flat,r_blend));
+                         Meer y=-6 (Main: WorldBoundary dort = Wasser-/Sicherheitsboden).
+                         Seed: GameState.world_seed (einmal gewürfelt, persistiert).
+                         FALLEN: Dreiecks-Wicklung = im Uhrzeigersinn von außen (sonst
+                         cullt ALLES von oben); Steilheits-Farbe über |n.y| (geometrische
+                         Normale zeigt je nach Wicklung nach unten -> sonst alles Fels).
 tools/phys_test.gd       Headless-Flugtest (kein Spielinhalt, nur Dev-Werkzeug).
 README.md                Steuerung + Feature-Überblick (Spielersicht).
 ```
