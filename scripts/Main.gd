@@ -65,6 +65,7 @@ var _prev_mouse := Input.MOUSE_MODE_VISIBLE
 var _hint_box: Control              # einmaliger Steuer-Hinweis beim ersten Flug
 var snap_cb: CheckBox               # Auto-Andocken an/aus (Bau-Editor)
 var drag_view_btn: Button
+var wind_legend: Control            # Farb-Legende, nur bei aktivem Windkanal sichtbar
 var part_buttons: Dictionary = {}
 var _part_group: ButtonGroup       # exklusive Auswahl der Teil-Kacheln
 var _cat_open: Dictionary = {}     # Kategorie -> auf-/zugeklappt
@@ -970,18 +971,74 @@ func _show_controls_hint() -> void:
 # ===========================================================================
 # UI
 # ===========================================================================
+# EIN zentrales Theme statt verstreuter Einzel-Styles: dunkle Blueprint-Optik,
+# azurner Akzent, runde Ecken. Explizite Overrides (Kacheln, Header, Ampel)
+# gewinnen weiterhin gegen das Theme — das hier ist die saubere Grundschicht.
+func _make_ui_theme() -> Theme:
+	var th := Theme.new()
+	var n := StyleBoxFlat.new()
+	n.bg_color = Color(0.11, 0.15, 0.21, 0.92)
+	n.set_corner_radius_all(6)
+	n.set_border_width_all(1)
+	n.border_color = Color(1, 1, 1, 0.10)
+	n.content_margin_left = 10
+	n.content_margin_right = 10
+	n.content_margin_top = 5
+	n.content_margin_bottom = 5
+	var h: StyleBoxFlat = n.duplicate()
+	h.bg_color = Color(0.16, 0.23, 0.33, 0.96)
+	h.border_color = Color(0.45, 0.72, 1.0, 0.45)
+	var pr: StyleBoxFlat = n.duplicate()
+	pr.bg_color = Color(0.10, 0.26, 0.46, 0.97)
+	pr.border_color = Color(0.5, 0.78, 1.0, 0.85)
+	var dis: StyleBoxFlat = n.duplicate()
+	dis.bg_color = Color(0.09, 0.11, 0.14, 0.6)
+	th.set_stylebox("normal", "Button", n)
+	th.set_stylebox("hover", "Button", h)
+	th.set_stylebox("pressed", "Button", pr)
+	th.set_stylebox("disabled", "Button", dis)
+	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())
+	th.set_color("font_color", "Button", Color(0.92, 0.95, 1.0))
+	th.set_color("font_hover_color", "Button", Color(1, 1, 1))
+	th.set_color("font_pressed_color", "Button", Color(0.85, 0.95, 1.0))
+	th.set_color("font_disabled_color", "Button", Color(0.6, 0.65, 0.72))
+	# Checkboxen: kein Knopf-Kasten, nur Haken + Text (ruhiger)
+	th.set_stylebox("normal", "CheckBox", StyleBoxEmpty.new())
+	th.set_stylebox("hover", "CheckBox", StyleBoxEmpty.new())
+	th.set_stylebox("pressed", "CheckBox", StyleBoxEmpty.new())
+	th.set_stylebox("focus", "CheckBox", StyleBoxEmpty.new())
+	th.set_color("font_color", "CheckBox", Color(0.88, 0.92, 0.98))
+	# Tooltips: dunkel-glasig mit Akzentrand (Teil-Infos lesen sich deutlich besser)
+	var tip := StyleBoxFlat.new()
+	tip.bg_color = Color(0.06, 0.09, 0.13, 0.97)
+	tip.set_corner_radius_all(8)
+	tip.set_border_width_all(1)
+	tip.border_color = Color(0.45, 0.72, 1.0, 0.4)
+	tip.set_content_margin_all(10)
+	th.set_stylebox("panel", "TooltipPanel", tip)
+	th.set_color("font_color", "TooltipLabel", Color(0.93, 0.96, 1.0))
+	# Trenner dezent
+	var sep := StyleBoxLine.new()
+	sep.color = Color(1, 1, 1, 0.12)
+	th.set_stylebox("separator", "HSeparator", sep)
+	return th
+
+
 func _setup_ui() -> void:
 	ui = CanvasLayer.new()
 	add_child(ui)
 
+	var th := _make_ui_theme()
 	build_root = Control.new()
 	build_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	build_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	build_root.theme = th
 	ui.add_child(build_root)
 
 	flight_root = Control.new()
 	flight_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	flight_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flight_root.theme = th
 	ui.add_child(flight_root)
 
 	_build_hangar_ui()
@@ -998,7 +1055,7 @@ func _build_hangar_ui() -> void:
 	vb.add_theme_constant_override("separation", 6)
 	panel.add_child(vb)
 
-	var title := _lbl("🛠  HANGAR", 22, Color(1, 1, 1))
+	var title := _lbl("🛠  HANGAR", 21, Color(0.92, 0.96, 1.0))
 	vb.add_child(title)
 	money_label = _lbl("", 15, Color(1.0, 0.86, 0.3))
 	vb.add_child(money_label)
@@ -1081,6 +1138,34 @@ func _build_hangar_ui() -> void:
 	drag_view_btn.toggle_mode = true
 	drag_view_btn.toggled.connect(_on_drag_view)
 	vb.add_child(drag_view_btn)
+	# Farb-Legende der Heatmap (nur bei aktivem Windkanal eingeblendet)
+	var leg := VBoxContainer.new()
+	leg.add_theme_constant_override("separation", 2)
+	var bar := TextureRect.new()
+	bar.custom_minimum_size = Vector2(0, 10)
+	bar.stretch_mode = TextureRect.STRETCH_SCALE
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.16, 0.75, 0.30))
+	grad.set_color(1, Color(0.92, 0.18, 0.12))
+	grad.add_point(0.5, Color(0.95, 0.85, 0.25))
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.width = 220
+	gt.height = 10
+	bar.texture = gt
+	leg.add_child(bar)
+	var leg_row := HBoxContainer.new()
+	var l1 := _lbl("wenig Widerstand", 10, Color(0.62, 0.9, 0.65))
+	l1.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	leg_row.add_child(l1)
+	var l2 := _lbl("viel", 10, Color(1.0, 0.55, 0.45))
+	l2.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	leg_row.add_child(l2)
+	leg.add_child(leg_row)
+	leg.add_child(_lbl("grau = Windschatten (verdeckt)", 10, Color(0.7, 0.74, 0.8)))
+	leg.visible = false
+	wind_legend = leg
+	vb.add_child(leg)
 
 	var sym := CheckBox.new()
 	sym.text = "Symmetrie (beide Seiten)"
@@ -1119,17 +1204,31 @@ func _build_hangar_ui() -> void:
 	var fly_btn := Button.new()
 	fly_btn.text = "▶  TESTFLUG STARTEN  (Tab)"
 	fly_btn.add_theme_font_size_override("font_size", 18)
+	var fb := StyleBoxFlat.new()
+	fb.bg_color = Color(0.10, 0.34, 0.62, 0.95)
+	fb.set_corner_radius_all(10)
+	fb.set_border_width_all(1)
+	fb.border_color = Color(0.55, 0.8, 1.0, 0.7)
+	fb.set_content_margin_all(8)
+	var fbh: StyleBoxFlat = fb.duplicate()
+	fbh.bg_color = Color(0.14, 0.44, 0.78, 0.98)
+	fly_btn.add_theme_stylebox_override("normal", fb)
+	fly_btn.add_theme_stylebox_override("hover", fbh)
+	fly_btn.add_theme_stylebox_override("pressed", fbh)
+	fly_btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	_rect(fly_btn, 0.5, 0, 0.5, 0, -150, 10, 150, 52)
 	fly_btn.pressed.connect(_on_fly_pressed)
 	build_root.add_child(fly_btn)
 
 	# --- Statistik oben rechts ---
 	var spanel := _panel(Color(0, 0, 0, 0.5))
-	_rect(spanel, 1, 0, 1, 0, -290, 10, -10, 290)
+	# Höhe NICHT festnageln: nominell klein, der PanelContainer wächst mit dem
+	# Inhalt nach unten (Windkanal-Report braucht mehr Zeilen als die Basisliste).
+	_rect(spanel, 1, 0, 1, 0, -290, 10, -10, 80)
 	build_root.add_child(spanel)
 	var sv := VBoxContainer.new()
 	spanel.add_child(sv)
-	sv.add_child(_lbl("📊  STATISTIK", 16, Color(1, 0.9, 0.5)))
+	sv.add_child(_lbl("📊  STATISTIK", 16, Color(0.65, 0.82, 1.0)))
 	ampel_label = _lbl("", 14, Color(0.6, 1.0, 0.6))
 	ampel_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sv.add_child(ampel_label)
@@ -1141,7 +1240,7 @@ func _build_hangar_ui() -> void:
 	_build_selection_panel()
 
 	# --- Hinweisleiste unten ---
-	var hint := _lbl("Aus Liste ziehen = bauen · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.9, 0.9, 0.9))
+	var hint := _lbl("Aus Liste ziehen = bauen (rastet am Teil unter der Maus) · Teil ziehen = andocken wo du hinzeigst · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.9, 0.9, 0.9))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 320, -34, -10, -8)
 	build_root.add_child(hint)
@@ -1170,21 +1269,26 @@ func _fill_part_list(list: VBoxContainer) -> void:
 		header.add_theme_font_size_override("font_size", 13)
 		header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var hb := StyleBoxFlat.new()
-		hb.bg_color = Color(1.0, 0.78, 0.35, 0.16)
-		hb.set_corner_radius_all(4)
-		hb.content_margin_left = 6
-		hb.content_margin_top = 3
-		hb.content_margin_bottom = 3
+		hb.bg_color = Color(0.35, 0.62, 1.0, 0.10)
+		hb.set_corner_radius_all(6)
+		hb.content_margin_left = 8
+		hb.content_margin_top = 4
+		hb.content_margin_bottom = 4
+		var hbh: StyleBoxFlat = hb.duplicate()
+		hbh.bg_color = Color(0.35, 0.62, 1.0, 0.20)
 		header.add_theme_stylebox_override("normal", hb)
-		header.add_theme_stylebox_override("hover", hb)
+		header.add_theme_stylebox_override("hover", hbh)
 		header.add_theme_stylebox_override("pressed", hb)
-		header.add_theme_color_override("font_color", Color(1.0, 0.82, 0.45))
+		header.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		header.add_theme_color_override("font_color", Color(0.65, 0.82, 1.0))
+		header.add_theme_color_override("font_hover_color", Color(0.8, 0.9, 1.0))
+		header.add_theme_color_override("font_pressed_color", Color(0.65, 0.82, 1.0))
 		list.add_child(header)
 		# --- Grid mit Vorschau-Kacheln ---
 		var grid := GridContainer.new()
 		grid.columns = 2
-		grid.add_theme_constant_override("h_separation", 5)
-		grid.add_theme_constant_override("v_separation", 5)
+		grid.add_theme_constant_override("h_separation", 6)
+		grid.add_theme_constant_override("v_separation", 6)
 		grid.visible = _cat_open[cat]
 		list.add_child(grid)
 		header.text = ("▾  " if _cat_open[cat] else "▸  ") + cat.to_upper() + "   (%d)" % parts.size()
@@ -1351,15 +1455,15 @@ func _accum_aabb(node: Node, xf: Transform3D, acc: Dictionary) -> void:
 
 func _style_tile(btn: Button) -> void:
 	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.12, 0.15, 0.21, 0.85)
-	normal.set_corner_radius_all(5)
+	normal.bg_color = Color(0.10, 0.13, 0.19, 0.9)
+	normal.set_corner_radius_all(8)
 	normal.set_border_width_all(1)
-	normal.border_color = Color(0.3, 0.36, 0.46)
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.18, 0.22, 0.30, 0.95)
-	hover.border_color = Color(0.5, 0.6, 0.75)
-	var pressed := normal.duplicate()
-	pressed.bg_color = Color(0.16, 0.30, 0.20, 0.95)
+	normal.border_color = Color(1, 1, 1, 0.08)
+	var hover: StyleBoxFlat = normal.duplicate()
+	hover.bg_color = Color(0.14, 0.20, 0.30, 0.96)
+	hover.border_color = Color(0.45, 0.72, 1.0, 0.55)
+	var pressed: StyleBoxFlat = normal.duplicate()
+	pressed.bg_color = Color(0.12, 0.26, 0.18, 0.96)
 	pressed.set_border_width_all(2)
 	pressed.border_color = Color(0.4, 1.0, 0.55)
 	btn.add_theme_stylebox_override("normal", normal)
@@ -1569,6 +1673,8 @@ func _on_reset_view() -> void:
 
 func _on_drag_view(on: bool) -> void:
 	build_ctrl.set_wind_tunnel(on)
+	if wind_legend != null:
+		wind_legend.visible = on
 	if on:
 		var worst: String = build_ctrl.wind_worst
 		var tip := "nur angeströmte Teile gefärbt (grau = Windschatten)"
@@ -1667,8 +1773,18 @@ func _on_design_changed(stats: Dictionary) -> void:
 	if stats.get("has_wings", false):
 		wingload = "bis ~%.1f g" % stats["max_g"]
 	var drag_line := "Luftwiderstand cW·A: %.2f m²" % stats.get("drag_area", 0.0)
-	if build_ctrl != null and build_ctrl.wind_tunnel and build_ctrl.wind_worst != "":
-		drag_line += "\n  ↳ Hotspot: %s" % build_ctrl.wind_worst
+	if build_ctrl != null and build_ctrl.wind_tunnel and not build_ctrl.wind_report.is_empty():
+		# Windkanal-Analyse: exponierter Gesamtwiderstand + die größten Verursacher
+		# mit Anteil (Verdeckung eingerechnet — Teile im Windschatten zählen ~0).
+		var tot: float = maxf(build_ctrl.wind_total, 0.001)
+		drag_line += "\n🌬 exponiert (Verdeckung): %.2f m²" % build_ctrl.wind_total
+		var rank := 0
+		for e in build_ctrl.wind_report:
+			if rank >= 3 or float(e["drag"]) < 0.01:
+				break
+			rank += 1
+			drag_line += "\n  %d. %s — %.2f m² (%d %%)" % [
+				rank, e["name"], e["drag"], int(round(float(e["drag"]) / tot * 100.0))]
 	stats_label.text = "Teile: %d\nMasse: %d kg\nFlügelfläche: %.1f m²\nSchub: %d N\nSchub/Gewicht: %.2f\n%s\nLängsstabilität: %s\nMax. Flügellast: %s\nFahrwerk-Last: %s" % [
 		int(stats["parts"]), int(stats["mass"]), stats["area"],
 		int(stats["thrust"]), stats["tw"], drag_line,
@@ -2455,9 +2571,12 @@ func _lbl(text: String, size: int = 14, color: Color = Color(1, 1, 1)) -> Label:
 func _panel(bg: Color) -> PanelContainer:
 	var p := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(10)
+	# Glas-Optik: dunkler Grund + feiner Akzentrand statt flacher schwarzer Box
+	sb.bg_color = Color(0.05, 0.08, 0.12, maxf(bg.a, 0.55)) if bg.r + bg.g + bg.b < 0.2 else bg
+	sb.set_corner_radius_all(10)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(0.45, 0.72, 1.0, 0.22)
+	sb.set_content_margin_all(12)
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 

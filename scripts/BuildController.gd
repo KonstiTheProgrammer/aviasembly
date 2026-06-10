@@ -47,6 +47,8 @@ var paint_mode := false
 var paint_color := Color(0.86, 0.22, 0.20)
 var wind_tunnel := false     # Windkanal-Ansicht (Pro-Teil-Heatmap + Luftströmung)
 var wind_worst := ""         # Teil mit dem höchsten Flug-Widerstand
+var wind_report: Array = []  # Windkanal: [{name, drag}] pro Teilname (Spiegel summiert), absteigend
+var wind_total := 0.0        # Windkanal: Summe exponierte Fläche × Formbeiwert (m² CdA)
 var _tunnel_particles: CPUParticles3D
 var _wind_shader: Shader      # markiert nur die angeströmten Flächen (Normale gegen +Z)
 var _history: Array = []
@@ -1101,9 +1103,17 @@ func _update_transform_drag() -> void:
 		var origin := _drag_origin0 + _drag_axis_w * moved
 		_apply_sel_transform(selected_part.transform.basis, origin, sc)
 	elif _moving_sel:
-		var newpos := _plane_ray() - _move_grab
-		newpos = _snap_move(selected_part, newpos)   # aufs Raster
-		newpos = _snap_to_neighbors(selected_part, newpos)   # magnetisch bündig an Nachbar-Teile
+		# 1) Zeigt die Maus auf ein ANDERES Teil -> bündig auf DESSEN Fläche snappen
+		#    (wie beim Setzen aus der Palette: das Teil dockt da an, wo man hinzeigt).
+		var hov: Variant = _snap_move_to_hovered(selected_part) if snap_enabled else null
+		var newpos: Vector3
+		if hov != null:
+			newpos = hov
+		else:
+			# 2) freier Raum: bisheriges Verhalten (Ebene + Raster + Magnet)
+			newpos = _plane_ray() - _move_grab
+			newpos = _snap_move(selected_part, newpos)   # aufs Raster
+			newpos = _snap_to_neighbors(selected_part, newpos)   # magnetisch bündig an Nachbar-Teile
 		_apply_sel_transform(selected_part.transform.basis, newpos, selected_part.get_meta("pscale", Vector3.ONE))
 
 
@@ -1188,6 +1198,40 @@ func _plane_ray() -> Vector3:
 	var rd := camera.project_ray_normal(mp)
 	var hit = _move_plane.intersects_ray(ro, rd)
 	return hit if hit != null else selected_part.global_position
+
+
+# Verschieben mit Blick aufs Ziel: zeigt die Maus auf ein anderes Teil, liefert das
+# den Ursprung, mit dem das gezogene Teil BÜNDIG auf der getroffenen Fläche sitzt
+# (Stützweite = Projektion seiner ORIENTIERTEN, skalierten Halbausdehnung auf die
+# Flächennormale). null = Maus zeigt ins Leere/aufs eigene Teil -> Fallback Ebene.
+func _snap_move_to_hovered(part: Node3D) -> Variant:
+	var ex: Array[RID] = []
+	var mirror = part.get_meta("mirror") if part.has_meta("mirror") else null
+	for n in [part, mirror]:
+		if n != null and is_instance_valid(n):
+			for c in n.get_children():
+				if c is CollisionObject3D:
+					ex.append((c as CollisionObject3D).get_rid())
+	var hit := _raycast_mouse(BUILD_LAYER, ex)
+	if hit.is_empty():
+		return null
+	var tgt := _part_from_hit(hit)
+	if tgt == null or tgt == part or tgt == mirror:
+		return null
+	var n3: Vector3 = hit["normal"].normalized()
+	var surface: Vector3 = hit["position"]
+	var p := PartCatalog.get_part(part.get_meta("part_id"))
+	var sc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+	# Flügel & Co. (orient_normal): Ursprung sitzt an der Wurzelfläche -> wie beim
+	# Setzen aus der Palette direkt AUF die Oberfläche legen (Orientierung bleibt).
+	if p.get("orient_normal", false):
+		return _snap_tangential(surface - n3 * 0.04, n3, 0.5)
+	var he: Vector3 = PartCatalog.col_size(p) * sc * 0.5
+	var b := part.transform.basis
+	var support := absf(n3.dot(b.x)) * he.x + absf(n3.dot(b.y)) * he.y + absf(n3.dot(b.z)) * he.z
+	var center := surface + n3 * support
+	var origin := center - b * (PartCatalog.col_offset(p) * sc)
+	return _snap_tangential(origin, n3, 0.25)
 
 
 func _transform_release() -> void:
@@ -1469,6 +1513,17 @@ func _apply_drag_heatmap() -> void:
 		if dv > max_d:
 			max_d = dv
 			wind_worst = PartCatalog.get_part(pt.get_meta("part_id")).get("name", "")
+	# 2b) Analyse-Report für die Statistik: CdA je TEILNAME (Spiegelpaare summiert) + Gesamt
+	wind_total = 0.0
+	var by_name := {}
+	for pt in parts:
+		wind_total += drag[pt]
+		var nm: String = PartCatalog.get_part(pt.get_meta("part_id")).get("name", "?")
+		by_name[nm] = by_name.get(nm, 0.0) + drag[pt]
+	wind_report = []
+	for nm in by_name:
+		wind_report.append({"name": nm, "drag": by_name[nm]})
+	wind_report.sort_custom(func(a, b): return a["drag"] > b["drag"])
 	# 3) Per-Pixel-Shader: NUR die angeströmten FLÄCHEN (Normale gegen den +Z-Wind) werden
 	#    eingefärbt (grün->rot je nach Teil-Widerstand), Seiten-/Leeflächen bleiben grau.
 	#    Teile ganz im Windschatten -> komplett grau (heat = grau).
@@ -1483,6 +1538,7 @@ func _apply_drag_heatmap() -> void:
 			var frac := clampf(drag[pt] / denom, 0.0, 1.0)
 			var glow := maxf(frac - 0.55, 0.0) * 2.2
 			_apply_wind_shader(vis, _drag_color(frac), glow)
+	design_changed.emit(compute_stats())   # Report/Hotspot in der Statistik aktualisieren
 
 
 # Welt-AABB aller Teil-Kollisionsboxen (für das Strahlengitter).
@@ -1553,6 +1609,8 @@ func _clear_wind_tunnel() -> void:
 		_tunnel_particles.queue_free()
 	_tunnel_particles = null
 	wind_worst = ""
+	wind_report = []
+	wind_total = 0.0
 	for child in design_root.get_children():
 		if child.is_in_group("part"):
 			_recolor(child, child.get_meta("color", Color(0, 0, 0, 0)))
@@ -1895,7 +1953,7 @@ func _mirror_xform(t: Transform3D) -> Transform3D:
 # ---------------------------------------------------------------------------
 # Raycast-Helfer
 # ---------------------------------------------------------------------------
-func _raycast_mouse(mask := BUILD_LAYER) -> Dictionary:
+func _raycast_mouse(mask := BUILD_LAYER, exclude: Array[RID] = []) -> Dictionary:
 	if camera == null:
 		return {}
 	var mp := get_viewport().get_mouse_position()
@@ -1905,6 +1963,7 @@ func _raycast_mouse(mask := BUILD_LAYER) -> Dictionary:
 	var q := PhysicsRayQueryParameters3D.create(from, to)
 	q.collision_mask = mask
 	q.collide_with_areas = false
+	q.exclude = exclude
 	return space.intersect_ray(q)
 
 
