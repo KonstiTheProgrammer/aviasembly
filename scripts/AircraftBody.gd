@@ -52,7 +52,9 @@ const DAMP_PITCH := 5.5       # aerodynamische Drehdämpfung (verhindert Überdr
 const DAMP_YAW := 3.2
 const DAMP_ROLL := 2.5
 const MOUSE_AUTH := 1.4
-const MOUSE_ASSIST := 1.6      # kinematischer Pursuit-Stütz-Slerp (1/s) im Maus-Flug, skaliert mit Tempo       # Maus-Flug: mehr Steuer-Autorität -> Soll-Raten schneller (Obergrenze: darüber überzieht/stallt der Nick)
+const MOUSE_TURN_RESP := 8.5   # Maus-Flug: exponentielles Einlaufen auf die Ziel-Lage (1/s) — kein Überschwingen
+const MOUSE_TURN_RATE := 2.6   # Maus-Flug: max. Drehrate (rad/s) bei niedrigem Tempo
+const MOUSE_VEL_FOLLOW := 1.6  # Maus-Flug: Geschwindigkeit zieht der Nase nach (1/s, koordiniert)       # Maus-Flug: mehr Steuer-Autorität -> Soll-Raten schneller (Obergrenze: darüber überzieht/stallt der Nick)
 const ARCADE_RESP := 6.0      # Arcade: wie schnell/smooth die Orientierung aufs Ziel slerpt (1/s) — exponentiell, kein Überschwingen
 const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase folgt (fliegt wohin sie zeigt, kein Schlittern)
 const BARREL_RATE := 5.0      # Fass-Roll: Ziel-Rollrate (rad/s) ~ 1 Rolle / 1,25 s (physikalisch geregelt)
@@ -1456,9 +1458,17 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		if gd > 0.0:
 			tf += -v_lin.normalized() * (0.5 * rho * sp * sp * gd * 0.06)
 
-	# --- Steuerung: Arcade (kinematisch) ODER Steuerflächen-Torque (inkl. Fass-Roll) ---------
+	# --- Steuerung: Arcade/Maus-Pursuit (kinematisch) ODER Steuerflächen-Torque ------------
+	# MAUS-FLUG IN DER LUFT = kinematischer Pursuit (wie der butterweiche Arcade-Modus,
+	# aber mit Flug-Feel: G-Limit -> große Radien bei Speed, Langsamflug -> zäh). Die
+	# Torque-Kaskade rastete bei Highspeed/Überschwüngen aus — Kinematik KANN nicht
+	# überschwingen (exponentielles Einlaufen). Am Boden & in der Fass-Rolle weiter Torque.
 	var arcade_steer := arcade and mouse_fly
-	if not arcade_steer:
+	var msteer := mouse_fly and not arcade and barrel_roll == 0 and not wings_broken \
+			and state.get_contact_count() == 0 and aim_world.length() > 0.5
+	if msteer:
+		_mouse_steer(state)
+	if not arcade_steer and not msteer:
 		var wb := xf.basis.transposed() * v_ang
 		var inv := -1.0 if inverted else 1.0
 		# Steuer-Autorität skaliert mit Staudruck: langsam teigig, schnell knackig
@@ -1493,26 +1503,6 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# bleibt stehen, das Flugzeug dreht nicht von selbst zurück auf gerade.
 		# (Assist behält Nick-/Gier-Dämpfung; die Roll-DREHRATE wird weiter gedämpft,
 		# der Roll-WINKEL aber nicht mehr zurückgestellt.)
-		# MAUS-STABILISIERUNG: zusätzlich zum physischen Regler zieht ein SANFTER
-		# kinematischer Slerp die Lage Richtung Pursuit-Ziel (wie Arcade, aber nur
-		# anteilig — Physik bleibt dominant). Der Torque-Regler wurde bei ~70 m/s
-		# getunt; bei hohem Tempo schwang die Nase sonst weit übers Ziel (gemessen:
-		# 31° bei 140 m/s, 180°-Wende schwang komplett durch -> "Schleudern").
-		# Skaliert mit dem Tempo: genau dort stützen, wo die Kaskade kollabiert.
-		if mouse_fly and barrel_roll == 0 and not wings_broken \
-				and aim_world.length() > 0.5 and airspeed > 12.0:
-			var ka := clampf(MOUSE_ASSIST * clampf(airspeed / 70.0, 0.6, 2.2) * state.step, 0.0, 0.15)
-			var tb := _pursuit_basis(xf.basis)
-			var qa := xf.basis.get_rotation_quaternion()
-			var qb := tb.get_rotation_quaternion()
-			# Schritt-Winkel hart kappen (max ~28°/s): sonst springt die Lage pro Tick ->
-			# AoA-Sprung -> Lift-Spike (riss bei Highspeed die Flügel ab).
-			var ang := qa.angle_to(qb)
-			ka = minf(ka, deg_to_rad(28.0) * state.step / maxf(ang, 1e-4))
-			var nb := Basis(qa.slerp(qb, ka))
-			var nxf := state.transform
-			nxf.basis = nb
-			state.transform = nxf
 
 	# --- Sicherheit & Anwenden ---------------------------------------------
 	if not tf.is_finite():
@@ -1559,6 +1549,38 @@ func _pursuit_basis(cur_basis: Basis) -> Basis:
 	right0 = right0.normalized()
 	var up1 := right0.cross(fwd).normalized()
 	return Basis(right0.rotated(fwd, bank), up1.rotated(fwd, bank), -fwd).orthonormalized()
+
+
+# Maus-Flug-Lenkung: kinematisch zur Pursuit-Ziel-Lage (exponentiell + Raten-Budget).
+# Drehraten-Budget = min(Basisrate, G-Limit/v) × Langsamflug-Faktor: schnell = große
+# Kurvenradien (physikalisch), fast stehend = zäh (Mush statt Ausrasten). Die
+# Geschwindigkeit zieht der Nase nach (koordiniert); Kräfte (Schub/Widerstand/
+# Schwerkraft/Auftrieb) bleiben voll physikalisch.
+func _mouse_steer(state: PhysicsDirectBodyState3D) -> void:
+	var cur := state.transform.basis
+	var tb := _pursuit_basis(cur)
+	var qa := cur.get_rotation_quaternion()
+	var qb := tb.get_rotation_quaternion()
+	var ang := qa.angle_to(qb)
+	if ang > 1e-4:
+		var gmax := 70.0
+		if wing_capacity > 0.0 and mass > 1.0:
+			gmax = clampf(wing_capacity / mass * 0.7, 30.0, 300.0)
+		var cap := minf(MOUSE_TURN_RATE, gmax / maxf(airspeed, 18.0))
+		cap *= clampf(airspeed / 22.0, 0.25, 1.0)
+		var step := minf(ang * clampf(MOUSE_TURN_RESP * state.step, 0.0, 1.0), cap * state.step)
+		var nb := Basis(qa.slerp(qb, step / ang))
+		var nxf := state.transform
+		nxf.basis = nb
+		state.transform = nxf
+	# Geschwindigkeit folgt der Nase (Betrag bleibt — Energie kommt weiter aus den Kräften).
+	var spd := state.linear_velocity.length()
+	if spd > 1.0:
+		var nd := -state.transform.basis.z
+		var k := clampf(MOUSE_VEL_FOLLOW * state.step, 0.0, 1.0)
+		var newdir := state.linear_velocity.lerp(nd * spd, k)
+		if newdir.length() > 0.1:
+			state.linear_velocity = newdir.normalized() * spd
 
 
 func _arcade_steer(state: PhysicsDirectBodyState3D) -> void:
