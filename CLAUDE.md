@@ -252,30 +252,37 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links; **lange halten → Fass-Roll**) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
 `M` **Maus-Flug** umschalten · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
-**Maus-Flug (WT-INSTRUCTOR, Taste `M`):** Maus zeigt eine WELTRICHTUNG (`look_yaw/pitch`,
-ROH — kein Glättungs-Lag, Marker reagiert sofort); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
+**Maus-Flug (GROSSKREIS-INSTRUCTOR, Taste `M`):** Maus zeigt eine WELTRICHTUNG
+(`look_yaw/pitch`, ROH — kein Glättungs-Lag); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
 Signalfluss (FlightController, `if mouse_fly:`): Maus → `_aim_cmd` (nur Slew-Limit
-`AIM_CMD_SLEW=6 rad/s`) → Fehlerzerlegung (horiz/vert/err_total, soft Deadzone) →
-Modusblende `k_rnp` (smoothstep 0.45→0.9): koordinierte Kurve ↔ **Roll-and-Pull**
-(großer Fehler: erst in die Zugebene rollen (`phi`, Richtungs-Latch 2.6/2.0 gegen
-±π-Flackern, Ziel unten = Split-S), `pull_gate=cos²(phi)` zieht erst eingerollt) →
-Soll-Raten mit speedabhängigen Tabellen (`PITCH_RATE_TAB`/`ROLL_RATE_TAB`, WT-RateMax-
-Struktur) → **AoA-LIMITER** (primär, geschlossener Kreis auf `aircraft.aoa_signed`:
-`AOA_MAX=0.78·STALL_A` — der Instructor KANN nicht stallen, über dem Limit drückt er
-aktiv zurück; unter Stall-Speed entsteht WT-Mush: Nase sackt unter den Marker) →
-**G-LIMITER** (sekundär, weich: smoothstep 75→92 % von `wing_capacity/(m·g)` auf
-`aircraft.load_factor`, negativ 45 %) → innere Raten-P-Schleifen + Auto-Trim
-(`AIM_TRIM_*`) + Gier = Schiebewinkel-Koordination (`β→0`, `INS_YAW_BETA`) + Ruder-
-Feinzielen (`INS_YAW_AIM`) → `in_pitch/roll/yaw` → physischer Torque (AB, `MOUSE_AUTH`).
-Koordinierte Kurve: Winkel-P (`INS_KP_H/V`) + Ausroll-Vorhalt (`t_unwind=|bank|/roll_max`),
-Soll-Bank aus der echten Kurvengleichung `bank=atan(w·v/g)`, Roll stopp-geplant
-(`√(2·AIM_ROLL_ACC·Δbank)`). **A/D = gehaltener Bank-Offset** (WT manual roll), Tasten
-additiv. Kamera: eigener Rig (`_cam_aim` 12/s auf ROHE Maus, Up-Blende 0.90→0.98,
-Geschwindigkeits-Vorhalt `CAM_LEAD`), Marker im HUD roh, Nasenmarker pixelgeglättet.
-Die sichtbare Lücke Nase↔Marker ist REINE Physik (kein Kunst-Lag) — das WT-Gefühl.
-Kein Force-Clamp in der Physik mehr; Backstop = 0.12-s-Überlast-Fenster + Flügelbruch.
-Headless-Harness: `tools/mousefly_test.gd` (Konvergenz/Pendeln), `tools/mf_speed.gd`
-(Highspeed-Überschwinger/G/Flügel), `tools/mf_mush.gd` (Mush unter Stall-Speed).
+`AIM_CMD_SLEW=6 rad/s`) → **EIN Gesetz für Nick/Gier (kein Modus-Blending!)**:
+Soll-Drehvektor (Welt) = Achse(`Nase×Ziel`)·Rate; Rate = min(G-Budget
+`g·√(n²−1)/v` mit `n=G_SOFT·g_lim`, `PITCH_RATE_TAB(v)`, Stopp-Planung
+`√(2·AIM_TURN_ACC·err)` — bremst VOR dem Ziel, linearer Endanflug `INS_KP_V·err`)
++ **Feed-Forward der Marker-Drehrate** (`_aim_ff`, gefiltert 8/s — sonst ~11°
+Schleppfehler beim Maus-Ziehen) → `basisᵀ` verteilt die Welt-Drehung
+VORZEICHENRICHTIG auf Körper-Nick/Gier (jede Bank, jenseits 90° wird gedrückt) →
+**AoA-LIMITER** (primär, geschlossener Kreis auf `aircraft.aoa_signed`,
+`AOA_MAX=0.78·STALL_A`, Mush: Nase sackt unter den Marker) → **G-LIMITER**
+(sekundär, weich 75→92 % von `wing_capacity/(m·g)`) → innere Raten-P + Auto-Trim;
+Gier = β-Koordination (`INS_YAW_BETA`) + Raten-Tracking (`yaw_track`, ±0.3).
+ROLL (eigener Kanal, NUR Zugebenen-Ausrichtung, nie im Nick-Pfad): Hysterese
+`_rnp_on` (RNP_ON 0.9/RNP_OFF 0.45 + `|vert|<0.18`): groß = phi-PD in die
+Manöverebene (`RNP_ROLL_KP/KD`, Richtungs-Latch 2.6/2.0, Gate smoothstep(0.25,
+0.6, err) gegen phi-Rauschen bei kleinem Fehler), klein = Kurvengleichungs-Bank
+`atan(wh_eff·v/g)` aus der horizontalen Soll-Drehrate, Roll stopp-geplant
+(`√(2·AIM_ROLL_ACC·Δbank)`), gedrosselt solange Vertikal-Pull ansteht
+("Pull fertig fliegen, dann ausrollen"). `AIM_BANK_MAX=1.47` (~84°; 72° deckelte
+Dauerkurven auf ~3 G → Messer-Drift bei 200 m/s). **A/D = gehaltener Bank-Offset**,
+Tasten additiv. Kamera: eigener Rig (`_cam_aim` 12/s auf ROHE Maus, `CAM_LEAD`),
+Marker im HUD roh. Lücke Nase↔Marker ist REINE Physik. GESCHICHTE (nicht
+wiederholen!): die alte Kaskade Fehler→Soll-Bank→Rollen→Zug mit Modusblende war
+bei 200 m/s strukturell instabil (26–57° Overshoot) — Bank-Trigonometrie im
+Nick-Pfad setzt jede Roll-Bewegung in Seitenfehler um, und `wh_cap=g·tan(BANK)/v`
+war der Engpass. Headless-Harness: `tools/mousefly_test.gd` (Konvergenz/Pendeln),
+`tools/mf_speed.gd` (MiG, echtes Überschwingen = Peak NACH erstem ~0-Durchgang),
+`tools/mf_design.gd` (Spieler-Design aus user://, 140–200 m/s), `tools/mf_track.gd`
+(wandernder Marker + Split-S), `tools/mf_mush.gd` (Mush unter Stall-Speed).
 - **Arcade-Lenkung (`arcade`, Taste `J`, nur im Maus-Flug):** maximal smoothe, direkte
   Lenkung. Statt Steuer-Torque dreht `AircraftBody._arcade_steer` die Orientierung
   **kinematisch per Quaternion-Slerp** (`ARCADE_RESP`) auf die Ziel-Basis (Nase=`aim_world`,
