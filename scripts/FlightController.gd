@@ -121,6 +121,7 @@ var _trim_pitch := 0.0          # Nick-Trim-Integrator (Maus-Flug): Nase exakt i
 var _bank_offset := 0.0         # mit A/D gesetzte, GEHALTENE Querlage (Offset der Kaskade)
 var _turn_dir := 0              # Richtungs-Latch für 180°-Wenden (um ±π flackert das Vorzeichen)
 var _aim_prev := Vector3.FORWARD  # _aim_cmd des Vorframes (Feed-Forward der Marker-Rate)
+var _aim_live := false          # Totzonen-Hysterese: folgt der Befehl gerade der Maus?
 var _aim_ff := Vector3.ZERO     # gefilterte Marker-Drehrate (rad/s, Welt)
 var _rnp_on := false            # Roll-and-Pull aktiv (Hysterese RNP_ON/RNP_OFF)
 var _k_rnp := 0.0               # weicher Modus-Übergang (3/s Slew)
@@ -456,7 +457,17 @@ func _physics_process(delta: float) -> void:
 		# Lag (WT glättet die Maus nicht; Schleppfehler war eine Überschwing-Quelle).
 		var raw_aim := _aim_dir()
 		var ang_cmd := _aim_cmd.angle_to(raw_aim)
-		if ang_cmd > 1e-4:
+		# TOTZONE mit Hysterese gegen Hand-/Sensorzittern der gefangenen Maus:
+		# erst ab ~0.2° Abweichung folgt der Befehl (dann bis <0.03° nach). Mikro-
+		# Rauschen erreicht so weder den Fehler-Regler noch den Feed-Forward —
+		# sonst zappelten die Ruder im Geradeausflug pausenlos (gemessen: 204°
+		# Höhenruder-Weg in 8 s bei ±0.09°-Zittern; mit Totzone praktisch 0).
+		if not _aim_live:
+			if ang_cmd > 0.0035:
+				_aim_live = true
+		elif ang_cmd < 0.0005:
+			_aim_live = false
+		if _aim_live and ang_cmd > 1e-4:
 			var sl_axis := _aim_cmd.cross(raw_aim)
 			if sl_axis.length() > 1e-6:
 				_aim_cmd = _aim_cmd.rotated(sl_axis.normalized(), minf(AIM_CMD_SLEW * delta, ang_cmd)).normalized()
@@ -534,7 +545,10 @@ func _physics_process(delta: float) -> void:
 		elif err_total > 2.0:
 			# Ziel exakt hinter uns: Achse unbestimmt -> horizontale Wende in Latch-Richtung
 			axis_w = Vector3.UP * -float(_turn_dir if _turn_dir != 0 else 1)
-		var w_des_w := axis_w * w_mag + _aim_ff.limit_length(w_cap * 0.7)
+		# FF nur bei BEWUSSTER Marker-Bewegung (Soft-Gate): Zitter-/Drift-Raten der
+		# Hand (<~0.1 rad/s) injizieren sonst Dauerrauschen in den Nick-Pfad.
+		var ff := _aim_ff * smoothstep(0.06, 0.18, _aim_ff.length())
+		var w_des_w := axis_w * w_mag + ff.limit_length(w_cap * 0.7)
 		if w_des_w.length() > w_cap:
 			w_des_w = w_des_w.normalized() * w_cap
 		var w_b_des := b.transposed() * w_des_w
@@ -800,6 +814,7 @@ func _reset_mouse_state() -> void:
 	_k_rnp = 0.0
 	_aim_prev = _aim_cmd
 	_aim_ff = Vector3.ZERO
+	_aim_live = false
 	# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt.
 	if camera != null:
 		_cam_aim = -camera.global_transform.basis.z

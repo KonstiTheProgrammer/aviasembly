@@ -251,7 +251,14 @@ func _process(delta: float) -> void:
 				defl = in_roll * float(s["side"]) * CTRL_DEG       # Querruder gegensinnig
 			"yaw":
 				defl = in_yaw * CTRL_DEG                           # Seitenruder
-		node.rotation.x = float(s["dn"]) * deg_to_rad(defl)
+		# NICHT 1:1 pro Frame aufs Scharnier malen: der Maus-Instructor dithert
+		# naturgemäß minimal um die Nulllage (Raten-Schleife + Trim) — die Ruder
+		# zappelten sichtbar im Geradeausflug. Mini-Hysterese friert Chatter unter
+		# ~0.7° ein, ein Tiefpass (Servo-Gefühl) lässt echte Ausschläge flüssig durch.
+		var tgt := float(s["dn"]) * deg_to_rad(defl)
+		var cur: float = node.rotation.x
+		var rate := 10.0 if absf(tgt - cur) > deg_to_rad(0.7) else 1.5
+		node.rotation.x = lerpf(cur, tgt, clampf(delta * rate, 0.0, 1.0))
 
 	# Turbine 0..100 %: dezentes kurzes Abgasglühen. Nachbrenner 100..110 %: lange,
 	# helle Flamme (blau-weißer Kern -> orange Fahne mit Mach-Diamanten) + Funken + Glow.

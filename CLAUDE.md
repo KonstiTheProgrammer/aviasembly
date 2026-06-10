@@ -262,8 +262,11 @@ Gleichgewicht (CTRL+CTRL_A·Steuerfläche)·qfac·MOUSE_AUTH = DAMP·apq·(0.35+
 die AircraftBody-Formeln, ×`AUTH_HEADROOM=0.85` Regelreserve, min() mit den Feel-Tabellen.
 Großes Leitwerk = schnelle Befehle, Mini-/kein Ruder = ehrlich träge OHNE Sättigungs-Lag
 (`tools`-Beleg: Bau ohne h_stab konvergiert 2.6°/0 Pendel statt Dauer-Vollausschlag).
-Signalfluss (FlightController, `if mouse_fly:`): Maus → `_aim_cmd` (nur Slew-Limit
-`AIM_CMD_SLEW=6 rad/s`) → **EIN Gesetz für Nick/Gier (kein Modus-Blending!)**:
+Signalfluss (FlightController, `if mouse_fly:`): Maus → `_aim_cmd` (Slew-Limit
+`AIM_CMD_SLEW=6 rad/s` + ZITTER-TOTZONE mit Hysterese 0.2°/0.03° (`_aim_live`) —
+Handzittern der gefangenen Maus erreicht weder Fehler-P noch FF; der FF hat
+zusätzlich ein Soft-Gate smoothstep(0.06,0.18,|w|); Ruder-Visuals werden in
+AircraftBody zusätzlich servo-geglättet 10/s bzw. 1.5/s unter 0.7°) → **EIN Gesetz für Nick/Gier (kein Modus-Blending!)**:
 Soll-Drehvektor (Welt) = Achse(`Nase×Ziel`)·Rate; Rate = min(G-Budget
 `g·√(n²−1)/v` mit `n=G_SOFT·g_lim`, `PITCH_RATE_TAB(v)`, Stopp-Planung
 `√(2·AIM_TURN_ACC·err)` — bremst VOR dem Ziel, linearer Endanflug `INS_KP_V·err`)
