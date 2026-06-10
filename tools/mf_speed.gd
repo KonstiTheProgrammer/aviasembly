@@ -45,8 +45,10 @@ func _process(delta: float) -> bool:
 	var e: Vector3 = ac.global_transform.basis.transposed() * aim
 	var horiz := atan2(e.x, -e.z)
 	var c: Dictionary = CASES[case_i]
-	var start_sign := signf(float(c["yaw"]))
-	if not crossed and absf(horiz) < 0.25 and t > 0.3:
+	# Überschwinger = Peak NACHDEM der Fehler erstmals ~0 erreicht hat. (Vorher
+	# stand hier 0.25 rad — das maß bei monotoner Annäherung nur den EINLAUF-Wert
+	# knapp unter der Schwelle, immer ~14°, egal wie gut der Regler war.)
+	if not crossed and absf(horiz) < 0.03 and t > 0.3:
 		crossed = true
 	if crossed:
 		peak_after = maxf(peak_after, absf(horiz))

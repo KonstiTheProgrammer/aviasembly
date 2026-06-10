@@ -65,6 +65,7 @@ const INS_YAW_AIM := 0.6        # Ruder-Feinzielen bei kleinem Fehler
 const RNP_OFF := 0.45           # Blende koordinierte Kurve -> Roll-and-Pull: Beginn (rad)
 const RNP_ON := 0.9             # ... voll Roll-and-Pull ab hier (rad)
 const RNP_ROLL_KP := 4.0        # Roll-and-Pull: Rollrate in die Zugebene (1/s)
+const RNP_ROLL_KD := 0.8        # ... Dämpfung auf die phi-Rate (Zugebene pendelt nicht)
 const LATCH_ON := 2.6           # Richtungs-Latch an (Gesamtfehler, rad)
 const LATCH_OFF := 2.0          # ... und wieder frei
 const AOA_MAX := 0.78 * 0.27    # AoA-Limit = 0.78·STALL_A (~12°) — Instructor kann nicht stallen
@@ -108,6 +109,10 @@ var _cam_aim := Vector3(0, 0, -1)   # GEGLÄTTETE Kamera-Blickrichtung im Maus-F
 var _trim_pitch := 0.0          # Nick-Trim-Integrator (Maus-Flug): Nase exakt in der Kreismitte
 var _bank_offset := 0.0         # mit A/D gesetzte, GEHALTENE Querlage (Offset der Kaskade)
 var _turn_dir := 0              # Richtungs-Latch für 180°-Wenden (um ±π flackert das Vorzeichen)
+var _rnp_on := false            # Roll-and-Pull aktiv (Hysterese RNP_ON/RNP_OFF)
+var _k_rnp := 0.0               # weicher Modus-Übergang (3/s Slew)
+var _prev_phi := 0.0            # Zugebenen-Winkel des Vorframes (für die phi-Dämpfung)
+var _phi_rate := 0.0            # gefilterte phi-Änderungsrate (rad/s)
 var _prev_horiz := 0.0          # Horizontalfehler des Vorframes (für die Fehler-Rate)
 var _horiz_rate := 0.0          # gefilterte Horizontalfehler-Änderungsrate (rad/s)
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
@@ -454,7 +459,18 @@ func _physics_process(delta: float) -> void:
 		# [D] Modusblende: koordinierte Kurve <-> ROLL-AND-PULL (großer Fehler: erst in
 		# die Zugebene rollen, dann ziehen — WT rollAndPullUpWishDir). Latch hält die
 		# Rollrichtung durch die ±π-Flackerzone (180°-Wenden, Ziel unten = Split-S).
-		var k_rnp := smoothstep(RNP_OFF, RNP_ON, err_total)
+		# Modus mit HYSTERESE statt Misch-Blende: ein 30/70-Gemisch ließ den Koordi-
+		# nations-Anteil (will bei horiz≈0 leveln) GEGEN den laufenden Pull rollen ->
+		# die Zugrichtung driftete seitlich am Kreis vorbei (das gemessene Overshoot).
+		if _rnp_on:
+			# erst raus, wenn auch der PULL durch ist — sonst rollt der Koordinations-
+			# modus aus, während noch gezogen wird -> Zug sprüht die Nase seitlich
+			if err_total < RNP_OFF and absf(vert) < 0.18:
+				_rnp_on = false
+		elif err_total > RNP_ON:
+			_rnp_on = true
+		_k_rnp = move_toward(_k_rnp, 1.0 if _rnp_on else 0.0, 3.0 * delta)
+		var k_rnp := _k_rnp
 		var phi := atan2(e.x, e.y)        # Ziel relativ zur Zugebene (0 = genau "oben")
 		if err_total > LATCH_ON:
 			if _turn_dir == 0:
@@ -479,10 +495,24 @@ func _physics_process(delta: float) -> void:
 		var target_bank := clampf(-atan(wh_des * v / 9.81) + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
 		var dbank := wrapf(target_bank - current_bank, -PI, PI)
 		var wr_coord := signf(dbank) * minf(roll_max, sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)))
-		var wv_des := clampf(INS_KP_V * vert, -pitch_max, pitch_max)
-		var dp_coord := wv_des * absf(cos(current_bank)) + absf(wh_des) * absf(sin(current_bank))
-		# E2: Roll-and-Pull — in die Zielebene rollen (phi -> 0), pull erst eingerollt
-		var wr_rnp := clampf(-phi * RNP_ROLL_KP, -roll_max, roll_max)
+		# "Pull fertig fliegen, DANN ausrollen": solange viel Vertikalfehler ansteht,
+		# die Zugebene halten (Rollen gedrosselt) — wie ein Pilot, der die Kurve
+		# erst zu Ende zieht, bevor er die Flächen levelt.
+		wr_coord *= 1.0 - 0.8 * clampf(absf(vert) / 0.45, 0.0, 1.0)
+		# GEODÄTEN-Pitch: vert ist KÖRPERFEST — bei Schräglage erscheint ein Seitenziel
+		# automatisch körper-oben, der Kurven-Zug steckt also schon in vert drin.
+		# Der alte |cos|/|sin|-Bank-Mix zählte den Zug doppelt und hielt ihn beim
+		# AUSROLLEN am Leben (vert≈0, Bank noch groß) -> Nase sprühte seitlich am
+		# Ziel vorbei (das gemessene 14°-Overshoot).
+		var dp_coord := clampf(INS_KP_V * vert, -pitch_max, pitch_max)
+		# E2: Roll-and-Pull — in die Zielebene rollen (phi -> 0), pull erst eingerollt.
+		# PD statt P: ohne Dämpfung überschwingt die ZUGEBENE (Bank kippte über 90°),
+		# und der laufende Pull drückt die Nase seitlich am Kreis vorbei (gemessen:
+		# horiz pendelte ±15° obwohl die Wende längst geschafft war).
+		var pr := clampf(wrapf(phi - _prev_phi, -PI, PI) / maxf(delta, 1e-5), -6.0, 6.0)
+		_prev_phi = phi
+		_phi_rate = lerpf(_phi_rate, pr, clampf(delta * 15.0, 0.0, 1.0))
+		var wr_rnp := clampf(-(phi * RNP_ROLL_KP + _phi_rate * RNP_ROLL_KD), -roll_max, roll_max)
 		var pull_gate := pow(clampf(cos(phi), 0.0, 1.0), 2.0)
 		var dp_rnp := minf(INS_KP_V * err_total, pitch_max) * pull_gate
 		# E3: Blenden + AOA-LIMITER (primär, geschlossener Kreis auf MESS-AoA — der
@@ -713,6 +743,10 @@ func _toggle_mouse_fly() -> void:
 		_bank_offset = 0.0
 		_prev_horiz = 0.0
 		_horiz_rate = 0.0
+		_prev_phi = 0.0
+		_phi_rate = 0.0
+		_rnp_on = false
+		_k_rnp = 0.0
 		# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt beim M-Drücken.
 		if camera != null:
 			_cam_aim = -camera.global_transform.basis.z
