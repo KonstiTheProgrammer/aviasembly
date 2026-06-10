@@ -123,7 +123,9 @@ def build(name, tire_r, tire_w, axle_z, leg_r, leg_top=0.0, twin=False, oleo=Tru
     bpy.ops.object.join()
     wheel = bpy.context.active_object
     wheel.name = "Wheel"
-    bpy.ops.object.transform_apply(rotation=True, scale=True)   # Location NICHT backen (Origin bleibt Achse!)
+    # WICHTIG: location=False EXPLIZIT — der Operator-Default ist True und würde den
+    # Origin auf (0,0,0) zurücksetzen -> Rad eierte um die Beinoberkante statt um die Achse!
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     bpy.ops.object.shade_smooth()
     # Kind von Leg (klappt beim Einfahren mit), Welt-Transform beibehalten
     wheel.parent = leg

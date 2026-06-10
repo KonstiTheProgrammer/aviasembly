@@ -570,13 +570,7 @@ func _fire_primary() -> void:
 					w["cd"] = 1.7
 					fired = true
 		if fired:
-			# Mündungsfeuer: kurzer Leucht-Blitz an der Mündung (Größe ~ Kaliber/Waffe)
-			var fscl := 1.0
-			if CALIBERS.has(w["type"]):
-				fscl = 0.5 + 0.35 * float(CALIBERS[w["type"]].get("tscl", 1.0))
-			else:
-				fscl = 1.3        # Raketen-Abgang: größerer Feuerstoß
-			_muzzle_flash(pos, fwd, fscl)
+			# (Mündungsfeuer auf Wunsch entfernt — kein Blitz/Partikel beim Schießen.)
 			# Rückstoß: Impuls entgegen der Mündungsrichtung (nach hinten = -fwd).
 			aircraft.add_recoil(-fwd * float(RECOIL.get(w["type"], 0.0)))
 			# Kamera-Shake je nach Kaliber (aus dem Rückstoß abgeleitet)
@@ -603,29 +597,6 @@ func _drop_bomb() -> void:
 			w["ammo"] -= 1
 			if int(w["ammo"]) == 0:
 				aircraft.queue_detach(pidx)   # Bombe verschwindet vom Modell -> Aero neu
-
-
-# Kurzer Mündungsblitz: emissive Mini-Kugel + Funken-Burst, löscht sich nach ~70 ms.
-func _muzzle_flash(pos: Vector3, fwd: Vector3, scl: float) -> void:
-	var root := world_root if world_root != null else get_parent()
-	if root == null:
-		return
-	var fm := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = 0.22 * scl
-	sm.height = 0.44 * scl
-	fm.mesh = sm
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.85, 0.4)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.75, 0.3)
-	mat.emission_energy_multiplier = 7.0
-	fm.material_override = mat
-	root.add_child(fm)
-	fm.global_position = pos + fwd * 0.7
-	get_tree().create_timer(0.07).timeout.connect(func():
-		if is_instance_valid(fm):
-			fm.queue_free())
 
 
 func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float,
