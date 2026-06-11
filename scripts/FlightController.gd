@@ -123,6 +123,7 @@ var _turn_dir := 0              # Richtungs-Latch für 180°-Wenden (um ±π fla
 var _aim_prev := Vector3.FORWARD  # _aim_cmd des Vorframes (Feed-Forward der Marker-Rate)
 var _aim_live := false          # Totzonen-Hysterese: folgt der Befehl gerade der Maus?
 var _aim_ff := Vector3.ZERO     # gefilterte Marker-Drehrate (rad/s, Welt)
+var _wh_filt := 0.0             # tiefpass-gefilterter Horizontal-Drehraten-BEDARF (für die Soll-Bank)
 var _rnp_on := false            # Roll-and-Pull aktiv (Hysterese RNP_ON/RNP_OFF)
 var _k_rnp := 0.0               # weicher Modus-Übergang (3/s Slew)
 var _prev_phi := 0.0            # Zugebenen-Winkel des Vorframes (für die phi-Dämpfung)
@@ -560,9 +561,20 @@ func _physics_process(delta: float) -> void:
 		# horizontalen Komponente der Soll-Drehrate (wh_eff). Nur der ROLL-Kanal
 		# blendet (Skalar, gutmütig) — Nick/Gier folgen immer demselben Gesetz.
 		var wh_eff := -w_des_w.y     # Drehrate um Welt-Oben (+ = rechtsherum)
-		var target_bank := clampf(-atan(wh_eff * v / 9.81) + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
+		# Die Kurvengleichung VERSTÄRKT bei Tempo brutal: 1° Seitenfehler ergibt bei
+		# 200 m/s schon ~42° Soll-Bank — jedes Maus-Mikrozittern kippte das Vorzeichen
+		# und die Querruder schlugen links/rechts um ("Flugzeug gleicht sich dauernd
+		# selbst aus", gemessen 28-47 Umschläge + ±14-17° Pendeln in 8 s).
+		# Fix: BEDARF tiefpassen (Zitter mittelt sich zu null, echte Kurven bauen in
+		# ~0.4 s auf) + Kleinst-Gate (unterhalb echter Kurvenraten keine Bank).
+		_wh_filt = lerpf(_wh_filt, wh_eff, clampf(delta * 3.5, 0.0, 1.0))
+		var bank_need := _wh_filt * smoothstep(0.006, 0.018, absf(_wh_filt))
+		var target_bank := clampf(-atan(bank_need * v / 9.81) + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
 		var dbank := wrapf(target_bank - current_bank, -PI, PI)
-		var wr_coord := signf(dbank) * minf(roll_max, sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)))
+		# Stopp-Planung sqrt(2·a·d) hat bei d=0 UNENDLICHE Steigung -> Grenzzyklus
+		# ums Bank-Ziel (Querruder schlugen permanent um). Lineares Segment nahe
+		# null (4.5/s) macht den Endanflug weich, sqrt bleibt für große Fehler.
+		var wr_coord := signf(dbank) * minf(roll_max, minf(sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)), absf(dbank) * 4.5))
 		# "Pull fertig fliegen, DANN ausrollen": solange Vertikalfehler ansteht,
 		# die Zugebene halten (Rollen gedrosselt).
 		wr_coord *= 1.0 - 0.8 * clampf(absf(vert) / 0.45, 0.0, 1.0)
@@ -815,6 +827,7 @@ func _reset_mouse_state() -> void:
 	_aim_prev = _aim_cmd
 	_aim_ff = Vector3.ZERO
 	_aim_live = false
+	_wh_filt = 0.0
 	# Kamera-Aim aus der AKTUELLEN Blickrichtung starten -> kein Kamera-Schnitt.
 	if camera != null:
 		_cam_aim = -camera.global_transform.basis.z

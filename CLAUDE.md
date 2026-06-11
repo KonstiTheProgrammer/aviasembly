@@ -301,8 +301,11 @@ ROLL (eigener Kanal, NUR Zugebenen-Ausrichtung, nie im Nick-Pfad): Hysterese
 `_rnp_on` (RNP_ON 0.9/RNP_OFF 0.45 + `|vert|<0.18`): groß = phi-PD in die
 Manöverebene (`RNP_ROLL_KP/KD`, Richtungs-Latch 2.6/2.0, Gate smoothstep(0.25,
 0.6, err) gegen phi-Rauschen bei kleinem Fehler), klein = Kurvengleichungs-Bank
-`atan(wh_eff·v/g)` aus der horizontalen Soll-Drehrate, Roll stopp-geplant
-(`√(2·AIM_ROLL_ACC·Δbank)`), gedrosselt solange Vertikal-Pull ansteht
+`atan(wh_filt·v/g)` aus der TIEFPASS-gefilterten (3.5/s) + kleinst-gegateten
+horizontalen Soll-Drehrate (1° Fehler ergäbe sonst bei 200 m/s ~42° Soll-Bank —
+Maus-Zittern kippte das Vorzeichen -> Querruder-Schaukeln), Roll stopp-geplant
+(`min(√(2·AIM_ROLL_ACC·Δbank), 4.5·Δbank)` — das lineare Endsegment killt den
+sqrt-Grenzzyklus ums Bank-Ziel), gedrosselt solange Vertikal-Pull ansteht
 ("Pull fertig fliegen, dann ausrollen"). `AIM_BANK_MAX=1.47` (~84°; 72° deckelte
 Dauerkurven auf ~3 G → Messer-Drift bei 200 m/s). **A/D = gehaltener Bank-Offset**,
 Tasten additiv. Kamera: eigener Rig (`_cam_aim` 12/s auf ROHE Maus, `CAM_LEAD`),
