@@ -103,6 +103,9 @@ var mass_mult := 1.0
 
 # Tragflächen-Struktur & Widerstand
 var wing_capacity := 0.0      # max. Auftriebskraft (N), bevor Flügel brechen
+var g_protect := true         # G-SCHUTZ (Taste H): Auftrieb hart bei 95 % der Flügel-
+							  # Belastbarkeit gekappt -> Flügel KÖNNEN nicht abreißen
+							  # (Fly-by-Wire-Gefühl: mehr ziehen bringt nichts mehr)
 var drag_area := 0.0          # parasitärer Luftwiderstand cW·A (m²) des Modells
 var wings_broken := false
 var wing_status := "ok"
@@ -1395,9 +1398,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		var gate_v := takeoff_v * (1.0 - _flap_vis * 0.25)
 		var lift_gate := lerpf(LIFT_LO, 1.0, smoothstep(gate_v * LIFT_GATE_LO, gate_v * LIFT_GATE_HI, sp))
 		var lift_mag := q * wing_area * cl * lift_gate
-		# (Der frühere Force-Clamp aufs Lift ist raus: Limitierung passiert jetzt auf der
-		# KOMMANDO-Seite im Instructor (AoA-/G-Limiter auf Messwerte) — die Physik bleibt
-		# unverfälscht. Backstop: 0.12-s-Überlast-Fenster + Flügelbruch darunter.)
+		# G-SCHUTZ (Modus, Taste H): Auftrieb hart unter der Bruchlast deckeln —
+		# wie ein Fly-by-Wire-Limiter. Über dem Deckel "musht" das Flugzeug statt
+		# zu brechen. AUS = volle Physik, Limitierung nur auf der Kommando-Seite
+		# (Instructor) + 0.12-s-Überlast-Fenster -> Flügelbruch möglich.
+		if g_protect and wing_capacity > 0.0:
+			lift_mag = clampf(lift_mag, -wing_capacity * 0.95, wing_capacity * 0.95)
 		# Strukturelle Überlast: zu viel Auftrieb (zu hohe G) -> Flügel brechen.
 		# NUR bei ANHALTENDER Überlast (>0.12 s): Einzel-Tick-Spitzen (Regler-Transienten,
 		# numerisches Rauschen bei Highspeed) reißen keine Flügel mehr ab — echtes

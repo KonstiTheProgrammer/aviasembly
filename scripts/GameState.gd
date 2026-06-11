@@ -23,6 +23,7 @@ var upgrades: Dictionary = {"thrust": 0, "wing": 0, "light": 0}
 var flags: Dictionary = {}           # einmalige Merker (z. B. Steuer-Hinweis gesehen)
 var mouse_sens := 1.0                # Maus-Flug-Empfindlichkeit (0.5–2.0), Pause-Menü
 var world_seed: int = 0              # Seed der Terrain-Map (0 = beim ersten Start würfeln)
+var g_protect := true                # G-Schutz (H): Flügel reißen nicht ab (persistiert)
 
 signal changed()   # Geld/Unlock/Upgrade hat sich geändert
 
@@ -140,6 +141,7 @@ func save() -> void:
 		"missions_done": missions_done, "upgrades": upgrades, "flags": flags,
 		"mouse_sens": mouse_sens,
 		"world_seed": world_seed,
+		"g_protect": g_protect,
 	}))
 	f.close()
 
@@ -164,6 +166,7 @@ func load_state() -> void:
 	flags = data.get("flags", {})
 	mouse_sens = clampf(float(data.get("mouse_sens", 1.0)), 0.5, 2.0)
 	world_seed = int(data.get("world_seed", 0))
+	g_protect = bool(data.get("g_protect", true))
 	var up = data.get("upgrades", {})
 	for k in ["thrust", "wing", "light"]:
 		upgrades[k] = int(up.get(k, 0))

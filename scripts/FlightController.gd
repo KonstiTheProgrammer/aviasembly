@@ -137,6 +137,7 @@ var _flook_basis := Basis()     # geglättete Orbit-Orientierung (Position folgt
 var _flook_was := false         # war Free-Look letzten Frame aktiv? (für sanften Einstieg)
 var _mouse_idle := 0.0
 var mouse_fly := true           # Maus-Flug an? (STANDARD wie War Thunder; M = Tastatur-Modus)
+var g_protect := true           # G-Schutz: Flügel können nicht abreißen (Taste H)
 var arcade := false             # Arcade-Lenkung an? (kinematisch super-smooth, nur im Maus-Flug)
 var _roll_hold := 0.0           # wie lange A/D schon gehalten (für Fass-Roll)
 var _roll_dir := 0              # aktuelle Roll-Halterichtung (+1=A, -1=D, 0=keine)
@@ -616,6 +617,7 @@ func _physics_process(delta: float) -> void:
 		yaw = clampf(yaw + yaw_cmd, -1.0, 1.0)
 
 	aircraft.mouse_fly = mouse_fly   # Body schaltet damit das Auto-Leveling im Maus-Flug ab
+	aircraft.g_protect = g_protect   # harter Auftriebs-Deckel (Flügel reißen nie)
 	aircraft.arcade = arcade         # Arcade-Lenkung (kinematisch) im Body aktivieren
 	aircraft.throttle = throttle
 	aircraft.flaps = FLAP_STAGES[_flap_stage]   # Landeklappen: mehr Auftrieb + Widerstand
@@ -787,6 +789,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_reset_to_runway()
 		elif event.keycode == KEY_M:
 			_toggle_mouse_fly()
+		elif event.keycode == KEY_H:
+			g_protect = not g_protect
 		elif event.keycode == KEY_J:
 			_toggle_arcade()
 		elif event.keycode == KEY_T and is_instance_valid(aircraft):
@@ -1135,6 +1139,7 @@ func _emit_hud() -> void:
 		"nose": nose_screen,
 		"gun": gun_screen,
 		"gun_vis": gun_visible,
+		"g_protect": g_protect,
 		"aim_vis": aim_visible,
 		"nose_vis": nose_visible,
 		"throttle": throttle,

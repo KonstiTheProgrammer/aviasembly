@@ -136,6 +136,7 @@ func _ready() -> void:
 	fly_world.add_child(targets_root)
 	flight_ctrl.world_root = targets_root
 	flight_ctrl.sens_mult = game.mouse_sens   # persistierte Maus-Flug-Empfindlichkeit anwenden
+	flight_ctrl.g_protect = game.g_protect    # persistierter G-Schutz (Taste H)
 	_spawn_targets()
 	_setup_ui()
 	if not _load_design():
@@ -1091,7 +1092,7 @@ func _show_controls_hint() -> void:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rect(box, 0.5, 0, 0.5, 0, -300, 84, 300, 246)
 	ui.add_child(box)
-	var lbl := _lbl("🛩  STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-/Tastatur-Flug (Start: MAUS)    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	var lbl := _lbl("🛩  STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-/Tastatur-Flug (Start: MAUS)    ·    H = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
 	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1876,7 +1877,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(flight_hud)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · C halten: 👀 Umsehen · 🔫 LEERTASTE (gelber Pipper = echter Treffpunkt) · 💣 B · G: Fahrwerk · F: Klappen · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · C halten: 👀 Umsehen · 🔫 LEERTASTE (gelber Pipper = echter Treffpunkt) · 💣 B · G: Fahrwerk · F: Klappen · H: G-Schutz · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
@@ -2018,6 +2019,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 		var modes: Array = []
 		if mf:
 			modes.append("ARCADE" if arc else "MAUS-FLUG")
+	if not bool(d.get("g_protect", true)):
+		modes.append("⚠ G-SCHUTZ AUS")
 		if d.get("inverted", false):
 			modes.append("INVERS")
 		flight_hud.mode_text = "     ".join(modes)
@@ -2030,6 +2033,12 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.nose_vis = mf and bool(d.get("nose_vis", true))
 		flight_hud.gun_pos = d.get("gun", Vector2.ZERO)
 		flight_hud.gun_vis = bool(d.get("gun_vis", false))
+		# G-Schutz-Toggle (H) erkennen -> Toast + persistieren
+		var gp := bool(d.get("g_protect", true))
+		if gp != game.g_protect:
+			game.g_protect = gp
+			game.save()
+			_toast("🛡 G-Schutz AN — Flügel reißen nicht ab" if gp else "⚠ G-Schutz AUS — volle Physik, Flügel können brechen!")
 	if land_label:
 		var lm: String = d.get("land_msg", "")
 		land_label.text = lm
