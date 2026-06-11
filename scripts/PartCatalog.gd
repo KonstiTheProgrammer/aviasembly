@@ -203,6 +203,27 @@ static func _build() -> void:
 		"desc": "Dedizierter F-86-Sabre-Rumpf: runder Nasen-Lufteinlauf, Bubble-Kanzel (Blender-Modell). Pfeilflügel + Jet-Triebwerk (Heckdüse) dran.",
 	})
 	_add({
+		"id": "mig21_body", "name": "MiG-21-Rumpf", "category": CAT_BODY,
+		"mass": 300.0, "color": Color(0.74, 0.76, 0.80), "shape": "box",
+		"size": Vector3(0.95, 1.2, 7.7), "col_size": Vector3(0.85, 0.95, 7.4),
+		"metal": 1.0, "rough": 0.3,
+		"desc": "MiG-21-Rumpf: Nasen-Einlauf mit Schock-Konus, Rückgrat-Spine (Blender-Modell). Deltaflügel + Triebwerk dran — der meistgebaute Überschalljet aller Zeiten.",
+	})
+	_add({
+		"id": "f4_body", "name": "F-4-Phantom-Rumpf", "category": CAT_BODY,
+		"mass": 430.0, "color": Color(0.45, 0.50, 0.42), "shape": "box",
+		"size": Vector3(1.75, 1.35, 7.8), "col_size": Vector3(1.55, 1.05, 7.5),
+		"metal": 0.9, "rough": 0.42,
+		"desc": "F-4-Phantom-Rumpf: hängende Nase, Seiten-Einläufe, Tandem-Kanzel, Doppel-Düse (Blender-Modell). Der bullige Vietnam-Allrounder.",
+	})
+	_add({
+		"id": "f14_body", "name": "F-14-Tomcat-Rumpf", "category": CAT_BODY,
+		"mass": 470.0, "color": Color(0.62, 0.66, 0.72), "shape": "box",
+		"size": Vector3(2.3, 1.25, 8.1), "col_size": Vector3(2.1, 1.0, 7.8),
+		"metal": 0.75, "rough": 0.5,
+		"desc": "F-14-Tomcat-Rumpf: breiter Pancake mit Doppel-Gondeln, lange Tandem-Kanzel (Blender-Modell). Pfeilflügel + Doppel-Leitwerk dran — Top-Gun-Silhouette.",
+	})
+	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
 		"mass": 70.0, "color": C_BODY, "shape": "nose",
 		"size": Vector3(1.3, 1.1, 1.8),
