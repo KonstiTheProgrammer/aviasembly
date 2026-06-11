@@ -883,7 +883,10 @@ func _process(delta: float) -> void:
 	# FOV-Speed-Zoom: weitet sich mit dem Tempo (sanft nachgeführt) -> Speed-Gefühl
 	var fov_target := lerpf(FOV_BASE, FOV_MAX, clampf(aircraft.airspeed / FOV_SPEED, 0.0, 1.0))
 	camera.fov = lerpf(camera.fov, fov_target, clampf(delta * 2.5, 0.0, 1.0))
-	var t := aircraft.global_transform
+	# INTERPOLIERTE Transform: das Flugzeug rendert seit physics_interpolation
+	# glatt mit Display-Rate — eine an der ROHEN 60-Hz-Physikposition verankerte
+	# Kamera ließe es relativ zur Kamera zittern (genau das gemeldete Beben).
+	var t := aircraft.get_global_transform_interpolated()
 	if free_look:
 		# C halten: Kamera orbitet als KUGEL (konstanter Abstand) um die Flugzeug-Mitte (Schwerpunkt).
 		# Die Orientierung wird DIREKT aus Heading + Free-Look-Winkeln gebaut (kein look_at) -> smooth
@@ -984,8 +987,9 @@ func _update_markers() -> void:
 		aim_visible = false
 		nose_visible = false
 		return
-	var ap := aircraft.global_position + _aim_dir() * 400.0
-	var np := aircraft.global_position - aircraft.global_transform.basis.z * 400.0
+	var ti := aircraft.get_global_transform_interpolated()
+	var ap := ti.origin + _aim_dir() * 400.0
+	var np := ti.origin - ti.basis.z * 400.0
 	aim_visible = not camera.is_position_behind(ap)
 	nose_visible = not camera.is_position_behind(np)
 	aim_screen = camera.unproject_position(ap) if aim_visible else ctr

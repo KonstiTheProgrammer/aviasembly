@@ -1430,10 +1430,12 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		# STALL-BUFFET: kurz VOR dem Abriss schüttelt die Zelle spürbar (ansteigend) ->
 		# man FÜHLT die Grenze, bevor das STALL-Banner kommt. Physischer Jitter (Nase
 		# zittert leicht) + dezentes Kamera-Zittern; Arcade/Fass-Roll ausgenommen.
-		var buf := smoothstep(STALL_A * 0.72, STALL_A, absf(aoa)) * clampf(sp / 30.0, 0.0, 1.0)
+		# Buffet erst KURZ vor dem Abriss (85 %..105 % Stall-AoA) — vorher rüttelte
+		# es ab 72 % und damit in jeder harten Kurve dauernd ("Flugzeug zittert").
+		var buf := smoothstep(STALL_A * 0.85, STALL_A * 1.05, absf(aoa)) * clampf(sp / 30.0, 0.0, 1.0)
 		if buf > 0.02 and not arcade and barrel_roll == 0:
-			tt += xf.basis * (Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)) * (buf * mass * 0.6))
-			shake_request = maxf(shake_request, buf * 0.4 * state.step)
+			tt += xf.basis * (Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)) * (buf * mass * 0.35))
+			shake_request = maxf(shake_request, buf * 0.25 * state.step)
 		# STALL-RECOVERY: im Abriss drückt ein sanftes Nase-runter-Moment (massebasiert,
 		# wirkt auch bei wenig Staudruck) die Nase zur Anströmung -> Tempo baut sich auf,
 		# Überziehen wird ERHOLBAR statt Kontrollverlust. Voller Zug am Höhenruder
