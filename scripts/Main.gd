@@ -915,6 +915,9 @@ func _build_balloon(parent: Node3D, pos: Vector3) -> void:
 
 func _setup_camera() -> void:
 	camera = Camera3D.new()
+	# Die Kamera wird in _process geführt -> NICHT physik-interpolieren
+	# (sonst kämpfen zwei Glättungen; Godot warnt sonst pro Frame).
+	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	camera.fov = 64.0
 	camera.far = 9000.0
 	camera.current = true
