@@ -1,13 +1,17 @@
 ## SEED-BASIERTES TERRAIN: riesige, deterministische Low-Poly-Landschaft.
-## FastNoiseLite-fBm-Höhenfeld, in CHUNKS um den Spieler gestreamt (Queue, max. 2
-## Builds/Frame gegen Ruckler). Flatshading mit Höhen-/Hangfarben über Vertex-
-## Colors (Sand/Gras/Fels/Schnee), Trimesh-Kollision je Chunk (Layer 1 = Boden).
-## FLUGPLÄTZE werden ins Gelände EINGEEBNET (Höhe -> exakt 0 im Innenradius,
-## weicher Übergang außen) — die Bahnen liegen also nahtlos im Terrain.
-## Nahe dem Ursprung bleibt die Amplitude klein (sanfte Wiesen um HEIMAT),
-## mit der Entfernung wachsen echte Berge (bis ~110 m + Schneegrenze).
-## Das MEER liegt bei y=-6 (Senken füllen sich); die Kollision dort liefert
-## der WorldBoundary-Boden in Main (Sicherheitsnetz unter allem).
+## FastNoiseLite-fBm-Höhenfeld, in CHUNKS um den Spieler gestreamt. Mesh +
+## Trimesh-Kollision entstehen auf einem WORKER-THREAD (ein Chunk kostet
+## ~7.5 ms — auf dem Main-Thread riss das bei 120 fps jedes Mal den Frame:
+## sichtbares Zucken bei jedem Nachladen). Der Main-Thread instanziert nur
+## noch fertige Daten (<1 ms) und hängt sie ein.
+## Flatshading mit Höhen-/Hangfarben über Vertex-Colors (Sand/Gras/Fels/
+## Schnee), FLUGPLÄTZE werden ins Gelände EINGEEBNET (Höhe -> exakt 0 im
+## Innenradius, weicher Übergang außen). Nahe dem Ursprung sanfte Wiesen,
+## mit der Entfernung echte Berge (~110 m + Schneegipfel). MEER bei y=-6
+## (Kollision: WorldBoundary-Boden in Main als Sicherheitsnetz).
+## FALLEN (gelernt): Godot-Front-Faces = im Uhrzeigersinn von außen (sonst
+## cullt ALLES von oben); Steilheits-Farbe über |n.y|; StandardMaterial3D
+## ignorierte Vertex-Farben -> Mini-Shader ALBEDO=COLOR.
 class_name TerrainWorld
 extends Node3D
 
@@ -15,16 +19,26 @@ const CHUNK := 384.0            # Kantenlänge eines Chunks (m)
 const CELLS := 48               # Zellen pro Kante (8 m Raster -> Low-Poly-Look)
 const VIEW_DIST := 2400.0       # Chunks innerhalb dieses Radius werden geladen
 const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionsebene hin)
-const MAX_BUILDS_PER_FRAME := 2
+const MAX_ATTACH_PER_FRAME := 1 # fertige Chunks je Frame einhängen (Physik-Insert kostet)
 
 var seed_value := 1337
 var airfields: Array = []       # [{pos: Vector3, r_flat: float, r_blend: float}]
 var _noise: FastNoiseLite
 var _patch: FastNoiseLite       # Sekundär-Rauschen für Gras-Flecken
-var _chunks: Dictionary = {}    # Vector2i -> Node3D
-var _queue: Array = []          # zu bauende Chunk-Koordinaten
+var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
+var _pending: Dictionary = {}   # Vector2i -> true (im Worker unterwegs)
 var _mat: ShaderMaterial
 var _water: MeshInstance3D
+var _last_cc := Vector2i(2147483647, 0)   # zuletzt verarbeitete Spieler-Chunk-Zelle
+var _last_pos := Vector3.ZERO
+
+# --- Worker-Thread-Verkehr ---
+var _thread: Thread
+var _sem: Semaphore
+var _mutex: Mutex
+var _jobs: Array = []           # Keys für den Worker (nahe zuerst)
+var _done: Array = []           # fertige {key, mesh, shape}
+var _exit := false
 
 
 func setup(seedv: int, afs: Array) -> void:
@@ -65,7 +79,20 @@ void fragment() {
 	wmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	wmat.roughness = 0.12
 	wmat.metallic = 0.2
+	_water.material_override = wmat
 	add_child(_water)
+	# Worker starten
+	_sem = Semaphore.new()
+	_mutex = Mutex.new()
+	_thread = Thread.new()
+	_thread.start(_worker_loop)
+
+
+func _exit_tree() -> void:
+	if _thread != null and _thread.is_started():
+		_exit = true
+		_sem.post()
+		_thread.wait_to_finish()
 
 
 # Geländehöhe an Weltposition (deterministisch aus dem Seed).
@@ -83,63 +110,123 @@ func height_at(x: float, z: float) -> float:
 
 
 func update_center(world_pos: Vector3) -> void:
+	_last_pos = world_pos
+	# Wasser folgt dem Spieler (riesige Platte, aber endlich)
+	_water.position.x = world_pos.x
+	_water.position.z = world_pos.z
 	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
+	if cc == _last_cc:
+		return   # gleiche Zelle -> Lade-Plan unverändert (kein Scan pro Frame)
+	_last_cc = cc
 	var r := int(ceil(VIEW_DIST / CHUNK))
 	var want := {}
+	var new_jobs: Array = []
 	for cy in range(cc.y - r, cc.y + r + 1):
 		for cx in range(cc.x - r, cc.x + r + 1):
 			var key := Vector2i(cx, cy)
-			var center := Vector2((float(cx) + 0.5) * CHUNK, (float(cy) + 0.5) * CHUNK)
-			if center.distance_to(Vector2(world_pos.x, world_pos.z)) > VIEW_DIST + CHUNK:
+			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > VIEW_DIST + CHUNK:
 				continue
 			want[key] = true
-			if not _chunks.has(key) and not _queue.has(key):
-				_queue.append(key)
+			if not _chunks.has(key) and not _pending.has(key):
+				_pending[key] = true
+				new_jobs.append(key)
 	# entfernte Chunks abbauen
 	for key in _chunks.keys():
 		if not want.has(key):
 			_chunks[key].queue_free()
 			_chunks.erase(key)
-	# Wasser folgt dem Spieler (riesige Platte, aber endlich)
-	_water.position.x = world_pos.x
-	_water.position.z = world_pos.z
-	# Queue: nahe Chunks zuerst
-	if not _queue.is_empty():
-		var pc := Vector2(world_pos.x, world_pos.z)
-		_queue.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-			var ca := Vector2((float(a.x) + 0.5) * CHUNK, (float(a.y) + 0.5) * CHUNK)
-			var cb := Vector2((float(b.x) + 0.5) * CHUNK, (float(b.y) + 0.5) * CHUNK)
-			return ca.distance_squared_to(pc) < cb.distance_squared_to(pc))
+	if new_jobs.is_empty():
+		return
+	# nahe zuerst bauen
+	var pc := Vector2(world_pos.x, world_pos.z)
+	new_jobs.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _chunk_center(a).distance_squared_to(pc) < _chunk_center(b).distance_squared_to(pc))
+	_mutex.lock()
+	_jobs.append_array(new_jobs)
+	_mutex.unlock()
+	for i in new_jobs.size():
+		_sem.post()
+
+
+func _chunk_center(key: Vector2i) -> Vector2:
+	return Vector2((float(key.x) + 0.5) * CHUNK, (float(key.y) + 0.5) * CHUNK)
+
+
+# Worker: rechnet Höhenfeld + Mesh + Kollisions-Shape (alles Resources, off-tree
+# Thread-sicher). Der Main-Thread hängt nur noch ein.
+func _worker_loop() -> void:
+	while true:
+		_sem.wait()
+		if _exit:
+			return
+		_mutex.lock()
+		var key_v: Variant = _jobs.pop_front() if not _jobs.is_empty() else null
+		_mutex.unlock()
+		if key_v == null:
+			continue
+		var key: Vector2i = key_v
+		var data := _make_chunk_data(key)
+		_mutex.lock()
+		_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"]})
+		_mutex.unlock()
 
 
 func _process(_delta: float) -> void:
-	for i in MAX_BUILDS_PER_FRAME:
-		if _queue.is_empty():
+	# fertige Chunks einhängen (billig: Nodes + fertige Resources)
+	for i in MAX_ATTACH_PER_FRAME:
+		_mutex.lock()
+		var item_v: Variant = _done.pop_front() if not _done.is_empty() else null
+		_mutex.unlock()
+		if item_v == null:
 			return
-		_build_chunk(_queue.pop_front())
+		var item: Dictionary = item_v
+		var key: Vector2i = item["key"]
+		_pending.erase(key)
+		# inzwischen außer Reichweite? -> verwerfen (wird bei Bedarf neu geplant)
+		if _chunks.has(key) or _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
+			continue
+		_attach_chunk(key, item["mesh"], item["shape"])
 
 
-# Startbereich SOFORT bauen (synchron), damit das Flugzeug beim Spawn nicht
-# durch noch fehlende Kollision fällt.
+# Startbereich SOFORT bauen (synchron, Main-Thread), damit das Flugzeug beim
+# Spawn nicht durch noch fehlende Kollision fällt.
 func build_now_around(world_pos: Vector3, radius: float) -> void:
 	update_center(world_pos)
-	var keep: Array = []
-	for key in _queue:
-		var center := Vector2((float(key.x) + 0.5) * CHUNK, (float(key.y) + 0.5) * CHUNK)
-		if center.distance_to(Vector2(world_pos.x, world_pos.z)) <= radius + CHUNK:
-			_build_chunk(key)
-		else:
-			keep.append(key)
-	_queue = keep
+	var r := int(ceil(radius / CHUNK)) + 1
+	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
+	for cy in range(cc.y - r, cc.y + r + 1):
+		for cx in range(cc.x - r, cc.x + r + 1):
+			var key := Vector2i(cx, cy)
+			if _chunks.has(key):
+				continue
+			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > radius + CHUNK:
+				continue
+			var data := _make_chunk_data(key)
+			_attach_chunk(key, data["mesh"], data["shape"])
 
 
-func _build_chunk(key: Vector2i) -> void:
-	if _chunks.has(key):
-		return
+func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D) -> void:
+	var node := Node3D.new()
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = _mat
+	node.add_child(mi)
+	var body := StaticBody3D.new()
+	body.collision_layer = 1
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	body.add_child(cs)
+	node.add_child(body)
+	add_child(node)
+	_chunks[key] = node
+
+
+# Mesh + Kollision für einen Chunk bauen (läuft im Worker ODER synchron beim Spawn).
+func _make_chunk_data(key: Vector2i) -> Dictionary:
 	var ox := float(key.x) * CHUNK
 	var oz := float(key.y) * CHUNK
 	var step := CHUNK / float(CELLS)
-	# Höhenfeld einmal sampeln (CELLS+1)²
 	var hs := PackedFloat32Array()
 	hs.resize((CELLS + 1) * (CELLS + 1))
 	for j in CELLS + 1:
@@ -166,20 +253,7 @@ func _build_chunk(key: Vector2i) -> void:
 			_tri(st, v00, v11, v01)
 	st.generate_normals()
 	var mesh := st.commit()
-	var node := Node3D.new()
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = _mat
-	node.add_child(mi)
-	var body := StaticBody3D.new()
-	body.collision_layer = 1
-	body.collision_mask = 0
-	var cs := CollisionShape3D.new()
-	cs.shape = mesh.create_trimesh_shape()
-	body.add_child(cs)
-	node.add_child(body)
-	add_child(node)
-	_chunks[key] = node
+	return {"mesh": mesh, "shape": mesh.create_trimesh_shape()}
 
 
 # Ein Dreieck mit Flächenfarbe (aus Höhe + Steilheit am Schwerpunkt) einfügen.

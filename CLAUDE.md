@@ -83,8 +83,10 @@ scripts/AircraftBody.gd  class_name AircraftBody extends RigidBody3D. Das Flugmo
 scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain (FastNoise
                          fBm, 384-m-Chunks, 8-m-Raster, Flatshading via Vertex-Colors +
                          Mini-Shader ALBEDO=COLOR — StandardMaterial ignorierte die Farben).
-                         Streaming um den Spieler (Queue 2 Builds/Frame, Main._process ruft
-                         update_center im Flug; build_now_around = Spawn synchron).
+                         Streaming um den Spieler auf WORKER-THREAD (Mesh+Trimesh-Shape im
+                         Thread, ~7.5 ms/Chunk riss sonst den 120-fps-Frame -> Zucken beim
+                         Nachladen; Main hängt nur fertige Daten ein, 1/Frame; update_center
+                         scannt nur bei Chunk-Zellenwechsel; build_now_around = Spawn synchron).
                          Flugplätze werden EINGEEBNET (height *= smoothstep(r_flat,r_blend));
                          Meer y=-6 (Main: WorldBoundary dort = Wasser-/Sicherheitsboden).
                          Seed: GameState.world_seed (einmal gewürfelt, persistiert).
