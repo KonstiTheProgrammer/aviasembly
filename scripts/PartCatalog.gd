@@ -234,6 +234,44 @@ static func _build() -> void:
 		"desc": "Boattail-Heck mit integrierter Düse, Spine läuft aus (Blender). Schließt die Schlank-Linie ab.",
 	})
 	_add({
+		"id": "mig21_rear", "name": "MiG-21-Heckrumpf (Spine+Düse)", "category": CAT_BODY,
+		"mass": 165.0, "color": Color(0.74, 0.76, 0.79), "shape": "box",
+		"size": Vector3(0.78, 0.98, 3.6), "col_size": Vector3(0.74, 0.72, 3.5),
+		"desc": "Heckrumpf aus einem Guss: Rückenspine-Fairing, Boattail-Taper, dunkler Düsenring mit Innenkonus, Ventralflosse, Bremsschirm-Behälter (Blender). Schließt bündig an den MiG-21-Vorderrumpf an.",
+	})
+	# MiG-21-Flächensatz: echte Blender-Geometrie (beschnittenes Delta, dünnes Profil),
+	# Aero-Felder wie die generischen Pendants -> fliegt identisch, sieht echt aus.
+	_add({
+		"id": "mig21_wing", "name": "MiG-21-Deltaflügel", "category": CAT_WING,
+		"mass": 80.0, "color": C_WING, "shape": "wing",
+		"span": 3.5, "root_chord": 2.9, "tip_chord": 0.25, "sweep": 2.65, "thickness": 0.115,
+		"is_wing": true, "area": 5.0, "lift": 0.9, "control": "", "orient_normal": true,
+		"stress_mult": 4.0,
+		"col_size": Vector3(1.75, 0.22, 2.9), "col_offset": Vector3(0.875, 0.0, 0.0),
+		"metal": 0.15, "rough": 0.6,
+		"desc": "Beschnittenes 57°-Delta mit scharfer Hinterkante, Querruder-Linie und Grenzschichtzaun (Blender). Extrem belastbar (Jet-Flügel).",
+	})
+	_add({
+		"id": "mig21_stab", "name": "MiG-21-Höhenleitwerk", "category": CAT_CTRL,
+		"mass": 30.0, "color": C_CTRL, "shape": "wing",
+		"span": 2.4, "root_chord": 1.1, "tip_chord": 0.25, "sweep": 0.9, "thickness": 0.06,
+		"is_wing": true, "area": 2.0, "lift": 0.85, "control": "pitch", "orient_normal": true,
+		"stress_mult": 4.0,
+		"col_size": Vector3(0.95, 0.14, 1.15), "col_offset": Vector3(0.475, 0.0, 0.0),
+		"metal": 0.15, "rough": 0.6,
+		"desc": "Gepfeiltes Pendelruder der MiG-21 (Blender), steuert Nick.",
+	})
+	_add({
+		"id": "mig21_fin", "name": "MiG-21-Seitenflosse", "category": CAT_CTRL,
+		"mass": 32.0, "color": C_CTRL, "shape": "wing",
+		"span": 1.6, "root_chord": 1.8, "tip_chord": 0.4, "sweep": 1.5, "thickness": 0.10,
+		"is_wing": true, "area": 1.8, "lift": 0.8, "control": "yaw", "orient_normal": true,
+		"stress_mult": 4.0,
+		"col_size": Vector3(0.14, 1.4, 1.9), "col_offset": Vector3(0.0, 0.7, 0.0),
+		"metal": 0.15, "rough": 0.6,
+		"desc": "Breite, stark gepfeilte Seitenflosse mit Ruderlinie (Blender), steuert Gier. Steht senkrecht — direkt auf den Rumpfrücken setzen.",
+	})
+	_add({
 		"id": "f4_nose", "name": "F-4-Hängenase", "category": CAT_BODY,
 		"mass": 95.0, "color": Color(0.45, 0.50, 0.42), "shape": "nose",
 		"size": Vector3(1.336, 1.08, 2.72), "col_size": Vector3(1.25, 1.0, 2.4),
