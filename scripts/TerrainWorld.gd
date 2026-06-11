@@ -25,6 +25,10 @@ var seed_value := 1337
 var airfields: Array = []       # [{pos: Vector3, r_flat: float, r_blend: float}]
 var _noise: FastNoiseLite
 var _patch: FastNoiseLite       # Sekundär-Rauschen für Gras-Flecken
+var _forest: FastNoiseLite      # grobes Rauschen: wo stehen WÄLDER (Cluster)
+var _mesh_conifer: ArrayMesh    # Low-Poly-Tanne (einmal gebaut, via MultiMesh instanziert)
+var _mesh_leaf: ArrayMesh       # Low-Poly-Laubbaum
+var _mesh_rock: ArrayMesh       # Low-Poly-Felsblock
 var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (im Worker unterwegs)
 var _mat: ShaderMaterial
@@ -55,6 +59,12 @@ func setup(seedv: int, afs: Array) -> void:
 	_patch = FastNoiseLite.new()
 	_patch.seed = seedv * 7 + 3
 	_patch.frequency = 1.0 / 60.0
+	_forest = FastNoiseLite.new()
+	_forest.seed = seedv * 13 + 5
+	_forest.frequency = 1.0 / 260.0
+	_mesh_conifer = _build_conifer_mesh()
+	_mesh_leaf = _build_leaf_mesh()
+	_mesh_rock = _build_rock_mesh()
 	# Vertex-Farbe DIREKT als Albedo (StandardMaterial ignorierte die Farben trotz
 	# vertex_color_use_as_albedo bei material_override + SurfaceTool-Mesh).
 	var sh := Shader.new()
@@ -185,7 +195,7 @@ func _process(_delta: float) -> void:
 		# inzwischen außer Reichweite? -> verwerfen (wird bei Bedarf neu geplant)
 		if _chunks.has(key) or _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
 			continue
-		_attach_chunk(key, item["mesh"], item["shape"])
+		_attach_chunk(key, item["mesh"], item["shape"], item.get("conifers", []), item.get("leafs", []), item.get("rocks", []))
 
 
 # Startbereich SOFORT bauen (synchron, Main-Thread), damit das Flugzeug beim
@@ -202,10 +212,11 @@ func build_now_around(world_pos: Vector3, radius: float) -> void:
 			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > radius + CHUNK:
 				continue
 			var data := _make_chunk_data(key)
-			_attach_chunk(key, data["mesh"], data["shape"])
+			_attach_chunk(key, data["mesh"], data["shape"], data["conifers"], data["leafs"], data["rocks"])
 
 
-func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D) -> void:
+func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
+		conifers: Array = [], leafs: Array = [], rocks: Array = []) -> void:
 	var node := Node3D.new()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -218,8 +229,27 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D) -> void:
 	cs.shape = shape
 	body.add_child(cs)
 	node.add_child(body)
+	# Flora: je Variante EIN MultiMesh (hunderte Bäume = 1 Draw-Call)
+	_attach_multi(node, _mesh_conifer, conifers)
+	_attach_multi(node, _mesh_leaf, leafs)
+	_attach_multi(node, _mesh_rock, rocks)
 	add_child(node)
 	_chunks[key] = node
+
+
+func _attach_multi(parent: Node3D, mesh: ArrayMesh, xfs: Array) -> void:
+	if xfs.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = xfs.size()
+	for i in xfs.size():
+		mm.set_instance_transform(i, xfs[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	mmi.material_override = _mat
+	parent.add_child(mmi)
 
 
 # Mesh + Kollision für einen Chunk bauen (läuft im Worker ODER synchron beim Spawn).
@@ -253,7 +283,48 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			_tri(st, v00, v11, v01)
 	st.generate_normals()
 	var mesh := st.commit()
-	return {"mesh": mesh, "shape": mesh.create_trimesh_shape()}
+	# --- FLORA: deterministisch aus Seed+Chunk — Bäume in Wald-Clustern, Felsen
+	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector3i(key.x, key.y, seed_value))
+	var conifers: Array = []
+	var leafs: Array = []
+	var rocks: Array = []
+	for a in 130:
+		var px := ox + rng.randf() * CHUNK
+		var pz := oz + rng.randf() * CHUNK
+		var h := height_at(px, pz)
+		if h < 0.8 or h > 48.0:
+			continue   # kein Wald am Strand/Wasser/Flugplatz oder über der Baumgrenze
+		# Steilheit aus zwei Nachbarproben (Bäume nur auf gangbarem Hang)
+		var hx := height_at(px + 6.0, pz)
+		var hz := height_at(px, pz + 6.0)
+		if absf(hx - h) > 2.6 or absf(hz - h) > 2.6:
+			continue
+		var f := _forest.get_noise_2d(px, pz)
+		if f < 0.05:
+			continue   # kein Wald-Cluster hier
+		if rng.randf() > clampf((f - 0.05) * 3.2, 0.0, 0.95):
+			continue   # Dichte wächst zum Cluster-Kern
+		var sc := rng.randf_range(1.1, 2.0)
+		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)), Vector3(px, h - 0.15, pz))
+		if h > 26.0 or rng.randf() < 0.65:
+			conifers.append(xf)
+		else:
+			leafs.append(xf)
+	for a in 14:
+		var px := ox + rng.randf() * CHUNK
+		var pz := oz + rng.randf() * CHUNK
+		var h := height_at(px, pz)
+		if h < SEA_Y + 1.0 or absf(h) < 0.4:
+			continue   # nicht im Meer, nicht auf der Flugplatz-Ebene
+		var hx := height_at(px + 6.0, pz)
+		if rng.randf() > (0.18 + clampf(absf(hx - h) * 0.25, 0.0, 0.5) + (0.35 if h > 45.0 else 0.0)):
+			continue   # Felsen bevorzugt an Hängen + in Hochlagen
+		var rsc := Vector3(rng.randf_range(0.7, 2.4), rng.randf_range(0.5, 1.8), rng.randf_range(0.7, 2.4))
+		rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc), Vector3(px, h - 0.3, pz)))
+	return {"mesh": mesh, "shape": mesh.create_trimesh_shape(),
+		"conifers": conifers, "leafs": leafs, "rocks": rocks}
 
 
 # Ein Dreieck mit Flächenfarbe (aus Höhe + Steilheit am Schwerpunkt) einfügen.
@@ -275,8 +346,118 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 		return Color(0.93, 0.94, 0.97)        # Schnee NUR auf Gipfeln
 	if cen.y > 52.0 or ny < 0.74:
 		return Color(0.47, 0.46, 0.48)        # Fels: steil ODER Hochlage
-	# Gras in zwei Tönen (Flecken-Rauschen) — Low-Poly-Wiese
+	# Gras in zwei Tönen (Flecken-Rauschen) — Low-Poly-Wiese, dazwischen ERDE
 	var t := _patch.get_noise_2d(cen.x, cen.z)
+	if t < -0.52:
+		return Color(0.50, 0.38, 0.26)        # offene Erd-/Ackerflecken
 	var g1 := Color(0.38, 0.56, 0.30)
 	var g2 := Color(0.31, 0.49, 0.27)
 	return g1.lerp(g2, clampf(t * 0.5 + 0.5, 0.0, 1.0))
+
+
+# ---------------------------------------------------------------------------
+# Low-Poly-Flora-Meshes (einmal gebaut, via MultiMesh überall instanziert).
+# Gleiche Technik wie das Terrain: flache Facetten + Vertex-Farben (_mat).
+# ---------------------------------------------------------------------------
+func _cone_into(st: SurfaceTool, base_y: float, top_y: float, r: float, col: Color, segs: int, dark: float) -> void:
+	for i in segs:
+		var a0 := TAU * float(i) / float(segs)
+		var a1 := TAU * float(i + 1) / float(segs)
+		var p0 := Vector3(cos(a0) * r, base_y, sin(a0) * r)
+		var p1 := Vector3(cos(a1) * r, base_y, sin(a1) * r)
+		var tip := Vector3(0, top_y, 0)
+		# leichte Ton-Variation pro Facette -> lebendiger Low-Poly-Look
+		var c := col.darkened(dark * (0.5 + 0.5 * sin(a0 * 3.0)))
+		st.set_color(c)
+		st.add_vertex(tip)
+		st.add_vertex(p1)
+		st.add_vertex(p0)
+
+
+func _trunk_into(st: SurfaceTool, h: float, r: float) -> void:
+	var col := Color(0.42, 0.30, 0.20)
+	for i in 5:
+		var a0 := TAU * float(i) / 5.0
+		var a1 := TAU * float(i + 1) / 5.0
+		var b0 := Vector3(cos(a0) * r, 0, sin(a0) * r)
+		var b1 := Vector3(cos(a1) * r, 0, sin(a1) * r)
+		var t0 := b0 + Vector3(0, h, 0)
+		var t1 := b1 + Vector3(0, h, 0)
+		st.set_color(col.darkened(0.15 * sin(a0 * 2.0)))
+		st.add_vertex(t0)
+		st.add_vertex(b1)
+		st.add_vertex(b0)
+		st.set_color(col)
+		st.add_vertex(t0)
+		st.add_vertex(t1)
+		st.add_vertex(b1)
+
+
+func _build_conifer_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	_trunk_into(st, 2.2, 0.45)
+	var green := Color(0.16, 0.40, 0.22)
+	_cone_into(st, 1.8, 5.4, 2.6, green, 7, 0.18)
+	_cone_into(st, 4.2, 7.6, 1.9, green.lightened(0.06), 7, 0.18)
+	_cone_into(st, 6.4, 9.6, 1.2, green.lightened(0.12), 7, 0.18)
+	st.generate_normals()
+	return st.commit()
+
+
+func _build_leaf_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	_trunk_into(st, 3.0, 0.5)
+	# Krone = Doppel-Kegel (oben spitz, unten gestülpt) -> kantige Laub-"Knolle"
+	var green := Color(0.33, 0.55, 0.24)
+	_cone_into(st, 4.6, 8.8, 3.1, green, 6, 0.22)
+	var st2 := st   # untere Halbknolle: Kegel kopfüber
+	for i in 6:
+		var a0 := TAU * float(i) / 6.0
+		var a1 := TAU * float(i + 1) / 6.0
+		var p0 := Vector3(cos(a0) * 3.1, 4.6, sin(a0) * 3.1)
+		var p1 := Vector3(cos(a1) * 3.1, 4.6, sin(a1) * 3.1)
+		var tip := Vector3(0, 2.6, 0)
+		st2.set_color(green.darkened(0.28 + 0.1 * sin(a0 * 2.0)))
+		st2.add_vertex(tip)
+		st2.add_vertex(p0)
+		st2.add_vertex(p1)
+	st.generate_normals()
+	return st.commit()
+
+
+func _build_rock_mesh() -> ArrayMesh:
+	# kantiger Brocken: unregelmäßiges Doppel-Kegel-Polyeder
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	var gray := Color(0.52, 0.51, 0.53)
+	var ring: Array = []
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 991
+	for i in 6:
+		var a := TAU * float(i) / 6.0
+		ring.append(Vector3(cos(a) * rng.randf_range(0.7, 1.15), rng.randf_range(0.25, 0.55), sin(a) * rng.randf_range(0.7, 1.15)))
+	var top := Vector3(rng.randf_range(-0.2, 0.2), rng.randf_range(1.0, 1.4), rng.randf_range(-0.2, 0.2))
+	for i in 6:
+		var p0: Vector3 = ring[i]
+		var p1: Vector3 = ring[(i + 1) % 6]
+		st.set_color(gray.darkened(0.12 * sin(float(i) * 1.7)))
+		st.add_vertex(top)
+		st.add_vertex(p1)
+		st.add_vertex(p0)
+		# Sockel auf den Boden ziehen
+		var b0 := Vector3(p0.x * 1.15, -0.4, p0.z * 1.15)
+		var b1 := Vector3(p1.x * 1.15, -0.4, p1.z * 1.15)
+		st.set_color(gray.darkened(0.2))
+		st.add_vertex(p0)
+		st.add_vertex(p1)
+		st.add_vertex(b1)
+		st.add_vertex(p0)
+		st.add_vertex(b1)
+		st.add_vertex(b0)
+	st.generate_normals()
+	return st.commit()

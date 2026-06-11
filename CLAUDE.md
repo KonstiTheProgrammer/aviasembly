@@ -90,6 +90,13 @@ scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain (
                          Flugplätze werden EINGEEBNET (height *= smoothstep(r_flat,r_blend));
                          Meer y=-6 (Main: WorldBoundary dort = Wasser-/Sicherheitsboden).
                          Seed: GameState.world_seed (einmal gewürfelt, persistiert).
+                         FLORA: Low-Poly-Tannen/Laubbäume/Felsen (SurfaceTool-Meshes,
+                         einmal gebaut) via MultiMesh je Chunk (1 Draw-Call/Variante);
+                         Wald-CLUSTER über _forest-Noise (1/260), deterministisch je
+                         Chunk (RNG-Seed hash(key,seed)); Bäume nur 0.8<h<48 + flacher
+                         Hang, keine auf Flugplatz-Ebene (|h|<0.4-Filter bei Felsen);
+                         Erd-Flecken im Gras via _patch<-0.52. Transforms rechnet der
+                         Worker, MultiMesh baut der Main-Thread (keine Kollision).
                          FALLEN: Dreiecks-Wicklung = im Uhrzeigersinn von außen (sonst
                          cullt ALLES von oben); Steilheits-Farbe über |n.y| (geometrische
                          Normale zeigt je nach Wicklung nach unten -> sonst alles Fels).
