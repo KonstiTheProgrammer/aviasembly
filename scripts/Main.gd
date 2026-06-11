@@ -45,6 +45,11 @@ var blueprint_grid: MeshInstance3D
 var airfields: Array = []
 var world_env: WorldEnvironment
 var terrain: TerrainWorld           # seed-basierte Landschaft (Chunks um den Spieler)
+var _mission: Dictionary = {}       # aktive Karriere-Mission ({} = keine)
+var _m_state: Dictionary = {}       # Laufzeit-Fortschritt der Mission
+var _mission_nodes: Node3D          # Ringe/Marker der aktiven Mission (in fly_world)
+var mission_label: Label            # Ziel-Zeile im Flug-HUD
+var mission_board: PanelContainer   # Missions-Brett im Hangar
 var hangar_lights: Node3D           # Studio-Beleuchtung NUR für den Bau-Modus
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
 var env_sky: Environment
@@ -965,6 +970,7 @@ func _set_mode(m: int) -> void:
 		sky_lights.visible = not building  # Sonne nur im Flug
 
 	if building:
+		_mission_cleanup()
 		flight_ctrl.set_active(false)
 		flight_ctrl.clear_aircraft()
 		# Aus dem Survival-Flug zurück -> Flug-Auswertung zeigen
@@ -1354,6 +1360,12 @@ func _build_hangar_ui() -> void:
 	_rect(fly_btn, 0.5, 0, 0.5, 0, -150, 10, 150, 52)
 	fly_btn.pressed.connect(_on_fly_pressed)
 	build_root.add_child(fly_btn)
+	var mis_btn := Button.new()
+	mis_btn.text = "🎖  MISSIONEN"
+	mis_btn.add_theme_font_size_override("font_size", 15)
+	_rect(mis_btn, 0.5, 0, 0.5, 0, -310, 14, -162, 48)
+	mis_btn.pressed.connect(_toggle_mission_board)
+	build_root.add_child(mis_btn)
 
 	# --- Statistik oben rechts ---
 	var spanel := _panel(Color(0, 0, 0, 0.5))
@@ -2123,6 +2135,7 @@ func _make_target(kind: String, pos: Vector3, col: Color, diff := 1.0) -> void:
 
 
 func _on_target_killed(reward: int, _pos: Vector3) -> void:
+	_mission_on_kill()
 	if game == null:
 		return
 	if game.is_sandbox():
@@ -2161,6 +2174,7 @@ func _respawn_balloon() -> void:
 
 # --- Survival: Wellen-System + Flug-Score ----------------------------------
 func _process(delta: float) -> void:
+	_mission_tick(delta)
 	# Terrain-Chunks um den Spieler streamen (nur im Flug nötig)
 	if mode == Mode.FLY and terrain != null and flight_ctrl != null \
 			and is_instance_valid(flight_ctrl.aircraft):
@@ -2195,6 +2209,11 @@ func _begin_flight() -> void:
 	_wave = 0
 	_wave_session += 1            # entwertet evtl. noch laufende Wellen-Timer voriger Flüge
 	_clear_targets()
+	if not _mission.is_empty():
+		# Karriere-Mission läuft: keine Verteidigungs-Wellen parallel
+		if survival_label:
+			survival_label.visible = false
+		return
 	_start_wave(1)
 	if survival_label:
 		survival_label.visible = true
@@ -2740,3 +2759,268 @@ func _rect(c: Control, al: float, at: float, ar: float, ab: float,
 	c.offset_top = ot
 	c.offset_right = oright
 	c.offset_bottom = ob
+
+
+# ===========================================================================
+# KARRIERE-MISSIONEN — datengetriebenes Progressions-System.
+# Jede Mission: Typ (rings / hunt / land_at, kombinierbar mit land_at-Phase),
+# Belohnung (Geld) + Teile-UNLOCKS; lineare Kette (jede braucht die vorige).
+# Persistenz über GameState.missions_done. Wellen pausieren, solange eine
+# Mission läuft (siehe Flug-Start-Block).
+# ===========================================================================
+const MISSION_DEFS := [
+	{"id": "m1_erstflug", "era": 1, "name": "Erstflug", "reward": 400,
+		"desc": "Starte von HEIMAT, fliege durch die 4 Ringe und lande wieder heil.",
+		"type": "rings", "land_at": "HEIMAT", "unlocks": ["fueltank"],
+		"rings": [Vector3(0, 70, -480), Vector3(160, 100, -950), Vector3(-140, 130, -1450), Vector3(0, 90, -1950)]},
+	{"id": "m2_ballonjagd", "era": 1, "name": "Ballonjagd", "reward": 500,
+		"desc": "Schieß 6 Ballons über HEIMAT ab.",
+		"type": "hunt", "kind": "balloon", "count": 6, "unlocks": ["wing_tapered"]},
+	{"id": "m3_lieferflug", "era": 1, "name": "Lieferflug", "reward": 650,
+		"desc": "Bring die Maschine nach NORDFELD (Nordwesten) und lande dort.",
+		"type": "land_at", "airfield": "NORDFELD", "unlocks": ["prop_engine_big"]},
+	{"id": "m4_tiefflug", "era": 1, "name": "Tiefflug-Parcours", "reward": 700,
+		"desc": "Durchfliege die Ringe — und bleib dabei UNTER 45 m! (3 s drüber = abgebrochen)",
+		"type": "rings", "max_alt": 45.0, "unlocks": ["aileron"],
+		"rings": [Vector3(60, 22, -500), Vector3(-80, 25, -900), Vector3(60, 22, -1300), Vector3(-60, 25, -1700)]},
+	{"id": "m5_luftschiffe", "era": 1, "name": "Dicke Brocken", "reward": 800,
+		"desc": "Hol 2 Luftschiffe vom Himmel.",
+		"type": "hunt", "kind": "airship", "count": 2, "unlocks": ["wing_gun"]},
+	{"id": "m6_pruefung", "era": 1, "name": "PRÜFUNG: Ass-Anwärter", "reward": 1500,
+		"desc": "Das große Finale der Flugschule: 10 Ziele abschießen. Bestehen = ÄRA 2 (Jet-Teile)!",
+		"type": "hunt", "kind": "any", "count": 10,
+		"unlocks": ["wing_swept", "wheel_retract", "jet_engine"], "era_up": 2},
+]
+
+
+func _mission_available(i: int) -> bool:
+	if i == 0:
+		return true
+	return game.mission_done(String(MISSION_DEFS[i - 1]["id"]))
+
+
+func _toggle_mission_board() -> void:
+	if mission_board != null and is_instance_valid(mission_board):
+		mission_board.queue_free()
+		mission_board = null
+		return
+	mission_board = _panel(Color(0.05, 0.08, 0.12, 0.96))
+	_rect(mission_board, 0.5, 0, 0.5, 0, -260, 64, 260, 70)
+	build_root.add_child(mission_board)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	mission_board.add_child(vb)
+	vb.add_child(_lbl("🎖  KARRIERE — ÄRA 1: FLUGSCHULE", 17, Color(0.65, 0.82, 1.0)))
+	vb.add_child(_lbl("Missionen schalten Geld + neue Teile frei. Der Reihe nach!", 12, Color(0.75, 0.8, 0.88)))
+	vb.add_child(HSeparator.new())
+	for i in MISSION_DEFS.size():
+		var def: Dictionary = MISSION_DEFS[i]
+		var done: bool = bool(game.mission_done(String(def["id"])))
+		var avail := _mission_available(i)
+		var row := Button.new()
+		row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var status := "✅" if done else ("▶" if avail else "🔒")
+		row.text = "%s  %s   —   %d 🪙" % [status, def["name"], int(def["reward"])]
+		row.tooltip_text = String(def["desc"]) + ("\n(bereits geschafft — wiederholbar für Spaß, ohne Belohnung)" if done else "")
+		row.disabled = not avail
+		row.pressed.connect(_start_mission.bind(i))
+		vb.add_child(row)
+	vb.add_child(_lbl("Tab im Flug = Mission abbrechen (Fortschritt der Mission verfällt)", 11, Color(0.6, 0.65, 0.72)))
+
+
+func _start_mission(i: int) -> void:
+	var def: Dictionary = MISSION_DEFS[i]
+	if not _mission_available(i):
+		return
+	if mission_board != null and is_instance_valid(mission_board):
+		mission_board.queue_free()
+		mission_board = null
+	_mission = def
+	_m_state = {"ring_i": 0, "kills": 0, "phase": "fly", "alt_over_t": 0.0, "took_off": false}
+	_toast("🎖 MISSION: %s" % def["name"])
+	_on_fly_pressed()                     # in den Flug (unterdrückt Wellen, s. Flug-Start)
+	if mode != Mode.FLY:
+		_mission = {}                     # Start blockiert (z. B. schwebende Teile)
+		return
+	_mission_spawn_content(def)
+	_update_mission_hud()
+
+
+func _mission_spawn_content(def: Dictionary) -> void:
+	_mission_nodes = Node3D.new()
+	fly_world.add_child(_mission_nodes)
+	match String(def["type"]):
+		"rings":
+			var rings: Array = def["rings"]
+			for ri in rings.size():
+				_spawn_ring(ri, rings[ri])
+			_highlight_ring(0)
+		"hunt":
+			var kind := String(def.get("kind", "balloon"))
+			var n := int(def.get("count", 5))
+			for k in n:
+				var use_kind := kind
+				if kind == "any":
+					use_kind = "airship" if (k % 4 == 3) else "balloon"
+				_make_target(use_kind, _rand_target_pos(40.0, 220.0), _TARGET_COLORS[k % _TARGET_COLORS.size()], 1.0)
+		"land_at":
+			pass   # nur Ziel-Flugplatz, kein Spawn nötig
+
+
+func _spawn_ring(idx: int, pos: Vector3) -> void:
+	var ring := Node3D.new()
+	ring.position = pos
+	ring.set_meta("ring_idx", idx)
+	var mi := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 22.0
+	tm.outer_radius = 26.0
+	mi.mesh = tm
+	mi.rotation_degrees = Vector3(90, 0, 0)   # Öffnung in Flugrichtung (-Z)
+	mi.material_override = _emit_mat(Color(1.0, 0.75, 0.2), 1.2)
+	mi.set_meta("ring_vis", true)
+	ring.add_child(mi)
+	var area := Area3D.new()
+	area.collision_mask = 4                   # AIRCRAFT_LAYER
+	var cs := CollisionShape3D.new()
+	var sph := SphereShape3D.new()
+	sph.radius = 26.0
+	cs.shape = sph
+	area.add_child(cs)
+	area.body_entered.connect(_on_ring_entered.bind(idx))
+	ring.add_child(area)
+	_mission_nodes.add_child(ring)
+
+
+func _highlight_ring(active_idx: int) -> void:
+	if _mission_nodes == null:
+		return
+	for ring in _mission_nodes.get_children():
+		if not ring.has_meta("ring_idx"):
+			continue
+		var idx: int = ring.get_meta("ring_idx")
+		for ch in ring.get_children():
+			if ch is MeshInstance3D:
+				if idx < active_idx:
+					ch.material_override = _emit_mat(Color(0.3, 0.9, 0.4), 0.5)    # geschafft
+				elif idx == active_idx:
+					ch.material_override = _emit_mat(Color(1.0, 0.75, 0.2), 2.0)   # aktiv
+				else:
+					ch.material_override = _emit_mat(Color(0.6, 0.6, 0.65), 0.25)  # später
+
+
+func _on_ring_entered(body: Node3D, idx: int) -> void:
+	if _mission.is_empty() or String(_mission["type"]) != "rings":
+		return
+	if not (body is AircraftBody):
+		return
+	if idx != int(_m_state["ring_i"]):
+		return   # nur der AKTIVE Ring zählt (Reihenfolge!)
+	_m_state["ring_i"] = idx + 1
+	_highlight_ring(idx + 1)
+	var total: int = (_mission["rings"] as Array).size()
+	if int(_m_state["ring_i"]) >= total:
+		if _mission.has("land_at"):
+			_m_state["phase"] = "land"
+			_toast("✅ Alle Ringe! Jetzt auf %s landen." % String(_mission["land_at"]))
+		else:
+			_mission_complete()
+	else:
+		_toast("Ring %d/%d ✓" % [idx + 1, total])
+	_update_mission_hud()
+
+
+func _mission_on_kill() -> void:
+	if _mission.is_empty() or String(_mission["type"]) != "hunt":
+		return
+	_m_state["kills"] = int(_m_state["kills"]) + 1
+	if int(_m_state["kills"]) >= int(_mission["count"]):
+		_mission_complete()
+	_update_mission_hud()
+
+
+func _mission_tick(delta: float) -> void:
+	if _mission.is_empty() or mode != Mode.FLY:
+		return
+	if flight_ctrl == null or not is_instance_valid(flight_ctrl.aircraft):
+		return
+	var ac := flight_ctrl.aircraft
+	if ac.airspeed > 25.0:
+		_m_state["took_off"] = true
+	# Tiefflug-Regel
+	if _mission.has("max_alt") and bool(_m_state["took_off"]) and String(_m_state["phase"]) == "fly":
+		if ac.global_position.y > float(_mission["max_alt"]):
+			_m_state["alt_over_t"] = float(_m_state["alt_over_t"]) + delta
+			if float(_m_state["alt_over_t"]) > 3.0:
+				_toast("❌ Zu hoch! Mission abgebrochen — im Hangar neu starten.")
+				_mission_cleanup()
+				_update_mission_hud()
+				return
+		else:
+			_m_state["alt_over_t"] = 0.0
+	# Lande-Phase (land_at-Typ oder rings+land_at)
+	var want_land := String(_mission.get("type", "")) == "land_at" or String(_m_state["phase"]) == "land"
+	if want_land and bool(_m_state["took_off"]) and ac.airspeed < 6.0 and ac.get_contact_count() > 0:
+		var af_name := String(_mission.get("airfield", _mission.get("land_at", "HEIMAT")))
+		for af in airfields:
+			if String(af["name"]) == af_name:
+				var d2 := Vector2(ac.global_position.x - af["pos"].x, ac.global_position.z - af["pos"].z).length()
+				if d2 < 600.0:
+					_mission_complete()
+				return
+
+
+func _mission_complete() -> void:
+	var def := _mission
+	var first: bool = not game.mission_done(String(def["id"]))
+	game.complete_mission(String(def["id"]), int(def["reward"]) if first else 0)
+	if first:
+		for pid in def.get("unlocks", []):
+			game.unlocked[pid] = true
+		game.save()
+		var names: Array = []
+		for pid in def.get("unlocks", []):
+			names.append(String(PartCatalog.get_part(pid).get("name", pid)))
+		_toast("🎉 MISSION GESCHAFFT! +%d 🪙  ·  NEU: %s" % [int(def["reward"]), ", ".join(names)])
+		if def.has("era_up"):
+			_toast("🏆 ÄRA %d FREIGESCHALTET!" % int(def["era_up"]))
+	else:
+		_toast("✅ Mission (wiederholt) — ohne Belohnung")
+	_mission_cleanup()
+	_update_mission_hud()
+
+
+func _mission_cleanup() -> void:
+	_mission = {}
+	_m_state = {}
+	if _mission_nodes != null and is_instance_valid(_mission_nodes):
+		_mission_nodes.queue_free()
+	_mission_nodes = null
+	if mission_label != null and is_instance_valid(mission_label):
+		mission_label.visible = false
+
+
+func _update_mission_hud() -> void:
+	if mission_label == null or not is_instance_valid(mission_label):
+		mission_label = _lbl("", 16, Color(1.0, 0.85, 0.4))
+		mission_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_rect(mission_label, 0.5, 0, 0.5, 0, -320, 96, 320, 122)
+		flight_root.add_child(mission_label)
+	if _mission.is_empty():
+		mission_label.visible = false
+		return
+	mission_label.visible = true
+	var txt := "📋 %s — " % String(_mission["name"])
+	match String(_mission["type"]):
+		"rings":
+			if String(_m_state["phase"]) == "land":
+				txt += "auf %s landen!" % String(_mission.get("land_at", "?"))
+			else:
+				txt += "Ring %d/%d" % [int(_m_state["ring_i"]) + 1, (_mission["rings"] as Array).size()]
+				if _mission.has("max_alt"):
+					txt += "  ·  unter %d m bleiben!" % int(_mission["max_alt"])
+		"hunt":
+			txt += "Ziele %d/%d" % [int(_m_state["kills"]), int(_mission["count"])]
+		"land_at":
+			txt += "lande auf %s" % String(_mission["airfield"])
+	mission_label.text = txt

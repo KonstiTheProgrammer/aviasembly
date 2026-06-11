@@ -394,9 +394,15 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   −8%/Lv (max 3, 600·(Lv+1) 🪙). Wirken im Flug: Main setzt `flight_ctrl.thrust/wing/mass_mult`
   → `AircraftBody.recompute_aero` wendet sie an (überleben auch den Flügelbruch).
 - Geld-Anzeige im Hangar (`money_label`) + Flug (`fly_money_label`).
-  HINWEIS: Missionen wurden auf Wunsch wieder entfernt — Survival hat aktuell keine
-  laufende Einnahmequelle (nur Startgeld). `GameState` hat noch ungenutzte Mission-Hooks
-  (`missions_done`/`complete_mission`), falls man Missionen später wieder einbaut.
+  KARRIERE-MISSIONEN (Main.gd, Abschnitt "KARRIERE-MISSIONEN"): datengetrieben über
+  `MISSION_DEFS` (Typen: rings [+optional land_at-Phase, max_alt-Regel], hunt
+  [kind/count, kind "any" mischt], land_at). Lineare Kette (`_mission_available`),
+  Persistenz `GameState.missions_done`/`complete_mission`, Belohnung = Geld +
+  `unlocks`-Teile (+ `era_up`-Toast). Hangar: 🎖-MISSIONEN-Brett (`_toggle_mission_board`),
+  Flug: Ziel-Zeile (`_update_mission_hud`). Ringe = Torus + Area3D (Maske 4 =
+  AIRCRAFT_LAYER), nur der AKTIVE Ring zählt. WELLEN pausieren, solange eine Mission
+  läuft (Guard im Flug-Start-Block). Tab/Hangar-Wechsel bricht die Mission ab
+  (`_mission_cleanup`). Ära 1 (Flugschule, 6 Missionen) ist gebaut; Ären 2-5 folgen.
 - **Persistenz Design** (`_save_design`/`_load_design`): serialisiert id/xform/color/**scale**.
 
 ## Luftkampf: Waffen, Geschosse, Ziele
