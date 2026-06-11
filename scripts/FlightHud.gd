@@ -157,8 +157,9 @@ func _draw_reticle() -> void:
 		if aim_vis:
 			# NUR ein Kreis (kein Fadenkreuz): klein, dünn, durchsichtig, grau
 			draw_arc(aim_pos, 18.0, 0.0, TAU, 56, Color(0.82, 0.84, 0.88, 0.5), 1.0, true)
-		if nose_vis:
-			# kleine Raute = aktuelle Nasenrichtung
+		if nose_vis and not gun_vis:
+			# kleine Raute = Nasenrichtung — NUR ohne Bord-Pipper (der zeigt die
+			# Nase ohnehin, plus Ballistik; zwei gelbe Marker verwirrten nur)
 			var n := nose_pos
 			draw_polyline(PackedVector2Array([
 				n + Vector2(0, -9), n + Vector2(9, 0), n + Vector2(0, 9), n + Vector2(-9, 0), n + Vector2(0, -9)]),

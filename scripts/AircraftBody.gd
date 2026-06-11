@@ -18,9 +18,9 @@ const LIFT_K := 2.9           # globaler Kraftfaktor (Spielgefühl: in der Luft 
 const INCIDENCE := 0.025      # ~1.4° Flügel-Einstellwinkel (KEIN Selbst-Abheben mehr -> zum Start mit W rotieren)
 # Abhebe-Gate: bei niedrigem Tempo wird der Auftrieb gedämpft -> erst Tempo aufbauen
 # (spürbar längere Rollstrecke). Ab LIFT_V1 voller Auftrieb -> in der Luft bleibt's leicht.
-const LIFT_LO := 0.30         # Auftriebs-Faktor im Stand/sehr langsam (fest am Boden)
-const LIFT_GATE_LO := 0.65    # Gate-Beginn = takeoff_v · 0.65 (darunter gedämpft)
-const LIFT_GATE_HI := 1.45    # voller Auftrieb ab takeoff_v · 1.45 (in der Luft arcadig)
+const LIFT_LO := 0.36         # Auftriebs-Faktor im Stand/sehr langsam (fest am Boden)
+const LIFT_GATE_LO := 0.85    # Gate-Beginn = takeoff_v · 0.85 (darunter gedämpft)
+const LIFT_GATE_HI := 1.65    # voller Auftrieb ab takeoff_v · 1.65 (in der Luft arcadig)
 const STALL_A := 0.27         # Stall-Anstellwinkel (~15.5°)
 const STALL_RECOVER := 2.2    # Nase-runter-Hilfe im Stall (Moment ~ mass; 0 = aus)
 const STALL_W := 0.12         # Stall-Übergangsbreite
