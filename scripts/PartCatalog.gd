@@ -205,21 +205,28 @@ static func _build() -> void:
 	_add({
 		"id": "mig21_nose", "name": "MiG-21-Nase (Schock-Konus)", "category": CAT_BODY,
 		"mass": 90.0, "color": Color(0.76, 0.78, 0.82), "shape": "nose",
-		"size": Vector3(1.0, 1.0, 2.1), "col_size": Vector3(0.95, 0.95, 1.65),
-		"col_offset": Vector3(0, 0, 0.2),
+		"size": Vector3(1.336, 1.15, 2.55), "col_size": Vector3(1.25, 1.05, 2.0),
+		"col_offset": Vector3(0, 0, 0.25),
 		"desc": "Charakteristische MiG-21-Nase: runder Überschall-Einlauf mit SCHOCK-KONUS (Blender). An schlanke Rumpfsegmente setzen.",
 	})
 	_add({
 		"id": "f4_nose", "name": "F-4-Hängenase", "category": CAT_BODY,
 		"mass": 95.0, "color": Color(0.45, 0.50, 0.42), "shape": "nose",
-		"size": Vector3(1.15, 0.92, 2.12), "col_size": Vector3(1.05, 0.85, 1.9),
+		"size": Vector3(1.336, 1.08, 2.72), "col_size": Vector3(1.25, 1.0, 2.4),
 		"desc": "Die hängende Phantom-Nase mit dunklem Radom (Blender). Breit-flacher Querschnitt — passt auf breite Rumpfsegmente.",
 	})
 	_add({
 		"id": "f4_intake", "name": "Seiten-Einlauf (Phantom)", "category": CAT_BODY,
 		"mass": 55.0, "color": Color(0.45, 0.50, 0.42), "shape": "box",
-		"size": Vector3(0.56, 0.76, 1.6), "col_size": Vector3(0.5, 0.7, 1.5),
+		"size": Vector3(0.42, 0.81, 1.84), "col_size": Vector3(0.4, 0.75, 1.7),
 		"desc": "Angewinkelter Wangen-Lufteinlauf (Blender). Paarweise seitlich an den Rumpf — Symmetrie macht den zweiten.",
+	})
+	_add({
+		"id": "jet_nose_point", "name": "Jet-Spitznase (Radom)", "category": CAT_BODY,
+		"mass": 85.0, "color": Color(0.7, 0.72, 0.76), "shape": "nose",
+		"size": Vector3(1.336, 1.15, 2.77), "col_size": Vector3(1.25, 1.05, 2.4),
+		"col_offset": Vector3(0, 0, 0.18),
+		"desc": "Spitze Radom-Nase im Jet-Querschnitt (Blender) — für Überschalljäger ohne Nasen-Einlauf (F-14, F-4, Eigenbauten).",
 	})
 	_add({
 		"id": "f14_nacelle", "name": "Tomcat-Gondel (Triebwerk)", "category": CAT_PROP,
