@@ -379,6 +379,21 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
+- **MiG-21 (Hybrid-Ikone, Referenz-Qualitätspfad):** `mig21_front` (edler Vorderrumpf:
+  Einlauf-Lippe, grüner Matt-Radom-Schockkonus, Pitot, Kanzel + Fairing, Panel-Linien) +
+  `mig21_rear` (Heck aus einem Guss: Boattail, dunkler Düsenring+Innenkonus, Ventralflosse,
+  Bremsschirm, RÜCKENSPINE — setzt EXAKT am gemessenen Endprofil des Front-Teils an:
+  Halbbreite 0.115/Top 0.441, sonst Stufe/Z-Fighting) + **echte Blender-FLÜGEL-Teile**
+  `mig21_wing` (beschnittenes 57°-Delta, dünnes 6-Punkt-Profil, Querruder-Linie, Zaun),
+  `mig21_stab` (pitch), `mig21_fin` (yaw, Geometrie senkrecht +Y) — alle als normale
+  Wing-Parts mit Aero-Feldern (is_wing/area/lift/control/stress_mult), glb ersetzt nur das
+  Visual. LEKTION: Die prozeduralen Dreiecks-Flügel waren der Papierflieger-Look, nicht der
+  Rumpf. Flügel-glb: Wurzel am Origin, Spannweite +X, Sehne z-zentriert (col_offset x=span/2).
+  Front-glb-Origin liegt NICHT mittig (Ende bei z=0.35 lokal+pos!) — Stoß via
+  `tools/_aabb_check.gd` (druckt Welt-AABB je Preset-Teil) verifizieren.
+  Flugcheck ohne user://-Anfassen: `tools/_preset_fly.gd -- mig21` (Luftstart, 90°-Kurve).
+  F-4/F-14 sind noch auf dem ÄLTEREN Jet-Familien-Stand — bei Freigabe des MiG-Looks
+  denselben Flächensatz-Umbau machen.
 
 ## Modi, Geld & Upgrades (`scripts/GameState.gd`)
 - **GameState** (Node, in Main als `game` erzeugt + `load_state()`): hält `mode`
