@@ -209,6 +209,13 @@ static func _build() -> void:
 		"desc": "Charakteristische MiG-21-Nase: runder Überschall-Einlauf mit SCHOCK-KONUS (Blender). An schlanke Rumpfsegmente setzen.",
 	})
 	_add({
+		"id": "mig21_front", "name": "MiG-21-Vorderrumpf (edel)", "category": CAT_BODY,
+		"mass": 180.0, "color": Color(0.74, 0.76, 0.79), "shape": "box",
+		"size": Vector3(0.79, 1.0, 4.73), "col_size": Vector3(0.74, 0.72, 3.7),
+		"col_offset": Vector3(0, 0, 0.4),
+		"desc": "Hochwertiger Vorderrumpf aus einem Guss: dünne Einlauf-Lippe, Schock-Konus, Pitot, eingepasste Kanzel mit Fairing, Panel-Linien (Blender). Hinten 0.78er-Anschluss.",
+	})
+	_add({
 		"id": "mig21_cockpit", "name": "Schlank-Cockpit (Überschall)", "category": CAT_BODY,
 		"mass": 95.0, "color": Color(0.76, 0.78, 0.82), "shape": "box",
 		"size": Vector3(0.78, 0.89, 1.6), "col_size": Vector3(0.74, 0.72, 1.55),
