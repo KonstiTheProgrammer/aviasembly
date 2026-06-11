@@ -2019,8 +2019,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 		var modes: Array = []
 		if mf:
 			modes.append("ARCADE" if arc else "MAUS-FLUG")
-	if not bool(d.get("g_protect", true)):
-		modes.append("⚠ G-SCHUTZ AUS")
+		if not bool(d.get("g_protect", true)):
+			modes.append("⚠ G-SCHUTZ AUS")
 		if d.get("inverted", false):
 			modes.append("INVERS")
 		flight_hud.mode_text = "     ".join(modes)
