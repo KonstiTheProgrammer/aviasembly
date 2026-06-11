@@ -205,9 +205,26 @@ static func _build() -> void:
 	_add({
 		"id": "mig21_nose", "name": "MiG-21-Nase (Schock-Konus)", "category": CAT_BODY,
 		"mass": 90.0, "color": Color(0.76, 0.78, 0.82), "shape": "nose",
-		"size": Vector3(1.336, 1.15, 2.55), "col_size": Vector3(1.25, 1.05, 2.0),
-		"col_offset": Vector3(0, 0, 0.25),
+		"size": Vector3(0.78, 0.74, 3.0), "col_size": Vector3(0.74, 0.70, 2.05),
 		"desc": "Charakteristische MiG-21-Nase: runder Überschall-Einlauf mit SCHOCK-KONUS (Blender). An schlanke Rumpfsegmente setzen.",
+	})
+	_add({
+		"id": "mig21_cockpit", "name": "Schlank-Cockpit (Überschall)", "category": CAT_BODY,
+		"mass": 95.0, "color": Color(0.76, 0.78, 0.82), "shape": "box",
+		"size": Vector3(0.78, 0.89, 1.6), "col_size": Vector3(0.74, 0.72, 1.55),
+		"desc": "Schlankes Rumpfsegment mit flacher, eingepasster Kanzel + Rückenspine (Blender). Für Überschalljäger im 0.78er-Querschnitt.",
+	})
+	_add({
+		"id": "mig21_body", "name": "Schlank-Segment (Überschall)", "category": CAT_BODY,
+		"mass": 80.0, "color": Color(0.76, 0.78, 0.82), "shape": "box",
+		"size": Vector3(0.78, 0.82, 1.6), "col_size": Vector3(0.74, 0.72, 1.55),
+		"desc": "Schlankes Rumpfsegment mit durchlaufendem Rückenspine (Blender). Reiht sich nahtlos an Schlank-Cockpit/-Nase.",
+	})
+	_add({
+		"id": "mig21_tail", "name": "Schlank-Heck (Düse)", "category": CAT_BODY,
+		"mass": 85.0, "color": Color(0.76, 0.78, 0.82), "shape": "box",
+		"size": Vector3(0.78, 0.81, 1.68), "col_size": Vector3(0.72, 0.70, 1.6),
+		"desc": "Boattail-Heck mit integrierter Düse, Spine läuft aus (Blender). Schließt die Schlank-Linie ab.",
 	})
 	_add({
 		"id": "f4_nose", "name": "F-4-Hängenase", "category": CAT_BODY,
