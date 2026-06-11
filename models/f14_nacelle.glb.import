@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://dnbqfa1koela1"
-path="res://.godot/imported/f4_body.glb-cfcdbfa96e7e4004d16aa524e300857f.scn"
+uid="uid://ccswkodn8dep7"
+path="res://.godot/imported/f14_nacelle.glb-8da7ab52fcd605829f4ae193ef28e4d4.scn"
 
 [deps]
 
-source_file="res://models/f4_body.glb"
-dest_files=["res://.godot/imported/f4_body.glb-cfcdbfa96e7e4004d16aa524e300857f.scn"]
+source_file="res://models/f14_nacelle.glb"
+dest_files=["res://.godot/imported/f14_nacelle.glb-8da7ab52fcd605829f4ae193ef28e4d4.scn"]
 
 [params]
 

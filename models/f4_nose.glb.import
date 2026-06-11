@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://c44u5ui8dtcgh"
-path="res://.godot/imported/f14_body.glb-7d4ae6dfabf8d0736f86a97f56741634.scn"
+uid="uid://blr1ynpw2mn8t"
+path="res://.godot/imported/f4_nose.glb-83a89b4b629569a6792e77dc0b14f6e1.scn"
 
 [deps]
 
-source_file="res://models/f14_body.glb"
-dest_files=["res://.godot/imported/f14_body.glb-7d4ae6dfabf8d0736f86a97f56741634.scn"]
+source_file="res://models/f4_nose.glb"
+dest_files=["res://.godot/imported/f4_nose.glb-83a89b4b629569a6792e77dc0b14f6e1.scn"]
 
 [params]
 

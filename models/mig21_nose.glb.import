@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cd46i6l12bcfd"
-path="res://.godot/imported/mig21_body.glb-a11dcfe3ff7266280b6c1730a62b3a0a.scn"
+uid="uid://oq0eqqusjrc4"
+path="res://.godot/imported/mig21_nose.glb-2a796d235cb8f92082f3dfbfcdedbe18.scn"
 
 [deps]
 
-source_file="res://models/mig21_body.glb"
-dest_files=["res://.godot/imported/mig21_body.glb-a11dcfe3ff7266280b6c1730a62b3a0a.scn"]
+source_file="res://models/mig21_nose.glb"
+dest_files=["res://.godot/imported/mig21_nose.glb-2a796d235cb8f92082f3dfbfcdedbe18.scn"]
 
 [params]
 
