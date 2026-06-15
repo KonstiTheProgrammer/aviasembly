@@ -272,6 +272,16 @@ static func _build() -> void:
 		"desc": "Breite, stark gepfeilte Seitenflosse mit Ruderlinie (Blender), steuert Gier. Steht senkrecht — direkt auf den Rumpfrücken setzen.",
 	})
 	_add({
+		"id": "spitfire_wing", "name": "Elliptischer Flügel (Spitfire)", "category": CAT_WING,
+		"mass": 92.0, "color": C_WING, "shape": "wing",
+		"span": 4.2, "root_chord": 2.05, "tip_chord": 0.05, "sweep": 0.0, "thickness": 0.2,
+		"is_wing": true, "area": 8.5, "lift": 1.05, "control": "", "orient_normal": true,
+		"stress_mult": 1.2,
+		"col_size": Vector3(4.0, 0.5, 2.05), "col_offset": Vector3(2.0, 0.1, 0.5),
+		"metal": 0.18, "rough": 0.55,
+		"desc": "Der ikonische elliptische Spitfire-Flügel: echte elliptische Planform mit gerundeter Spitze, dünnem Profil und 6° V-Stellung (Blender). Wurzel an den Rumpf, Spannweite nach außen.",
+	})
+	_add({
 		"id": "f4_nose", "name": "F-4-Hängenase", "category": CAT_BODY,
 		"mass": 95.0, "color": Color(0.45, 0.50, 0.42), "shape": "nose",
 		"size": Vector3(1.336, 1.08, 2.72), "col_size": Vector3(1.25, 1.0, 2.4),
