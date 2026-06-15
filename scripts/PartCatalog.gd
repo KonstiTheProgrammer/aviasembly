@@ -295,6 +295,13 @@ static func _build() -> void:
 		"desc": "Sculpteter Phantom-Vorderrumpf aus einem Guss: lange gedroopte Radom-Nase mit Pitot, tiefer area-ruled Rumpf und langes Tandem-Kanzeldach (Blender). Hinten 0.65-Querschnitt -> stoßbündig ans Jet-Rumpfsegment.",
 	})
 	_add({
+		"id": "f14_front", "name": "F-14-Vorderrumpf (Flachnase+Tandem)", "category": CAT_BODY,
+		"mass": 250.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(1.94, 0.92, 4.5), "col_size": Vector3(1.85, 0.85, 4.4),
+		"col_offset": Vector3(0, 0, 0),
+		"desc": "Sculpteter Tomcat-Vorderrumpf: flache, breite Radom-Nase mit Pitot und langes Tandem-Kanzeldach (Blender). Heck breit-flach -> blendet in den breiten Flachrumpf (jet_body 1.7× breit).",
+	})
+	_add({
 		"id": "f4_intake", "name": "Seiten-Einlauf (Phantom)", "category": CAT_BODY,
 		"mass": 55.0, "color": Color(0.45, 0.50, 0.42), "shape": "box",
 		"size": Vector3(0.42, 0.81, 1.84), "col_size": Vector3(0.4, 0.75, 1.7),
