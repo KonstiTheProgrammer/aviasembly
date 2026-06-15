@@ -1172,8 +1172,8 @@ static func _wing_mesh(span: float, rc: float, tc: float, sweep: float, _thick: 
 			# Spitze: Sehne entlang einer Viertelellipse einziehen (rund, kein
 			# scharfer Zipfel) + leicht nach hinten pfeilen (gerundetes Rakentip).
 			var lt: float = (u - tip0) / (1.0 - tip0)        # 0..1 über das Tip-Segment
-			var roundf: float = sqrt(maxf(1.0 - lt * lt, 0.0))
-			chord = lerpf(maxf(tc * 0.18, 0.12), base_chord, roundf)
+			var ellipt: float = sqrt(maxf(1.0 - lt * lt, 0.0))   # Viertelellipse 1..0
+			chord = lerpf(maxf(tc * 0.18, 0.12), base_chord, ellipt)
 			rake = lt * base_chord * 0.32
 		var cx: float = u * span
 		var cz: float = lerpf(0.0, sweep, u) + rake
