@@ -288,6 +288,13 @@ static func _build() -> void:
 		"desc": "Die hängende Phantom-Nase mit dunklem Radom (Blender). Breit-flacher Querschnitt — passt auf breite Rumpfsegmente.",
 	})
 	_add({
+		"id": "f4_front", "name": "F-4-Vorderrumpf (Hängenase+Kanzel)", "category": CAT_BODY,
+		"mass": 240.0, "color": Color(0.80, 0.81, 0.84), "shape": "box",
+		"size": Vector3(1.31, 1.12, 4.64), "col_size": Vector3(1.22, 1.05, 4.5),
+		"col_offset": Vector3(0, 0, 0),
+		"desc": "Sculpteter Phantom-Vorderrumpf aus einem Guss: lange gedroopte Radom-Nase mit Pitot, tiefer area-ruled Rumpf und langes Tandem-Kanzeldach (Blender). Hinten 0.65-Querschnitt -> stoßbündig ans Jet-Rumpfsegment.",
+	})
+	_add({
 		"id": "f4_intake", "name": "Seiten-Einlauf (Phantom)", "category": CAT_BODY,
 		"mass": 55.0, "color": Color(0.45, 0.50, 0.42), "shape": "box",
 		"size": Vector3(0.42, 0.81, 1.84), "col_size": Vector3(0.4, 0.75, 1.7),
