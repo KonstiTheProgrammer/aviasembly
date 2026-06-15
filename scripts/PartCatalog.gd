@@ -772,8 +772,10 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 
 		"wing":
 			var mi := MeshInstance3D.new()
+			# Auftriebsflügel gewölbt; Leitwerke/Ruder (control != "") symmetrisch.
+			var camber: float = 0.0 if String(p.get("control", "")) != "" else 0.018
 			mi.mesh = _wing_mesh(p.get("span", 4.0), p.get("root_chord", 1.5),
-				p.get("tip_chord", 1.5), p.get("sweep", 0.0), p.get("thickness", 0.16))
+				p.get("tip_chord", 1.5), p.get("sweep", 0.0), p.get("thickness", 0.16), camber)
 			mi.material_override = make_material(col, metal, rough, true)
 			root.add_child(mi)
 			# Bewegliche Hinterkanten-Fläche: Hauptflügel -> Landeklappe (innen),
@@ -1139,41 +1141,55 @@ static func _trailing_panel(root: Node3D, p: Dictionary, hinge_name: String,
 	root.add_child(hinge)
 
 
-static func _wing_mesh(span: float, rc: float, tc: float, sweep: float, _thick: float) -> ArrayMesh:
-	# Gewölbtes Airfoil-Profil (NACA-0012-Dickenverteilung), als Skin von Wurzel
-	# zur (verrundeten) Spitze gelofted. Geglättete Normalen für weiche Optik.
+static func _wing_mesh(span: float, rc: float, tc: float, sweep: float, _thick: float,
+		camber := 0.018) -> ArrayMesh:
+	# GEWÖLBTES Profil (NACA-Dickenverteilung + Mittellinien-Wölbung -> gewölbte
+	# Oberseite statt flacher Platte) von der Wurzel zur GERUNDETEN, leicht
+	# nach hinten gepfeilten Spitze gelofted. Mehr Spannweiten-Stationen +
+	# dichter Profilrundgang -> weiche, volle Optik statt Papierdreieck.
+	# camber = max. Wölbung (Sehnenanteil); 0 für symmetrische Leitwerke.
 	# Profilrundgang: f = Sehnenanteil (0 Nase .. 1 Hinterkante), side: +oben/-unten
 	var prof := [
-		[0.0, 0.0], [0.04, 1.0], [0.10, 1.0], [0.20, 1.0], [0.35, 1.0],
-		[0.55, 1.0], [0.75, 1.0], [0.90, 1.0], [1.0, 0.0],
-		[0.90, -1.0], [0.75, -1.0], [0.55, -1.0], [0.35, -1.0],
-		[0.20, -1.0], [0.10, -1.0], [0.04, -1.0],
+		[0.0, 0.0], [0.02, 1.0], [0.05, 1.0], [0.10, 1.0], [0.18, 1.0], [0.28, 1.0],
+		[0.40, 1.0], [0.55, 1.0], [0.70, 1.0], [0.85, 1.0], [0.94, 1.0], [1.0, 0.0],
+		[0.94, -1.0], [0.85, -1.0], [0.70, -1.0], [0.55, -1.0], [0.40, -1.0],
+		[0.28, -1.0], [0.18, -1.0], [0.10, -1.0], [0.05, -1.0], [0.02, -1.0],
 	]
 	var m := prof.size()
-	var secs := [
-		[0.0, rc], [0.55, lerpf(rc, tc, 0.55)],
-		[0.85, lerpf(rc, tc, 0.85)], [1.0, maxf(tc * 0.4, 0.25)],
-	]
+	# Spannweiten-Stationen: zur Spitze hin dichter (rundet das Tip glatt aus)
+	var us := [0.0, 0.20, 0.40, 0.60, 0.78, 0.88, 0.95, 1.0]
+	var tip0 := 0.78                       # ab hier beginnt die Spitzen-Rundung
 	var tratio := 0.12
+	var cpos := 0.40                       # Position max. Wölbung (40 % Sehne)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for s in secs.size():
-		var u: float = secs[s][0]
-		var chord: float = secs[s][1]
+	for s in us.size():
+		var u: float = us[s]
+		var base_chord: float = lerpf(rc, tc, u)
+		var chord := base_chord
+		var rake := 0.0
+		if u > tip0:
+			# Spitze: Sehne entlang einer Viertelellipse einziehen (rund, kein
+			# scharfer Zipfel) + leicht nach hinten pfeilen (gerundetes Rakentip).
+			var lt: float = (u - tip0) / (1.0 - tip0)        # 0..1 über das Tip-Segment
+			var roundf: float = sqrt(maxf(1.0 - lt * lt, 0.0))
+			chord = lerpf(maxf(tc * 0.18, 0.12), base_chord, roundf)
+			rake = lt * base_chord * 0.32
 		var cx: float = u * span
-		var cz: float = lerpf(0.0, sweep, u)
+		var cz: float = lerpf(0.0, sweep, u) + rake
 		for i in m:
 			var f: float = prof[i][0]
 			var yt: float = _airfoil_y(f, tratio) * chord
-			st.add_vertex(Vector3(cx, prof[i][1] * yt, (cz - chord * 0.5) + f * chord))
-	for s in secs.size() - 1:
+			var yc: float = _camber_y(f, camber, cpos) * chord
+			st.add_vertex(Vector3(cx, yc + prof[i][1] * yt, (cz - chord * 0.5) + f * chord))
+	for s in us.size() - 1:
 		var b0 := s * m
 		var b1 := (s + 1) * m
 		for i in m:
 			var j := (i + 1) % m
 			st.add_index(b0 + i); st.add_index(b1 + i); st.add_index(b1 + j)
 			st.add_index(b0 + i); st.add_index(b1 + j); st.add_index(b0 + j)
-	var lb := (secs.size() - 1) * m
+	var lb := (us.size() - 1) * m
 	for i in range(1, m - 1):       # Spitzen-Kappe
 		st.add_index(lb); st.add_index(lb + i); st.add_index(lb + i + 1)
 	for i in range(1, m - 1):       # Wurzel-Kappe
@@ -1185,6 +1201,17 @@ static func _wing_mesh(span: float, rc: float, tc: float, sweep: float, _thick: 
 static func _airfoil_y(f: float, t: float) -> float:
 	f = clampf(f, 0.0, 1.0)
 	return (t / 0.2) * (0.2969 * sqrt(f) - 0.1260 * f - 0.3516 * f * f + 0.2843 * f * f * f - 0.1015 * f * f * f * f)
+
+
+# NACA-Mittellinien-Wölbung: m = max. Wölbung (Sehnenanteil), p = deren Position.
+# Hebt die Oberseite an / senkt die Unterseite -> der Flügel wirkt voll statt flach.
+static func _camber_y(f: float, m: float, p: float) -> float:
+	if m <= 0.0:
+		return 0.0
+	f = clampf(f, 0.0, 1.0)
+	if f < p:
+		return m / (p * p) * (2.0 * p * f - f * f)
+	return m / ((1.0 - p) * (1.0 - p)) * ((1.0 - 2.0 * p) + 2.0 * p * f - f * f)
 
 
 # ---------------------------------------------------------------------------
