@@ -392,8 +392,22 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Front-glb-Origin liegt NICHT mittig (Ende bei z=0.35 lokal+pos!) — Stoß via
   `tools/_aabb_check.gd` (druckt Welt-AABB je Preset-Teil) verifizieren.
   Flugcheck ohne user://-Anfassen: `tools/_preset_fly.gd -- mig21` (Luftstart, 90°-Kurve).
-  F-4/F-14 sind noch auf dem ÄLTEREN Jet-Familien-Stand — bei Freigabe des MiG-Looks
-  denselben Flächensatz-Umbau machen.
+- **F-4 / F-14 (Hybrid abgeschlossen):** Beide haben jetzt einen sculpteten Blender-
+  Vorderrumpf aus einem Guss (Radom-Nase + Pitot + langes TANDEM-Kanzeldach):
+  `f4_front` (tief, area-ruled, gedroopte Nase; Heck-Querschnitt 0.65×0.55 -> stoßbündig
+  an `jet_body`) und `f14_front` (flach+breit; Heck blendet in den 1.7×-breiten
+  Pancake-`jet_body`). Ersetzen je `*_nose` + `jet_cockpit` im Preset. Rest modular:
+  `jet_body`, `jet_engine`/`f14_nacelle`, generische (jetzt gewölbte) Flügel, Anhedral-
+  Stabilatoren, ein/zwei `v_stab`.
+- **Generischer Flügel-Mesh (`_wing_mesh`) aufgewertet:** NACA-Wölbung (`_camber_y`, nur
+  Auftriebsflügel, control=="") + elliptisch gerundete, leicht gepfeilte Spitze (kein
+  Papier-Zipfel mehr) + 8 Stationen. Hebt ALLE Generik-Flügel gleichzeitig. Rein visuell —
+  Aero/Pickbox kommen aus dem Teil-Dict. **Spitfire** hat ein eigenes Blender-Teil
+  `spitfire_wing` (echte elliptische Planform, 6° V-Stellung).
+- **Raketen (Blender, detailliert):** `missile` (Sidewinder: IR-Glas-Suchkopf, Canards,
+  Heckflossen mit Rollerons, Kabelkanal), `missile_heavy` (Sparrow: Radom, Mittelflügel,
+  Steuerflossen), `rocket` (Hydra: Ogive, Heckflossen). Material `body` lackierbar,
+  `glass`/`radome`/`dark` bleiben.
 
 ## Modi, Geld & Upgrades (`scripts/GameState.gd`)
 - **GameState** (Node, in Main als `game` erzeugt + `load_state()`): hält `mode`
