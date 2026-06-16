@@ -84,10 +84,10 @@ void fragment() {
 	wm.size = Vector2(VIEW_DIST * 2.4, VIEW_DIST * 2.4)
 	_water.mesh = wm
 	_water.position = Vector3(0, SEA_Y + 0.15, 0)
-	# Sauberes, helles blaues Wasser (Aviassembly-Look) — leicht spiegelnd, deckend.
+	# Sattes Türkis-Blau-Wasser (Aviassembly-Look) — knackig, leicht spiegelnd, deckend.
 	var wmat := StandardMaterial3D.new()
-	wmat.albedo_color = Color(0.17, 0.42, 0.62)
-	wmat.roughness = 0.12
+	wmat.albedo_color = Color(0.10, 0.44, 0.66)
+	wmat.roughness = 0.10
 	wmat.metallic = 0.30
 	wmat.metallic_specular = 0.7
 	_water.material_override = wmat
@@ -341,18 +341,19 @@ func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 
 
 func _face_color(cen: Vector3, ny: float) -> Color:
+	# SATTE, knackige Low-Poly-Palette (Aviassembly-Look).
 	if cen.y < SEA_Y + 1.6:
-		return Color(0.78, 0.72, 0.54)        # Sandstrand/Ufer
+		return Color(0.92, 0.83, 0.55)        # heller, warmer Sandstrand/Ufer
 	if cen.y > 80.0:
-		return Color(0.93, 0.94, 0.97)        # Schnee NUR auf Gipfeln
+		return Color(0.96, 0.97, 1.0)         # strahlender Schnee NUR auf Gipfeln
 	if cen.y > 52.0 or ny < 0.74:
-		return Color(0.47, 0.46, 0.48)        # Fels: steil ODER Hochlage
-	# Gras in zwei Tönen (Flecken-Rauschen) — Low-Poly-Wiese, dazwischen ERDE
+		return Color(0.46, 0.43, 0.45)        # Fels: steil ODER Hochlage
+	# Gras in zwei Tönen (Flecken-Rauschen) — kräftige Low-Poly-Wiese, dazwischen ERDE
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	if t < -0.52:
-		return Color(0.50, 0.38, 0.26)        # offene Erd-/Ackerflecken
-	var g1 := Color(0.38, 0.56, 0.30)
-	var g2 := Color(0.31, 0.49, 0.27)
+		return Color(0.55, 0.40, 0.22)        # satte Erd-/Ackerflecken
+	var g1 := Color(0.34, 0.66, 0.26)         # frisches, sattes Grün
+	var g2 := Color(0.24, 0.55, 0.22)         # tieferes Grün
 	return g1.lerp(g2, clampf(t * 0.5 + 0.5, 0.0, 1.0))
 
 

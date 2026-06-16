@@ -173,17 +173,21 @@ func _setup_world() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.15                    # hell & gleichmäßig (low contrast, freundlich)
+	env.ambient_light_energy = 1.05                    # hell & freundlich, lässt aber Farbe zu
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 1.0
-	# Klare Sicht — nur ganz feiner blauer Dunst in der Ferne (aerial perspective),
-	# das Panorama soll tragen, kein dichter Nebel.
+	# SATTE FARBEN (Aviassembly-Look): globale Sättigung + leicht mehr Kontrast.
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.32
+	env.adjustment_contrast = 1.06
+	env.adjustment_brightness = 1.0
+	# Klare Sicht — nur ganz feiner Dunst ganz in der Ferne, Farben bleiben knackig.
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.82, 0.88, 0.95)
+	env.fog_light_color = Color(0.80, 0.88, 0.97)
 	env.fog_sun_scatter = 0.1
-	env.fog_density = 0.00012
-	env.fog_aerial_perspective = 0.38
+	env.fog_density = 0.00007
+	env.fog_aerial_perspective = 0.22
 	env.fog_sky_affect = 0.0
 	env.glow_enabled = true
 	env.glow_intensity = 0.2
