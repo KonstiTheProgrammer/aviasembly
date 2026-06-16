@@ -156,22 +156,40 @@ func _ready() -> void:
 # ===========================================================================
 func _setup_world() -> void:
 	# Umgebung / Himmel
+	# GOLDEN HOUR: warmer, cinematischer Flug-Himmel mit atmosphärischer Tiefe.
 	var env := Environment.new()
 	var sky := Sky.new()
 	var psm := ProceduralSkyMaterial.new()
-	psm.sky_top_color = Color(0.22, 0.42, 0.72)
-	psm.sky_horizon_color = Color(0.72, 0.82, 0.92)
-	psm.ground_horizon_color = Color(0.62, 0.66, 0.62)
-	psm.ground_bottom_color = Color(0.32, 0.38, 0.32)
+	psm.sky_top_color = Color(0.16, 0.26, 0.46)        # tiefes warmes Blau im Zenit
+	psm.sky_horizon_color = Color(0.97, 0.72, 0.46)    # goldener Horizont
+	psm.sky_curve = 0.12
+	psm.sky_energy_multiplier = 1.1
+	psm.ground_horizon_color = Color(0.80, 0.60, 0.42)
+	psm.ground_bottom_color = Color(0.28, 0.26, 0.26)
+	psm.sun_angle_max = 7.0
+	psm.sun_curve = 0.08
 	sky.sky_material = psm
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.7
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.ambient_light_energy = 0.55
+	env.ambient_light_color = Color(0.74, 0.80, 0.92)  # kühles Himmels-Ambient -> Schatten bleiben kühl
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_white = 1.15
+	# Atmosphärische Tiefe: warmer Dunst, der erst in der FERNE aufbaut (Nahgrund bleibt grün),
+	# Sonne streut hinein, Fernes blendet sanft zur Himmelsfarbe (aerial perspective).
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.74, 0.82, 0.92)
-	env.fog_density = 0.00006   # sehr dünn — das Terrain-Panorama soll tragen
+	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+	env.fog_light_color = Color(0.96, 0.80, 0.62)
+	env.fog_sun_scatter = 0.35
+	env.fog_density = 0.00036
+	env.fog_aerial_perspective = 0.24
+	env.fog_sky_affect = 0.0
+	env.glow_enabled = true
+	env.glow_intensity = 0.35
+	env.glow_strength = 0.95
+	env.glow_bloom = 0.15
+	env.glow_hdr_threshold = 1.0
 	env_sky = env
 
 	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum). Hintergrund bleibt dunkel,
@@ -210,15 +228,18 @@ func _setup_world() -> void:
 	# --- Flug-Beleuchtung: Sonne + Fülllicht (nur im Flug aktiv) ---
 	sky_lights = Node3D.new()
 	add_child(sky_lights)
+	# Tiefe, warme Sonne (Golden Hour) — lange weiche Schatten, kräftiges Schlüssellicht
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-52, -47, 0)
-	sun.light_energy = 1.15
+	sun.rotation_degrees = Vector3(-16, -52, 0)
+	sun.light_color = Color(1.0, 0.78, 0.52)
+	sun.light_energy = 1.7
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 300.0
+	sun.directional_shadow_max_distance = 600.0
 	sky_lights.add_child(sun)
 	var underfill := DirectionalLight3D.new()
-	underfill.rotation_degrees = Vector3(62, 130, 0)
-	underfill.light_energy = 0.55
+	underfill.rotation_degrees = Vector3(50, 120, 0)
+	underfill.light_color = Color(0.55, 0.62, 0.80)   # kühles Himmels-Gegenlicht
+	underfill.light_energy = 0.35
 	underfill.shadow_enabled = false
 	sky_lights.add_child(underfill)
 
