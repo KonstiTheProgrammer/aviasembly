@@ -5,12 +5,13 @@ shader_type spatial;
 render_mode cull_disabled, diffuse_burley, specular_schlick_ggx;
 
 uniform sampler2D depth_tex : hint_depth_texture, filter_linear_mipmap;
-uniform vec3 shallow_col : source_color = vec3(0.32, 0.86, 0.84);   // knalliges Türkis
-uniform vec3 mid_col     : source_color = vec3(0.10, 0.56, 0.74);   // mittleres Lagunen-Blau
-uniform vec3 deep_col    : source_color = vec3(0.02, 0.22, 0.46);   // tiefes Blau
-uniform vec3 foam_col    : source_color = vec3(0.94, 0.99, 1.0);
-uniform float depth_fade = 34.0;     // Tiefe (m), über die shallow -> deep blendet
-uniform float foam_band  = 2.4;      // Schaum bei sehr geringer Wassertiefe
+// Aviassembly: ruhiges, gedämpftes Blau-Grau (kein Türkis), weiche helle Untiefen.
+uniform vec3 shallow_col : source_color = vec3(0.60, 0.66, 0.70);   // pales Grau-Blau (Ufer)
+uniform vec3 mid_col     : source_color = vec3(0.40, 0.50, 0.61);
+uniform vec3 deep_col    : source_color = vec3(0.28, 0.39, 0.52);   // gedämpftes Stahlblau
+uniform vec3 foam_col    : source_color = vec3(0.86, 0.89, 0.92);
+uniform float depth_fade = 26.0;     // Tiefe (m), über die shallow -> deep blendet
+uniform float foam_band  = 1.8;      // Schaum bei sehr geringer Wassertiefe
 uniform float wave_amp   = 0.010;
 uniform float wave_scale = 6.0;
 uniform float wave_speed = 0.35;
@@ -48,9 +49,9 @@ void fragment() {
 	NORMAL_MAP_DEPTH = 0.6;
 
 	ALBEDO = col;
-	METALLIC = 0.25;
-	ROUGHNESS = 0.06 + 0.05 * t;          // offenes Wasser etwas matter
-	SPECULAR = 0.7;
+	METALLIC = 0.15;
+	ROUGHNESS = 0.22 + 0.10 * t;          // weicher, matter (kein Spiegel)
+	SPECULAR = 0.5;
 	// Untiefen schimmern durch (transparenter), tiefes/Schaum-Wasser deckt
-	ALPHA = clamp(mix(0.72, 0.98, t) + foam * 0.3, 0.0, 1.0);
+	ALPHA = clamp(mix(0.78, 0.97, t) + foam * 0.25, 0.0, 1.0);
 }

@@ -339,20 +339,23 @@ func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 
 
 func _face_color(cen: Vector3, ny: float) -> Color:
-	# SATTE, knackige Low-Poly-Palette (Aviassembly-Look).
+	# GEDÄMPFTE, erdig-pastellige Low-Poly-Palette (Aviassembly-Look): Sage-Grün,
+	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	if cen.y < SEA_Y + 1.6:
-		return Color(0.92, 0.83, 0.55)        # heller, warmer Sandstrand/Ufer
-	if cen.y > 80.0:
-		return Color(0.96, 0.97, 1.0)         # strahlender Schnee NUR auf Gipfeln
-	if cen.y > 52.0 or ny < 0.74:
-		return Color(0.46, 0.43, 0.45)        # Fels: steil ODER Hochlage
-	# Gras in zwei Tönen (Flecken-Rauschen) — kräftige Low-Poly-Wiese, dazwischen ERDE
+		return Color(0.84, 0.74, 0.55)        # warmer, weicher Sandstrand/Ufer
+	if cen.y > 82.0:
+		return Color(0.90, 0.90, 0.92)        # weicher Schnee NUR auf Gipfeln
+	if cen.y > 54.0 or ny < 0.72:
+		return Color(0.60, 0.54, 0.52)        # warm-grauer Fels: steil ODER Hochlage
 	var t := _patch.get_noise_2d(cen.x, cen.z)
-	if t < -0.52:
-		return Color(0.55, 0.40, 0.22)        # satte Erd-/Ackerflecken
-	var g1 := Color(0.34, 0.66, 0.26)         # frisches, sattes Grün
-	var g2 := Color(0.24, 0.55, 0.22)         # tieferes Grün
-	return g1.lerp(g2, clampf(t * 0.5 + 0.5, 0.0, 1.0))
+	if t < -0.40:
+		return Color(0.66, 0.56, 0.56)        # staubige Rosé-/Lavendel-Flecken (Aviassembly-Signatur)
+	if t > 0.42:
+		return Color(0.78, 0.70, 0.52)        # warme Sand-/Lichtungsflecken
+	# Wiese in zwei gedämpften Sage-Tönen
+	var g1 := Color(0.54, 0.62, 0.43)         # gedämpftes Sage-Grün
+	var g2 := Color(0.45, 0.54, 0.39)         # tieferes Sage
+	return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
 
 
 # ---------------------------------------------------------------------------

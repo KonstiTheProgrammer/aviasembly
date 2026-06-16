@@ -66,26 +66,27 @@ func _setup() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.05                    # hell & freundlich, aber lässt Farbe zu
+	env.ambient_light_energy = 1.1                     # weich & hell, flach
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 1.0
-	# SATTE FARBEN: globale Sättigung + leicht mehr Kontrast (Aviassembly-Look)
+	# Pastellig, leicht ENTSÄTTIGT (Aviassembly ist weich, nicht knallig)
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.32
-	env.adjustment_contrast = 1.06
-	env.adjustment_brightness = 1.0
-	# Klare Sicht — nur ganz feiner Dunst ganz in der Ferne (Farben bleiben knackig)
+	env.adjustment_saturation = 0.94
+	env.adjustment_contrast = 0.98
+	env.adjustment_brightness = 1.02
+	# STARKER pastelliger Dunst — DAS Aviassembly-Markenzeichen: Fernes verschwimmt
+	# in milchigem Haze (Tiefe durch Aerial Perspective).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.80, 0.88, 0.97)
-	env.fog_sun_scatter = 0.1
-	env.fog_density = 0.00007
-	env.fog_aerial_perspective = 0.22
-	env.fog_sky_affect = 0.0
+	env.fog_light_color = Color(0.85, 0.84, 0.83)      # milchig-pastell (leicht warm)
+	env.fog_sun_scatter = 0.2
+	env.fog_density = 0.00060
+	env.fog_aerial_perspective = 0.70
+	env.fog_sky_affect = 0.2
 	env.glow_enabled = true
-	env.glow_intensity = 0.2
-	env.glow_strength = 0.9
-	env.glow_hdr_threshold = 1.1
+	env.glow_intensity = 0.15
+	env.glow_strength = 0.85
+	env.glow_hdr_threshold = 1.2
 	var we := WorldEnvironment.new()
 	we.environment = env
 	w.add_child(we)
