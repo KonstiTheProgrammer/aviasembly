@@ -84,13 +84,12 @@ void fragment() {
 	wm.size = Vector2(VIEW_DIST * 2.4, VIEW_DIST * 2.4)
 	_water.mesh = wm
 	_water.position = Vector3(0, SEA_Y + 0.15, 0)
-	# Tiefes, spiegelndes Golden-Hour-Wasser: dunkler Grundton, hohe Reflexion ->
-	# fängt den warmen Himmel + die Sonne (statt flachem Hellblau).
+	# Sauberes, helles blaues Wasser (Aviassembly-Look) — leicht spiegelnd, deckend.
 	var wmat := StandardMaterial3D.new()
-	wmat.albedo_color = Color(0.05, 0.12, 0.19)
-	wmat.roughness = 0.14
-	wmat.metallic = 0.5
-	wmat.metallic_specular = 0.85
+	wmat.albedo_color = Color(0.17, 0.42, 0.62)
+	wmat.roughness = 0.12
+	wmat.metallic = 0.30
+	wmat.metallic_specular = 0.7
 	_water.material_override = wmat
 	add_child(_water)
 	# Worker starten

@@ -54,66 +54,64 @@ func _setup() -> void:
 	get_root().add_child(vp)
 	var w := Node3D.new(); vp.add_child(w)
 
-	# --- GOLDEN-HOUR-Environment (Vibe-Overhaul-Prototyp) ---
+	# --- CLEAN BRIGHT DAYLIGHT (Aviassembly-Editor-Look) ---
 	var env := Environment.new()
 	var sky := Sky.new()
 	var psm := ProceduralSkyMaterial.new()
-	psm.sky_top_color = Color(0.16, 0.26, 0.46)        # tiefes warmes Blau im Zenit
-	psm.sky_horizon_color = Color(0.97, 0.72, 0.46)    # goldener Horizont
-	psm.sky_curve = 0.12
+	psm.sky_top_color = Color(0.40, 0.62, 0.90)        # heller, freundlicher blauer Himmel
+	psm.sky_horizon_color = Color(0.86, 0.91, 0.97)    # fast weißer Horizont (clean)
+	psm.sky_curve = 0.09
 	psm.sky_energy_multiplier = 1.1
-	psm.ground_horizon_color = Color(0.80, 0.60, 0.42)
-	psm.ground_bottom_color = Color(0.28, 0.26, 0.26)
-	psm.sun_angle_max = 7.0
-	psm.sun_curve = 0.08
+	psm.ground_horizon_color = Color(0.82, 0.88, 0.93)
+	psm.ground_bottom_color = Color(0.58, 0.66, 0.66)
+	psm.sun_angle_max = 4.0
+	psm.sun_curve = 0.10
 	sky.sky_material = psm
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.55
-	env.ambient_light_color = Color(0.74, 0.80, 0.92)   # kühles Himmels-Ambient -> Schatten bleiben kühl
+	env.ambient_light_energy = 1.15                    # hell & gleichmäßig (low contrast, freundlich)
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_white = 1.15
-	# Atmosphärische Tiefe: warmer Dunst, der erst in der FERNE aufbaut (Nahgrund bleibt grün).
-	# Höhen-Fog: Dunst sammelt sich tief (über Wasser/Tälern), oben klarer.
+	env.tonemap_white = 1.0
+	# Klare Sicht — nur ganz feiner blauer Dunst in der Ferne (aerial perspective),
+	# das Panorama soll tragen, kein dichter Nebel.
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.96, 0.80, 0.62)
-	env.fog_sun_scatter = 0.35
-	env.fog_density = 0.00036
-	env.fog_aerial_perspective = 0.24
+	env.fog_light_color = Color(0.82, 0.88, 0.95)
+	env.fog_sun_scatter = 0.1
+	env.fog_density = 0.00012
+	env.fog_aerial_perspective = 0.38
 	env.fog_sky_affect = 0.0
 	env.glow_enabled = true
-	env.glow_intensity = 0.35
-	env.glow_strength = 0.95
-	env.glow_bloom = 0.15
-	env.glow_hdr_threshold = 1.0
+	env.glow_intensity = 0.2
+	env.glow_strength = 0.9
+	env.glow_hdr_threshold = 1.1
 	var we := WorldEnvironment.new()
 	we.environment = env
 	w.add_child(we)
 
-	# Tiefe, warme Sonne (Golden Hour) — lange weiche Schatten
+	# Hohe, neutrale Tagessonne — weiche Schatten, freundlich (kein Golden-Hour-Orange)
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-16, -52, 0)
-	sun.light_color = Color(1.0, 0.78, 0.52)
-	sun.light_energy = 1.7
+	sun.rotation_degrees = Vector3(-50, -50, 0)
+	sun.light_color = Color(1.0, 0.97, 0.90)
+	sun.light_energy = 1.15
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 600.0
 	w.add_child(sun)
 	var underfill := DirectionalLight3D.new()
-	underfill.rotation_degrees = Vector3(50, 120, 0)
-	underfill.light_color = Color(0.55, 0.62, 0.80)   # kühles Himmels-Gegenlicht
-	underfill.light_energy = 0.35
+	underfill.rotation_degrees = Vector3(58, 130, 0)
+	underfill.light_color = Color(0.80, 0.86, 0.95)
+	underfill.light_energy = 0.45
 	w.add_child(underfill)
 
-	# Warm spiegelndes Wasser (statt flachem blauem Verlauf)
+	# Sauberes, helles blaues Wasser (clean) — leicht spiegelnd
 	var sea := MeshInstance3D.new()
 	var pm := PlaneMesh.new(); pm.size = Vector2(12000, 12000)
 	sea.mesh = pm
 	var smat := StandardMaterial3D.new()
-	smat.albedo_color = Color(0.05, 0.12, 0.19)        # tiefes Wasser
-	smat.metallic = 0.45; smat.roughness = 0.16
-	smat.metallic_specular = 0.85
+	smat.albedo_color = Color(0.17, 0.42, 0.62)
+	smat.metallic = 0.30; smat.roughness = 0.12
+	smat.metallic_specular = 0.7
 	sea.material_override = smat
 	sea.position = Vector3(0, TerrainWorld.SEA_Y, 0)
 	w.add_child(sea)
