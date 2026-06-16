@@ -84,12 +84,10 @@ void fragment() {
 	wm.size = Vector2(VIEW_DIST * 2.4, VIEW_DIST * 2.4)
 	_water.mesh = wm
 	_water.position = Vector3(0, SEA_Y + 0.15, 0)
-	# Sattes Türkis-Blau-Wasser (Aviassembly-Look) — knackig, leicht spiegelnd, deckend.
-	var wmat := StandardMaterial3D.new()
-	wmat.albedo_color = Color(0.10, 0.44, 0.66)
-	wmat.roughness = 0.10
-	wmat.metallic = 0.30
-	wmat.metallic_specular = 0.7
+	# Tropisches Tiefen-Wasser (Shader): türkise Untiefen -> Lagune -> tiefes Blau
+	# über den Tiefenpuffer, Schaumkante am Ufer, Fresnel-Spiegelung.
+	var wmat := ShaderMaterial.new()
+	wmat.shader = load("res://shaders/water.gdshader")
 	_water.material_override = wmat
 	add_child(_water)
 	# Worker starten

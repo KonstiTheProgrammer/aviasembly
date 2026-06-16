@@ -156,20 +156,16 @@ func _ready() -> void:
 # ===========================================================================
 func _setup_world() -> void:
 	# Umgebung / Himmel
-	# CLEAN BRIGHT DAYLIGHT (Aviassembly-Look): heller blauer Himmel, fast weißer
-	# Horizont, gleichmäßiges freundliches Licht, klare Sicht — wie der Editor.
+	# AVIASSEMBLY-HIMMEL: satter Blau-Verlauf + Sonne + fluffige prozedurale
+	# Kumuluswolken (Shader res://shaders/sky_clouds.gdshader). sun_dir passend
+	# zur Tagessonne unten (rot -50,-50).
 	var env := Environment.new()
 	var sky := Sky.new()
-	var psm := ProceduralSkyMaterial.new()
-	psm.sky_top_color = Color(0.40, 0.62, 0.90)        # heller, freundlicher blauer Himmel
-	psm.sky_horizon_color = Color(0.86, 0.91, 0.97)    # fast weißer Horizont (clean)
-	psm.sky_curve = 0.09
-	psm.sky_energy_multiplier = 1.1
-	psm.ground_horizon_color = Color(0.82, 0.88, 0.93)
-	psm.ground_bottom_color = Color(0.58, 0.66, 0.66)
-	psm.sun_angle_max = 4.0
-	psm.sun_curve = 0.10
-	sky.sky_material = psm
+	var sky_sm := ShaderMaterial.new()
+	sky_sm.shader = load("res://shaders/sky_clouds.gdshader")
+	var sun_basis := Basis.from_euler(Vector3(deg_to_rad(-50.0), deg_to_rad(-50.0), 0.0))
+	sky_sm.set_shader_parameter("sun_dir", sun_basis.z)
+	sky.sky_material = sky_sm
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY

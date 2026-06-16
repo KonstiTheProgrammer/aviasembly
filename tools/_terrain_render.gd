@@ -54,19 +54,15 @@ func _setup() -> void:
 	get_root().add_child(vp)
 	var w := Node3D.new(); vp.add_child(w)
 
-	# --- CLEAN BRIGHT DAYLIGHT (Aviassembly-Editor-Look) ---
+	# --- Wolken-Himmel (Shader) + satte Farben ---
 	var env := Environment.new()
 	var sky := Sky.new()
-	var psm := ProceduralSkyMaterial.new()
-	psm.sky_top_color = Color(0.40, 0.62, 0.90)        # heller, freundlicher blauer Himmel
-	psm.sky_horizon_color = Color(0.86, 0.91, 0.97)    # fast weißer Horizont (clean)
-	psm.sky_curve = 0.09
-	psm.sky_energy_multiplier = 1.1
-	psm.ground_horizon_color = Color(0.82, 0.88, 0.93)
-	psm.ground_bottom_color = Color(0.58, 0.66, 0.66)
-	psm.sun_angle_max = 4.0
-	psm.sun_curve = 0.10
-	sky.sky_material = psm
+	var sm := ShaderMaterial.new()
+	sm.shader = load("res://shaders/sky_clouds.gdshader")
+	# Sonnenrichtung passend zur DirectionalLight unten (rot -50,-50)
+	var sb := Basis.from_euler(Vector3(deg_to_rad(-50), deg_to_rad(-50), 0))
+	sm.set_shader_parameter("sun_dir", sb.z)
+	sky.sky_material = sm
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
@@ -112,10 +108,8 @@ func _setup() -> void:
 	var sea := MeshInstance3D.new()
 	var pm := PlaneMesh.new(); pm.size = Vector2(12000, 12000)
 	sea.mesh = pm
-	var smat := StandardMaterial3D.new()
-	smat.albedo_color = Color(0.10, 0.44, 0.66)        # sattes Türkis-Blau
-	smat.metallic = 0.30; smat.roughness = 0.10
-	smat.metallic_specular = 0.7
+	var smat := ShaderMaterial.new()
+	smat.shader = load("res://shaders/water.gdshader")
 	sea.material_override = smat
 	sea.position = Vector3(0, TerrainWorld.SEA_Y, 0)
 	w.add_child(sea)
