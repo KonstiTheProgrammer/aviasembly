@@ -227,13 +227,12 @@ func _setup_world() -> void:
 	# --- Flug-Beleuchtung: Sonne + Fülllicht (nur im Flug aktiv) ---
 	sky_lights = Node3D.new()
 	add_child(sky_lights)
-	# Hohe, neutrale Tagessonne — weiche Schatten, freundlich (clean, kein Orange)
+	# Hohe, neutrale Tagessonne — freundlich (clean, kein Orange). SCHATTEN AUS (Nutzerwunsch).
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, -50, 0)
 	sun.light_color = Color(1.0, 0.97, 0.90)
 	sun.light_energy = 1.15
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 600.0
+	sun.shadow_enabled = false
 	sky_lights.add_child(sun)
 	var underfill := DirectionalLight3D.new()
 	underfill.rotation_degrees = Vector3(58, 130, 0)
