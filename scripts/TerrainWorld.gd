@@ -342,19 +342,19 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# GEDÄMPFTE, erdig-pastellige Low-Poly-Palette (Aviassembly-Look): Sage-Grün,
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	if cen.y < SEA_Y + 1.6:
-		return Color(0.84, 0.74, 0.55)        # warmer, weicher Sandstrand/Ufer
+		return Color(0.88, 0.79, 0.60)        # warmer, heller Sandstrand/Ufer
 	if cen.y > 82.0:
-		return Color(0.90, 0.90, 0.92)        # weicher Schnee NUR auf Gipfeln
+		return Color(0.93, 0.93, 0.95)        # heller Schnee NUR auf Gipfeln
 	if cen.y > 54.0 or ny < 0.72:
-		return Color(0.60, 0.54, 0.52)        # warm-grauer Fels: steil ODER Hochlage
+		return Color(0.65, 0.59, 0.57)        # warm-grauer Fels: steil ODER Hochlage
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	if t < -0.40:
-		return Color(0.66, 0.56, 0.56)        # staubige Rosé-/Lavendel-Flecken (Aviassembly-Signatur)
+		return Color(0.72, 0.62, 0.62)        # staubige Rosé-/Lavendel-Flecken (Aviassembly-Signatur)
 	if t > 0.42:
-		return Color(0.78, 0.70, 0.52)        # warme Sand-/Lichtungsflecken
-	# Wiese in zwei gedämpften Sage-Tönen
-	var g1 := Color(0.54, 0.62, 0.43)         # gedämpftes Sage-Grün
-	var g2 := Color(0.45, 0.54, 0.39)         # tieferes Sage
+		return Color(0.83, 0.75, 0.57)        # warme Sand-/Lichtungsflecken
+	# Wiese in zwei gedämpften, aber helleren Sage-Tönen
+	var g1 := Color(0.60, 0.69, 0.47)         # helles Sage-Grün
+	var g2 := Color(0.51, 0.60, 0.43)         # tieferes Sage
 	return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
 
 
