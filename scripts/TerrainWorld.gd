@@ -186,7 +186,10 @@ func height_at(x: float, z: float) -> float:
 		var md := Vector2(x - mp.x, z - mp.z).length()
 		var cone := 1.0 - smoothstep(0.0, float(ms["r"]), md)
 		if cone > 0.0:
-			var top := float(ms["peak"]) * smoothstep(0.0, 1.0, cone) * (0.82 + 0.18 * rdg)
+			# craggy: breite Ridge-Form + hochfrequente Grat-Details -> Bergform statt Kuppel
+			var crag := clampf(_ridge.get_noise_2d(x * 2.4, z * 2.4) * 0.5 + 0.5, 0.0, 1.0)
+			var top := float(ms["peak"]) * smoothstep(0.0, 1.0, cone) * (0.68 + 0.32 * rdg)
+			top += smoothstep(0.0, 1.0, cone) * crag * 30.0
 			h = maxf(h, top)
 	# Flugplätze/Plateaus einebnen: im Innenradius exakt auf Zielhöhe y (default 0),
 	# außen weich zum Gelände überblenden. (Bergdorf nutzt y>0 -> Hochplateau.)
@@ -551,14 +554,17 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	if cen.y < SEA_Y + 1.6:
 		return Color(0.88, 0.79, 0.60)        # warmer, heller Sandstrand/Ufer
-	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die HOHEN Gipfel weiß.
-	if cen.y > 124.0:
+	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die GIPFEL weiß,
+	# breite FELS-Flanken darunter (sonst wird der Berg ein weißer Klumpen).
+	if cen.y > 158.0:
 		return Color(0.95, 0.95, 0.97)        # Schnee nur auf den höchsten Gipfeln
-	if cen.y > 100.0 and ny > 0.55:
-		return Color(0.70, 0.68, 0.68).lerp(Color(0.95, 0.95, 0.97),
-			clampf((cen.y - 100.0) / 24.0, 0.0, 1.0))   # Schnee-Übergang auf flachen Kuppen
-	if cen.y > 56.0 or ny < 0.70:
-		return Color(0.50, 0.47, 0.46)        # warm-grauer Fels: steil ODER Hochlage
+	if cen.y > 132.0 and ny > 0.5:
+		return Color(0.56, 0.53, 0.53).lerp(Color(0.95, 0.95, 0.97),
+			clampf((cen.y - 132.0) / 26.0, 0.0, 1.0))   # Schnee-Übergang
+	if cen.y > 52.0 or ny < 0.70:
+		# Fels: heller in der Höhe, dunkler/wärmer unten -> sichtbare Bergform
+		return Color(0.46, 0.43, 0.42).lerp(Color(0.60, 0.58, 0.57),
+			clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	match biome_at(cen.x, cen.z):
 		Biome.WUESTE:

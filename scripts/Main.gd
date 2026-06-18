@@ -169,23 +169,23 @@ func _setup_world() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.25                    # hell & luftig, aber nicht ausgebrannt
+	env.ambient_light_energy = 1.08                    # hell, aber lässt Form/Schattierung zu
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 1.0
-	# Weich-pastellig, hell — Farben bleiben sichtbar (nicht düster, nicht weiß).
+	# KLAR & LEBENDIG: kräftigere Farben + etwas Kontrast, damit Berge/Fluss/Biome
+	# wirklich sichtbar & knackig sind (vorher im Milch-Dunst ersoffen).
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.04
-	env.adjustment_contrast = 1.0
+	env.adjustment_saturation = 1.18
+	env.adjustment_contrast = 1.07
 	env.adjustment_brightness = 1.0
-	# Heller, luftiger Dunst MIT Substanz (Aviassembly-Tiefe): Fernes verschwimmt
-	# sanft, wird aber nicht weiß-gewaschen.
+	# Klare Luft: nur dezente Fern-Tiefe (kein dichter Milchnebel mehr).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.86, 0.89, 0.93)      # luftiges Blau-Milch
-	env.fog_sun_scatter = 0.2
-	env.fog_density = 0.00036
-	env.fog_aerial_perspective = 0.46
-	env.fog_sky_affect = 0.15
+	env.fog_light_color = Color(0.82, 0.88, 0.95)
+	env.fog_sun_scatter = 0.15
+	env.fog_density = 0.00013
+	env.fog_aerial_perspective = 0.26
+	env.fog_sky_affect = 0.1
 	env.glow_enabled = true
 	env.glow_intensity = 0.18
 	env.glow_strength = 0.85

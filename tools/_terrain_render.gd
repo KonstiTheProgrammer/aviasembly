@@ -22,9 +22,9 @@ func _process(_d: float) -> bool:
 		if ua.size() >= 1 and ua[0] != "": prefix = ua[0]
 		_setup()
 		_shots = [
-			["village", Vector3(2900, 250, 2050), Vector3(2520, 120, 1620)],
-			["bridge",  Vector3(1560, 45, 1330), Vector3(1560, 10, 1110)],
-			["river",   Vector3(1500, 360, 1140), Vector3(1500, 0, 1100)],
+			["pan1", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],     # Spawn -> Stadt/See/Berge
+			["pan2", Vector3(3550, 360, 600), Vector3(2500, 90, 1450)],    # Blick aufs Bergmassiv
+			["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],          # über dem Flugfeld
 		]
 		return false
 	if frame == 6:
@@ -68,23 +68,23 @@ func _setup() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.25                    # hell & luftig, aber nicht ausgebrannt
+	env.ambient_light_energy = 1.08                    # hell, aber lässt Form/Schattierung zu
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 1.0
-	# Weich-pastellig, hell — Farben bleiben sichtbar.
+	# KLAR & LEBENDIG: kräftigere Farben + etwas Kontrast, damit Berge/Fluss/Biome
+	# wirklich sichtbar & knackig sind (nicht im Milch-Dunst ersaufen).
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.04
-	env.adjustment_contrast = 1.0
+	env.adjustment_saturation = 1.18
+	env.adjustment_contrast = 1.07
 	env.adjustment_brightness = 1.0
-	# Heller, luftiger Dunst MIT Substanz — Fernes verschwimmt sanft, wird aber
-	# nicht weiß-gewaschen (Dichte/Aerial moderat, Farbe leicht blau statt weiß).
+	# Klare Luft: nur dezente Fern-Tiefe (kein dichter Milchnebel mehr).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.86, 0.89, 0.93)      # luftiges Blau-Milch
-	env.fog_sun_scatter = 0.2
-	env.fog_density = 0.00036
-	env.fog_aerial_perspective = 0.46
-	env.fog_sky_affect = 0.15
+	env.fog_light_color = Color(0.82, 0.88, 0.95)
+	env.fog_sun_scatter = 0.15
+	env.fog_density = 0.00013
+	env.fog_aerial_perspective = 0.26
+	env.fog_sky_affect = 0.1
 	env.glow_enabled = true
 	env.glow_intensity = 0.18
 	env.glow_strength = 0.85
