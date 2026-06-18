@@ -2,17 +2,17 @@
 // am Horizont, weiche Sonne mit warmem Halo, GROSSE soft-gemalte Kumuluswolken.
 shader_type sky;
 
-uniform vec3 col_zenith  : source_color = vec3(0.44, 0.62, 0.85);   // freundliches Blau (sichtbar)
-uniform vec3 col_mid     : source_color = vec3(0.66, 0.77, 0.90);
-uniform vec3 col_horizon : source_color = vec3(0.88, 0.91, 0.95);   // hell-luftig, aber nicht weiß
-uniform vec3 sun_col     : source_color = vec3(1.0, 0.98, 0.93);
-uniform vec3 sun_halo    : source_color = vec3(1.0, 0.90, 0.74);    // warmer Halo
+uniform vec3 col_zenith  : source_color = vec3(0.32, 0.58, 0.92);   // fröhliches, sattes Blau
+uniform vec3 col_mid     : source_color = vec3(0.58, 0.76, 0.96);
+uniform vec3 col_horizon : source_color = vec3(0.86, 0.93, 0.99);   // hell, freundlich
+uniform vec3 sun_col     : source_color = vec3(1.0, 0.98, 0.92);
+uniform vec3 sun_halo    : source_color = vec3(1.0, 0.88, 0.70);    // warmer Halo
 uniform vec3 cloud_lit   : source_color = vec3(1.0, 1.0, 1.0);
-uniform vec3 cloud_dark  : source_color = vec3(0.84, 0.87, 0.92);   // helle, luftige Wolken-Unterseite
+uniform vec3 cloud_dark  : source_color = vec3(0.80, 0.86, 0.96);   // helle, leicht blaue Schattenseite
 uniform vec3 sun_dir = vec3(0.55, 0.62, 0.55);
-uniform float cloud_cover : hint_range(0.0, 1.0) = 0.38;
-uniform float cloud_soft  : hint_range(0.05, 0.6) = 0.34;   // weiche, breite Ränder
-uniform float cloud_scale = 1.05;                            // GROSSE Wolken (niedrige Frequenz)
+uniform float cloud_cover : hint_range(0.0, 1.0) = 0.32;     // mehr Wolken (verspielt)
+uniform float cloud_soft  : hint_range(0.05, 0.6) = 0.30;   // weich, aber puffig
+uniform float cloud_scale = 0.85;                            // GROSSE, fluffige Wolken
 uniform float cloud_speed = 0.003;
 uniform float cloud_opacity : hint_range(0.0, 1.0) = 0.96;
 

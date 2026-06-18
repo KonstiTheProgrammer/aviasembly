@@ -131,7 +131,7 @@ void fragment() {
 		lake.mesh = lm
 		lake.position = Vector3(lp.x, float(lk["surf"]), lp.z)
 		var lkmat := StandardMaterial3D.new()
-		lkmat.albedo_color = Color(0.40, 0.57, 0.66, 0.80)
+		lkmat.albedo_color = Color(0.28, 0.62, 0.72, 0.80)
 		lkmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		lkmat.roughness = 0.08
 		lkmat.metallic = 0.35
@@ -297,7 +297,7 @@ func _build_river_water(rv: Dictionary) -> void:
 		var c := Vector3(pts[i].x, pts[i].y + 0.15, pts[i].z)
 		left.append(c + perp * w)
 		right.append(c - perp * w)
-	var col := Color(0.40, 0.57, 0.66)
+	var col := Color(0.28, 0.62, 0.72)
 	for i in pts.size() - 1:
 		st.set_color(col)
 		st.add_vertex(left[i]); st.add_vertex(right[i]); st.add_vertex(right[i + 1])
@@ -306,7 +306,7 @@ func _build_river_water(rv: Dictionary) -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.40, 0.57, 0.66, 0.84)
+	m.albedo_color = Color(0.28, 0.62, 0.72, 0.84)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.roughness = 0.08
 	m.metallic = 0.35

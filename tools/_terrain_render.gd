@@ -74,9 +74,9 @@ func _setup() -> void:
 	# KLAR & LEBENDIG: kräftigere Farben + etwas Kontrast, damit Berge/Fluss/Biome
 	# wirklich sichtbar & knackig sind (nicht im Milch-Dunst ersaufen).
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.18
-	env.adjustment_contrast = 1.07
-	env.adjustment_brightness = 1.0
+	env.adjustment_saturation = 1.24
+	env.adjustment_contrast = 1.06
+	env.adjustment_brightness = 1.01
 	# Klare Luft: nur dezente Fern-Tiefe (kein dichter Milchnebel mehr).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
@@ -86,18 +86,19 @@ func _setup() -> void:
 	env.fog_aerial_perspective = 0.26
 	env.fog_sky_affect = 0.1
 	env.glow_enabled = true
-	env.glow_intensity = 0.18
-	env.glow_strength = 0.85
-	env.glow_hdr_threshold = 1.2
+	env.glow_intensity = 0.26                          # weiches Glühen -> verspielt
+	env.glow_strength = 0.9
+	env.glow_bloom = 0.1
+	env.glow_hdr_threshold = 1.05
 	var we := WorldEnvironment.new()
 	we.environment = env
 	w.add_child(we)
 
-	# Hohe, neutrale Tagessonne — weiche Schatten, freundlich (kein Golden-Hour-Orange)
+	# Hohe, freundliche Tagessonne (einen Tick wärmer -> verspielt)
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, -50, 0)
-	sun.light_color = Color(1.0, 0.98, 0.92)
-	sun.light_energy = 1.2
+	sun.light_color = Color(1.0, 0.97, 0.88)
+	sun.light_energy = 1.25
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 600.0
 	w.add_child(sun)
