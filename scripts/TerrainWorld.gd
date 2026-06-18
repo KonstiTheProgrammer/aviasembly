@@ -26,9 +26,16 @@ var airfields: Array = []       # [{pos: Vector3, r_flat: float, r_blend: float}
 var _noise: FastNoiseLite
 var _patch: FastNoiseLite       # Sekundär-Rauschen für Gras-Flecken
 var _forest: FastNoiseLite      # grobes Rauschen: wo stehen WÄLDER (Cluster)
+var _ridge: FastNoiseLite       # Ridged-Noise -> scharfe Bergketten
+var _relief: FastNoiseLite      # sehr grob: wie GEBIRGIG ist eine Region (Ebene<->Alpen)
+var _biome: FastNoiseLite       # sehr grob: welches BIOM (Wald/Wüste/Hochland/Heide)
 var _mesh_conifer: ArrayMesh    # Low-Poly-Tanne (einmal gebaut, via MultiMesh instanziert)
 var _mesh_leaf: ArrayMesh       # Low-Poly-Laubbaum
 var _mesh_rock: ArrayMesh       # Low-Poly-Felsblock
+var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
+
+# Biom-Konstanten (aus _biome-Rauschen, -1..1)
+enum Biome { WALD, WUESTE, HOCHLAND, HEIDE }
 var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (im Worker unterwegs)
 var _mat: ShaderMaterial
@@ -62,9 +69,27 @@ func setup(seedv: int, afs: Array) -> void:
 	_forest = FastNoiseLite.new()
 	_forest.seed = seedv * 13 + 5
 	_forest.frequency = 1.0 / 260.0
+	# Ridged-Noise: scharfe Bergrücken (kein Domain-Warp -> günstig, height_at läuft
+	# pro Vertex; Warp war zu teuer für den synchronen Spawn-Build).
+	_ridge = FastNoiseLite.new()
+	_ridge.seed = seedv * 17 + 11
+	_ridge.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_ridge.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	_ridge.fractal_octaves = 4
+	_ridge.fractal_gain = 0.55
+	_ridge.frequency = 1.0 / 1700.0
+	# Relief: sehr grob — wie gebirgig eine Region ist (Ebene 0 .. Alpen 1)
+	_relief = FastNoiseLite.new()
+	_relief.seed = seedv * 23 + 7
+	_relief.frequency = 1.0 / 3600.0
+	# Biom: sehr grob — Regionen-Einteilung
+	_biome = FastNoiseLite.new()
+	_biome.seed = seedv * 31 + 13
+	_biome.frequency = 1.0 / 3200.0
 	_mesh_conifer = _build_conifer_mesh()
 	_mesh_leaf = _build_leaf_mesh()
 	_mesh_rock = _build_rock_mesh()
+	_mesh_palm = _build_palm_mesh()
 	# Vertex-Farbe DIREKT als Albedo (StandardMaterial ignorierte die Farben trotz
 	# vertex_color_use_as_albedo bei material_override + SurfaceTool-Mesh).
 	var sh := Shader.new()
@@ -105,11 +130,30 @@ func _exit_tree() -> void:
 
 
 # Geländehöhe an Weltposition (deterministisch aus dem Seed).
+## Wie gebirgig die Region ist (0 = Ebene, 1 = Alpen). Sehr grob.
+func relief_at(x: float, z: float) -> float:
+	return smoothstep(-0.12, 0.42, _relief.get_noise_2d(x, z))
+
+## Biom an einer Welt-Position (Tiefland-Charakter; Fels/Schnee kommt aus Höhe/Hang).
+func biome_at(x: float, z: float) -> int:
+	var b := _biome.get_noise_2d(x, z)
+	if b < -0.32:
+		return Biome.WUESTE
+	if b > 0.40:
+		return Biome.HEIDE
+	return Biome.WALD
+
 func height_at(x: float, z: float) -> float:
 	var d := Vector2(x, z).length()
-	# sanft um den Ursprung (Wiesen), echte Berge erst weiter draußen
-	var amp := lerpf(5.0, 110.0, smoothstep(900.0, 4500.0, d))
-	var h := _noise.get_noise_2d(x, z) * amp
+	# Distanz-Ramp: Spawn-Umfeld ruhig, Gebirge baut sich erst weiter draußen auf
+	var dist_k := smoothstep(700.0, 3000.0, d)
+	var relief := relief_at(x, z) * dist_k
+	# 1) sanfte Grundwelligkeit überall
+	var rolling := _noise.get_noise_2d(x, z) * lerpf(6.0, 24.0, relief)
+	# 2) scharfe Bergketten NUR wo Relief hoch (ridged + domain-warp)
+	var rdg := clampf(_ridge.get_noise_2d(x, z) * 0.5 + 0.5, 0.0, 1.0)
+	var peaks := pow(rdg, 1.6) * lerpf(0.0, 175.0, relief) * relief
+	var h := rolling + peaks
 	# Flugplätze einebnen: im Innenradius exakt 0, außen weich überblenden
 	for af in airfields:
 		var ap: Vector3 = af["pos"]
@@ -194,7 +238,7 @@ func _process(_delta: float) -> void:
 		# inzwischen außer Reichweite? -> verwerfen (wird bei Bedarf neu geplant)
 		if _chunks.has(key) or _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
 			continue
-		_attach_chunk(key, item["mesh"], item["shape"], item.get("conifers", []), item.get("leafs", []), item.get("rocks", []))
+		_attach_chunk(key, item["mesh"], item["shape"], item.get("conifers", []), item.get("leafs", []), item.get("rocks", []), item.get("palms", []))
 
 
 # Startbereich SOFORT bauen (synchron, Main-Thread), damit das Flugzeug beim
@@ -211,11 +255,11 @@ func build_now_around(world_pos: Vector3, radius: float) -> void:
 			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > radius + CHUNK:
 				continue
 			var data := _make_chunk_data(key)
-			_attach_chunk(key, data["mesh"], data["shape"], data["conifers"], data["leafs"], data["rocks"])
+			_attach_chunk(key, data["mesh"], data["shape"], data["conifers"], data["leafs"], data["rocks"], data["palms"])
 
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
-		conifers: Array = [], leafs: Array = [], rocks: Array = []) -> void:
+		conifers: Array = [], leafs: Array = [], rocks: Array = [], palms: Array = []) -> void:
 	var node := Node3D.new()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -232,6 +276,7 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	_attach_multi(node, _mesh_conifer, conifers)
 	_attach_multi(node, _mesh_leaf, leafs)
 	_attach_multi(node, _mesh_rock, rocks)
+	_attach_multi(node, _mesh_palm, palms)
 	add_child(node)
 	_chunks[key] = node
 
@@ -288,26 +333,39 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	rng.seed = hash(Vector3i(key.x, key.y, seed_value))
 	var conifers: Array = []
 	var leafs: Array = []
+	var palms: Array = []
 	var rocks: Array = []
 	for a in 130:
 		var px := ox + rng.randf() * CHUNK
 		var pz := oz + rng.randf() * CHUNK
 		var h := height_at(px, pz)
-		if h < 0.8 or h > 48.0:
-			continue   # kein Wald am Strand/Wasser/Flugplatz oder über der Baumgrenze
+		if h < 0.8 or h > 64.0:
+			continue   # nichts am Strand/Wasser/Flugplatz oder über der Baumgrenze
 		# Steilheit aus zwei Nachbarproben (Bäume nur auf gangbarem Hang)
 		var hx := height_at(px + 6.0, pz)
 		var hz := height_at(px, pz + 6.0)
 		if absf(hx - h) > 2.6 or absf(hz - h) > 2.6:
 			continue
+		var biome := biome_at(px, pz)
+		if biome == Biome.WUESTE:
+			# Wüste: spärliche Palmen-Oasen in tieferen Lagen
+			if h > 28.0 or rng.randf() > 0.07:
+				continue
+			var ps := rng.randf_range(1.0, 1.7)
+			palms.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
+				Vector3(ps, ps * rng.randf_range(0.9, 1.2), ps)), Vector3(px, h - 0.1, pz)))
+			continue
 		var f := _forest.get_noise_2d(px, pz)
 		if f < 0.05:
 			continue   # kein Wald-Cluster hier
-		if rng.randf() > clampf((f - 0.05) * 3.2, 0.0, 0.95):
-			continue   # Dichte wächst zum Cluster-Kern
+		var dens := clampf((f - 0.05) * 3.2, 0.0, 0.95)
+		if biome == Biome.HEIDE:
+			dens *= 0.35   # offene Heide -> nur vereinzelte Bäume
+		if rng.randf() > dens:
+			continue
 		var sc := rng.randf_range(1.1, 2.0)
 		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)), Vector3(px, h - 0.15, pz))
-		if h > 26.0 or rng.randf() < 0.65:
+		if h > 30.0 or rng.randf() < 0.68:
 			conifers.append(xf)
 		else:
 			leafs.append(xf)
@@ -323,7 +381,7 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 		var rsc := Vector3(rng.randf_range(0.7, 2.4), rng.randf_range(0.5, 1.8), rng.randf_range(0.7, 2.4))
 		rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc), Vector3(px, h - 0.3, pz)))
 	return {"mesh": mesh, "shape": mesh.create_trimesh_shape(),
-		"conifers": conifers, "leafs": leafs, "rocks": rocks}
+		"conifers": conifers, "leafs": leafs, "palms": palms, "rocks": rocks}
 
 
 # Ein Dreieck mit Flächenfarbe (aus Höhe + Steilheit am Schwerpunkt) einfügen.
@@ -343,19 +401,41 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	if cen.y < SEA_Y + 1.6:
 		return Color(0.88, 0.79, 0.60)        # warmer, heller Sandstrand/Ufer
-	if cen.y > 82.0:
-		return Color(0.93, 0.93, 0.95)        # heller Schnee NUR auf Gipfeln
-	if cen.y > 54.0 or ny < 0.72:
-		return Color(0.65, 0.59, 0.57)        # warm-grauer Fels: steil ODER Hochlage
+	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die HOHEN Gipfel weiß.
+	if cen.y > 124.0:
+		return Color(0.95, 0.95, 0.97)        # Schnee nur auf den höchsten Gipfeln
+	if cen.y > 100.0 and ny > 0.55:
+		return Color(0.70, 0.68, 0.68).lerp(Color(0.95, 0.95, 0.97),
+			clampf((cen.y - 100.0) / 24.0, 0.0, 1.0))   # Schnee-Übergang auf flachen Kuppen
+	if cen.y > 56.0 or ny < 0.70:
+		return Color(0.50, 0.47, 0.46)        # warm-grauer Fels: steil ODER Hochlage
 	var t := _patch.get_noise_2d(cen.x, cen.z)
-	if t < -0.40:
-		return Color(0.72, 0.62, 0.62)        # staubige Rosé-/Lavendel-Flecken (Aviassembly-Signatur)
-	if t > 0.42:
-		return Color(0.83, 0.75, 0.57)        # warme Sand-/Lichtungsflecken
-	# Wiese in zwei gedämpften, aber helleren Sage-Tönen
-	var g1 := Color(0.60, 0.69, 0.47)         # helles Sage-Grün
-	var g2 := Color(0.51, 0.60, 0.43)         # tieferes Sage
-	return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
+	match biome_at(cen.x, cen.z):
+		Biome.WUESTE:
+			# Wüste: warme Sand-/Dünentöne, Erd-/Felsbänder dazwischen
+			if t < -0.35:
+				return Color(0.80, 0.66, 0.46) # feuchter/schattiger Sand
+			if t > 0.45:
+				return Color(0.72, 0.60, 0.45) # Geröll-/Erdfleck
+			return Color(0.91, 0.82, 0.58).lerp(Color(0.86, 0.76, 0.52),
+				clampf(t * 0.6 + 0.5, 0.0, 1.0))
+		Biome.HEIDE:
+			# Heide/Herbst: staubiges Rosé/Ocker
+			if t < -0.40:
+				return Color(0.74, 0.62, 0.60) # Rosé-Fleck
+			if t > 0.45:
+				return Color(0.80, 0.72, 0.50) # Ocker-Gras
+			return Color(0.74, 0.68, 0.50).lerp(Color(0.66, 0.58, 0.50),
+				clampf(t * 0.6 + 0.5, 0.0, 1.0))
+		_:
+			# Wald/Wiese: gedämpftes Sage-Grün + Rosé-/Sand-Flecken
+			if t < -0.40:
+				return Color(0.72, 0.62, 0.62) # staubige Rosé-Flecken
+			if t > 0.42:
+				return Color(0.83, 0.75, 0.57) # warme Lichtungs-/Sandflecken
+			var g1 := Color(0.60, 0.69, 0.47)  # helles Sage-Grün
+			var g2 := Color(0.51, 0.60, 0.43)  # tieferes Sage
+			return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
 
 
 # ---------------------------------------------------------------------------
@@ -462,5 +542,56 @@ func _build_rock_mesh() -> ArrayMesh:
 		st.add_vertex(p0)
 		st.add_vertex(b1)
 		st.add_vertex(b0)
+	st.generate_normals()
+	return st.commit()
+
+
+func _dtri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, col: Color) -> void:
+	# doppelseitiges Dreieck (Wedel sind von beiden Seiten sichtbar)
+	st.set_color(col)
+	st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
+	st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
+
+
+func _build_palm_mesh() -> ArrayMesh:
+	# Wüsten-Palme: leicht geneigter, segmentierter Stamm + hängende Wedelkrone.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	var trunk := Color(0.56, 0.44, 0.29)
+	var H := 5.0
+	var lean := Vector3(0.7, 0.0, 0.2)        # leichte Krümmung zur Seite
+	var segs := 5
+	var sides := 5
+	var prev_c := Vector3.ZERO
+	var prev_r := 0.30
+	for s in range(1, segs + 1):
+		var tt := float(s) / float(segs)
+		var c := lean * (tt * tt) + Vector3(0, H * tt, 0)
+		var r := lerpf(0.30, 0.15, tt)
+		for i in sides:
+			var a0 := TAU * float(i) / float(sides)
+			var a1 := TAU * float(i + 1) / float(sides)
+			var b0 := prev_c + Vector3(cos(a0) * prev_r, 0, sin(a0) * prev_r)
+			var b1 := prev_c + Vector3(cos(a1) * prev_r, 0, sin(a1) * prev_r)
+			var t0 := c + Vector3(cos(a0) * r, 0, sin(a0) * r)
+			var t1 := c + Vector3(cos(a1) * r, 0, sin(a1) * r)
+			st.set_color(trunk.darkened(0.1 * sin(a0 * 2.0 + float(s))))
+			st.add_vertex(t0); st.add_vertex(b1); st.add_vertex(b0)
+			st.add_vertex(t0); st.add_vertex(t1); st.add_vertex(b1)
+		prev_c = c; prev_r = r
+	# Wedelkrone: nach außen-unten hängende Blätter (doppelseitige Rauten)
+	var top: Vector3 = lean + Vector3(0, H, 0)
+	var frond := Color(0.42, 0.54, 0.25)
+	var nf := 8
+	for i in nf:
+		var a := TAU * float(i) / float(nf) + 0.4
+		var dir := Vector3(cos(a), 0, sin(a))
+		var midp: Vector3 = top + dir * 1.8 + Vector3(0, 0.5, 0)
+		var tip: Vector3 = top + dir * 3.6 + Vector3(0, -1.9, 0)
+		var side := Vector3(-dir.z, 0, dir.x) * 0.5
+		var col := frond.darkened(0.14 * sin(a * 2.0))
+		_dtri(st, top, midp + side, midp - side, col)
+		_dtri(st, midp + side, tip, midp - side, col)
 	st.generate_normals()
 	return st.commit()

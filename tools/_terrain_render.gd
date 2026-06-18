@@ -8,6 +8,9 @@ var vp: SubViewport
 var prefix := "/tmp/map"
 var cam: Camera3D
 var terrain: TerrainWorld
+var _desert_c := Vector3.ZERO
+var _mtn_c := Vector3.ZERO
+var _peak := 0.0
 
 var _shots: Array = []
 var _si := 0
@@ -18,11 +21,11 @@ func _process(_d: float) -> bool:
 		var ua := OS.get_cmdline_user_args()
 		if ua.size() >= 1 and ua[0] != "": prefix = ua[0]
 		_setup()
-		var C := Vector3(3600, 0, 3600)
 		_shots = [
-			["mtn",  C + Vector3(0, 220, 760),   C + Vector3(120, 40, -300)],
-			["low",  C + Vector3(-200, 90, 360), C + Vector3(150, 110, -700)],
-			["spawn", Vector3(0, 80, 500),       Vector3(0, 25, -400)],
+			["desert", _desert_c + Vector3(0, 120, 700), _desert_c + Vector3(120, 20, -300)],
+			["mtn",    _mtn_c + Vector3(120, maxf(_peak, 120.0) * 0.7 + 60.0, 320.0),
+			           _mtn_c + Vector3(0, _peak * 0.55, -60)],
+			["spawn",  Vector3(0, 80, 500), Vector3(0, 25, -400)],
 		]
 		return false
 	if frame == 6:
@@ -120,8 +123,33 @@ func _setup() -> void:
 	var flat_zones := [{"pos": Vector3.ZERO, "r_flat": 1700.0, "r_blend": 2300.0}]
 	terrain.setup(20259, flat_zones)
 	w.add_child(terrain)
-	terrain.build_now_around(Vector3.ZERO, 1000.0)
-	terrain.build_now_around(Vector3(3600, 0, 3600), 1500.0)
+	# Scan: finde ein Wüsten- und ein Hochgebirgs-Zentrum (Noise ist sofort abfragbar)
+	var desert_c := Vector3(4200, 0, 0)
+	var mtn_c := Vector3(0, 0, 4200)
+	var best_relief := -1.0
+	var found_desert := false
+	for ang in range(0, 360, 12):
+		for dist in [3200.0, 4000.0, 4800.0, 5600.0]:
+			var dd: float = dist
+			var px: float = cos(deg_to_rad(ang)) * dd
+			var pz: float = sin(deg_to_rad(ang)) * dd
+			var rel: float = terrain.relief_at(px, pz) * smoothstep(700.0, 3000.0, dd)
+			if rel > best_relief:
+				best_relief = rel; mtn_c = Vector3(px, 0, pz)
+			if not found_desert and terrain.biome_at(px, pz) == 1:  # WUESTE
+				found_desert = true; desert_c = Vector3(px, 0, pz)
+	# höchsten Gipfel ums Gebirgs-Zentrum finden (für die Kamera-Höhe)
+	var peak := 0.0
+	for dx in range(-700, 701, 100):
+		for dz in range(-700, 701, 100):
+			peak = maxf(peak, terrain.height_at(mtn_c.x + dx, mtn_c.z + dz))
+	print("DESERT @ ", desert_c, "  MTN @ ", mtn_c, "  peak=", peak, "  relief=", best_relief)
+	terrain.build_now_around(Vector3.ZERO, 600.0)
+	terrain.build_now_around(desert_c, 850.0)
+	terrain.build_now_around(mtn_c, 950.0)
+	_desert_c = desert_c
+	_mtn_c = mtn_c
+	_peak = peak
 
 	cam = Camera3D.new()
 	cam.fov = 62.0

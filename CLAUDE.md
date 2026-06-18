@@ -80,9 +80,15 @@ scripts/FlightController.gd class_name FlightController. Baut AircraftBody aus d
                          Spawn/Reset (Reset = komplettes Neuaufbauen).
 scripts/AircraftBody.gd  class_name AircraftBody extends RigidBody3D. Das Flugmodell +
                          Schaden (Fahrwerk, Flügelbruch, Landung).
-scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain (FastNoise
-                         fBm, 384-m-Chunks, 8-m-Raster, Flatshading via Vertex-Colors +
-                         Mini-Shader ALBEDO=COLOR — StandardMaterial ignorierte die Farben).
+scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 384-m-Chunks,
+                         8-m-Raster, Flatshading via Vertex-Colors + Mini-Shader ALBEDO=COLOR.
+                         HÖHE (height_at): sanfte fBm-Grundwelligkeit + RIDGED-Noise-Bergketten,
+                         skaliert mit relief_at (sehr grobes Rauschen 0=Ebene..1=Alpen) und
+                         Distanz-Ramp (Spawn ruhig, Gebirge ab ~3 km). BIOME (biome_at, grobes
+                         _biome-Rauschen): WALD (Sage-Grün + Tannen/Laub), WUESTE (Sand + Palmen),
+                         HEIDE (Ocker/Rosé, karg); Fels+Schnee kommen aus Höhe/Hang (Schnee
+                         >124 m). _face_color schaltet die Palette je Biom. KEIN Domain-Warp im
+                         Ridge (zu teuer pro Vertex -> Spawn-Build ~384 ms).
                          Streaming um den Spieler auf WORKER-THREAD (Mesh+Trimesh-Shape im
                          Thread, ~7.5 ms/Chunk riss sonst den 120-fps-Frame -> Zucken beim
                          Nachladen; Main hängt nur fertige Daten ein, 1/Frame; update_center
