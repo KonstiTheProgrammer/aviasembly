@@ -22,10 +22,9 @@ func _process(_d: float) -> bool:
 		if ua.size() >= 1 and ua[0] != "": prefix = ua[0]
 		_setup()
 		_shots = [
-			["town",   Vector3(1140, 55, 880), Vector3(1400, 12, 730)],
-			["lighthouse", Vector3(-872, 16, -1168), Vector3(-950, 12, -1252)],
-			["mtn",    _mtn_c + Vector3(120, maxf(_peak, 120.0) * 0.7 + 60.0, 320.0),
-			           _mtn_c + Vector3(0, _peak * 0.55, -60)],
+			["village", Vector3(2900, 250, 2050), Vector3(2520, 120, 1620)],
+			["bridge",  Vector3(1560, 45, 1330), Vector3(1560, 10, 1110)],
+			["river",   Vector3(1500, 360, 1140), Vector3(1500, 0, 1100)],
 		]
 		return false
 	if frame == 6:
@@ -118,24 +117,38 @@ func _setup() -> void:
 	sea.position = Vector3(0, TerrainWorld.SEA_Y, 0)
 	w.add_child(sea)
 
-	# --- Terrain + POIs (Stufe 2) ---
+	# --- Terrain + POIs (Stufe 2/3) — Spiegel von Main._setup_world ---
 	terrain = TerrainWorld.new()
 	var town_pos := Vector3(1400, 0, 750)
 	var lake_pos := Vector3(1400, 0, 1030)
 	var lh_pos := Vector3(-950, 0, -1250)
+	var village_pos := Vector3(2550, 120, 1650)
 	var flat_zones := [
 		{"pos": Vector3.ZERO, "r_flat": 1700.0, "r_blend": 2300.0},
 		{"pos": town_pos, "r_flat": 360.0, "r_blend": 760.0},
 		{"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0},
 		{"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0},
+		{"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0},
 	]
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
-	terrain.setup(20259, flat_zones, lakes)
+	var massifs := [{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0}]
+	var rivers := [{
+		"w": 13.0, "valley": 55.0, "depth": 4.0,
+		"pts": [
+			Vector3(2545, 112, 1760), Vector3(2330, 82, 1600), Vector3(2110, 56, 1460),
+			Vector3(1900, 35, 1320), Vector3(1710, 20, 1210), Vector3(1560, 8, 1130),
+			Vector3(1460, 1, 1075), Vector3(1430, -1, 1030),
+		],
+	}]
+	terrain.setup(20259, flat_zones, lakes, rivers, massifs)
 	w.add_child(terrain)
 	Landmarks.build_town(w, town_pos)
 	Landmarks.build_lighthouse(w, lh_pos)
+	Landmarks.build_village(w, village_pos)
+	Landmarks.build_bridge(w, Vector3(1560, 22, 1130), 120.0, 1.0)
 	terrain.build_now_around(town_pos, 700.0)
-	terrain.build_now_around(lh_pos, 450.0)
+	terrain.build_now_around(Vector3(1950, 0, 1400), 800.0)   # Flusstal
+	terrain.build_now_around(village_pos, 800.0)
 	# Scan: finde ein Wüsten- und ein Hochgebirgs-Zentrum (Noise ist sofort abfragbar)
 	var desert_c := Vector3(4200, 0, 0)
 	var mtn_c := Vector3(0, 0, 4200)

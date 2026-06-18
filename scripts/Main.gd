@@ -308,15 +308,29 @@ func _setup_world() -> void:
 		var is_main: bool = af.get("main", false)
 		flat_zones.append({"pos": af["pos"], "r_flat": 1700.0 if is_main else 750.0,
 			"r_blend": 2300.0 if is_main else 1200.0})
-	# --- WAHRZEICHEN/POIs (Stufe 2): Stadt mit See + Leuchtturm — eigene Flachzonen ---
+	# --- WAHRZEICHEN/POIs: Stadt mit See + Leuchtturm + BERGDORF am FLUSS (Stufe 3) ---
 	var town_pos := Vector3(1400, 0, 750)
 	var lake_pos := Vector3(1400, 0, 1030)
 	var lh_pos := Vector3(-950, 0, -1250)
+	var village_pos := Vector3(2550, 120, 1650)   # Bergdorf-Plateau (Schelf am Massiv)
 	flat_zones.append({"pos": town_pos, "r_flat": 360.0, "r_blend": 760.0})
 	flat_zones.append({"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0})  # See-Umfeld flach
 	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
+	flat_zones.append({"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0})
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
-	terrain.setup(game.world_seed, flat_zones, lakes)
+	# Erzwungenes Bergmassiv (steil): garantiert den Berg fürs Bergdorf + Flussquelle.
+	var massifs := [{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0}]
+	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
+	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
+	var rivers := [{
+		"w": 13.0, "valley": 55.0, "depth": 4.0,
+		"pts": [
+			Vector3(2545, 112, 1760), Vector3(2330, 82, 1600), Vector3(2110, 56, 1460),
+			Vector3(1900, 35, 1320), Vector3(1710, 20, 1210), Vector3(1560, 8, 1130),
+			Vector3(1460, 1, 1075), Vector3(1430, -1, 1030),
+		],
+	}]
+	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs)
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	for af in airfields:
@@ -324,6 +338,8 @@ func _setup_world() -> void:
 	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
 	_build_town(town_pos)
 	_build_lighthouse(lh_pos)
+	Landmarks.build_village(fly_world, village_pos)
+	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
 
 	# Blueprint-Gitter (nur im Bau-Modus sichtbar)
 	blueprint_grid = MeshInstance3D.new()

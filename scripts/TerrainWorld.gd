@@ -22,8 +22,10 @@ const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionseb
 const MAX_ATTACH_PER_FRAME := 1 # fertige Chunks je Frame einhängen (Physik-Insert kostet)
 
 var seed_value := 1337
-var airfields: Array = []       # [{pos: Vector3, r_flat: float, r_blend: float}]
+var airfields: Array = []       # [{pos: Vector3, r_flat, r_blend, y?(Zielhöhe, default 0)}]
 var lakes: Array = []           # [{pos: Vector3, r: float, surf: float}] Inland-Seen
+var rivers: Array = []          # kuratierte Fluss-Splines (siehe _prepare_rivers)
+var massifs: Array = []         # [{pos: Vector3, r: float, peak: float}] erzwungene Berge
 var _noise: FastNoiseLite
 var _patch: FastNoiseLite       # Sekundär-Rauschen für Gras-Flecken
 var _forest: FastNoiseLite      # grobes Rauschen: wo stehen WÄLDER (Cluster)
@@ -53,10 +55,12 @@ var _done: Array = []           # fertige {key, mesh, shape}
 var _exit := false
 
 
-func setup(seedv: int, afs: Array, lks: Array = []) -> void:
+func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array = []) -> void:
 	seed_value = seedv
 	airfields = afs
 	lakes = lks
+	massifs = mss
+	_prepare_rivers(rvs)
 	_noise = FastNoiseLite.new()
 	_noise.seed = seedv
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -127,12 +131,15 @@ void fragment() {
 		lake.mesh = lm
 		lake.position = Vector3(lp.x, float(lk["surf"]), lp.z)
 		var lkmat := StandardMaterial3D.new()
-		lkmat.albedo_color = Color(0.30, 0.46, 0.55, 0.86)
+		lkmat.albedo_color = Color(0.40, 0.57, 0.66, 0.80)
 		lkmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		lkmat.roughness = 0.10
-		lkmat.metallic = 0.3
+		lkmat.roughness = 0.08
+		lkmat.metallic = 0.35
 		lake.material_override = lkmat
 		add_child(lake)
+	# Fluss-Wasserflächen (Ribbons entlang der Splines)
+	for rv in rivers:
+		_build_river_water(rv)
 	# Worker starten
 	_sem = Semaphore.new()
 	_mutex = Mutex.new()
@@ -172,11 +179,22 @@ func height_at(x: float, z: float) -> float:
 	var rdg := clampf(_ridge.get_noise_2d(x, z) * 0.5 + 0.5, 0.0, 1.0)
 	var peaks := pow(rdg, 1.6) * lerpf(0.0, 175.0, relief) * relief
 	var h := rolling + peaks
-	# Flugplätze einebnen: im Innenradius exakt 0, außen weich überblenden
+	# ERZWUNGENE BERGE (Massive): garantieren einen Berg an gewünschter Stelle
+	# (für Bergdorf/Flussquelle), seed-unabhängig. Nur anheben (max).
+	for ms in massifs:
+		var mp: Vector3 = ms["pos"]
+		var md := Vector2(x - mp.x, z - mp.z).length()
+		var cone := 1.0 - smoothstep(0.0, float(ms["r"]), md)
+		if cone > 0.0:
+			var top := float(ms["peak"]) * smoothstep(0.0, 1.0, cone) * (0.82 + 0.18 * rdg)
+			h = maxf(h, top)
+	# Flugplätze/Plateaus einebnen: im Innenradius exakt auf Zielhöhe y (default 0),
+	# außen weich zum Gelände überblenden. (Bergdorf nutzt y>0 -> Hochplateau.)
 	for af in airfields:
 		var ap: Vector3 = af["pos"]
 		var ad := Vector2(x - ap.x, z - ap.z).length()
-		h *= smoothstep(float(af["r_flat"]), float(af["r_blend"]), ad)
+		var ty: float = af.get("y", 0.0)
+		h = lerpf(ty, h, smoothstep(float(af["r_flat"]), float(af["r_blend"]), ad))
 	# Inland-Seen: Becken in den (bereits flachen) Grund graben, Boden bleibt über
 	# dem Meeresspiegel (-6), damit das globale Meer nicht durchscheint.
 	for lk in lakes:
@@ -187,7 +205,111 @@ func height_at(x: float, z: float) -> float:
 		if bowl > 0.0:
 			var floor_y: float = float(lk["surf"]) - 4.0
 			h = lerpf(h, floor_y, bowl)
+	# FLÜSSE: Tal + Flussbett entlang der Spline graben (nur Chunks im River-AABB).
+	if not rivers.is_empty():
+		h = _river_carve(x, z, h)
 	return h
+
+
+# Gräbt das Flusstal: nächstes Spline-Segment suchen, Bett unter die (entlang der
+# Spline fallende) Wasserhöhe senken, Ufer weich ins Gelände blenden. min() = nur
+# nach UNTEN graben (nie Gelände aufschütten). AABB-Early-Out hält es performant.
+func _river_carve(x: float, z: float, h: float) -> float:
+	for rv in rivers:
+		if x < rv["minx"] or x > rv["maxx"] or z < rv["minz"] or z > rv["maxz"]:
+			continue
+		var pts: PackedVector3Array = rv["pts"]
+		var best_d2 := INF
+		var best_surf := 0.0
+		for i in range(pts.size() - 1):
+			var a := pts[i]
+			var b := pts[i + 1]
+			var dx := b.x - a.x
+			var dz := b.z - a.z
+			var l2 := dx * dx + dz * dz
+			var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.z) * dz) / l2, 0.0, 1.0)
+			var px := a.x + dx * t
+			var pz := a.z + dz * t
+			var dd := (x - px) * (x - px) + (z - pz) * (z - pz)
+			if dd < best_d2:
+				best_d2 = dd
+				best_surf = lerpf(a.y, b.y, t)   # Wasserhöhe an dieser Stelle
+		var dist := sqrt(best_d2)
+		var valley: float = rv["valley"]
+		if dist < valley:
+			var w: float = rv["w"]
+			var bed := best_surf - float(rv["depth"])
+			# ROBUST (seed-unabhängig): Bett auf bed senken, Ufer steigen auf
+			# mind. Wasserhöhe+1 (nie unter Wasser -> kein schwebendes Wasser),
+			# außen ins natürliche Gelände blenden. Gesetzt, nicht nur min().
+			var k := smoothstep(w, valley, dist)        # 0 Bett .. 1 Talrand
+			var bank := maxf(best_surf + 1.2, h)        # Ufer immer über dem Wasser
+			h = lerpf(bed, bank, k)
+	return h
+
+
+# Fluss-Splines aufbereiten: Punkte als PackedVector3Array (x, Wasserhöhe y, z),
+# AABB inkl. Tal-Margin für den Early-Out vorberechnen.
+func _prepare_rivers(rvs: Array) -> void:
+	rivers = []
+	for rv in rvs:
+		var pts := PackedVector3Array()
+		for p in rv["pts"]:
+			pts.append(p)
+		if pts.size() < 2:
+			continue
+		var minx := INF; var maxx := -INF; var minz := INF; var maxz := -INF
+		for p in pts:
+			minx = minf(minx, p.x); maxx = maxf(maxx, p.x)
+			minz = minf(minz, p.z); maxz = maxf(maxz, p.z)
+		var valley: float = rv.get("valley", 60.0)
+		var m := valley + 6.0
+		rivers.append({"pts": pts, "w": rv.get("w", 14.0), "valley": valley,
+			"depth": rv.get("depth", 4.0),
+			"minx": minx - m, "maxx": maxx + m, "minz": minz - m, "maxz": maxz + m})
+
+
+# Wasser-Ribbon entlang der Fluss-Spline (einmal gebaut, festes Mesh).
+func _build_river_water(rv: Dictionary) -> void:
+	var pts: PackedVector3Array = rv["pts"]
+	if pts.size() < 2:
+		return
+	var w: float = float(rv["w"]) * 0.92
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	var left := PackedVector3Array()
+	var right := PackedVector3Array()
+	for i in pts.size():
+		var dir: Vector3
+		if i == 0:
+			dir = pts[1] - pts[0]
+		elif i == pts.size() - 1:
+			dir = pts[i] - pts[i - 1]
+		else:
+			dir = pts[i + 1] - pts[i - 1]
+		dir.y = 0.0
+		dir = dir.normalized()
+		var perp := Vector3(-dir.z, 0.0, dir.x)
+		var c := Vector3(pts[i].x, pts[i].y + 0.15, pts[i].z)
+		left.append(c + perp * w)
+		right.append(c - perp * w)
+	var col := Color(0.40, 0.57, 0.66)
+	for i in pts.size() - 1:
+		st.set_color(col)
+		st.add_vertex(left[i]); st.add_vertex(right[i]); st.add_vertex(right[i + 1])
+		st.add_vertex(left[i]); st.add_vertex(right[i + 1]); st.add_vertex(left[i + 1])
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.40, 0.57, 0.66, 0.84)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.08
+	m.metallic = 0.35
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = m
+	add_child(mi)
 
 
 func update_center(world_pos: Vector3) -> void:
