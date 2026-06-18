@@ -23,6 +23,7 @@ const MAX_ATTACH_PER_FRAME := 1 # fertige Chunks je Frame einhängen (Physik-Ins
 
 var seed_value := 1337
 var airfields: Array = []       # [{pos: Vector3, r_flat: float, r_blend: float}]
+var lakes: Array = []           # [{pos: Vector3, r: float, surf: float}] Inland-Seen
 var _noise: FastNoiseLite
 var _patch: FastNoiseLite       # Sekundär-Rauschen für Gras-Flecken
 var _forest: FastNoiseLite      # grobes Rauschen: wo stehen WÄLDER (Cluster)
@@ -52,9 +53,10 @@ var _done: Array = []           # fertige {key, mesh, shape}
 var _exit := false
 
 
-func setup(seedv: int, afs: Array) -> void:
+func setup(seedv: int, afs: Array, lks: Array = []) -> void:
 	seed_value = seedv
 	airfields = afs
+	lakes = lks
 	_noise = FastNoiseLite.new()
 	_noise.seed = seedv
 	_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -115,6 +117,22 @@ void fragment() {
 	wmat.shader = load("res://shaders/water.gdshader")
 	_water.material_override = wmat
 	add_child(_water)
+	# Inland-Seen: je eine ruhige, leicht spiegelnde Wasserfläche an der Oberfläche.
+	for lk in lakes:
+		var lp: Vector3 = lk["pos"]
+		var lr: float = lk["r"]
+		var lake := MeshInstance3D.new()
+		var lm := PlaneMesh.new()
+		lm.size = Vector2(lr * 2.1, lr * 2.1)
+		lake.mesh = lm
+		lake.position = Vector3(lp.x, float(lk["surf"]), lp.z)
+		var lkmat := StandardMaterial3D.new()
+		lkmat.albedo_color = Color(0.30, 0.46, 0.55, 0.86)
+		lkmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		lkmat.roughness = 0.10
+		lkmat.metallic = 0.3
+		lake.material_override = lkmat
+		add_child(lake)
 	# Worker starten
 	_sem = Semaphore.new()
 	_mutex = Mutex.new()
@@ -159,6 +177,16 @@ func height_at(x: float, z: float) -> float:
 		var ap: Vector3 = af["pos"]
 		var ad := Vector2(x - ap.x, z - ap.z).length()
 		h *= smoothstep(float(af["r_flat"]), float(af["r_blend"]), ad)
+	# Inland-Seen: Becken in den (bereits flachen) Grund graben, Boden bleibt über
+	# dem Meeresspiegel (-6), damit das globale Meer nicht durchscheint.
+	for lk in lakes:
+		var lp: Vector3 = lk["pos"]
+		var lr: float = lk["r"]
+		var ld := Vector2(x - lp.x, z - lp.z).length()
+		var bowl := 1.0 - smoothstep(lr * 0.55, lr, ld)   # 1 Mitte .. 0 Rand
+		if bowl > 0.0:
+			var floor_y: float = float(lk["surf"]) - 4.0
+			h = lerpf(h, floor_y, bowl)
 	return h
 
 

@@ -308,12 +308,22 @@ func _setup_world() -> void:
 		var is_main: bool = af.get("main", false)
 		flat_zones.append({"pos": af["pos"], "r_flat": 1700.0 if is_main else 750.0,
 			"r_blend": 2300.0 if is_main else 1200.0})
-	terrain.setup(game.world_seed, flat_zones)
+	# --- WAHRZEICHEN/POIs (Stufe 2): Stadt mit See + Leuchtturm — eigene Flachzonen ---
+	var town_pos := Vector3(1400, 0, 750)
+	var lake_pos := Vector3(1400, 0, 1030)
+	var lh_pos := Vector3(-950, 0, -1250)
+	flat_zones.append({"pos": town_pos, "r_flat": 360.0, "r_blend": 760.0})
+	flat_zones.append({"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0})  # See-Umfeld flach
+	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
+	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
+	terrain.setup(game.world_seed, flat_zones, lakes)
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	for af in airfields:
 		_build_airfield(af)
 	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
+	_build_town(town_pos)
+	_build_lighthouse(lh_pos)
 
 	# Blueprint-Gitter (nur im Bau-Modus sichtbar)
 	blueprint_grid = MeshInstance3D.new()
@@ -735,6 +745,15 @@ func _deco_light(parent: Node3D, pos: Vector3, col: Color) -> void:
 	m.position = pos
 	m.material_override = _emit_mat(col, 2.2)
 	parent.add_child(m)
+
+
+# Wahrzeichen/POIs (Stufe 2) — Geometrie in Landmarks.gd (Spiel + Render-Tool teilen sie).
+func _build_town(center: Vector3) -> void:
+	Landmarks.build_town(fly_world, center)
+
+
+func _build_lighthouse(center: Vector3) -> void:
+	Landmarks.build_lighthouse(fly_world, center)
 
 
 # Windsack: Mast + orangener Kegel (zeigt dekorativ quer zur Bahn).

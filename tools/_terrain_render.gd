@@ -22,10 +22,10 @@ func _process(_d: float) -> bool:
 		if ua.size() >= 1 and ua[0] != "": prefix = ua[0]
 		_setup()
 		_shots = [
-			["desert", _desert_c + Vector3(0, 120, 700), _desert_c + Vector3(120, 20, -300)],
+			["town",   Vector3(1140, 55, 880), Vector3(1400, 12, 730)],
+			["lighthouse", Vector3(-872, 16, -1168), Vector3(-950, 12, -1252)],
 			["mtn",    _mtn_c + Vector3(120, maxf(_peak, 120.0) * 0.7 + 60.0, 320.0),
 			           _mtn_c + Vector3(0, _peak * 0.55, -60)],
-			["spawn",  Vector3(0, 80, 500), Vector3(0, 25, -400)],
 		]
 		return false
 	if frame == 6:
@@ -118,11 +118,24 @@ func _setup() -> void:
 	sea.position = Vector3(0, TerrainWorld.SEA_Y, 0)
 	w.add_child(sea)
 
-	# --- Terrain ---
+	# --- Terrain + POIs (Stufe 2) ---
 	terrain = TerrainWorld.new()
-	var flat_zones := [{"pos": Vector3.ZERO, "r_flat": 1700.0, "r_blend": 2300.0}]
-	terrain.setup(20259, flat_zones)
+	var town_pos := Vector3(1400, 0, 750)
+	var lake_pos := Vector3(1400, 0, 1030)
+	var lh_pos := Vector3(-950, 0, -1250)
+	var flat_zones := [
+		{"pos": Vector3.ZERO, "r_flat": 1700.0, "r_blend": 2300.0},
+		{"pos": town_pos, "r_flat": 360.0, "r_blend": 760.0},
+		{"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0},
+		{"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0},
+	]
+	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
+	terrain.setup(20259, flat_zones, lakes)
 	w.add_child(terrain)
+	Landmarks.build_town(w, town_pos)
+	Landmarks.build_lighthouse(w, lh_pos)
+	terrain.build_now_around(town_pos, 700.0)
+	terrain.build_now_around(lh_pos, 450.0)
 	# Scan: finde ein Wüsten- und ein Hochgebirgs-Zentrum (Noise ist sofort abfragbar)
 	var desert_c := Vector3(4200, 0, 0)
 	var mtn_c := Vector3(0, 0, 4200)

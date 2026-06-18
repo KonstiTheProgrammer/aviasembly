@@ -88,7 +88,7 @@ scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 
                          _biome-Rauschen): WALD (Sage-Grün + Tannen/Laub), WUESTE (Sand + Palmen),
                          HEIDE (Ocker/Rosé, karg); Fels+Schnee kommen aus Höhe/Hang (Schnee
                          >124 m). _face_color schaltet die Palette je Biom. KEIN Domain-Warp im
-                         Ridge (zu teuer pro Vertex -> Spawn-Build ~384 ms).
+                         Ridge (zu teuer pro Vertex -> Spawn-Build ~384 ms). WAHRZEICHEN/POIs (Stufe 2, scripts/Landmarks.gd, statisch -> Spiel+Render-Tool teilen): Stadt mit Kirche+Turm + Leuchtturm (rot-weiß), platziert auf eigenen Flachzonen in Main._setup_world. INLAND-SEEN: lakes-Array an setup(); height_at gräbt ein Becken (Boden über SEA_Y), eigene Wasser-Quads je See.
                          Streaming um den Spieler auf WORKER-THREAD (Mesh+Trimesh-Shape im
                          Thread, ~7.5 ms/Chunk riss sonst den 120-fps-Frame -> Zucken beim
                          Nachladen; Main hängt nur fertige Daten ein, 1/Frame; update_center
