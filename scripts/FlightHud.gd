@@ -144,7 +144,9 @@ func _draw_alt_box() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, 110.0, 30, Color(1, 1, 1))
 	var arrow := "▲" if climb > 0.4 else ("▼" if climb < -0.4 else "■")
 	var cc: Color = ACCENT if climb > 0.4 else (Color(1, 0.6, 0.3) if climb < -0.4 else DIM)
-	draw_string(_font, Vector2(r.position.x + 12.0, r.position.y + 53.0), "m  %s %+.1f m/s" % [arrow, climb],
+	# Im neutralen Band stabil "0.0" zeigen (kein +/- Zappeln am Stand), sonst mit Vorzeichen.
+	var ctxt := "0.0" if absf(climb) <= 0.4 else ("%+.1f" % climb)
+	draw_string(_font, Vector2(r.position.x + 12.0, r.position.y + 53.0), "m  %s %s m/s" % [arrow, ctxt],
 		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 12, cc)
 	# G-Kraft kleiner darunter
 	draw_string(_font, Vector2(r.position.x, r.position.y + 76.0), "%.1f g" % gforce,

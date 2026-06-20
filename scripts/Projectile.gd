@@ -16,6 +16,17 @@ var seek_range := 70.0        # Reichweite, ab der ein Ziel angeflogen wird
 const SEEK_CONE := 0.2        # nur Ziele grob voraus erfassen (dot vel·Richtung)
 var _target: Node3D = null
 
+# Drop-and-Boost-Zielsuchrakete (kind "missile_drop"): erst Freifall, dann Turbo-Schub
+# mit dicker Rauchfahne, dann Homing auf den nächsten Luftballon.
+var boost_delay := 0.5        # s im Freifall, bevor der Motor zündet
+var boost_accel := 210.0      # Turbo-Beschleunigung (m/s²)
+var boost_speed := 165.0      # angepeilte Marschgeschwindigkeit (m/s)
+var home_anywhere := false    # Ziel auch OHNE Voraus-Kegel verfolgen (Drop-Rakete kurvt voll rum)
+var _age := 0.0
+var _boosting := false
+var _smoke: CPUParticles3D = null
+const DROP_G := 9.8
+
 # Leuchtspur (Tracer): kameragerichtetes Band aus den letzten Weltpositionen, das zum
 # Schweif hin ausblendet -> sichtbarer Schuss-/Drop-Bogen wie echtes Leuchtspurfeuer.
 const TRAIL_LEN := 9          # Anzahl gespeicherter Stützpunkte (länger = längere Spur)
@@ -32,7 +43,18 @@ func _physics_process(delta: float) -> void:
 	if life <= 0.0:
 		queue_free()
 		return
-	if kind == "missile" and guided:
+	if kind == "missile_drop":
+		_age += delta
+		if not _boosting:
+			vel.y -= DROP_G * delta            # Freifall-Phase (physikalischer Abwurf)
+			if _age >= boost_delay:
+				_ignite()                       # Motor zündet -> Turbo + Rauchfahne + Homing
+		else:
+			var dn := vel.normalized()
+			if dn.length() > 0.01:
+				vel = dn * minf(vel.length() + boost_accel * delta, boost_speed)
+			_home(delta)
+	elif kind == "missile" and guided:
 		_home(delta)
 	if gravity != 0.0:
 		vel.y -= gravity * delta   # Bullet-Drop / Bomben-Fall (ballistischer Bogen)
@@ -61,7 +83,7 @@ func _physics_process(delta: float) -> void:
 			_boom()
 			queue_free()
 			return
-	if kind == "bomb" and global_position.y <= 0.4:
+	if (kind == "bomb" or kind == "missile_drop") and global_position.y <= 0.4:
 		_boom()
 		queue_free()
 
@@ -71,7 +93,11 @@ func _home(delta: float) -> void:
 	# Sonst fliegt die Rakete geradeaus weiter.
 	# WICHTIG: _target erst auf Gültigkeit prüfen (Kurzschluss!), sonst wird ein
 	# bereits freigegebenes Ziel an _in_seek(t: Node3D) übergeben -> Typ-Check-Crash.
-	if not is_instance_valid(_target) or not _in_seek(_target):
+	if home_anywhere:
+		# Drop-Rakete: nächsten Ballon in Reichweite verfolgen, egal in welche Richtung.
+		if not is_instance_valid(_target) or global_position.distance_to(_target.global_position) > seek_range:
+			_target = _nearest_any()
+	elif not is_instance_valid(_target) or not _in_seek(_target):
 		_target = _nearest()
 	if is_instance_valid(_target):
 		var dir: Vector3 = (_target.global_position - global_position).normalized()
@@ -107,6 +133,77 @@ func _nearest() -> Node3D:
 	return best
 
 
+# Nächstes Ziel in Reichweite OHNE Kegel-Bedingung (Drop-Rakete darf voll herumkurven).
+func _nearest_any() -> Node3D:
+	var best: Node3D = null
+	var bd := seek_range
+	for t in get_tree().get_nodes_in_group("target"):
+		if not is_instance_valid(t):
+			continue
+		var d := global_position.distance_to(t.global_position)
+		if d < bd:
+			bd = d
+			best = t
+	return best
+
+
+# Motorzündung nach der Freifall-Phase: in Zielrichtung schwenken, Turbo + Rauchfahne an.
+func _ignite() -> void:
+	_boosting = true
+	guided = true
+	var tgt := _nearest_any()
+	var d: Vector3
+	if is_instance_valid(tgt):
+		d = (tgt.global_position - global_position).normalized()
+	else:
+		d = Vector3(vel.x, maxf(vel.y, 3.0), vel.z)   # sonst vorwärts, leicht steigend
+		if d.length() < 0.01:
+			d = -basis.z
+		d = d.normalized()
+	vel = d * maxf(vel.length(), 50.0)
+	_start_smoke()
+	if _trail_mi == null:
+		_make_trail()                                 # heller Schub-Streifen (Tracer-Band)
+	var par := get_parent()
+	if par != null and is_inside_tree():
+		_flash(par, global_position, 0.8)             # Zünd-Blitz
+
+
+# Dicke Rauchfahne hinter der Rakete (Partikel bleiben in der Welt stehen -> Schweif).
+func _start_smoke() -> void:
+	var sp := CPUParticles3D.new()
+	sp.local_coords = false
+	sp.amount = 46
+	sp.lifetime = 1.4
+	sp.emitting = true
+	sp.spread = 14.0
+	sp.initial_velocity_min = 0.5
+	sp.initial_velocity_max = 2.5
+	sp.gravity = Vector3(0, 1.2, 0)
+	var smesh := SphereMesh.new()
+	smesh.radius = 0.4
+	smesh.height = 0.8
+	var smat := StandardMaterial3D.new()
+	smat.albedo_color = Color(0.86, 0.87, 0.92, 0.55)
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smesh.material = smat
+	sp.mesh = smesh
+	# über die Lebenszeit wachsen (Rauch quillt auf)
+	var curve := Curve.new()
+	curve.add_point(Vector2(0.0, 0.5))
+	curve.add_point(Vector2(1.0, 2.2))
+	sp.scale_amount_curve = curve
+	# über die Lebenszeit ausblenden
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0.9, 0.91, 0.95, 0.6))
+	grad.set_color(1, Color(0.7, 0.72, 0.78, 0.0))
+	sp.color_ramp = grad
+	add_child(sp)
+	sp.position = Vector3(0, 0, 0.95)   # Austritt an der Düse (hinten)
+	_smoke = sp
+
+
 func _seg_dist(a: Vector3, b: Vector3, p: Vector3) -> float:
 	var ab := b - a
 	var l2 := ab.length_squared()
@@ -138,6 +235,44 @@ func _build_visual() -> void:
 		mi.rotation = Vector3(PI * 0.5, 0, 0)
 		m.albedo_color = Color(0.85, 0.86, 0.9)
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+	elif kind == "missile_drop":
+		# DICKE Rakete: fetter Körper + Nasenkonus + glühende Schubdüse hinten.
+		var bcm := CylinderMesh.new()
+		bcm.top_radius = 0.22
+		bcm.bottom_radius = 0.22
+		bcm.height = 1.7
+		mi.mesh = bcm
+		mi.rotation = Vector3(PI * 0.5, 0, 0)
+		m.albedo_color = Color(0.55, 0.58, 0.63)
+		m.metallic = 0.5
+		m.roughness = 0.4
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		var nose := MeshInstance3D.new()
+		var ncm := CylinderMesh.new()
+		ncm.top_radius = 0.0
+		ncm.bottom_radius = 0.22
+		ncm.height = 0.55
+		nose.mesh = ncm
+		nose.rotation = Vector3(-PI * 0.5, 0, 0)
+		nose.position = Vector3(0, 0, -1.12)   # vorne = -z
+		nose.material_override = m
+		add_child(nose)
+		var noz := MeshInstance3D.new()
+		var nzm := CylinderMesh.new()
+		nzm.top_radius = 0.16
+		nzm.bottom_radius = 0.27
+		nzm.height = 0.3
+		noz.mesh = nzm
+		noz.rotation = Vector3(PI * 0.5, 0, 0)
+		noz.position = Vector3(0, 0, 0.95)     # hinten = +z
+		var nmat := StandardMaterial3D.new()
+		nmat.albedo_color = Color(1.0, 0.5, 0.15)
+		nmat.emission_enabled = true
+		nmat.emission = Color(1.0, 0.45, 0.1)
+		nmat.emission_energy_multiplier = 3.0
+		nmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		noz.material_override = nmat
+		add_child(noz)
 	else:  # bomb
 		var sm := SphereMesh.new()
 		sm.radius = 0.3
@@ -210,6 +345,8 @@ func _boom() -> void:
 			amount = 80; pradius = 0.5; vmax = 34.0
 		"missile":
 			amount = 46; pradius = 0.32; vmax = 22.0
+		"missile_drop":
+			amount = 64; pradius = 0.42; vmax = 28.0
 		_:
 			amount = 14; pradius = 0.15; vmax = 9.0
 	var p := CPUParticles3D.new()

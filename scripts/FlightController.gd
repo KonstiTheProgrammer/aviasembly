@@ -14,7 +14,12 @@ const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const FREE_LOOK_SENS := 0.014   # Free-Look (C): flotter -> voll 360° mit normalem Swipe
 const FREE_LOOK_DIST := 14.0    # Free-Look: konstanter Orbit-Radius um die Flugzeug-Mitte
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
-const CAM_LOOK_ABOVE := 6.5     # Maus-Flug: Kamera blickt so viel ÜBER den Flieger -> er sitzt tief im unteren Bildbereich
+const CAM_HEIGHT := 4.5         # Maus-Flug: Kamerahöhe ÜBER dem Flieger = Blickpunkthöhe -> Kamera blickt
+                                # exakt entlang der Zielrichtung (Aim-Kreis mittig), Flieger sitzt tief im Bild
+const CAM_ZOOM_MIN := 0.45      # Mausrad-Zoom: nächster Abstand (Multiplikator)
+const CAM_ZOOM_MAX := 3.0       # ... weitester Abstand
+const CAM_ZOOM_STEP := 1.13     # Faktor pro Mausrad-Raste
+const CAM_ZOOM_SMOOTH := 7.0    # wie schnell der Zoom dem Ziel folgt (1/s; höher = schneller/härter)
 const CAM_SHAKE_DECAY := 2.8    # Kamera-Shake klingt so schnell ab (1/s)
 const CAM_SHAKE_POS := 1.1      # Shake-Positionsausschlag (m bei vollem Trauma) — satter Impact
 const CAM_SHAKE_ROLL := 0.1     # Shake-Rollausschlag (rad)
@@ -43,13 +48,14 @@ const MINIGUN_MAX_RPS := 46.0   # max. Lauf-Drehrate (rad/s)
 # Jede montierte Bombe/Rakete = GENAU 1 Stück. Beim Abfeuern verschwindet das Teil vom Modell
 # (queue_detach -> Aero neu). Mehr Munition = mehr Teile anbauen. Geschütze fehlen -> unbegrenzt.
 const AMMO := {
-	"rocket": 1, "salvo": 1, "missile": 1, "missile_heavy": 1, "bomb": 1,
+	"rocket": 1, "salvo": 1, "missile": 1, "missile_heavy": 1, "missile_drop": 1, "bomb": 1,
 }
 # Rückstoß-Impuls je Schuss (N·s, entgegen der Mündungsrichtung). Bei ~1200 kg ergibt 1200 ≈ 1 m/s
 # Tempoverlust. Schweres Kaliber/Raketen schubsen kräftig, MG nur leicht. Bombe: kein Rückstoß.
 const RECOIL := {
 	"mg": 180.0, "gun": 320.0, "autocannon": 900.0, "heavy": 2200.0, "minigun": 240.0,
 	"rocket": 1500.0, "salvo": 3000.0, "missile": 1300.0, "missile_heavy": 2600.0,
+	"missile_drop": 700.0,
 }
 
 # --- Maus-Flug (War-Thunder-Stil): Maus zeigt in eine WELTRICHTUNG (360°),
@@ -109,6 +115,9 @@ const AIM_YAW_D := 0.3          # Gier-Dämpfung
 const AIM_MARK_SMOOTH := 0.5    # Nasenmarker-Pixelglättung (Lerp/Frame)
 
 var camera: Camera3D
+var _cam_vfov := FOV_BASE        # geglätteter VERTIKALER FOV (16:9-Bezug; Ultrawide via ViewUtil)
+var cam_zoom := 1.0              # geglätteter Mausrad-Zoom im Flug (Abstand-Multiplikator)
+var cam_zoom_target := 1.0       # Ziel-Zoom: Mausrad setzt das, cam_zoom folgt weich nach
 var aircraft: AircraftBody
 var design: Array = []
 var throttle := 0.0
@@ -303,7 +312,7 @@ func build_from_design(d: Array) -> void:
 			# (y.y≈0) -> Fallback 1. surf_side (x-Seite) für gegensinnige Quer-/Flaperon-Ausschläge.
 			"surf_dn": (1.0 if absf(xf.basis.y.y) < 0.3 else signf(xf.basis.y.y)),
 			"surf_side": (1.0 if xf.origin.x >= 0.0 else -1.0),
-			"is_root": p.get("root", false),
+			"is_root": item.get("root", p.get("root", false)),   # Bauplan-Wurzel (Fallback: Katalog-Flag)
 			"is_wing": p.get("is_wing", false), "control": String(p.get("control", "")),
 			"mass": p.get("mass", 0.0) * vol,
 			"drag": PartCatalog.part_drag(p) * psc.x * psc.y,
@@ -412,12 +421,13 @@ func _physics_process(delta: float) -> void:
 		throttle -= 0.6 * delta
 	throttle = clamp(throttle, -0.4, 1.1)
 
-	# Pitch (S/↓ = Nase hoch, W/↑ = Nase runter)
+	# Pitch (S/= Nase hoch, W/= Nase runter)
 	var pitch := 0.0
 	if Input.is_physical_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
 		pitch += 1.0
 	if Input.is_physical_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
 		pitch -= 1.0
+	var pitch_key := pitch   # roher W/S-Befehl -> später VOLLER Override (volles Höhenruder sofort)
 	# Roll — A und D vertauscht (A = rechts, D = links)
 	var roll := 0.0
 	if Input.is_physical_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
@@ -633,12 +643,18 @@ func _physics_process(delta: float) -> void:
 		aircraft.in_pitch = _ramp(aircraft.in_pitch, pitch, delta, 4.0, 6.0)
 		aircraft.in_roll = _ramp(aircraft.in_roll, roll, delta, 7.0, 9.0)
 		aircraft.in_yaw = _ramp(aircraft.in_yaw, yaw, delta, 4.0, 6.0)
+	# W/S = SOFORT volles Höhenruder (manueller Override in BEIDEN Modi): voll hoch/runter lenken,
+	# ohne Rampe und ohne dass der Maus-Instructor dagegenhält. Loslassen -> normale Logik zentriert.
+	if pitch_key != 0.0:
+		aircraft.in_pitch = pitch_key
 
 	# --- Waffen (Cooldown pro Waffe) ------------------------------------
 	for w in weapons:
 		w["cd"] = maxf(0.0, w["cd"] - delta)
 	# Minigun: Spin-up/Spin-down + Läufe drehen (auch wenn nicht gefeuert wird)
-	var firing := Input.is_physical_key_pressed(KEY_SPACE)
+	# Feuern: Leertaste ODER linke Maustaste (nur im Flug aktiv, da _physics_process
+	# nur bei set_active(true) läuft -> im Hangar bleibt Linksklick fürs Bauen).
+	var firing := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	for w in weapons:
 		if w["type"] != "minigun":
 			continue
@@ -650,7 +666,7 @@ func _physics_process(delta: float) -> void:
 		var b = w.get("barrels")
 		if b != null and is_instance_valid(b):
 			b.rotate_z(float(w["spin"]) * MINIGUN_MAX_RPS * delta)
-	if Input.is_physical_key_pressed(KEY_SPACE):
+	if firing:
 		_fire_primary()
 	if Input.is_physical_key_pressed(KEY_B):
 		_drop_bomb()
@@ -712,6 +728,19 @@ func _fire_primary() -> void:
 					mh.seek_range = 110.0
 					w["cd"] = 1.7
 					fired = true
+				"missile_drop":
+					# Erst Freifall (physikalischer Abwurf), dann Turbo + Rauchfahne + Homing.
+					var dm := _spawn("missile_drop", pos, av + Vector3(0, -3.5, 0), 9.0, 9.0, 0.0, Color(1.0, 0.55, 0.15), 2.2)
+					if dm != null:
+						dm.guided = true
+						dm.home_anywhere = true
+						dm.turn = 3.2
+						dm.seek_range = 480.0
+						dm.boost_delay = 0.5
+						dm.boost_accel = 210.0
+						dm.boost_speed = 165.0
+					w["cd"] = 1.5
+					fired = true
 		if fired:
 			# (Mündungsfeuer auf Wunsch entfernt — kein Blitz/Partikel beim Schießen.)
 			# Rückstoß: Impuls entgegen der Mündungsrichtung (nach hinten = -fwd).
@@ -767,6 +796,14 @@ func _ramp(cur: float, target: float, delta: float, rise: float, fall: float) ->
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		# Mausrad = Kamera-Abstand (gilt für Maus-Flug, Verfolger UND Free-Look/C)
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			cam_zoom_target = clampf(cam_zoom_target / CAM_ZOOM_STEP, CAM_ZOOM_MIN, CAM_ZOOM_MAX)   # ranzoomen
+			return
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			cam_zoom_target = clampf(cam_zoom_target * CAM_ZOOM_STEP, CAM_ZOOM_MIN, CAM_ZOOM_MAX)   # rauszoomen
+			return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if free_look:
 			# Free-Look (C): Maus schwenkt nur die Kamera frei um den Flieger (voll 360°), lenkt NICHT.
@@ -899,7 +936,11 @@ func _process(delta: float) -> void:
 	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
 	# FOV-Speed-Zoom: weitet sich mit dem Tempo (sanft nachgeführt) -> Speed-Gefühl
 	var fov_target := lerpf(FOV_BASE, FOV_MAX, clampf(aircraft.airspeed / FOV_SPEED, 0.0, 1.0))
-	camera.fov = lerpf(camera.fov, fov_target, clampf(delta * 2.5, 0.0, 1.0))
+	# Glättung im vertikalen FOV halten, dann ultrawide-bewusst anwenden (kein Fischauge auf 32:9).
+	_cam_vfov = lerpf(_cam_vfov, fov_target, clampf(delta * 2.5, 0.0, 1.0))
+	ViewUtil.apply_vfov(camera, _cam_vfov)
+	# Mausrad-Zoom weich nachführen -> sanfte Distanz-Transition statt hartem Sprung pro Raste
+	cam_zoom = lerpf(cam_zoom, cam_zoom_target, clampf(delta * CAM_ZOOM_SMOOTH, 0.0, 1.0))
 	# INTERPOLIERTE Transform: das Flugzeug rendert seit physics_interpolation
 	# glatt mit Display-Rate — eine an der ROHEN 60-Hz-Physikposition verankerte
 	# Kamera ließe es relativ zur Kamera zittern (genau das gemeldete Beben).
@@ -916,7 +957,7 @@ func _process(delta: float) -> void:
 		_flook_was = true
 		# Nur die ORIENTIERUNG glätten; die POSITION folgt dem (auch schnellen) Flieger STARR -> kein Lag.
 		_flook_basis = _flook_basis.slerp(b_target, clampf(delta * 12.0, 0.0, 1.0)).orthonormalized()
-		camera.global_transform = Transform3D(_flook_basis, center + _flook_basis.z * FREE_LOOK_DIST)
+		camera.global_transform = Transform3D(_flook_basis, center + _flook_basis.z * (FREE_LOOK_DIST * cam_zoom))
 		_apply_cam_shake()
 		return
 	# Free-Look-Winkel sanft zurückstellen, wenn nicht (mehr) aktiv
@@ -933,13 +974,18 @@ func _process(delta: float) -> void:
 		# flippen -> kein sichtbarer Horizont-Sprung beim Senkrechtziehen.
 		var upk := clampf((absf(_cam_aim.dot(Vector3.UP)) - UP_BLEND_LO) / (UP_BLEND_HI - UP_BLEND_LO), 0.0, 1.0)
 		var up_ref := Vector3.UP.lerp(t.basis.y, upk).normalized()
-		var cam_pos := t.origin - _cam_aim * 12.0 + Vector3.UP * 3.2
+		# Kamera-Höhe UND Blickpunkt-Höhe GLEICH -> die Kamera blickt exakt entlang der
+		# Zielrichtung (_cam_aim), d.h. der Aim-Kreis sitzt MITTIG. Der Flieger sitzt durch die
+		# Kamerahöhe trotzdem tief im Bild. Höhe mit dem echten vertikalen FOV skalieren (32:9
+		# schmal) -> gleiches Framing auf jedem Seitenverhältnis. Abstand nur per Zoom.
+		var fov_fac := tan(ViewUtil.actual_vfov_rad(camera) * 0.5) / tan(deg_to_rad(FOV_BASE) * 0.5)
+		var cam_h := CAM_HEIGHT * fov_fac * cam_zoom
+		var cam_pos := t.origin - _cam_aim * (13.0 * cam_zoom) + Vector3.UP * cam_h
 		# Geschwindigkeits-Vorhalt: der 8/s-Lerp hinkt sonst ~v/8 m hinterher (bei 100 m/s
 		# über 12 m extra Abstand!) -> Vorhalt hält die Distanz auch bei Highspeed stabil.
 		cam_pos += aircraft.linear_velocity * (CAM_LEAD / 8.0)
 		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 8.0, 0.0, 1.0))
-		# Blickpunkt etwas ÜBER dem Flieger -> Kamera neigt sich hoch -> Flieger sitzt tiefer im Bild
-		camera.look_at(t.origin + _cam_aim * 30.0 + Vector3.UP * CAM_LOOK_ABOVE, up_ref)
+		camera.look_at(t.origin + _cam_aim * 30.0 + Vector3.UP * cam_h, up_ref)
 		_apply_cam_shake()
 		return
 	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
@@ -974,12 +1020,12 @@ func _apply_cam_shake() -> void:
 # Kamera-Versatz hinter dem Flugzeug, per Umschau-Winkeln (look_yaw/pitch) gedreht.
 # look=0 -> klassische Verfolgeransicht.
 func _cam_offset(t: Transform3D) -> Vector3:
-	var base: Vector3 = t.basis.z.normalized() * 11.0 + Vector3.UP * 3.8
+	var base: Vector3 = t.basis.z.normalized() * 12.0 + Vector3.UP * 3.8
 	var off: Vector3 = Basis(Vector3.UP, look_yaw) * base
 	var rightax: Vector3 = off.cross(Vector3.UP)
 	if rightax.length() > 0.01:
 		off = Basis(rightax.normalized(), look_pitch) * off
-	return off
+	return off * cam_zoom
 
 
 func _snap_camera() -> void:
@@ -1061,7 +1107,7 @@ func _ammo_text() -> String:
 			"rocket", "salvo":
 				has_r = true
 				rockets += maxi(a, 0)
-			"missile", "missile_heavy":
+			"missile", "missile_heavy", "missile_drop":
 				has_m = true
 				missiles += maxi(a, 0)
 			"bomb":
@@ -1069,11 +1115,11 @@ func _ammo_text() -> String:
 				bombs += maxi(a, 0)
 	var parts: Array = []
 	if has_r:
-		parts.append("🚀 %d" % rockets)
+		parts.append("Rak. %d" % rockets)
 	if has_m:
-		parts.append("🎯 %d" % missiles)
+		parts.append("Lenk. %d" % missiles)
 	if has_b:
-		parts.append("💣 %d" % bombs)
+		parts.append("Bomben %d" % bombs)
 	return "   ".join(parts)
 
 
@@ -1086,7 +1132,7 @@ func _heading_deg() -> float:
 func _has_guided_ammo() -> bool:
 	for w in weapons:
 		var ty: String = w.get("type", "")
-		if ty == "missile" or ty == "missile_heavy":
+		if ty == "missile" or ty == "missile_heavy" or ty == "missile_drop":
 			if int(w.get("ammo", -1)) != 0:
 				return true
 	return false

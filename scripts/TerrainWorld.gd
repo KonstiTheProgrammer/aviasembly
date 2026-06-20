@@ -556,14 +556,14 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 		return Color(0.88, 0.79, 0.60)        # warmer, heller Sandstrand/Ufer
 	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die GIPFEL weiß,
 	# breite FELS-Flanken darunter (sonst wird der Berg ein weißer Klumpen).
-	if cen.y > 158.0:
-		return Color(0.95, 0.95, 0.97)        # Schnee nur auf den höchsten Gipfeln
-	if cen.y > 132.0 and ny > 0.5:
-		return Color(0.56, 0.53, 0.53).lerp(Color(0.95, 0.95, 0.97),
-			clampf((cen.y - 132.0) / 26.0, 0.0, 1.0))   # Schnee-Übergang
+	if cen.y > 188.0:
+		return Color(0.87, 0.88, 0.91)        # Schnee NUR auf den höchsten Gipfeln (gebrochenes Weiß)
+	if cen.y > 160.0 and ny > 0.5:
+		return Color(0.56, 0.53, 0.53).lerp(Color(0.87, 0.88, 0.91),
+			clampf((cen.y - 160.0) / 28.0, 0.0, 1.0))   # schmaler Schnee-Übergang (mehr Fels sichtbar)
 	if cen.y > 52.0 or ny < 0.70:
-		# Fels: heller in der Höhe, dunkler/wärmer unten -> sichtbare Bergform
-		return Color(0.46, 0.43, 0.42).lerp(Color(0.60, 0.58, 0.57),
+		# Fels: satt grau-braun (nicht pastell-weiß); etwas heller in der Höhe für Bergform
+		return Color(0.38, 0.34, 0.31).lerp(Color(0.52, 0.49, 0.46),
 			clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	match biome_at(cen.x, cen.z):
@@ -584,13 +584,13 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 			return Color(0.74, 0.68, 0.50).lerp(Color(0.66, 0.58, 0.50),
 				clampf(t * 0.6 + 0.5, 0.0, 1.0))
 		_:
-			# Wald/Wiese: gedämpftes Sage-Grün + Rosé-/Sand-Flecken
-			if t < -0.40:
-				return Color(0.72, 0.62, 0.62) # staubige Rosé-Flecken
-			if t > 0.42:
-				return Color(0.83, 0.75, 0.57) # warme Lichtungs-/Sandflecken
-			var g1 := Color(0.60, 0.69, 0.47)  # helles Sage-Grün
-			var g2 := Color(0.51, 0.60, 0.43)  # tieferes Sage
+			# Wald/Wiese: SATTES Wiesen-Grün, nur wenige dezente Flecken (kein blasses Mint mehr)
+			if t < -0.55:
+				return Color(0.50, 0.52, 0.40) # seltener erdiger Fleck
+			if t > 0.55:
+				return Color(0.62, 0.62, 0.44) # seltener trockener Gras-Fleck
+			var g1 := Color(0.40, 0.55, 0.33)  # sattes Wiesen-Grün
+			var g2 := Color(0.31, 0.45, 0.28)  # tieferes Grün
 			return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
 
 

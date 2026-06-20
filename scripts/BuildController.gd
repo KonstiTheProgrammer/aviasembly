@@ -15,6 +15,9 @@ var camera: Camera3D
 
 var design_root: Node3D
 var ghost: Node3D
+var _ghost_built_id := ""        # mit welcher Teil-ID das Hologramm aktuell gebaut ist (für Modell-Swap)
+var _ghost_mats: Array = []      # Material-Overrides des Hologramms (zum Umfärben gültig/ungültig)
+var _ghost_valid := true         # aktuelle Hologramm-Einfärbung (grün=platzierbar / rot=nicht)
 var brush_id := ""           # aktuell gewähltes Teil aus der Palette ("" = kein Teil)
 var erase_mode := false      # Abriss-Werkzeug
 var symmetry := true
@@ -241,28 +244,79 @@ func _update_camera() -> void:
 	# Bei einer Blueprint-Ansicht orthografisch (kein Perspektiv-Verzerren beim Ausrichten).
 	if _ortho_view > 0:
 		camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+		camera.keep_aspect = Camera3D.KEEP_HEIGHT   # ortho: size = Höhe (unverzerrt, wie bisher)
 		camera.size = orbit_dist
 	else:
 		camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+		ViewUtil.apply_vfov(camera, 64.0)           # 64° vertikal (16:9); Ultrawide -> kein Fischauge
 	var up := Vector3.UP if _ortho_view != 3 else Vector3(0, 0, -1)  # Oben-Ansicht: Nase nach oben im Bild
 	camera.look_at(orbit_focus, up)
 
 
 func _update_ghost() -> void:
 	var id := _active_id()
-	if ghost == null or id == "":
+	if id == "":
 		if ghost:
 			ghost.visible = false
 		return
 	var snap := _compute_snap_for(id, _raycast_mouse())
+	# Modell ggf. tauschen (z.B. Prop-Motor am Rumpf -> bündige Cowl) -> Vorschau passt zum Ergebnis.
+	var eid: String = String(snap.get("id", id))
+	if eid != _ghost_built_id:
+		_rebuild_ghost(eid)
+	if ghost == null:
+		return
 	if snap.get("valid", false):
+		# Gültiger Andockpunkt -> Hologramm rastet ein, grün = platzierbar.
 		_last_valid = true
 		_last_xform = snap["xform"]
 		ghost.transform = _last_xform
+		ghost.scale = snap.get("scale", Vector3.ONE)   # Vorschau der übernommenen Breite/Höhe
 		ghost.visible = true
+		_set_ghost_valid(true)
 	else:
+		# Kein Andockpunkt -> Hologramm trotzdem zeigen (frei unter dem Cursor),
+		# rot = "hier nicht platzierbar". Gesetzt wird erst auf einem gültigen Punkt.
 		_last_valid = false
-		ghost.visible = false
+		ghost.transform = _free_ghost_xform()
+		ghost.scale = Vector3.ONE
+		ghost.visible = true
+		_set_ghost_valid(false)
+
+
+# Hologramm einfärben: grün = platzierbar, rot = (noch) nicht platzierbar.
+func _set_ghost_valid(valid: bool) -> void:
+	if valid == _ghost_valid:
+		return
+	_ghost_valid = valid
+	var alb := Color(0.4, 1.0, 0.55, 0.45) if valid else Color(1.0, 0.42, 0.36, 0.42)
+	var emi := Color(0.2, 0.8, 0.3) if valid else Color(0.95, 0.3, 0.22)
+	for m in _ghost_mats:
+		if m != null:
+			m.albedo_color = alb
+			m.emission = emi
+
+
+# Welt-Punkt unter der Maus (Schnitt mit der Bau-Ebene y=0, sonst fester Abstand).
+func _mouse_world_point() -> Vector3:
+	if camera == null:
+		return Vector3.ZERO
+	var mp := get_viewport().get_mouse_position()
+	var from := camera.project_ray_origin(mp)
+	var dir := camera.project_ray_normal(mp)
+	if absf(dir.y) > 0.0001:
+		var t := -from.y / dir.y
+		if t > 0.0:
+			return from + dir * t
+	return from + dir * maxf(orbit_dist, 6.0)
+
+
+# Transform des frei schwebenden Hologramms (kein Snap).
+func _free_ghost_xform() -> Transform3D:
+	var b := Basis.IDENTITY
+	if ghost_rot != 0:
+		b = Basis(Vector3.UP, deg_to_rad(90.0 * ghost_rot))
+	return Transform3D(b, _mouse_world_point())
 
 
 # ---------------------------------------------------------------------------
@@ -410,7 +464,10 @@ func _on_left_release() -> void:
 		else:
 			var snap := _compute_snap_for(carry_id, _raycast_mouse())
 			if snap.get("valid", false):
-				_place_id(carry_id, snap["xform"], _carry_scale, _carry_color)
+				# Auto-Fit liefert ggf. eine angepasste Größe (Breite/Höhe vom Zielteil) und ein
+				# anderes Modell (z.B. Prop-Motor -> bündige Cowl) inkl. übernommener Farbe.
+				_place_id(snap.get("id", carry_id), snap["xform"],
+					snap.get("scale", _carry_scale), snap.get("color", _carry_color))
 				placed = true
 			elif _carry_existing:
 				_place_id(carry_id, _carry_orig, _carry_scale, _carry_color)  # ungültig -> zurück
@@ -572,7 +629,9 @@ func tilt_selected() -> void:
 
 
 func delete_selected() -> void:
-	if selected_part == null or selected_part.get_meta("is_root", false):
+	# Alles löschbar — auch die Wurzel. Ist danach kein Teil mehr da, ist der Bauraum leer
+	# und das nächste platzierte Teil startet (zentriert) einen neuen Bauplan.
+	if selected_part == null:
 		return
 	var part := selected_part
 	_deselect()
@@ -594,18 +653,16 @@ func _on_right_click() -> void:
 		return
 	if part != selected_part:
 		_select_part(part)
-	var is_root: bool = bool(part.get_meta("is_root", false))
 	_ctx_menu.clear()
-	_ctx_menu.add_item("✥  Bewegen", 0)
+	_ctx_menu.add_item("Bewegen", 0)
 	_ctx_menu.add_item("⟳  Drehen", 1)
 	_ctx_menu.add_item("⤢  Skalieren", 2)
 	# Enden X/Y getrennt skalieren — nur für Rumpfsegmente (biends): 4 Vierecke vorne/hinten.
 	if PartCatalog.get_part(part.get_meta("part_id")).get("biends", false):
-		_ctx_menu.add_item("⇿  Enden skalieren (X/Y)", 5)
+		_ctx_menu.add_item("Enden skalieren (X/Y)", 5)
 	_ctx_menu.add_separator()
-	_ctx_menu.add_item("↺  Umdrehen (180°)", 3)
-	_ctx_menu.add_item("🗑  Löschen", 4)
-	_ctx_menu.set_item_disabled(_ctx_menu.get_item_index(4), is_root)
+	_ctx_menu.add_item("Umdrehen (180°)", 3)
+	_ctx_menu.add_item("Löschen", 4)   # auch die Wurzel ist löschbar
 	_ctx_menu.reset_size()
 	_ctx_menu.popup(Rect2i(Vector2i(get_viewport().get_mouse_position()), Vector2i.ZERO))
 
@@ -1133,10 +1190,20 @@ func _update_transform_drag() -> void:
 		var s0: float = [_drag_scale0.x, _drag_scale0.y, _drag_scale0.z][i]
 		var half0: float = base_i * s0 * 0.5
 		var t := _ray_axis_t(_drag_origin0, _drag_axis_w)
-		var new_half: float = maxf(half0 + (t - _drag_t0), base_i * 0.125)
-		# gezogene Fläche aufs Raster bzw. magnetisch bündig an eine Nachbar-Fläche
-		var face_off: float = _snap_scale_face(selected_part, 2.0 * new_half - half0)
-		new_half = maxf((face_off + half0) * 0.5, base_i * 0.125)
+		var d := t - _drag_t0                                        # Mausweg entlang der Achse
+		# Die GEZOGENE Fläche folgt der Maus EXAKT 1:1 (kein Raster, kein Magnet) -> der Würfel
+		# klebt am Cursor. X/Y skalieren SYMMETRISCH (Zentrum fix, beide Seiten wachsen gleich),
+		# Z (Länge) verankert (Gegenfläche fix). Bei verankert wandert das Zentrum mit, daher
+		# ändert sich die Halb-Größe nur um den HALBEN Mausweg (sonst liefe die Fläche 2× voraus).
+		var symmetric := (i != 2)
+		var new_half: float
+		var origin: Vector3
+		if symmetric:
+			new_half = maxf(half0 + d, base_i * 0.125)
+			origin = _drag_origin0
+		else:
+			new_half = maxf(half0 + d * 0.5, base_i * 0.125)
+			origin = _drag_origin0 + _drag_axis_w * (new_half - half0)
 		var new_s: float = clampf(new_half * 2.0 / base_i, 0.25, 6.0)
 		var sc := _drag_scale0
 		if Input.is_key_pressed(KEY_SHIFT):
@@ -1156,11 +1223,8 @@ func _update_transform_drag() -> void:
 			sc.y = new_s
 		else:
 			sc.z = new_s
-		# Mittelpunkt um die VOLLE Größenänderung verschieben -> die gegenüberliegende
-		# (angeheftete) Fläche bleibt exakt fix -> kein Spalt/Überlappung zum Nachbarteil.
-		var moved: float = base_i * new_s * 0.5 - half0
-		var origin := _drag_origin0 + _drag_axis_w * moved
 		_apply_sel_transform(selected_part.transform.basis, origin, sc)
+		_update_handles()   # gezogenen Würfel dem Cursor nachführen -> klebt an der Maus
 	elif _moving_sel:
 		# 1) Zeigt die Maus auf ein ANDERES Teil -> bündig auf DESSEN Fläche snappen
 		#    (wie beim Setzen aus der Palette: das Teil dockt da an, wo man hinzeigt).
@@ -1786,6 +1850,11 @@ func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0
 	if id == "":
 		return null
 	var part := _make_part(id, t, col, pscale, taper, taper_front, taper_y, taper_front_y)
+	# Erstes Teil im (vorher) leeren/wurzellosen Bauraum = WURZEL -> Start des Bauplans.
+	# (_make_part hat die neue Teil-Wurzel auf false gesetzt; has_root() sieht also nur
+	#  bereits vorhandene Wurzeln.)
+	if not has_root():
+		part.set_meta("is_root", true)
 	if symmetry and absf(t.origin.x) > _mirror_threshold(id, pscale):
 		var mt := _mirror_xform(t)
 		var mpart := _make_part(id, mt, col, pscale, taper, taper_front, taper_y, taper_front_y)
@@ -1799,7 +1868,7 @@ func _place_id(id: String, t: Transform3D, pscale := Vector3.ONE, col := Color(0
 
 func _delete_hovered() -> void:
 	var part := _pick_part_at_mouse()
-	if part == null or part.get_meta("is_root", false):
+	if part == null:
 		return
 	if part == selected_part:
 		_deselect()
@@ -1818,7 +1887,9 @@ func _make_part(id: String, xform: Transform3D, col := Color(0, 0, 0, 0),
 	var part := Node3D.new()
 	part.add_to_group("part")
 	part.set_meta("part_id", id)
-	part.set_meta("is_root", p.get("root", false))
+	# Wurzel wird NICHT mehr automatisch aus dem Katalog-Flag gesetzt, sondern explizit:
+	# das ERSTE platzierte Teil (_place_id) bzw. beim Laden (load_design/_ensure_root).
+	part.set_meta("is_root", false)
 	part.set_meta("color", col)
 	# taper/taper_front = X-Skalierung hinten/vorne (< 0 -> Teil-Default, 1.0 = voll).
 	# taper_y/taper_front_y = separate Y-Skalierung (< 0 -> wie X, gleichförmig).
@@ -1910,19 +1981,54 @@ func _refresh_all_wing_fill() -> void:
 # Snapping-Mathematik
 # ---------------------------------------------------------------------------
 func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
-	if id == "" or hit.is_empty():
+	if id == "":
+		return {"valid": false}
+	var p := PartCatalog.get_part(id)
+	if p.is_empty():
+		return {"valid": false}
+	# ERSTES Teil im leeren Bauraum: zentriert auf den Ursprung (0,0,0) -> hier startet der
+	# Bauplan. Egal wo die Maus ist, das erste Cockpit kommt in die Mitte.
+	if _design_empty():
+		var b0 := Basis()
+		if ghost_rot != 0:
+			b0 = Basis(Vector3.UP, deg_to_rad(90.0 * ghost_rot))
+		return {"valid": true, "xform": Transform3D(b0, Vector3.ZERO)}
+	if hit.is_empty():
 		return {"valid": false}
 	var part := _part_from_hit(hit)
 	if part == null:
 		return {"valid": false}
 	var n: Vector3 = hit["normal"].normalized()
 	var surface: Vector3 = hit["position"]
-	var p := PartCatalog.get_part(id)
-	if p.is_empty():
-		return {"valid": false}
+
+	# AUTO-FIT Rumpf-an-Rumpf: neues Rumpfteil koaxial & bündig ans getroffene Ende setzen
+	# und Breite/Höhe an den Querschnitt des Zielteils anpassen ("in der Mitte", gleiche Größe).
+	if _is_fuselage(p) and _is_fuselage(PartCatalog.get_part(part.get_meta("part_id"))):
+		var fit := _fuselage_fit(p, part, n)
+		if not fit.is_empty():
+			return fit
+
+	# AUTO-FIT Prop-Motor an Rumpf: bündige Bugmotor-Cowl, Querschnitt = Rumpf (geht perfekt über).
+	# Statt der freistehenden Gondel wird die "prop_engine_nose"-Variante gesetzt.
+	if _is_prop_engine(p) and _is_fuselage(PartCatalog.get_part(part.get_meta("part_id"))):
+		var nose_def := PartCatalog.get_part("prop_engine_nose")
+		var nfit := _fuselage_fit(nose_def, part, n)
+		if not nfit.is_empty():
+			# Das Modell ist hinten FLACH durchgeschnitten -> setzt direkt bündig an (kein Versenken,
+			# keine Geometrie im Rumpf). Querschnitt kommt per Auto-Fit auf die Rumpfgröße.
+			nfit["id"] = "prop_engine_nose"
+			nfit["color"] = part.get_meta("color", Color(0, 0, 0, 0))   # Rumpffarbe -> Übergang
+			return nfit
 
 	if p.get("orient_normal", false):
-		var ori := _orient_to_normal(n)
+		# Flügel beim Platzieren IMMER level (Auftrieb nach oben, Spannweite horizontal auswärts) —
+		# egal wie schräg die Rumpf-Rundung die Normale macht. Senkrechte Flosse (yaw) folgt der
+		# Fläche (oben getroffen = vertikal). R dreht/kippt erst danach in andere Richtungen.
+		var ori: Basis
+		if String(p.get("control", "")) == "yaw":
+			ori = _orient_to_normal(n)
+		else:
+			ori = _wing_level_orient(n)
 		if ghost_rot != 0:
 			# R kippt den Flügel um die Sehne (0/30/60/90°): senkrecht -> Rollsteuerung
 			ori = ori * Basis(Vector3(0, 0, 1), deg_to_rad(30.0 * ghost_rot))
@@ -1951,6 +2057,68 @@ func _orient_to_normal(n: Vector3) -> Basis:
 	var z := x.cross(y).normalized()
 	y = z.cross(x).normalized()
 	return Basis(x, y, z).orthonormalized()
+
+
+# Waagerechter Flügel, IMMER level: Spannweite = horizontale Auswärtsrichtung (Y aus der Normale
+# entfernt, damit die Rumpf-Rundung den Flügel nicht verkippt), Auftrieb nach oben. R kippt dann.
+func _wing_level_orient(n: Vector3) -> Basis:
+	var x := Vector3(n.x, 0.0, n.z)
+	if x.length() < 0.05:
+		x = Vector3.RIGHT                 # senkrecht getroffen (oben/unten) -> Standard-Spannweite +X
+	x = x.normalized()
+	var y := Vector3.UP                   # Auftrieb immer nach oben
+	var z := x.cross(y).normalized()
+	y = z.cross(x).normalized()
+	return Basis(x, y, z).orthonormalized()
+
+
+# Ist das ein Rumpfteil? (Kategorie "Rumpf", kein Flügel) -> nimmt am Auto-Fit teil.
+func _is_fuselage(p: Dictionary) -> bool:
+	return p.get("category", "") == PartCatalog.CAT_BODY and not p.get("is_wing", false)
+
+
+# Freistehender Propellermotor (Form "prop") -> bekommt am Rumpf die bündige Cowl-Variante.
+func _is_prop_engine(p: Dictionary) -> bool:
+	return p.get("shape", "") == "prop"
+
+
+# Auto-Fit: neues Rumpfteil koaxial & bündig an die getroffene Fläche des Zielteils setzen
+# und seine Breite/Höhe (die beiden Querschnitt-Achsen) an das Zielteil anpassen.
+# Liefert {valid, xform, scale} — scale = die übernommene pscale.
+func _fuselage_fit(pd: Dictionary, target: Node3D, n: Vector3) -> Dictionary:
+	var tdef := PartCatalog.get_part(target.get_meta("part_id"))
+	if tdef.is_empty():
+		return {}
+	var tb := target.global_transform.basis.orthonormalized()
+	var tsc: Vector3 = target.get_meta("pscale", Vector3.ONE)
+	var tcs := PartCatalog.col_size(tdef)          # Einheits-Boxgröße Ziel
+	var ncs := PartCatalog.col_size(pd)            # Einheits-Boxgröße neues Teil
+	# Getroffene Fläche -> dominante Achse + Vorzeichen im Lokalsystem des Ziels
+	var ln := tb.inverse() * n
+	var axis := 0
+	if absf(ln.y) >= absf(ln.x) and absf(ln.y) >= absf(ln.z):
+		axis = 1
+	elif absf(ln.z) >= absf(ln.x) and absf(ln.z) >= absf(ln.y):
+		axis = 2
+	var sgn := 1.0 if ln[axis] >= 0.0 else -1.0
+	# Querschnitt (die beiden ANDEREN Achsen): Breite/Höhe vom Ziel übernehmen.
+	var ns := Vector3.ONE
+	for a in 3:
+		if a == axis:
+			continue
+		var val: float = (tcs[a] * tsc[a]) / maxf(ncs[a], 0.001)
+		if a == 0: ns.x = val
+		elif a == 1: ns.y = val
+		else: ns.z = val
+	ns = ns.clamp(Vector3(0.25, 0.25, 0.25), Vector3(6, 6, 6))
+	# Bündig ans getroffene Ende, koaxial (kein Quer-Versatz = "perfekt in der Mitte").
+	var half_t: float = tcs[axis] * tsc[axis] * 0.5
+	var half_n: float = ncs[axis] * ns[axis] * 0.5
+	var dir := (tb * _axis_vec(axis)) * sgn
+	var tcenter := target.global_position + tb * (PartCatalog.col_offset(tdef) * tsc)
+	var new_center := tcenter + dir * (half_t + half_n)
+	var origin := new_center - tb * (PartCatalog.col_offset(pd) * ns)
+	return {"valid": true, "xform": Transform3D(tb, origin), "scale": ns}
 
 
 func _snap_tangential(origin: Vector3, n: Vector3, grid: float) -> Vector3:
@@ -2054,17 +2222,18 @@ func _snap_to_neighbors(part: Node3D, pos: Vector3, only_axis := -1) -> Vector3:
 # Skalieren: Offset der gezogenen Fläche (von _drag_origin0 entlang _drag_axis_w) aufs Raster
 # bzw. magnetisch an eine Nachbar-Fläche einrasten. Gibt den evtl. gesnappten Offset zurück.
 func _snap_scale_face(part: Node3D, face_off: float) -> float:
+	# Skalieren folgt EXAKT der Maus (kein Raster) — nur magnetisch bündig an eine Nachbar-
+	# Fläche, wenn man nah dran ist. So scrubt die Größe 1:1 mit der Mausbewegung.
 	if not snap_enabled:
 		return face_off
-	var grid_off: float = roundf(face_off / SCALE_GRID) * SCALE_GRID
 	var axw := _drag_axis_w
 	var k := 0
 	if absf(axw.y) > absf(axw[k]):
 		k = 1
 	if absf(axw.z) > absf(axw[k]):
 		k = 2
-	if absf(axw[k]) < 0.94:                          # nicht achsenparallel -> nur Raster
-		return grid_off
+	if absf(axw[k]) < 0.94:                          # nicht achsenparallel -> exakt (kein Magnet)
+		return face_off
 	var dir: float = signf(axw[k])
 	var face_k: float = _drag_origin0[k] + axw[k] * face_off
 	var my := _part_world_aabb(part)
@@ -2098,7 +2267,7 @@ func _snap_scale_face(part: Node3D, face_off: float) -> float:
 				best = cand
 	if best_aff > 0:
 		return (best - _drag_origin0[k]) * dir
-	return grid_off
+	return face_off                                  # kein Nachbar -> exakt der Maus folgen
 
 
 func _mirror_xform(t: Transform3D) -> Transform3D:
@@ -2177,15 +2346,19 @@ func _part_from_hit(hit: Dictionary) -> Node3D:
 # ---------------------------------------------------------------------------
 # Ghost-Vorschau
 # ---------------------------------------------------------------------------
-func _rebuild_ghost() -> void:
+func _rebuild_ghost(override_id := "") -> void:
 	if ghost:
 		ghost.queue_free()
 		ghost = null
 	_last_valid = false
-	var id := _active_id()
+	_ghost_built_id = ""
+	var id := override_id if override_id != "" else _active_id()
 	if id == "" or not PartCatalog.has(id):
 		return
 	ghost = PartCatalog.build_visual(PartCatalog.get_part(id))
+	_ghost_built_id = id
+	_ghost_mats.clear()
+	_ghost_valid = true
 	_apply_ghost_material(ghost)
 	ghost.visible = false
 	add_child(ghost)
@@ -2203,6 +2376,7 @@ func _apply_ghost_material(node: Node) -> void:
 		m.emission = Color(0.2, 0.8, 0.3)
 		m.emission_energy_multiplier = 0.3
 		node.material_override = m
+		_ghost_mats.append(m)
 
 
 # ---------------------------------------------------------------------------
@@ -2215,6 +2389,7 @@ func get_design() -> Array:
 			out.append({
 				"id": child.get_meta("part_id"),
 				"xform": child.transform,
+				"root": child.get_meta("is_root", false),   # Wurzel/Start des Bauplans
 				"color": child.get_meta("color", Color(0, 0, 0, 0)),
 				"scale": child.get_meta("pscale", Vector3.ONE),
 				"taper": child.get_meta("taper", 1.0),
@@ -2237,6 +2412,8 @@ func load_design(arr: Array) -> void:
 				item.get("taper", -1.0), item.get("taper_front", -1.0),
 				item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 			np.set_meta("thrust_reverse", bool(item.get("thrust_reverse", false)))
+			if item.has("root"):   # gespeicherte Wurzel exakt wiederherstellen (neue Saves)
+				np.set_meta("is_root", bool(item["root"]))
 	_ensure_root()
 	_relink_mirrors()
 	_refresh_all_wing_fill()    # Mittelspalt-Füllung der geladenen Flügel herstellen
@@ -2285,8 +2462,9 @@ func _relink_mirrors() -> void:
 
 
 func clear_design() -> void:
+	# Komplett leeren — KEIN automatisches Cockpit mehr. Das nächste platzierte Teil
+	# startet (zentriert auf den Ursprung) einen neuen Bauplan.
 	_clear_nodes()
-	_make_part("cockpit", Transform3D(Basis(), Vector3.ZERO))
 	_push_history()
 	_notify_changed()
 
@@ -2299,10 +2477,22 @@ func _clear_nodes() -> void:
 
 
 func _ensure_root() -> void:
+	# Stellt sicher, dass eine Wurzel markiert ist — erzeugt aber KEIN Phantom-Cockpit mehr.
+	# Leeres Design bleibt leer. Hat ein geladenes Design (alter Save/Vorlage) keine markierte
+	# Wurzel, wird bevorzugt ein Cockpit, sonst das erste Teil zur Wurzel befördert.
+	var parts: Array = []
 	for child in design_root.get_children():
-		if child.is_in_group("part") and child.get_meta("is_root", false):
+		if child.is_in_group("part"):
+			if child.get_meta("is_root", false):
+				return
+			parts.append(child)
+	if parts.is_empty():
+		return
+	for c in parts:
+		if PartCatalog.get_part(c.get_meta("part_id")).get("root", false):
+			c.set_meta("is_root", true)
 			return
-	_make_part("cockpit", Transform3D(Basis(), Vector3.ZERO))
+	parts[0].set_meta("is_root", true)
 
 
 # ---------------------------------------------------------------------------
@@ -2322,6 +2512,8 @@ func compute_stats() -> Dictionary:
 	var com := Vector3.ZERO
 	var col := Vector3.ZERO
 	var col_w := 0.0
+	var z_lo := INF         # Längs-Ausdehnung (Nase -Z .. Heck +Z) für die grafische Balance-Achse
+	var z_hi := -INF
 	# Rumpf-Boxen (Nicht-Flügel) für den Vergrabungs-Test
 	var body_boxes: Array = []
 	for child in design_root.get_children():
@@ -2340,6 +2532,8 @@ func compute_stats() -> Dictionary:
 		var m: float = p.get("mass", 0.0) * vol
 		mass += m
 		n += 1
+		z_lo = minf(z_lo, child.position.z)
+		z_hi = maxf(z_hi, child.position.z)
 		var et: float = p.get("thrust", 0.0) * vol
 		thrust += et
 		if et > 0.0:
@@ -2367,6 +2561,9 @@ func compute_stats() -> Dictionary:
 		com /= mass
 	if col_w > 0.0:
 		col /= col_w
+	if n == 0:                  # leeres Design: z-Achse endlich halten (kein INF)
+		z_lo = 0.0
+		z_hi = 0.0
 	# Schub-Drehmoment um den COM: außermittige/schräge Triebwerke kippen/drehen das Flugzeug.
 	# thrust_offset = |Drehmoment| / Schub = effektiver Hebel (m), um den der Netto-Schub am COM
 	# vorbeizieht. 0 = ausbalanciert (symmetrisch / auf der COM-Achse), groß = kippt unter Last.
@@ -2387,6 +2584,7 @@ func compute_stats() -> Dictionary:
 		"has_gear": gear_cap > 0.0, "drag_area": drag_area,
 		"max_g": max_g, "has_wings": wing_cap > 0.0,
 		"up_tw": up_tw, "thrust_offset": thrust_offset,
+		"z_min": z_lo, "z_max": z_hi,
 	}
 
 
@@ -2457,6 +2655,22 @@ func floating_parts() -> Array:
 
 func has_floating() -> bool:
 	return floating_parts().size() > 0
+
+
+# Leerer Bauraum? (kein einziges Teil)
+func _design_empty() -> bool:
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			return false
+	return true
+
+
+# Gibt es ein als Wurzel markiertes Teil? (sonst kein gültiger Bauplan -> Start blockiert)
+func has_root() -> bool:
+	for c in design_root.get_children():
+		if c.is_in_group("part") and c.get_meta("is_root", false):
+			return true
+	return false
 
 
 func floating_count() -> int:

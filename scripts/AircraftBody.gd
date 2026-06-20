@@ -56,7 +56,7 @@ const ARCADE_RESP := 6.0      # Arcade: wie schnell/smooth die Orientierung aufs
 const ARCADE_VEL := 2.6       # Arcade: wie schnell die Geschwindigkeit der Nase folgt (fliegt wohin sie zeigt, kein Schlittern)
 const BARREL_RATE := 5.0      # Fass-Roll: Ziel-Rollrate (rad/s) ~ 1 Rolle / 1,25 s (physikalisch geregelt)
 const BARREL_GAIN := 0.9      # Fass-Roll: P-Anteil Rollraten-Regler (sanftes Anrollen)
-const AB_BOOST := 0.5         # Nachbrenner: Extra-Schub für Jets in der AB-Zone (100→110 % = +50 %)
+const AB_BOOST := 0.5         # Nachbrenner: Extra-Schub für Jets in der AB-Zone (100110 % = +50 %)
 const AB_SPOOL_UP := 2.2      # Nachbrenner zündet nicht schlagartig — er spult hoch (exp. Rate, ~1 s auf voll)
 const AB_SPOOL_DN := 3.5      # ... und brennt beim Zurücknehmen schneller ab
 # Triebwerks-Trägheit: der Schub kommt nicht sofort, die Turbine/der Propeller spult hoch
@@ -94,6 +94,7 @@ var _flap_vis := 0.0          # geglättete sichtbare Klappenstellung 0..1 (fäh
 const FLAP_MAX_DEG := 40.0    # max. Klappenausschlag bei voll Klappen
 const FLAP_RATE := 0.28       # Ausfahr-/Einfahrgeschwindigkeit (1/s): voll ~3.5 s, pro Stufe ~1.8 s (realistisch träge)
 const FLAPERON_DEG := 12.0    # zusätzl. gegensinniger Klappen-Ausschlag bei Roll (Flaperon -> Roll sichtbar)
+const ELEVON_DEG := 18.0      # zusätzl. GLEICHSINNiger Klappen-Ausschlag bei Pitch (Elevon -> Nick an den großen Flügeln sichtbar)
 const CTRL_DEG := 24.0        # max. Ruderausschlag (Höhe/Seite/Quer)
 var total_thrust := 0.0
 # Survival-Upgrades (Multiplikatoren, vom FlightController gesetzt)
@@ -166,6 +167,7 @@ var shake_request := 0.0      # einmaliger Kamera-Shake-Impuls (vom FlightContro
 
 
 func _ready() -> void:
+	add_to_group("player")    # damit Welt-Gegner (z. B. Flak) den Spieler finden
 	can_sleep = false
 	continuous_cd = true
 	angular_damp = 0.3
@@ -233,10 +235,19 @@ func _process(delta: float) -> void:
 		else:
 			_wheel_spin = move_toward(_wheel_spin, 0.0, 18.0 * delta)
 		if absf(_wheel_spin) > 0.02:
+			var fwd := -global_transform.basis.z   # Welt-Vorwärts (Nase)
 			for w in wheels:
 				var wn = w["node"]
 				if is_instance_valid(wn):
-					wn.rotate_x(_wheel_spin / w["r"] * delta)
+					# Um die ECHTE Radachse (lokales X in Weltkoordinaten) drehen und das
+					# Vorzeichen aus der Fahrtrichtung bestimmen -> gespiegelte (Symmetrie)
+					# UND normale Räder rollen beide korrekt VORWÄRTS (nicht rückwärts).
+					var ax: Vector3 = wn.global_transform.basis.x.normalized()
+					var roll: Vector3 = ax.cross(Vector3.UP)   # Richtung des Reifen-Scheitels bei +Drehung
+					var sgn: float = signf(roll.dot(fwd))
+					if sgn == 0.0:
+						sgn = 1.0
+					wn.global_rotate(ax, sgn * _wheel_spin / w["r"] * delta)
 	# Bewegliche Flächen animieren (Scharnier dreht um lokale X-Achse). dn = Welt-"unten"-Vorzeichen.
 	# Klappe: Landestellung + gegensinniger Roll-Anteil (Flaperon). Ruder folgen Pitch/Yaw/Roll.
 	# _flap_vis wird in _integrate_forces (physikgetaktet) langsam gerampt -> hier nur lesen.
@@ -247,7 +258,9 @@ func _process(delta: float) -> void:
 		var defl := 0.0     # Grad, + = Hinterkante nach unten (Welt), über dn ausgerichtet
 		match String(s["role"]):
 			"flap":
-				defl = _flap_vis * FLAP_MAX_DEG + in_roll * float(s["side"]) * FLAPERON_DEG
+				# Landeklappe + gegensinnig bei Roll (Flaperon) + GLEICHSINNig bei Pitch (Elevon):
+				# so bewegen sich auch die großen Hauptflügel sichtbar beim Nicken (W/S).
+				defl = _flap_vis * FLAP_MAX_DEG + in_roll * float(s["side"]) * FLAPERON_DEG - in_pitch * ELEVON_DEG
 			"pitch":
 				defl = -in_pitch * CTRL_DEG                        # Höhenruder hoch beim Ziehen
 			"roll":
@@ -384,7 +397,7 @@ func toggle_gear() -> void:
 
 func _update_gear_status() -> void:
 	if _collapsed:
-		gear_status = "GEBROCHEN ⚠"
+		gear_status = "GEBROCHEN "
 	elif gear_items.is_empty():
 		gear_status = "keins"
 	elif _gear_anim > 0.5:
@@ -571,6 +584,24 @@ func add_recoil(impulse: Vector3) -> void:
 		_recoil += impulse
 
 
+# Flak-/Explosions-Druckwelle am Punkt world_pos: stößt den Flieger weg (Impuls ~ Nähe × Masse)
+# + Kamera-Stoß; ein NAHER Treffer (Zentrum) reißt zusätzlich die Hauptflügel ab.
+func take_blast(world_pos: Vector3, radius: float, peak_dv: float) -> void:
+	if not world_pos.is_finite() or radius <= 0.0:
+		return
+	var com := global_transform * center_of_mass
+	var to := com - world_pos
+	var d := to.length()
+	if d > radius:
+		return
+	var f := clampf(1.0 - d / radius, 0.0, 1.0)             # 1 im Zentrum, 0 am Rand
+	var dir := (to / d) if d > 0.05 else Vector3.UP
+	add_recoil((dir + Vector3.UP * 0.4).normalized() * (mass * peak_dv * f))
+	shake_request = maxf(shake_request, 0.6 + 1.0 * f)
+	if f > 0.62:                                            # Volltreffer -> Hauptflügel reißen ab
+		_queue_break(_wing_root_indices())
+
+
 # Reißt die Wurzel-Teile + ihren Außen-Teilbaum ab (alles, dessen Weg zum Cockpit durch
 # eine Wurzel läuft); das Cockpit (Wurzel) bleibt immer dran. Die abgerissenen Teile werden
 # zu einem Trümmer-RigidBody. Danach wird das Flugmodell (Auftrieb/Widerstand/Schub/Masse/
@@ -688,7 +719,7 @@ func _explode() -> void:
 		_toy_explosion(com_world)
 		_mushroom_cloud(com_world)
 	recompute_aero()
-	landing_msg = "💥 ZERSCHELLT!  (Enter = neu)"
+	landing_msg = "ZERSCHELLT!  (Enter = neu)"
 	_land_timer = 6.0
 	# Leerer Körper bleibt am Crash-Ort stehen (Kamera schaut auf die Explosion).
 	linear_velocity = Vector3.ZERO
@@ -901,7 +932,7 @@ func _make_smoke(amount: int, life: float, vmin: float, vmax: float, color: Colo
 	return p
 
 
-# Additiver Flammen-Shader: Farbverlauf weiß→blau→orange→rot entlang der Länge (UV.y),
+# Additiver Flammen-Shader: Farbverlauf weißblauorangerot entlang der Länge (UV.y),
 # Mach-Diamanten im vorderen Bereich, Flackern. Wird von Kern- und Fahnenkegel geteilt.
 func _flame_shader() -> Shader:
 	if _flame_shader_cache != null:
@@ -1193,7 +1224,7 @@ func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
 	# Totalschaden: Kern versagt ODER extrem harter Aufprall (über jede Struktur hinaus).
 	if core_fail or worst > EXPLODE_SPEED:
 		_explode_pending = true
-		landing_msg = "💥 ZERSCHELLT!"
+		landing_msg = "ZERSCHELLT!"
 		_land_timer = 5.0
 		return
 	if not break_set.is_empty():
@@ -1204,17 +1235,17 @@ func _evaluate_impact(state: PhysicsDirectBodyState3D) -> void:
 		var keep := _last_vel
 		keep.y = maxf(keep.y, -1.5)
 		state.linear_velocity = keep * 0.92
-		landing_msg = "💥 Räder abgerissen!" if only_gear else "💥 Teil abgerissen!"
+		landing_msg = "Räder abgerissen!" if only_gear else "Teil abgerissen!"
 		_land_timer = 4.0
 		shake_request = maxf(shake_request, 0.7)
 		return
 	# nichts abgerissen -> reine Landenoten
 	if descent > HARD_LAND:
-		landing_msg = "⚠ Harte Landung (%d m/s)" % int(round(descent))
+		landing_msg = "Harte Landung (%d m/s)" % int(round(descent))
 		_land_timer = 3.5
 		shake_request = maxf(shake_request, 0.4)
 	elif descent > 0.6:
-		landing_msg = "🛬 Saubere Landung ✓"
+		landing_msg = "Saubere Landung "
 		_land_timer = 3.5
 
 
@@ -1285,7 +1316,7 @@ func reset_gear() -> void:
 		# nicht nur einknicken. Abriss erst im _process (Node-Umbau), via _break_queue.
 		_collapsed = false
 		_queue_break(_gear_part_indices())
-		landing_msg = "💥 Fahrwerk überlastet — Reifen abgerissen!"
+		landing_msg = "Fahrwerk überlastet — Reifen abgerissen!"
 		_land_timer = 4.0
 	else:
 		_collapsed = false
@@ -1321,7 +1352,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 	airspeed = v_lin.length()
 	altitude = xf.origin.y
-	climb = v_lin.y
+	# Steigrate (vario) tiefpass-glätten: der ruhende Körper zappelt am Boden minimal vertikal,
+	# sonst flackert die +/- Anzeige. Gedämpft ist auch realistischer (Varios laggen).
+	climb = lerpf(climb, v_lin.y, clampf(state.step * 4.0, 0.0, 1.0))
 	var rho := RHO0 * exp(-maxf(altitude, 0.0) / SCALE_H)
 
 	# --- Aufsetz-Erkennung (harte Landung / Fahrwerksbruch) ----------------
@@ -1415,7 +1448,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		if not wings_broken and _overload_t > 0.12:
 			wings_broken = true
 			_queue_break(_wing_root_indices())   # Abtrennen erst im _process (nicht im Physik-Schritt)
-			landing_msg = "💥 FLÜGEL ÜBERLASTET — abgerissen!"
+			landing_msg = "FLÜGEL ÜBERLASTET — abgerissen!"
 			_land_timer = 4.0
 			shake_request = maxf(shake_request, 0.7)
 		if wings_broken:
@@ -1454,7 +1487,7 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		aoa_signed = 0.0
 		load_factor = 0.0
 		stall = false
-	wing_status = "GEBROCHEN ⚠" if wings_broken else "ok"
+	wing_status = "GEBROCHEN " if wings_broken else "ok"
 
 	# --- Parasitärer Luftwiderstand des Modells (Bauform zählt) ------------
 	if drag_area > 0.0 and sp > 0.5:

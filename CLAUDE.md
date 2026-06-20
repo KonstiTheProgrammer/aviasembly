@@ -453,7 +453,7 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   `targets_root` (in `fly_world`), vor der Startbahn (`_rand_target_pos`); Abschuss →
   `game.add_money` + Toast; Nachschub-Ballon nach 7 s.
 - **Feuern** (`FlightController`): sammelt `weapons` = `[{type, off, cd}]` beim Bauen
-  (jede Waffe hat **eigenen Cooldown** `cd`, pro Frame heruntergezählt). **Leertaste** →
+  (jede Waffe hat **eigenen Cooldown** `cd`, pro Frame heruntergezählt). **Leertaste / Linksklick** →
   `_fire_primary` (`match w["type"]` für gun/rocket/salvo/missile/missile_heavy; setzt bei
   Lenkraketen `guided/turn/seek_range` + jeweiligen `cd`), **B** → `_drop_bomb`. `_spawn`
   gibt das `Projectile` zurück. Spawnt in `world_root` (= `targets_root`, von Main gesetzt;

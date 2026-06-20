@@ -7,6 +7,7 @@ enum Mode { BUILD, FLY }
 
 const SAVE_PATH := "user://aircraft_design.json"   # Autoload: zuletzt gebautes/geladenes
 const SLOT_DIR := "user://hangar"                  # benannte eigene Speicher-Slots
+const F_BOLD := preload("res://fonts/TitilliumWeb-Bold.ttf")   # fetter Schnitt für Überschriften
 
 # Blueprint-Gitter-Shader (anti-aliased, zum Horizont ausgeblendet)
 const _BLUEPRINT_GRID_SHADER := "
@@ -55,7 +56,7 @@ var ui: CanvasLayer
 var build_root: Control
 var flight_root: Control
 var stats_label: Label
-var ampel_label: Label              # "Fliegt's?"-Ampel (grün/gelb/rot + Tipp)
+var flight_check: FlightCheckPanel  # grafische Flug-Info (Balance / Stabilität / Kennwerte / Verdict)
 var hud_label: Label
 var land_label: Label
 var flight_hud: FlightHud           # Primary-Flight-Display (Kompass, Speed/Höhe, Zielkreis)
@@ -65,7 +66,7 @@ var pause_overlay: Control          # Pause-Menü (Esc)
 var _paused := false
 var _prev_mouse := Input.MOUSE_MODE_VISIBLE
 var _hint_box: Control              # einmaliger Steuer-Hinweis beim ersten Flug
-var snap_cb: CheckBox               # Auto-Andocken an/aus (Bau-Editor)
+# Snapping-Toggle ist jetzt snap_btn (Magnet) in der unteren Aktionsleiste.
 var drag_view_btn: Button
 var wind_legend: Control            # Farb-Legende, nur bei aktivem Windkanal sichtbar
 var part_buttons: Dictionary = {}
@@ -91,7 +92,16 @@ var _spin_nodes: Array = []        # Basis-Deko: drehende Nodes (Radar)
 var _blink_nodes: Array = []       # Basis-Deko: blinkende Lichter (Antennen)
 var _blink_t := 0.0
 const COMBO_WINDOW := 5.0          # Sekunden zwischen Abschüssen, um die Combo zu halten
-var part_list_box: VBoxContainer   # Palette (zum Neuaufbau nach Kauf)
+var part_grid: GridContainer       # Palette-Grid der AKTIVEN Kategorie (Neuaufbau nach Kauf/Tab-Wechsel)
+var cat_tabs: TabBar               # Kategorie-Unterreiter (Rumpf/Flügel/…)
+var _active_cat: int = 0           # aktive Kategorie (Tab-Index, bleibt über Rebuilds erhalten)
+var _cat_icon_btns: Array = []     # runde Kategorie-Reiter (Icons) — fürs Highlight
+var tools_icon_btn: Button         # ••• -Reiter (Werkzeuge & mehr)
+var parts_view: ScrollContainer    # Bauteile-Ansicht (Grid)
+var tools_view: ScrollContainer    # Werkzeuge-Ansicht (hinter dem ••• -Reiter)
+var snap_btn: Button               # Snapping-Toggle (Magnet) in der unteren Leiste
+var mirror_btn: Button             # Spiegelung-Toggle in der unteren Leiste
+var _show_tools := false           # zeigt gerade die Werkzeuge-Ansicht?
 var upgrade_box: VBoxContainer     # Upgrade-Panel
 var mode_overlay: Control          # Modus-Auswahl-Overlay
 var dialog_overlay: Control = null # Speichern-/Laden-Overlay
@@ -141,9 +151,13 @@ func _ready() -> void:
 	flight_ctrl.sens_mult = game.mouse_sens   # persistierte Maus-Flug-Empfindlichkeit anwenden
 	flight_ctrl.g_protect = game.g_protect    # persistierter G-Schutz (Taste H)
 	_spawn_targets()
+	_spawn_flak()
 	_setup_ui()
 	if not _load_design():
-		build_ctrl.load_design(_default_design())
+		# Leer starten — KEIN vorgesetztes Cockpit. Der Spieler platziert das erste
+		# Cockpit selbst; es wird auf den Ursprung zentriert und startet den Bauplan.
+		# (_default_design() bleibt als Beispiel-Flieger erhalten, wird aber nicht mehr automatisch geladen.)
+		build_ctrl.load_design([])
 	_set_mode(Mode.BUILD)
 	_refresh_tool_ui()
 	_on_game_changed()
@@ -169,28 +183,28 @@ func _setup_world() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.08                    # hell, aber lässt Form/Schattierung zu
+	env.ambient_light_energy = 0.80                    # gedämpft: kein flacher Weiß-Schleier mehr
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_white = 1.0
-	# KLAR & LEBENDIG: kräftigere Farben + etwas Kontrast, damit Berge/Fluss/Biome
-	# wirklich sichtbar & knackig sind (vorher im Milch-Dunst ersoffen).
+	env.tonemap_exposure = 0.82                        # globale Belichtung runter -> blendet nicht mehr
+	# KLAR & LEBENDIG (aber nicht grell): satte Farben halten, Helligkeit gezähmt.
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.24                   # verspielt: kräftige, fröhliche Farben
+	env.adjustment_saturation = 1.22                   # kräftige, fröhliche Farben (gegen Dimmen)
 	env.adjustment_contrast = 1.06
-	env.adjustment_brightness = 1.01
+	env.adjustment_brightness = 0.97                   # leicht abdunkeln statt aufhellen
 	# Klare Luft: nur dezente Fern-Tiefe (kein dichter Milchnebel mehr).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.82, 0.88, 0.95)
-	env.fog_sun_scatter = 0.15
+	env.fog_light_color = Color(0.72, 0.80, 0.90)
+	env.fog_sun_scatter = 0.12
 	env.fog_density = 0.00013
-	env.fog_aerial_perspective = 0.26
+	env.fog_aerial_perspective = 0.15                  # weniger Weiß-Aufhellung in der Ferne
 	env.fog_sky_affect = 0.1
 	env.glow_enabled = true
-	env.glow_intensity = 0.26                          # weiches Glühen -> verspielt/weich
-	env.glow_strength = 0.9
-	env.glow_bloom = 0.1
-	env.glow_hdr_threshold = 1.05
+	env.glow_intensity = 0.15                          # dezentes Glühen, kein Schleier
+	env.glow_strength = 0.85
+	env.glow_bloom = 0.06
+	env.glow_hdr_threshold = 1.45                      # nur ECHT helle Lichter bloomen (Sonne/Nachbrenner)
 	env_sky = env
 
 	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum). Hintergrund bleibt dunkel,
@@ -201,26 +215,27 @@ func _setup_world() -> void:
 	# quelle — kein dunkler Raum mehr, das Flugzeug steht wie draußen am Flugfeld.
 	var sky_bp := Sky.new()
 	var psm_bp := ProceduralSkyMaterial.new()
-	psm_bp.sky_top_color = Color(0.42, 0.64, 0.90)
-	psm_bp.sky_horizon_color = Color(0.87, 0.92, 0.97)
-	psm_bp.ground_horizon_color = Color(0.86, 0.91, 0.96)
-	psm_bp.ground_bottom_color = Color(0.76, 0.81, 0.87)
+	psm_bp.sky_top_color = Color(0.34, 0.55, 0.83)
+	psm_bp.sky_horizon_color = Color(0.66, 0.77, 0.89)
+	psm_bp.ground_horizon_color = Color(0.66, 0.73, 0.82)
+	psm_bp.ground_bottom_color = Color(0.56, 0.61, 0.69)
 	psm_bp.sky_energy_multiplier = 1.0
 	sky_bp.sky_material = psm_bp
 	env_blueprint = Environment.new()
 	env_blueprint.background_mode = Environment.BG_SKY
 	env_blueprint.sky = sky_bp
 	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env_blueprint.ambient_light_energy = 1.3
+	env_blueprint.ambient_light_energy = 0.92             # vorher 1.3 -> Hangar war ein weißer Raum
 	env_blueprint.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env_blueprint.tonemap_exposure = 0.9                  # Belichtung runter -> angenehmer
 	env_blueprint.ssao_enabled = true
 	env_blueprint.ssao_intensity = 1.1
 	env_blueprint.ssao_radius = 1.4
 	env_blueprint.glow_enabled = true
-	env_blueprint.glow_intensity = 0.3
-	env_blueprint.glow_strength = 0.9
-	env_blueprint.glow_hdr_threshold = 1.1
+	env_blueprint.glow_intensity = 0.18
+	env_blueprint.glow_strength = 0.85
+	env_blueprint.glow_hdr_threshold = 1.45
 
 	world_env = WorldEnvironment.new()
 	world_env.environment = env_sky
@@ -233,13 +248,13 @@ func _setup_world() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, -50, 0)
 	sun.light_color = Color(1.0, 0.97, 0.88)
-	sun.light_energy = 1.25
+	sun.light_energy = 1.02
 	sun.shadow_enabled = false
 	sky_lights.add_child(sun)
 	var underfill := DirectionalLight3D.new()
 	underfill.rotation_degrees = Vector3(58, 130, 0)
 	underfill.light_color = Color(0.80, 0.86, 0.95)
-	underfill.light_energy = 0.45
+	underfill.light_energy = 0.32
 	underfill.shadow_enabled = false
 	sky_lights.add_child(underfill)
 
@@ -341,6 +356,9 @@ func _setup_world() -> void:
 	_build_lighthouse(lh_pos)
 	Landmarks.build_village(fly_world, village_pos)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
+	# WOLKEN: hoch in der Luft, locker über viele Höhen verteilte Kumulus zum Durchfliegen
+	# (keine Kollision, nur Flug-Welt).
+	CloudField.build(fly_world, {"area": 4400.0, "spacing": 340.0, "layer_y": 320.0, "billow": 40.0, "layer_jitter": 110.0, "cover_thresh": -0.05})
 
 	# Blueprint-Gitter (nur im Bau-Modus sichtbar)
 	blueprint_grid = MeshInstance3D.new()
@@ -394,6 +412,20 @@ func _build_airfield(af: Dictionary) -> void:
 	# --- Bahn (flach, damit Räder nicht einsinken) + Schulter ---
 	_deco_box(node, Vector3(0, 0.04, 0), Vector3(RWY_W, 0.08, RWY_LEN), asphalt)
 	_deco_box(node, Vector3(0, 0.02, 0), Vector3(RWY_W + 8.0, 0.04, RWY_LEN + 30.0), _flat_mat(Color(0.28, 0.36, 0.26), 1.0))
+	# Solide Kollision an der Bahn-OBERKANTE (y=0.08): Der Asphalt liegt sichtbar über
+	# dem auf y=0 eingeebneten Terrain. Ohne eigene Kollision rasten die Räder auf dem
+	# Terrain (y=0) ein -> der sichtbare Reifen steckt ~8 cm in der Bahn. Diese Box (inkl.
+	# Schulter) lässt die Räder AUF der Bahn stehen. Layer 1 = Boden (Flugzeug-Maske).
+	var rwy_body := StaticBody3D.new()
+	rwy_body.collision_layer = 1
+	rwy_body.collision_mask = 0
+	var rwy_cs := CollisionShape3D.new()
+	var rwy_box := BoxShape3D.new()
+	rwy_box.size = Vector3(RWY_W + 8.0, 0.08, RWY_LEN + 30.0)
+	rwy_cs.shape = rwy_box
+	rwy_cs.position = Vector3(0, 0.04, 0)   # Oberkante bei y=0.08 (= Asphalt-Oberkante)
+	rwy_body.add_child(rwy_cs)
+	node.add_child(rwy_body)
 	# Randlinien (durchgehend, volle Länge)
 	for sx in [-1.0, 1.0]:
 		_deco_box(node, Vector3(sx * (RWY_W * 0.5 - 1.0), 0.1, 0), Vector3(0.7, 0.04, RWY_LEN - 24.0), paint)
@@ -978,7 +1010,7 @@ func _setup_camera() -> void:
 	# Die Kamera wird in _process geführt -> NICHT physik-interpolieren
 	# (sonst kämpfen zwei Glättungen; Godot warnt sonst pro Frame).
 	camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	camera.fov = 64.0
+	ViewUtil.apply_vfov(camera, 64.0)   # ultrawide-bewusst (kein Fischauge auf 21:9/32:9)
 	camera.far = 9000.0
 	camera.current = true
 	add_child(camera)
@@ -1002,9 +1034,13 @@ func _setup_controllers() -> void:
 # MODUS
 # ===========================================================================
 func _set_mode(m: int) -> void:
+	# Nicht starten ohne Cockpit/Wurzel (leerer Bauraum) — da startet der Bauplan.
+	if m == Mode.FLY and mode == Mode.BUILD and build_ctrl != null and not build_ctrl.has_root():
+		_toast("Erst ein Cockpit setzen — das ist der Start deines Bauplans.")
+		return
 	# Nicht starten, wenn Teile frei schweben (nicht mit dem Flugzeug verbunden).
 	if m == Mode.FLY and mode == Mode.BUILD and build_ctrl != null and build_ctrl.has_floating():
-		_toast("⚠ %d Teil(e) hängen frei (rot markiert) — erst verbinden, dann Start" % build_ctrl.floating_count())
+		_toast("%d Teil(e) hängen frei (rot markiert) — erst verbinden, dann Start" % build_ctrl.floating_count())
 		return
 	var was_fly := (mode == Mode.FLY)
 	mode = m
@@ -1097,18 +1133,19 @@ func _build_pause_overlay() -> void:
 	v.add_theme_constant_override("separation", 12)
 	v.custom_minimum_size = Vector2(300, 0)
 	center.add_child(v)
-	var t := _lbl("⏸  PAUSE", 30, Color(0.6, 1.0, 0.7))
+	var t := _lbl("PAUSE", 30, Color(0.6, 1.0, 0.7))
+	t.add_theme_font_override("font", F_BOLD)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
 	var b_resume := Button.new()
-	b_resume.text = "▶  Weiter"
+	b_resume.text = "Weiter"
 	b_resume.pressed.connect(func(): _set_pause(false))
 	v.add_child(b_resume)
 	# Maus-Flug-Empfindlichkeit (0.5–2.0, persistiert in GameState)
 	var srow := HBoxContainer.new()
 	srow.add_theme_constant_override("separation", 8)
 	v.add_child(srow)
-	srow.add_child(_lbl("🖱 Maus-Empfindlichkeit:", 14, Color(0.8, 0.88, 1.0)))
+	srow.add_child(_lbl("Maus-Empfindlichkeit:", 14, Color(0.8, 0.88, 1.0)))
 	var sval := _lbl("×%.1f" % game.mouse_sens, 15, Color(0.7, 1.0, 0.8))
 	var sminus := Button.new(); sminus.text = "−"; sminus.custom_minimum_size = Vector2(38, 0)
 	var splus := Button.new(); splus.text = "+"; splus.custom_minimum_size = Vector2(38, 0)
@@ -1123,11 +1160,11 @@ func _build_pause_overlay() -> void:
 	srow.add_child(sval)
 	srow.add_child(splus)
 	var b_hangar := Button.new()
-	b_hangar.text = "🛠  Zum Hangar"
+	b_hangar.text = "Zum Hangar"
 	b_hangar.pressed.connect(_pause_to_hangar)
 	v.add_child(b_hangar)
 	var b_quit := Button.new()
-	b_quit.text = "✕  Spiel beenden"
+	b_quit.text = "Spiel beenden"
 	b_quit.pressed.connect(func(): get_tree().quit())
 	v.add_child(b_quit)
 
@@ -1151,7 +1188,7 @@ func _show_controls_hint() -> void:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rect(box, 0.5, 0, 0.5, 0, -300, 84, 300, 246)
 	ui.add_child(box)
-	var lbl := _lbl("🛩  STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-/Tastatur-Flug (Start: MAUS)    ·    H = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste / Linksklick = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-/Tastatur-Flug (Start: MAUS)    ·    H = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
 	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1240,55 +1277,90 @@ func _setup_ui() -> void:
 
 
 func _build_hangar_ui() -> void:
-	# --- Linkes Teile-Panel ---
+	# --- Linkes Bau-Panel (eingerückt -> schwebt) ---
 	var panel := _panel(Color(0, 0, 0, 0.5))
-	_rect(panel, 0, 0, 0, 1, 10, 10, 248, -10)
+	_rect(panel, 0, 0, 0, 1, 18, 18, 496, -18)
 	build_root.add_child(panel)
 
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 6)
+	vb.add_theme_constant_override("separation", 8)
 	panel.add_child(vb)
 
-	var title := _lbl("🛠  HANGAR", 21, Color(0.92, 0.96, 1.0))
-	vb.add_child(title)
 	money_label = _lbl("", 15, Color(1.0, 0.86, 0.3))
 	vb.add_child(money_label)
-	tool_label = _lbl("Werkzeug: —", 13, Color(0.7, 1.0, 0.7))
-	# WICHTIG: Umbruch an, sonst zwingt der lange Text die ganze Panel-Box auf Textbreite auf.
+	tool_label = _lbl("Werkzeug: bereit", 12, Color(0.7, 1.0, 0.7))
 	tool_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tool_label.custom_minimum_size = Vector2(0, 0)
 	vb.add_child(tool_label)
-	vb.add_child(HSeparator.new())
 
-	var scroll := ScrollContainer.new()
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	vb.add_child(scroll)
-	part_list_box = VBoxContainer.new()
-	part_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	part_list_box.add_theme_constant_override("separation", 3)
-	scroll.add_child(part_list_box)
-	_fill_part_list(part_list_box)
+	# --- Kategorie-Reiter als runde Emoji-Icons (oben) ---
+	var icon_row := HBoxContainer.new()
+	icon_row.add_theme_constant_override("separation", 5)
+	icon_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(icon_row)
+	_cat_icon_btns.clear()
+	# Gestaltete SVG-Icons (res://icons/) je Kategorie: Rumpf/Flügel/Leitwerk/Antrieb/Fahrwerk/Waffen
+	var cat_icons := [
+		"res://icons/rumpf.svg", "res://icons/fluegel.svg", "res://icons/leitwerk.svg",
+		"res://icons/antrieb.svg", "res://icons/fahrwerk.svg", "res://icons/waffen.svg",
+	]
+	var cats := PartCatalog.categories()
+	for i in cats.size():
+		var ib := _make_icon_btn(cat_icons[i] if i < cat_icons.size() else "res://icons/more.svg")
+		ib.tooltip_text = String(cats[i])
+		ib.pressed.connect(_on_cat_icon.bind(i))
+		icon_row.add_child(ib)
+		_cat_icon_btns.append(ib)
+	tools_icon_btn = _make_icon_btn("res://icons/more.svg")
+	tools_icon_btn.tooltip_text = "Werkzeuge & mehr (Lackieren, Upgrades, Speichern …)"
+	tools_icon_btn.pressed.connect(_on_tools_icon)
+	icon_row.add_child(tools_icon_btn)
 
-	upgrade_box = VBoxContainer.new()
-	upgrade_box.add_theme_constant_override("separation", 2)
-	vb.add_child(upgrade_box)
+	# --- BAUTEILE-Ansicht: großes 3D-Vorschau-Grid ---
+	parts_view = ScrollContainer.new()
+	parts_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	parts_view.custom_minimum_size = Vector2(0, 240)
+	parts_view.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(parts_view)
+	part_grid = GridContainer.new()
+	part_grid.columns = 3
+	part_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	part_grid.add_theme_constant_override("h_separation", 6)
+	part_grid.add_theme_constant_override("v_separation", 6)
+	parts_view.add_child(part_grid)
+	_fill_part_grid()
 
-	vb.add_child(HSeparator.new())
+	# --- WERKZEUGE-Ansicht (hinter dem ••• -Reiter) ---
+	tools_view = ScrollContainer.new()
+	tools_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tools_view.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tools_view.visible = false
+	vb.add_child(tools_view)
+	var tv := VBoxContainer.new()
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tv.add_theme_constant_override("separation", 6)
+	tools_view.add_child(tv)
+
+	tv.add_child(_section("WERKZEUGE"))
+	var tool_row := HBoxContainer.new()
+	tool_row.add_theme_constant_override("separation", 6)
+	tv.add_child(tool_row)
 	var move_btn := Button.new()
-	move_btn.text = "✋  Bewegen / Greifen"
+	move_btn.text = "Bewegen / Greifen"
+	move_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	move_btn.pressed.connect(_on_move_tool)
-	vb.add_child(move_btn)
+	tool_row.add_child(move_btn)
 	var erase_btn := Button.new()
-	erase_btn.text = "🧹  Abriss-Modus"
+	erase_btn.text = "Abriss"
+	erase_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	erase_btn.pressed.connect(_on_erase_tool)
-	vb.add_child(erase_btn)
+	tool_row.add_child(erase_btn)
 
-	# --- Lackieren ---
-	vb.add_child(_lbl("🎨  Lackieren — Farbe wählen, dann Teil klicken:", 12, Color(0.82, 0.9, 1.0)))
+	tv.add_child(_section("LACKIEREN   (Farbe wählen, dann Teil anklicken)"))
 	var pal := GridContainer.new()
 	pal.columns = 7
-	vb.add_child(pal)
+	pal.add_theme_constant_override("h_separation", 5)
+	pal.add_theme_constant_override("v_separation", 5)
+	tv.add_child(pal)
 	var colors: Array = [
 		Color("d6382f"), Color("e8821a"), Color("eccb47"), Color("46a85a"),
 		Color("2f74bd"), Color("8e44ad"), Color("19bfc7"), Color("eef0f4"),
@@ -1297,7 +1369,7 @@ func _build_hangar_ui() -> void:
 	]
 	for c in colors:
 		var sw := Button.new()
-		sw.custom_minimum_size = Vector2(26, 22)
+		sw.custom_minimum_size = Vector2(34, 28)
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = c
 		sb.set_corner_radius_all(4)
@@ -1308,31 +1380,26 @@ func _build_hangar_ui() -> void:
 		sw.pressed.connect(_on_paint_color.bind(c))
 		pal.add_child(sw)
 
-	# --- Undo / Redo / Ansicht ---
+	tv.add_child(_section("ANSICHT"))
 	var row3 := HBoxContainer.new()
-	vb.add_child(row3)
-	var undo_btn := Button.new()
-	undo_btn.text = "↶ Undo"
-	undo_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	undo_btn.pressed.connect(_on_undo)
-	row3.add_child(undo_btn)
+	row3.add_theme_constant_override("separation", 6)
+	tv.add_child(row3)
 	var redo_btn := Button.new()
-	redo_btn.text = "↷ Redo"
+	redo_btn.text = "Redo"
 	redo_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	redo_btn.pressed.connect(_on_redo)
 	row3.add_child(redo_btn)
 	var cam_btn := Button.new()
-	cam_btn.text = "🎯 Ansicht"
+	cam_btn.text = "Zentrieren"
 	cam_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cam_btn.pressed.connect(_on_reset_view)
 	row3.add_child(cam_btn)
 
 	drag_view_btn = Button.new()
-	drag_view_btn.text = "🌬  Windkanal-Ansicht"
+	drag_view_btn.text = "Windkanal-Ansicht"
 	drag_view_btn.toggle_mode = true
 	drag_view_btn.toggled.connect(_on_drag_view)
-	vb.add_child(drag_view_btn)
-	# Farb-Legende der Heatmap (nur bei aktivem Windkanal eingeblendet)
+	tv.add_child(drag_view_btn)
 	var leg := VBoxContainer.new()
 	leg.add_theme_constant_override("separation", 2)
 	var bar := TextureRect.new()
@@ -1359,45 +1426,70 @@ func _build_hangar_ui() -> void:
 	leg.add_child(_lbl("grau = Windschatten (verdeckt)", 10, Color(0.7, 0.74, 0.8)))
 	leg.visible = false
 	wind_legend = leg
-	vb.add_child(leg)
+	tv.add_child(leg)
 
-	var sym := CheckBox.new()
-	sym.text = "Symmetrie (beide Seiten)"
-	sym.button_pressed = true
-	sym.toggled.connect(_on_symmetry_toggled)
-	vb.add_child(sym)
+	tv.add_child(_section("UPGRADES"))
+	upgrade_box = VBoxContainer.new()
+	upgrade_box.add_theme_constant_override("separation", 2)
+	tv.add_child(upgrade_box)
 
-	snap_cb = CheckBox.new()
-	snap_cb.text = "Andocken / Snapping  (Taste N)"
-	snap_cb.button_pressed = true
-	snap_cb.toggled.connect(_on_snap_toggled)
-	vb.add_child(snap_cb)
-
-	var row := HBoxContainer.new()
-	vb.add_child(row)
+	tv.add_child(_section("FLUGZEUG"))
+	var frow := HBoxContainer.new()
+	frow.add_theme_constant_override("separation", 6)
+	tv.add_child(frow)
 	var clear_btn := Button.new()
 	clear_btn.text = "Neu"
 	clear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clear_btn.pressed.connect(_on_clear_pressed)
-	row.add_child(clear_btn)
+	frow.add_child(clear_btn)
 	var save_btn := Button.new()
 	save_btn.text = "Speichern"
 	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_btn.pressed.connect(_on_save_pressed)
-	row.add_child(save_btn)
+	frow.add_child(save_btn)
 	var load_btn := Button.new()
 	load_btn.text = "Laden"
 	load_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	load_btn.pressed.connect(_on_load_pressed)
-	row.add_child(load_btn)
+	frow.add_child(load_btn)
 
-	# Vorlagen (Spitfire/Mustang/…) und eigene Speicherstände liegen jetzt im »Laden«-Dialog.
-	vb.add_child(_lbl("Vorlagen & eigene Flugzeuge: über »Laden« ↑", 11, Color(0.7, 0.8, 0.95)))
+	_refresh_cat_icons()
+
+	# --- Untere Aktionsleiste: Snapping (Magnet) · Undo · Spiegeln ---
+	var bottom := HBoxContainer.new()
+	bottom.add_theme_constant_override("separation", 8)
+	vb.add_child(bottom)
+	snap_btn = _make_icon_btn("res://icons/magnet.svg")
+	snap_btn.toggle_mode = true
+	_style_icon_toggle(snap_btn)
+	snap_btn.button_pressed = build_ctrl.snap_enabled
+	snap_btn.tooltip_text = "Andocken / Snapping (Taste N)"
+	snap_btn.toggled.connect(_on_snap_toggled)
+	bottom.add_child(snap_btn)
+	var undo2 := _make_icon_btn("res://icons/undo.svg")
+	undo2.tooltip_text = "Rückgängig (Strg+Z)"
+	undo2.pressed.connect(_on_undo)
+	bottom.add_child(undo2)
+	mirror_btn = Button.new()
+	mirror_btn.text = "Mirror"
+	mirror_btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mirror_btn.icon = load("res://icons/mirror.svg")
+	mirror_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	mirror_btn.toggle_mode = true
+	mirror_btn.focus_mode = Control.FOCUS_NONE
+	mirror_btn.button_pressed = build_ctrl.symmetry
+	mirror_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mirror_btn.custom_minimum_size = Vector2(0, 50)
+	mirror_btn.add_theme_font_size_override("font_size", 18)
+	_style_pill_toggle(mirror_btn)
+	mirror_btn.toggled.connect(_on_symmetry_toggled)
+	bottom.add_child(mirror_btn)
 
 	# --- Testflug-Button oben mitte ---
 	var fly_btn := Button.new()
-	fly_btn.text = "▶  TESTFLUG STARTEN  (Tab)"
+	fly_btn.text = "TESTFLUG STARTEN   (Tab)"
 	fly_btn.add_theme_font_size_override("font_size", 18)
+	fly_btn.add_theme_font_override("font", F_BOLD)
 	var fb := StyleBoxFlat.new()
 	fb.bg_color = Color(0.10, 0.34, 0.62, 0.95)
 	fb.set_corner_radius_all(10)
@@ -1410,25 +1502,27 @@ func _build_hangar_ui() -> void:
 	fly_btn.add_theme_stylebox_override("hover", fbh)
 	fly_btn.add_theme_stylebox_override("pressed", fbh)
 	fly_btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	_rect(fly_btn, 0.5, 0, 0.5, 0, -150, 10, 150, 52)
+	_rect(fly_btn, 0.5, 0, 0.5, 0, -160, 18, 160, 60)
 	fly_btn.pressed.connect(_on_fly_pressed)
 	build_root.add_child(fly_btn)
 
-	# --- Statistik oben rechts ---
+	# --- Flug-Check (grafisch) oben rechts ---
 	var spanel := _panel(Color(0, 0, 0, 0.5))
-	# Höhe NICHT festnageln: nominell klein, der PanelContainer wächst mit dem
-	# Inhalt nach unten (Windkanal-Report braucht mehr Zeilen als die Basisliste).
-	_rect(spanel, 1, 0, 1, 0, -290, 10, -10, 80)
+	# Höhe wächst mit dem Inhalt (Diagramm + Balken + Detail-Zahlen + Windkanal-Report).
+	_rect(spanel, 1, 0, 1, 0, -340, 18, -18, 88)
 	build_root.add_child(spanel)
 	var sv := VBoxContainer.new()
+	sv.add_theme_constant_override("separation", 6)
 	spanel.add_child(sv)
-	sv.add_child(_lbl("📊  STATISTIK", 16, Color(0.65, 0.82, 1.0)))
-	ampel_label = _lbl("", 14, Color(0.6, 1.0, 0.6))
-	ampel_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sv.add_child(ampel_label)
-	stats_label = _lbl("", 14)
+	var fc_title := _lbl("FLUG-CHECK", 16, Color(0.65, 0.82, 1.0))
+	fc_title.add_theme_font_override("font", F_BOLD)
+	sv.add_child(fc_title)
+	flight_check = FlightCheckPanel.new()
+	sv.add_child(flight_check)
+	stats_label = _lbl("", 13)
 	sv.add_child(stats_label)
-	var legend := _lbl("● Schwerpunkt   ● Auftriebspunkt", 11, Color(0.85, 0.85, 0.85))
+	var legend := _lbl("gelb = Schwerpunkt · blau = Auftriebspunkt (auch im 3D-Bild markiert)", 11, Color(0.8, 0.84, 0.9))
+	legend.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sv.add_child(legend)
 
 	_build_selection_panel()
@@ -1436,7 +1530,7 @@ func _build_hangar_ui() -> void:
 	# --- Hinweisleiste unten ---
 	var hint := _lbl("Aus Liste ziehen = bauen (rastet am Teil unter der Maus) · Teil ziehen = andocken wo du hinzeigst (Anbauten wandern mit · Alt = nur das Teil) · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.25, 0.32, 0.42))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rect(hint, 0, 1, 1, 1, 320, -34, -10, -8)
+	_rect(hint, 0, 1, 1, 1, 512, -36, -18, -10)
 	build_root.add_child(hint)
 
 	# Toast (kurze Meldung)
@@ -1446,53 +1540,38 @@ func _build_hangar_ui() -> void:
 	build_root.add_child(toast_label)
 
 
-func _fill_part_list(list: VBoxContainer) -> void:
-	_part_group = ButtonGroup.new()
-	_part_group.allow_unpress = true
-	for cat in PartCatalog.categories():
-		var parts := PartCatalog.parts_in(cat)
-		if parts.is_empty():
-			continue
-		if not _cat_open.has(cat):
-			_cat_open[cat] = true
-		# --- aufklappbare Kategorie-Überschrift ---
-		var header := Button.new()
-		header.toggle_mode = true
-		header.button_pressed = _cat_open[cat]
-		header.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		header.add_theme_font_size_override("font_size", 13)
-		header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var hb := StyleBoxFlat.new()
-		hb.bg_color = Color(0.35, 0.62, 1.0, 0.10)
-		hb.set_corner_radius_all(6)
-		hb.content_margin_left = 8
-		hb.content_margin_top = 4
-		hb.content_margin_bottom = 4
-		var hbh: StyleBoxFlat = hb.duplicate()
-		hbh.bg_color = Color(0.35, 0.62, 1.0, 0.20)
-		header.add_theme_stylebox_override("normal", hb)
-		header.add_theme_stylebox_override("hover", hbh)
-		header.add_theme_stylebox_override("pressed", hb)
-		header.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-		header.add_theme_color_override("font_color", Color(0.65, 0.82, 1.0))
-		header.add_theme_color_override("font_hover_color", Color(0.8, 0.9, 1.0))
-		header.add_theme_color_override("font_pressed_color", Color(0.65, 0.82, 1.0))
-		list.add_child(header)
-		# --- Grid mit Vorschau-Kacheln ---
-		var grid := GridContainer.new()
-		grid.columns = 2
-		grid.add_theme_constant_override("h_separation", 6)
-		grid.add_theme_constant_override("v_separation", 6)
-		grid.visible = _cat_open[cat]
-		list.add_child(grid)
-		header.text = ("▾  " if _cat_open[cat] else "▸  ") + cat.to_upper() + "   (%d)" % parts.size()
-		header.toggled.connect(func(on: bool) -> void:
-			grid.visible = on
-			_cat_open[cat] = on
-			header.text = ("▾  " if on else "▸  ") + cat.to_upper() + "   (%d)" % parts.size()
-		)
-		for p in parts:
-			grid.add_child(_make_part_tile(p))
+func _fill_part_grid() -> void:
+	if part_grid == null:
+		return
+	for c in part_grid.get_children():
+		c.queue_free()
+	part_buttons.clear()
+	if _part_group == null:
+		_part_group = ButtonGroup.new()
+		_part_group.allow_unpress = true
+	var cats := PartCatalog.categories()
+	if cats.is_empty():
+		return
+	var cat: String = cats[clampi(_active_cat, 0, cats.size() - 1)]
+	for p in PartCatalog.parts_in(cat):
+		if not PartCatalog.in_palette(p.get("id", "")):
+			continue   # ausgemistete Rumpf-Teile (nur im Katalog für Presets)
+		part_grid.add_child(_make_part_tile(p))
+
+
+# Kurzer Tab-Titel je Kategorie (lange Namen passen sonst nicht in die Reiterleiste).
+func _cat_short(cat: String) -> String:
+	match cat:
+		PartCatalog.CAT_WING: return "Flügel"
+		PartCatalog.CAT_CTRL: return "Leitwerk"
+		PartCatalog.CAT_WEAPON: return "Waffen"
+		_: return cat
+
+
+func _on_cat_tab_changed(idx: int) -> void:
+	_active_cat = idx
+	_fill_part_grid()
+	_refresh_tool_ui()
 
 
 # Eine Bauteil-Kachel: 3D-Vorschau + Name + Masse, klickbar (exklusiv markiert).
@@ -1515,16 +1594,16 @@ func _part_stats_text(p: Dictionary) -> String:
 	var st: float = PartCatalog.part_strength(p)
 	var stq: String = "sehr fragil" if st < 6.0 else ("fragil" if st < 10.0 else ("robust" if st < 16.0 else "sehr robust"))
 	lines.append("Struktur: %d  (%s — bricht bei Aufprall ab %d m/s)" % [int(round(st)), stq, int(round(st))])
-	lines.append("Preis: %d 🪙" % PartCatalog.part_cost(p))
+	lines.append("Preis: %d" % PartCatalog.part_cost(p))
 	return "\n".join(lines)
 
 
 func _make_part_tile(p: Dictionary) -> Button:
 	var id: String = p["id"]
 	var tile := Button.new()
-	tile.custom_minimum_size = Vector2(0, 94)
+	tile.custom_minimum_size = Vector2(0, 156)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tile.tooltip_text = _part_stats_text(p) + "\n→ in den Bauraum ziehen zum Setzen"
+	tile.tooltip_text = _part_stats_text(p) + "\nin den Bauraum ziehen zum Setzen"
 	tile.clip_contents = true
 	_style_tile(tile)
 	# Drag&Drop aus dem Inventar: Drücken startet den Drag, Klick (auf gesperrt) kauft.
@@ -1550,19 +1629,19 @@ func _make_part_tile(p: Dictionary) -> Button:
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	nm.add_theme_font_size_override("font_size", 10)
+	nm.add_theme_font_size_override("font_size", 12)
 	box.add_child(nm)
 
 	var locked: bool = game != null and not game.is_unlocked(id)
 	var mass := Label.new()
 	mass.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mass.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mass.add_theme_font_size_override("font_size", 9)
+	mass.add_theme_font_size_override("font_size", 11)
 	if locked:
-		mass.text = "🔒 %d 🪙" % PartCatalog.part_cost(p)
+		mass.text = "Kauf %d" % PartCatalog.part_cost(p)
 		mass.add_theme_color_override("font_color", Color(1.0, 0.82, 0.35))
 		tile.modulate = Color(0.68, 0.68, 0.74)   # gesperrt -> ausgegraut
-		tile.tooltip_text = _part_stats_text(p) + "\n🔒 klicken zum Kaufen"
+		tile.tooltip_text = _part_stats_text(p) + "\nklicken zum Kaufen"
 	else:
 		mass.text = "%d kg" % int(p["mass"])
 		mass.add_theme_color_override("font_color", Color(0.72, 0.8, 0.92))
@@ -1579,7 +1658,7 @@ func _make_preview(p: Dictionary) -> SubViewportContainer:
 	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	svc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var vp := SubViewport.new()
-	vp.size = Vector2i(124, 74)
+	vp.size = Vector2i(128, 92)
 	vp.own_world_3d = true
 	vp.transparent_bg = false
 	vp.msaa_3d = Viewport.MSAA_4X
@@ -1673,10 +1752,10 @@ func _on_pick_part(id: String) -> void:
 		var p := PartCatalog.get_part(id)
 		var cost := PartCatalog.part_cost(p)
 		if game.buy_part(id, cost):
-			_toast("Gekauft: %s  (−%d 🪙)" % [p.get("name", id), cost])
+			_toast("Gekauft: %s  (−%d)" % [p.get("name", id), cost])
 			_rebuild_palette()
 		else:
-			_toast("Zu teuer: %s kostet %d 🪙 (du hast %d)" % [p.get("name", id), cost, game.money])
+			_toast("Zu teuer: %s kostet %d (du hast %d)" % [p.get("name", id), cost, game.money])
 
 
 # Drücken auf eine Kachel startet das Drag&Drop aus dem Inventar (nur freigeschaltete Teile).
@@ -1724,7 +1803,7 @@ func _build_selection_panel() -> void:
 	v.offset_bottom = -8
 	v.add_theme_constant_override("separation", 4)
 	sel_panel.add_child(v)
-	sel_title = _lbl("✦ Ausgewählt", 15, Color(0.55, 1.0, 0.7))
+	sel_title = _lbl("Ausgewählt", 15, Color(0.55, 1.0, 0.7))
 	v.add_child(sel_title)
 	sel_scale_label = _lbl("", 12, Color(0.8, 0.85, 0.95))
 	v.add_child(sel_scale_label)
@@ -1733,7 +1812,7 @@ func _build_selection_panel() -> void:
 	var mrow := HBoxContainer.new()
 	v.add_child(mrow)
 	sel_mode_btns.clear()
-	var modes := [["↔ Bewegen", 0], ["↻ Drehen", 1], ["⤢ Skalieren", 2], ["⇿ Enden", 3]]
+	var modes := [["Bewegen", 0], ["Drehen", 1], ["Skalieren", 2], ["Enden", 3]]
 	for md in modes:
 		var mb := Button.new()
 		mb.text = md[0]
@@ -1743,7 +1822,7 @@ func _build_selection_panel() -> void:
 		mrow.add_child(mb)
 		sel_mode_btns.append(mb)
 	v.add_child(_lbl("Pfeile/Würfel im 3D-Raum ziehen · Drehen: Teil ziehen · 90°-Schritte unten:", 10, Color(0.7, 0.74, 0.82)))
-	v.add_child(_lbl("⇿ Enden (Rumpf, auch per Rechtsklick): 4 Vierecke — vorne/hinten je X (seitlich) + Y (oben) — auswärts ziehen = dicker.", 10, Color(0.55, 0.72, 0.95)))
+	v.add_child(_lbl("Enden (Rumpf, auch per Rechtsklick): 4 Vierecke — vorne/hinten je X (seitlich) + Y (oben) — auswärts ziehen = dicker.", 10, Color(0.55, 0.72, 0.95)))
 	var axis_names := ["Breite", "Höhe", "Länge"]
 	for i in 3:
 		var row := HBoxContainer.new()
@@ -1764,7 +1843,7 @@ func _build_selection_panel() -> void:
 	var row2 := HBoxContainer.new()
 	v.add_child(row2)
 	var rot := Button.new()
-	rot.text = "↻ Drehen"
+	rot.text = "Drehen"
 	rot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	rot.pressed.connect(build_ctrl.rotate_selected)
 	row2.add_child(rot)
@@ -1787,7 +1866,7 @@ func _build_selection_panel() -> void:
 	sel_taper_row.add_child(sel_taper_front_row)
 	sel_taper_row.add_child(_make_taper_row("Hinten", build_ctrl.nudge_taper))
 	sel_reverse_cb = CheckBox.new()
-	sel_reverse_cb.text = "↩  Schub umkehren"
+	sel_reverse_cb.text = "Schub umkehren"
 	sel_reverse_cb.tooltip_text = "Propeller schiebt in die ENTGEGENGESETZTE Richtung (z. B. als Bremse / Rückwärts)."
 	sel_reverse_cb.add_theme_color_override("font_color", Color(1.0, 0.85, 0.5))
 	sel_reverse_cb.toggled.connect(build_ctrl.set_reverse_thrust)
@@ -1798,7 +1877,7 @@ func _build_selection_panel() -> void:
 	dup.pressed.connect(build_ctrl.duplicate_selected)
 	v.add_child(dup)
 	sel_delete_btn = Button.new()
-	sel_delete_btn.text = "🗑  Löschen"
+	sel_delete_btn.text = "Löschen"
 	sel_delete_btn.add_theme_color_override("font_color", Color(1, 0.6, 0.55))
 	sel_delete_btn.pressed.connect(build_ctrl.delete_selected)
 	v.add_child(sel_delete_btn)
@@ -1812,7 +1891,7 @@ func _on_selection_changed(info: Dictionary) -> void:
 		sel_panel.visible = false
 		return
 	sel_panel.visible = true
-	sel_title.text = "✦ %s" % info.get("name", "Teil")
+	sel_title.text = "%s" % info.get("name", "Teil")
 	# Stats des ausgewählten Teils als Tooltip am Titel (Hover zeigt Masse/Auftrieb/Schub/…)
 	var pid: String = String(info.get("id", ""))
 	if pid != "" and PartCatalog.has(pid):
@@ -1874,7 +1953,7 @@ func _on_drag_view(on: bool) -> void:
 		var tip := "nur angeströmte Teile gefärbt (grau = Windschatten)"
 		if worst != "":
 			tip = "rot = größter Widerstand: %s (grau = Windschatten)" % worst
-		_toast("🌬 Windkanal AN — " + tip)
+		_toast("Windkanal AN — " + tip)
 	else:
 		_toast("Windkanal aus")
 
@@ -1884,9 +1963,9 @@ func _refresh_tool_ui() -> void:
 	for pid in part_buttons:
 		part_buttons[pid].set_pressed_no_signal(pid == sel)
 	if build_ctrl.erase_mode:
-		tool_label.text = "Werkzeug: 🧹 Abriss – Teil anklicken zum Löschen"
+		tool_label.text = "Werkzeug: Abriss – Teil anklicken zum Löschen"
 	elif build_ctrl.paint_mode:
-		tool_label.text = "Werkzeug: 🎨 Lackieren – Teil anklicken zum Umfärben"
+		tool_label.text = "Werkzeug: Lackieren – Teil anklicken zum Umfärben"
 	elif build_ctrl.brush_id == "":
 		tool_label.text = "Teil aus Liste ziehen = setzen · Teil anklicken = bearbeiten (G/R/S) · leer = drehen"
 	else:
@@ -1901,7 +1980,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(hp)
 	var hv := VBoxContainer.new()
 	hp.add_child(hv)
-	hv.add_child(_lbl("✈  FLUG-HUD", 16, Color(0.6, 0.85, 1.0)))
+	hv.add_child(_lbl("FLUG-HUD", 16, Color(0.6, 0.85, 1.0)))
 	fly_money_label = _lbl("", 14, Color(1.0, 0.86, 0.3))
 	hv.add_child(fly_money_label)
 	hud_label = _lbl("", 15)
@@ -1925,7 +2004,7 @@ func _build_flight_ui() -> void:
 
 	# Zurück-Button
 	var back_btn := Button.new()
-	back_btn.text = "◀  ZURÜCK ZUM HANGAR  (Tab)"
+	back_btn.text = "ZURÜCK ZUM HANGAR  (Tab)"
 	back_btn.add_theme_font_size_override("font_size", 16)
 	_rect(back_btn, 0.5, 0, 0.5, 0, -150, 10, 150, 48)
 	back_btn.pressed.connect(_on_hangar_pressed)
@@ -1936,7 +2015,7 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(flight_hud)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = 🔥 Nachbrenner) · Nase: W/S · Rollen: A/D (halten = 🔄 Barrel Roll) · Gieren: Q/E · C halten: 👀 Umsehen · 🔫 LEERTASTE (gelber Pipper = echter Treffpunkt) · 💣 B · G: Fahrwerk · F: Klappen · H: G-Schutz · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = Nachbrenner) · Nase: W/S · Rollen: A/D (halten = Barrel Roll) · Gieren: Q/E · C halten: Umsehen · LEERTASTE/LINKSKLICK (gelber Pipper = echter Treffpunkt) · B · G: Fahrwerk · F: Klappen · H: G-Schutz · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
 	flight_root.add_child(hint)
@@ -1946,32 +2025,24 @@ func _build_flight_ui() -> void:
 # Signal-Handler
 # ===========================================================================
 func _on_design_changed(stats: Dictionary) -> void:
-	if stats_label == null:
+	if flight_check == null:
 		return
-	var stab := "—"
-	if stats.get("col_valid", false):
-		var d: float = stats["col"].z - stats["com"].z
-		if d > 0.2:
-			stab = "stabil ✓"
-		elif d < -0.2:
-			stab = "kopflastig ⚠"
-		else:
-			stab = "neutral"
+	# Umlaut-fähige Schrift vom echten Label übernehmen (generisches Control liefert sie nicht).
+	if stats_label != null:
+		flight_check.set_font(stats_label.get_theme_font("font"))
+	# Grafische Flug-Info (Balance/Stabilität/Kennwerte + Verdict) aktualisieren
+	var v := _flight_verdict(stats)
+	flight_check.set_data(stats, v["text"], v["color"])
+	# Detail-Zahlen unter der Grafik
 	var gear := "kein Fahrwerk"
 	if stats.get("has_gear", false):
-		if stats.get("gear_overload", false):
-			gear = "%d/%d kg ⚠ KOLLABIERT!" % [int(stats["mass"]), int(stats["gear_cap"])]
-		else:
-			gear = "%d/%d kg ✓" % [int(stats["mass"]), int(stats["gear_cap"])]
-	var wingload := "—"
-	if stats.get("has_wings", false):
-		wingload = "bis ~%.1f g" % stats["max_g"]
+		gear = "%d/%d kg%s" % [int(stats["mass"]), int(stats["gear_cap"]),
+			("  ÜBERLASTET!" if stats.get("gear_overload", false) else "")]
 	var drag_line := "Luftwiderstand cW·A: %.2f m²" % stats.get("drag_area", 0.0)
 	if build_ctrl != null and build_ctrl.wind_tunnel and not build_ctrl.wind_report.is_empty():
-		# Windkanal-Analyse: exponierter Gesamtwiderstand + die größten Verursacher
-		# mit Anteil (Verdeckung eingerechnet — Teile im Windschatten zählen ~0).
+		# Windkanal-Analyse: exponierter Gesamtwiderstand + größte Verursacher (Verdeckung eingerechnet).
 		var tot: float = maxf(build_ctrl.wind_total, 0.001)
-		drag_line += "\n🌬 exponiert (Verdeckung): %.2f m²" % build_ctrl.wind_total
+		drag_line += "\nexponiert (Verdeckung): %.2f m²" % build_ctrl.wind_total
 		var rank := 0
 		for e in build_ctrl.wind_report:
 			if rank >= 3 or float(e["drag"]) < 0.01:
@@ -1979,85 +2050,76 @@ func _on_design_changed(stats: Dictionary) -> void:
 			rank += 1
 			drag_line += "\n  %d. %s — %.2f m² (%d %%)" % [
 				rank, e["name"], e["drag"], int(round(float(e["drag"]) / tot * 100.0))]
-	stats_label.text = "Teile: %d\nMasse: %d kg\nFlügelfläche: %.1f m²\nSchub: %d N\nSchub/Gewicht: %.2f\n%s\nLängsstabilität: %s\nMax. Flügellast: %s\nFahrwerk-Last: %s" % [
-		int(stats["parts"]), int(stats["mass"]), stats["area"],
-		int(stats["thrust"]), stats["tw"], drag_line,
-		stab, wingload, gear]
-	_update_ampel(stats)
+	if stats_label:
+		stats_label.text = "Teile: %d   ·   Masse: %d kg\nFlügelfläche: %.1f m²   ·   Schub: %d N\nFahrwerk-Last: %s\n%s" % [
+			int(stats["parts"]), int(stats["mass"]), stats["area"],
+			int(stats["thrust"]), gear, drag_line]
 
 
-# "Fliegt's?"-Ampel: aus Stabilität, Schub/Gewicht, Flügeln und Fahrwerk eine grün/gelb/rote
-# Einschätzung mit kurzem Tipp ableiten.
-func _update_ampel(stats: Dictionary) -> void:
-	if ampel_label == null:
-		return
+# "Fliegt's?"-Verdict aus Stabilität, Schub/Gewicht, Flügeln und Fahrwerk ableiten.
+# Gibt {text, color} zurück (vom grafischen Flug-Check verwendet).
+func _flight_verdict(stats: Dictionary) -> Dictionary:
+	var red := Color(1, 0.45, 0.4)
+	if build_ctrl != null and not build_ctrl.has_root():
+		var hint := "Leerer Bauraum" if int(stats.get("parts", 0)) == 0 else "Keine Wurzel"
+		return {"text": "%s — zieh ein Cockpit rein (kommt in die Mitte) und starte deinen Bauplan." % hint, "color": red}
 	if build_ctrl != null and build_ctrl.has_floating():
-		ampel_label.add_theme_color_override("font_color", Color(1, 0.45, 0.4))
-		ampel_label.text = "🔴 %d Teil(e) hängen frei (rot markiert) — verbinden zum Starten" % build_ctrl.floating_count()
-		return
+		return {"text": "%d Teil(e) hängen frei (rot markiert) — verbinden zum Starten" % build_ctrl.floating_count(), "color": red}
 	var has_wings: bool = stats.get("has_wings", false)
 	var tw: float = stats.get("tw", 0.0)                       # VORWÄRTS-Schub / Gewicht
 	var up_tw: float = stats.get("up_tw", 0.0)                 # Senkrechtschub / Gewicht (VTOL)
 	var offset: float = stats.get("thrust_offset", 0.0)        # Schub-Hebel (m) um den COM
 	var inst_tw: float = float(stats.get("thrust", 0.0)) / max(float(stats.get("mass", 0.0)) * 9.81, 0.001)
 	var d: float = (stats["col"].z - stats["com"].z) if stats.get("col_valid", false) else 0.0
-	var txt: String
-	var col: Color
 	if not has_wings:
-		col = Color(1, 0.45, 0.4); txt = "🔴 Fliegt nicht — keine Tragflächen dran"
-	elif stats.get("gear_overload", false):
-		col = Color(1, 0.45, 0.4); txt = "🔴 Fahrwerk überlastet — Reifen reißen beim Start ab"
-	elif offset > 1.0:
-		# außermittiger/schräger Schub (z. B. Düse hinten, die nach oben zeigt) -> kippt/dreht
-		col = Color(1, 0.45, 0.4); txt = "🔴 Schub stark außermittig — kippt/dreht beim Gasgeben (Triebwerke symmetrisch & durch den Schwerpunkt richten)"
-	elif tw < 0.12 and up_tw < 0.9:
+		return {"text": "Fliegt nicht — keine Tragflächen dran", "color": red}
+	if stats.get("gear_overload", false):
+		return {"text": "Fahrwerk überlastet — Reifen reißen beim Start ab", "color": red}
+	if offset > 1.0:
+		return {"text": "Schub stark außermittig — kippt/dreht beim Gasgeben", "color": red}
+	if tw < 0.12 and up_tw < 0.9:
 		if inst_tw >= 0.30:   # es GIBT Schub, er zeigt nur nicht nach vorne (gedreht/Reverse)
-			col = Color(1, 0.45, 0.4); txt = "🔴 Schub zeigt nicht nach vorne — Triebwerke nach vorne richten (oder Reverse aus)"
-		else:
-			col = Color(1, 0.45, 0.4); txt = "🔴 Zu wenig Schub zum Abheben"
-	elif stats.get("col_valid", false) and d < -0.5:
-		col = Color(1, 0.45, 0.4); txt = "🔴 Stark kopflastig — überschlägt sich"
-	else:
-		var warns: Array = []
-		if up_tw >= 0.9 and tw < 0.5:
-			warns.append("Senkrechtschub-Stil — braucht Vorwärtsschub für sauberen Vorwärtsflug")
-		elif tw < 0.30:
-			warns.append("wenig Vorwärtsschub")
-		if offset > 0.15:
-			warns.append("Schub nicht durch den Schwerpunkt — zieht/kippt beim Gasgeben (Triebwerk auf COM-Höhe = ruhiger)")
-		if stats.get("col_valid", false) and d < 0.15:
-			warns.append("grenzwertig stabil (Leitwerk/Flügel weiter nach hinten)")
-		if not stats.get("has_gear", false):
-			warns.append("kein Fahrwerk (Bauchlandung)")
-		if has_wings and stats.get("max_g", 9.0) < 3.0:
-			warns.append("Flügel kaum belastbar")
-		if warns.is_empty():
-			col = Color(0.45, 1.0, 0.5); txt = "🟢 Flugbereit!"
-		else:
-			col = Color(1.0, 0.85, 0.3); txt = "🟡 " + ", ".join(warns)
-	ampel_label.add_theme_color_override("font_color", col)
-	ampel_label.text = txt
+			return {"text": "Schub zeigt nicht nach vorne — Triebwerke nach vorne richten", "color": red}
+		return {"text": "Zu wenig Schub zum Abheben", "color": red}
+	if stats.get("col_valid", false) and d < -0.5:
+		return {"text": "Stark kopflastig — überschlägt sich", "color": red}
+	var warns: Array = []
+	if up_tw >= 0.9 and tw < 0.5:
+		warns.append("Senkrechtschub-Stil — braucht Vorwärtsschub")
+	elif tw < 0.30:
+		warns.append("wenig Vorwärtsschub")
+	if offset > 0.15:
+		warns.append("Schub nicht durch den Schwerpunkt")
+	if stats.get("col_valid", false) and d < 0.15:
+		warns.append("grenzwertig stabil (Leitwerk weiter nach hinten)")
+	if not stats.get("has_gear", false):
+		warns.append("kein Fahrwerk (Bauchlandung)")
+	if has_wings and stats.get("max_g", 9.0) < 3.0:
+		warns.append("Flügel kaum belastbar")
+	if warns.is_empty():
+		return {"text": "Flugbereit!", "color": Color(0.45, 1.0, 0.5)}
+	return {"text": ", ".join(warns), "color": Color(1.0, 0.85, 0.3)}
 
 
 func _on_hud_changed(d: Dictionary) -> void:
 	if hud_label == null:
 		return
 	var assist_txt: String = "AN" if d.get("assist", true) else "AUS (Pro)"
-	var inv_txt: String = "INVERTIERT ⚠" if d.get("inverted", false) else "normal"
+	var inv_txt: String = "INVERTIERT " if d.get("inverted", false) else "normal"
 	var mf: bool = d.get("mouse_fly", false)
 	var arc: bool = d.get("arcade", false)
-	var mf_txt: String = ("🖱 AN — ARCADE 🎮" if arc else "🖱 AN (Cursor lenkt)") if mf else "AUS (Umschauen)"
+	var mf_txt: String = ("AN — ARCADE " if arc else "AN (Cursor lenkt)") if mf else "AUS (Umschauen)"
 	var thr_pct := int(round(d["throttle"] * 100.0))
 	var thr_txt: String
 	if thr_pct < 0:
-		thr_txt = "🛑 Bremse %d%%" % absi(thr_pct)
+		thr_txt = "Bremse %d%%" % absi(thr_pct)
 	elif thr_pct > 100:
-		thr_txt = "🔥 NACHBRENNER %d%%" % thr_pct
+		thr_txt = "NACHBRENNER %d%%" % thr_pct
 	else:
 		thr_txt = "Schub %d%%" % thr_pct
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
 	# Speed/Höhe/Kurs/Steig zeigt jetzt das PFD; hier nur noch Systeme/Status.
-	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n➤ %s" % [
+	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n%s" % [
 		thr_txt, int(d["aoa"]), d.get("gforce", 1.0),
 		d.get("wings", "ok"), d.get("gear", "—"), d.get("flaps", "AUS"), inv_txt, assist_txt, mf_txt, nav]
 	var ammo_txt: String = d.get("ammo", "")
@@ -2079,7 +2141,7 @@ func _on_hud_changed(d: Dictionary) -> void:
 		if mf:
 			modes.append("ARCADE" if arc else "MAUS-FLUG")
 		if not bool(d.get("g_protect", true)):
-			modes.append("⚠ G-SCHUTZ AUS")
+			modes.append("G-SCHUTZ AUS")
 		if d.get("inverted", false):
 			modes.append("INVERS")
 		flight_hud.mode_text = "     ".join(modes)
@@ -2097,13 +2159,14 @@ func _on_hud_changed(d: Dictionary) -> void:
 		if gp != game.g_protect:
 			game.g_protect = gp
 			game.save()
-			_toast("🛡 G-Schutz AN — Flügel reißen nicht ab" if gp else "⚠ G-Schutz AUS — volle Physik, Flügel können brechen!")
+			_toast("G-Schutz AN — Flügel reißen nicht ab" if gp else "G-Schutz AUS — volle Physik, Flügel können brechen!")
 	if land_label:
 		var lm: String = d.get("land_msg", "")
 		land_label.text = lm
-		if lm.begins_with("💥"):
+		var low := lm.to_lower()
+		if "zerschell" in low or "abgerissen" in low or "überlast" in low:
 			land_label.add_theme_color_override("font_color", Color(1, 0.35, 0.3))
-		elif lm.begins_with("⚠"):
+		elif "harte landung" in low:
 			land_label.add_theme_color_override("font_color", Color(1, 0.75, 0.25))
 		else:
 			land_label.add_theme_color_override("font_color", Color(0.5, 1, 0.6))
@@ -2148,8 +2211,8 @@ func _on_snap_toggled(on: bool) -> void:
 
 # Aus dem Bau-Editor (Taste N): Checkbox synchron halten + Toast.
 func _on_snap_changed(on: bool) -> void:
-	if snap_cb:
-		snap_cb.set_pressed_no_signal(on)
+	if snap_btn:
+		snap_btn.set_pressed_no_signal(on)
 	_toast("Andocken " + ("AN" if on else "AUS — freie Platzierung"))
 
 
@@ -2167,6 +2230,25 @@ func _spawn_targets() -> void:
 		_make_target("balloon", _rand_target_pos(40.0, 210.0), _TARGET_COLORS[i % _TARGET_COLORS.size()])
 	for i in 3:
 		_make_target("airship", _rand_target_pos(130.0, 250.0), Color(0.72, 0.74, 0.8))
+
+
+# FLAK-ZONE: ein verteidigter Bereich ein Stück vor dem Spawn (Flieger schaut nach -Z).
+# Mehrere Geschütze feuern nur, wenn der Spieler IN der Zone und im Höhen-Band ist.
+func _spawn_flak() -> void:
+	var center := Vector3(250.0, 0.0, -2400.0)
+	var radius := 300.0
+	var offsets := [
+		Vector3(0, 0, 0), Vector3(210, 0, 90), Vector3(-165, 0, 150), Vector3(70, 0, -215),
+	]
+	for off in offsets:
+		var pos: Vector3 = center + off
+		if terrain != null:
+			pos.y = terrain.height_at(pos.x, pos.z)
+		var flak := FlakGun.new()
+		flak.zone_center = center
+		flak.zone_radius = radius
+		fly_world.add_child(flak)
+		flak.global_position = pos
 
 
 func _rand_target_pos(ymin: float, ymax: float) -> Vector3:
@@ -2187,7 +2269,7 @@ func _on_target_killed(reward: int, _pos: Vector3) -> void:
 	if game.is_sandbox():
 		# Sandbox: freies Zielfeld, Nachschub-Ballon (Geld egal)
 		game.add_money(reward)
-		_toast("💥 Abschuss! +%d 🪙" % reward)
+		_toast("Abschuss! +%d" % reward)
 		get_tree().create_timer(7.0).timeout.connect(_respawn_balloon)
 		return
 	# Survival: Combo, Score, Wellen-Fortschritt
@@ -2200,9 +2282,9 @@ func _on_target_killed(reward: int, _pos: Vector3) -> void:
 	game.add_money(gain)
 	_flight_score += gain
 	if _combo >= 3:
-		_toast("💥 +%d 🪙   ×%d COMBO!" % [gain, _combo])
+		_toast("+%d   ×%d COMBO!" % [gain, _combo])
 	else:
-		_toast("💥 Abschuss! +%d 🪙" % gain)
+		_toast("Abschuss! +%d" % gain)
 	# Wellen-Fortschritt nur zählen, solange die Welle noch läuft -> _alive wird nie negativ
 	# und _wave_cleared() feuert genau EINMAL (beim Übergang auf 0), nicht bei Nachzüglern.
 	if _alive > 0:
@@ -2280,7 +2362,7 @@ func _start_wave(n: int) -> void:
 	for i in airships:
 		_make_target("airship", _rand_target_pos(130.0, 250.0), Color(0.72, 0.74, 0.8), diff)
 	_alive = balloons + airships
-	_toast("🌊  WELLE %d  —  %d Ziele" % [n, _alive])
+	_toast("WELLE %d  —  %d Ziele" % [n, _alive])
 	_update_survival_hud()
 
 
@@ -2288,7 +2370,7 @@ func _wave_cleared() -> void:
 	var bonus := 150 + _wave * 150        # höherer Wellen-Bonus -> Geldfluss stagniert spät nicht
 	game.add_money(bonus)
 	_flight_score += bonus
-	_toast("✅  WELLE %d GESCHAFFT!   Bonus +%d 🪙" % [_wave, bonus])
+	_toast("WELLE %d GESCHAFFT!   Bonus +%d" % [_wave, bonus])
 	_update_survival_hud()
 	var nw := _wave + 1
 	var sess := _wave_session
@@ -2313,11 +2395,11 @@ func _update_survival_hud() -> void:
 
 func _rank_for(s: int) -> String:
 	if s >= 3500:
-		return "🥇 Ass!"
+		return "Ass!"
 	if s >= 1500:
-		return "🥈 Veteran"
+		return "Veteran"
 	if s >= 500:
-		return "🥉 Pilot"
+		return "Pilot"
 	return "Rekrut"
 
 
@@ -2327,12 +2409,12 @@ func _show_result_screen() -> void:
 	if survival_label:
 		survival_label.visible = false
 	var earned := maxi(game.money - _flight_money0, 0)
-	var v := _dialog_shell("🏁  Flug-Auswertung")
+	var v := _dialog_shell("Flug-Auswertung")
 	v.add_child(_lbl("Erreichte Welle:    %d" % _wave, 17))
 	v.add_child(_lbl("Abschüsse:    %d" % _kills, 17))
 	v.add_child(_lbl("Beste Combo:    ×%d" % _best_combo, 17))
 	v.add_child(_lbl("Flug-Score:    %d" % _flight_score, 17))
-	v.add_child(_lbl("Verdient:    +%d 🪙" % earned, 18, Color(1.0, 0.86, 0.3)))
+	v.add_child(_lbl("Verdient:    +%d" % earned, 18, Color(1.0, 0.86, 0.3)))
 	v.add_child(_lbl("Rang:    %s" % _rank_for(_flight_score), 22, Color(0.7, 1.0, 0.8)))
 	var ok := Button.new()
 	ok.text = "Weiter"
@@ -2344,11 +2426,11 @@ func _show_result_screen() -> void:
 # WIRTSCHAFT · MODI (Sandbox / Survival)
 # ===========================================================================
 func _on_game_changed() -> void:
-	var mstr := "Sandbox ∞" if (game != null and game.is_sandbox()) else ("🪙 %d" % (game.money if game else 0))
+	var mstr := "Sandbox ∞" if (game != null and game.is_sandbox()) else ("%d" % (game.money if game else 0))
 	if money_label:
 		money_label.text = "Guthaben: " + mstr
 	if fly_money_label:
-		fly_money_label.text = "🪙 " + ("∞ (Sandbox)" if (game and game.is_sandbox()) else str(game.money if game else 0))
+		fly_money_label.text = "" + ("∞ (Sandbox)" if (game and game.is_sandbox()) else str(game.money if game else 0))
 	_build_upgrades_ui()
 
 
@@ -2359,7 +2441,7 @@ func _build_upgrades_ui() -> void:
 		c.queue_free()
 	if game == null:
 		return
-	upgrade_box.add_child(_lbl("⬆  UPGRADES", 13, Color(0.6, 1.0, 0.8)))
+	upgrade_box.add_child(_lbl("UPGRADES", 13, Color(0.6, 1.0, 0.8)))
 	var defs := [
 		{"key": "thrust", "name": "Triebwerks-Tuning (+15% Schub)"},
 		{"key": "wing", "name": "Verstärkte Flügel (+30% Last)"},
@@ -2374,25 +2456,22 @@ func _build_upgrades_ui() -> void:
 			b.disabled = true
 		else:
 			var cost := 500 * (lvl + 1)
-			b.text = "%s  [Lv %d]  %d 🪙" % [u["name"], lvl, cost]
+			b.text = "%s  [Lv %d]  %d" % [u["name"], lvl, cost]
 			b.pressed.connect(_on_buy_upgrade.bind(u["key"], cost))
 		upgrade_box.add_child(b)
 
 
 func _on_buy_upgrade(key: String, cost: int) -> void:
 	if game.buy_upgrade(key, cost, 3):
-		_toast("Upgrade gekauft: %s  (−%d 🪙)" % [key, cost])
+		_toast("Upgrade gekauft: %s  (−%d)" % [key, cost])
 	else:
 		_toast("Zu teuer oder Maximum erreicht")
 
 
 func _rebuild_palette() -> void:
-	if part_list_box == null:
+	if part_grid == null:
 		return
-	for c in part_list_box.get_children():
-		c.queue_free()
-	part_buttons.clear()
-	_fill_part_list(part_list_box)
+	_fill_part_grid()
 	_refresh_tool_ui()
 
 
@@ -2417,13 +2496,13 @@ func _show_mode_select() -> void:
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(s)
 	var sandbox := Button.new()
-	sandbox.text = "🧰  SANDBOX\nAlle Teile frei · unbegrenzt bauen & fliegen"
+	sandbox.text = "SANDBOX\nAlle Teile frei · unbegrenzt bauen & fliegen"
 	sandbox.custom_minimum_size = Vector2(460, 70)
 	sandbox.add_theme_font_size_override("font_size", 18)
 	sandbox.pressed.connect(_choose_mode.bind(GameState.GameMode.SANDBOX))
 	v.add_child(sandbox)
 	var surv := Button.new()
-	surv.text = "🪖  SURVIVAL\nStarte klein · erfülle Missionen · verdiene Geld · kaufe & upgrade"
+	surv.text = "SURVIVAL\nStarte klein · erfülle Missionen · verdiene Geld · kaufe & upgrade"
 	surv.custom_minimum_size = Vector2(460, 70)
 	surv.add_theme_font_size_override("font_size", 18)
 	surv.pressed.connect(_choose_mode.bind(GameState.GameMode.SURVIVAL))
@@ -2443,6 +2522,94 @@ func _choose_mode(m: int) -> void:
 func _on_clear_pressed() -> void:
 	build_ctrl.clear_design()
 	_refresh_tool_ui()
+
+
+# Liest ein gespeichertes Design (Slot ODER Vorlage) als reine Teile-Liste — OHNE es zu laden.
+# Für die Vorschau-Thumbnails im Laden-Menü.
+func _read_design_parts(path: String) -> Array:
+	var out: Array = []
+	if not FileAccess.file_exists(path):
+		return out
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return out
+	var data = JSON.parse_string(f.get_as_text())
+	f.close()
+	if typeof(data) != TYPE_ARRAY:
+		return out
+	for it in data:
+		if typeof(it) == TYPE_DICTIONARY and it.has("id") and typeof(it.get("xform")) == TYPE_ARRAY:
+			var col := Color(0, 0, 0, 0)
+			if it.has("color") and typeof(it["color"]) == TYPE_ARRAY and it["color"].size() >= 4:
+				var ca: Array = it["color"]
+				col = Color(ca[0], ca[1], ca[2], ca[3])
+			var scl := Vector3.ONE
+			if it.has("scale") and typeof(it["scale"]) == TYPE_ARRAY and it["scale"].size() >= 3:
+				var sa: Array = it["scale"]
+				scl = Vector3(sa[0], sa[1], sa[2])
+			out.append({
+				"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl,
+				"taper": float(it.get("taper", 1.0)), "taper_front": float(it.get("taper_front", 1.0)),
+				"taper_y": float(it.get("taper_y", -1.0)), "taper_front_y": float(it.get("taper_front_y", -1.0)),
+			})
+	return out
+
+
+# Kleines 3D-Vorschaubild eines GANZEN Designs (eigener SubViewport, rendert einmal).
+func _make_design_thumb(parts: Array) -> Control:
+	var svc := SubViewportContainer.new()
+	svc.stretch = false
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	svc.custom_minimum_size = Vector2(76, 48)
+	var vp := SubViewport.new()
+	vp.size = Vector2i(76, 48)
+	vp.own_world_3d = true
+	vp.transparent_bg = false
+	vp.msaa_3d = Viewport.MSAA_4X
+	vp.gui_disable_input = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	svc.add_child(vp)
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.14, 0.17, 0.23)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.66, 0.72, 0.84)
+	env.ambient_light_energy = 1.1
+	var we := WorldEnvironment.new()
+	we.environment = env
+	vp.add_child(we)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-42, -38, 0)
+	key.light_energy = 1.7
+	vp.add_child(key)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(18, 130, 0)
+	fill.light_energy = 0.7
+	vp.add_child(fill)
+	var root := Node3D.new()
+	vp.add_child(root)
+	for pd in parts:
+		var p := PartCatalog.get_part(pd["id"])
+		if p.is_empty():
+			continue
+		var holder := Node3D.new()
+		holder.transform = pd["xform"]
+		var vis := PartCatalog.build_visual(p, pd["color"], pd["taper"], pd["taper_front"], pd["taper_y"], pd["taper_front_y"])
+		(vis as Node3D).scale = pd["scale"]
+		holder.add_child(vis)
+		root.add_child(holder)
+	# Kamera auf die kombinierte AABB ausrichten (3/4-Ansicht von vorne-oben-rechts)
+	var aabb := _visual_aabb(root)
+	var center: Vector3 = aabb.get_center()
+	var radius: float = maxf(aabb.size.length() * 0.5, 0.5)
+	var cam := Camera3D.new()
+	cam.fov = 38.0
+	var dist: float = radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.08
+	var dir: Vector3 = Vector3(0.85, 0.55, 1.0).normalized()
+	cam.look_at_from_position(center + dir * dist, center, Vector3.UP)
+	cam.current = true
+	vp.add_child(cam)
+	return svc
 
 
 func _on_save_pressed() -> void:
@@ -2491,7 +2658,7 @@ func _write_design(path: String) -> bool:
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		# NICHT still scheitern: Spieler würde sonst unbemerkt sein Design verlieren.
-		_toast("⚠ Speichern fehlgeschlagen (%s, Fehler %d)" % [path, FileAccess.get_open_error()])
+		_toast("Speichern fehlgeschlagen (%s, Fehler %d)" % [path, FileAccess.get_open_error()])
 		push_warning("Design-Speichern fehlgeschlagen: %s (err %d)" % [path, FileAccess.get_open_error()])
 		return false
 	f.store_string(JSON.stringify(_design_data()))
@@ -2504,7 +2671,7 @@ func _ensure_slot_dir() -> void:
 	if not DirAccess.dir_exists_absolute(SLOT_DIR):
 		var err := DirAccess.make_dir_recursive_absolute(SLOT_DIR)
 		if err != OK:
-			_toast("⚠ Speicher-Ordner konnte nicht angelegt werden (Fehler %d)" % err)
+			_toast("Speicher-Ordner konnte nicht angelegt werden (Fehler %d)" % err)
 
 
 func _safe_name(n: String) -> String:
@@ -2554,6 +2721,7 @@ func _dialog_shell(title: String) -> VBoxContainer:
 	v.custom_minimum_size = Vector2(470, 0)
 	center.add_child(v)
 	var t := _lbl(title, 24, Color(0.6, 1.0, 0.7))
+	t.add_theme_font_override("font", F_BOLD)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
 	return v
@@ -2562,7 +2730,7 @@ func _dialog_shell(title: String) -> VBoxContainer:
 func _show_save_dialog() -> void:
 	if build_ctrl == null:
 		return
-	var v := _dialog_shell("✈  Flugzeug speichern")
+	var v := _dialog_shell("Flugzeug speichern")
 	v.add_child(_lbl("Name:", 14, Color(0.8, 0.85, 0.95)))
 	var le := LineEdit.new()
 	le.text = _slot_name
@@ -2573,7 +2741,7 @@ func _show_save_dialog() -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	v.add_child(row)
-	var ok := Button.new(); ok.text = "💾  Speichern"; ok.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var ok := Button.new(); ok.text = "Speichern"; ok.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ok.pressed.connect(func(): _do_save_slot(le.text))
 	row.add_child(ok)
 	var cancel := Button.new(); cancel.text = "Abbrechen"; cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2591,14 +2759,14 @@ func _do_save_slot(nm_raw: String) -> void:
 	_ensure_slot_dir()
 	if _write_design(_slot_path(nm)):
 		_write_design(SAVE_PATH)   # auch als aktuelles Autoload merken
-		_toast("Gespeichert: " + nm + " ✓")
+		_toast("Gespeichert: " + nm + "")
 	else:
 		_toast("Speichern fehlgeschlagen")
 	_close_dialog()
 
 
 func _show_load_dialog() -> void:
-	var v := _dialog_shell("✈  Flugzeug laden")
+	var v := _dialog_shell("Flugzeug laden")
 	v.add_child(_lbl("Vorlagen", 14, Color(0.82, 0.9, 1.0)))
 	for pr in PRESETS:
 		var pb := Button.new()
@@ -2613,23 +2781,29 @@ func _show_load_dialog() -> void:
 		v.add_child(_lbl("(noch keine gespeichert — über »Speichern« anlegen)", 12, Color(0.7, 0.7, 0.78)))
 	else:
 		var scroll := ScrollContainer.new()
-		scroll.custom_minimum_size = Vector2(470, minf(slots.size() * 40.0, 220.0))
+		scroll.custom_minimum_size = Vector2(470, minf(slots.size() * 56.0, 300.0))
 		v.add_child(scroll)
 		var sv := VBoxContainer.new()
 		sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sv.add_theme_constant_override("separation", 6)
 		scroll.add_child(sv)
 		for nm in slots:
 			var hb := HBoxContainer.new()
 			hb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			hb.add_theme_constant_override("separation", 8)
 			sv.add_child(hb)
+			# 3D-Vorschau des gespeicherten Flugzeugs
+			hb.add_child(_make_design_thumb(_read_design_parts(_slot_path(nm))))
 			var lb := Button.new()
-			lb.text = "📂  " + nm
+			lb.text = nm
 			lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lb.size_flags_vertical = Control.SIZE_EXPAND_FILL
 			lb.pressed.connect(_do_load_slot.bind(nm))
 			hb.add_child(lb)
 			var db := Button.new()
-			db.text = "🗑"
+			db.text = "Entf."
 			db.tooltip_text = "Löschen"
+			db.size_flags_vertical = Control.SIZE_EXPAND_FILL
 			db.pressed.connect(_do_delete_slot.bind(nm))
 			hb.add_child(db)
 	var close := Button.new(); close.text = "Schließen"
@@ -2774,6 +2948,118 @@ func _lbl(text: String, size: int = 14, color: Color = Color(1, 1, 1)) -> Label:
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
 	l.add_theme_constant_override("outline_size", 3)
 	return l
+
+
+# Kleine, dezente Sektions-Überschrift fürs Bau-Panel (mehr Struktur/Übersicht).
+func _section(text: String) -> Label:
+	var l := _lbl(text, 11, Color(0.52, 0.68, 0.92))
+	l.add_theme_font_override("font", F_BOLD)
+	return l
+
+
+# --- Runde Emoji-Icon-Buttons (Kategorie-Reiter + untere Leiste) -------------------
+func _make_icon_btn(icon_path: String) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(54, 54)
+	b.focus_mode = Control.FOCUS_NONE
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_CENTER
+	b.expand_icon = false
+	var tex: Texture2D = load(icon_path)
+	if tex != null:
+		b.icon = tex
+	_style_icon_active(b, false)
+	return b
+
+
+# Kategorie-Icon (momentan): grau, aktiv = orange.
+func _style_icon_active(b: Button, active: bool) -> void:
+	var n := StyleBoxFlat.new()
+	n.bg_color = Color(0.90, 0.51, 0.10) if active else Color(0.92, 0.93, 0.96)
+	n.set_corner_radius_all(25)
+	n.set_content_margin_all(3)
+	var h: StyleBoxFlat = n.duplicate()
+	if not active:
+		h.bg_color = Color(1, 1, 1)
+	b.add_theme_stylebox_override("normal", n)
+	b.add_theme_stylebox_override("hover", h)
+	b.add_theme_stylebox_override("pressed", n)
+	b.add_theme_stylebox_override("focus", n)
+	var fc := Color(1, 1, 1) if active else Color(0.10, 0.12, 0.16)
+	b.add_theme_color_override("font_color", fc)
+	b.add_theme_color_override("font_hover_color", fc)
+	b.add_theme_color_override("font_pressed_color", fc)
+	# Icon (weißes SVG) einfärben: dunkel auf hellem Kreis, weiß auf orange aktiv.
+	for ic in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+		b.add_theme_color_override(ic, fc)
+
+
+# Toggle-Icon (Snapping-Magnet): aus = grau, an = orange (über die pressed-Stylebox).
+func _style_icon_toggle(b: Button) -> void:
+	var n := StyleBoxFlat.new()
+	n.bg_color = Color(0.92, 0.93, 0.96)
+	n.set_corner_radius_all(25)
+	n.set_content_margin_all(3)
+	var p := StyleBoxFlat.new()
+	p.bg_color = Color(0.90, 0.51, 0.10)
+	p.set_corner_radius_all(25)
+	p.set_content_margin_all(3)
+	b.add_theme_stylebox_override("normal", n)
+	b.add_theme_stylebox_override("hover", n)
+	b.add_theme_stylebox_override("pressed", p)
+	b.add_theme_stylebox_override("focus", n)
+	b.add_theme_color_override("font_color", Color(0.10, 0.12, 0.16))
+	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	var off := Color(0.10, 0.12, 0.16)
+	b.add_theme_color_override("icon_normal_color", off)
+	b.add_theme_color_override("icon_hover_color", off)
+	b.add_theme_color_override("icon_pressed_color", Color(1, 1, 1))
+	b.add_theme_color_override("icon_focus_color", off)
+
+
+# Toggle-Pille (Mirror/Spiegeln): aus = dunkel, an = orange.
+func _style_pill_toggle(b: Button) -> void:
+	var n := StyleBoxFlat.new()
+	n.bg_color = Color(0.16, 0.20, 0.28, 0.96)
+	n.set_corner_radius_all(12)
+	n.set_content_margin_all(8)
+	var p := StyleBoxFlat.new()
+	p.bg_color = Color(0.90, 0.51, 0.10, 0.98)
+	p.set_corner_radius_all(12)
+	p.set_content_margin_all(8)
+	b.add_theme_stylebox_override("normal", n)
+	b.add_theme_stylebox_override("hover", n)
+	b.add_theme_stylebox_override("pressed", p)
+	b.add_theme_stylebox_override("focus", n)
+	b.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	b.add_theme_color_override("font_pressed_color", Color(1, 1, 1))
+	b.add_theme_color_override("icon_normal_color", Color(0.85, 0.9, 1.0))
+	b.add_theme_color_override("icon_hover_color", Color(0.95, 0.97, 1.0))
+	b.add_theme_color_override("icon_pressed_color", Color(1, 1, 1))
+
+
+func _on_cat_icon(idx: int) -> void:
+	_active_cat = idx
+	_show_tools = false
+	if parts_view: parts_view.visible = true
+	if tools_view: tools_view.visible = false
+	_fill_part_grid()
+	_refresh_cat_icons()
+	_refresh_tool_ui()
+
+
+func _on_tools_icon() -> void:
+	_show_tools = true
+	if parts_view: parts_view.visible = false
+	if tools_view: tools_view.visible = true
+	_refresh_cat_icons()
+
+
+func _refresh_cat_icons() -> void:
+	for i in _cat_icon_btns.size():
+		_style_icon_active(_cat_icon_btns[i], (not _show_tools) and i == _active_cat)
+	if tools_icon_btn:
+		_style_icon_active(tools_icon_btn, _show_tools)
 
 
 func _panel(bg: Color) -> PanelContainer:

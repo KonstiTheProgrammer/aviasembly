@@ -2,13 +2,13 @@
 // am Horizont, weiche Sonne mit warmem Halo, GROSSE soft-gemalte Kumuluswolken.
 shader_type sky;
 
-uniform vec3 col_zenith  : source_color = vec3(0.32, 0.58, 0.92);   // fröhliches, sattes Blau
-uniform vec3 col_mid     : source_color = vec3(0.58, 0.76, 0.96);
-uniform vec3 col_horizon : source_color = vec3(0.86, 0.93, 0.99);   // hell, freundlich
+uniform vec3 col_zenith  : source_color = vec3(0.24, 0.49, 0.86);   // sattes, tiefes Blau
+uniform vec3 col_mid     : source_color = vec3(0.40, 0.61, 0.89);
+uniform vec3 col_horizon : source_color = vec3(0.60, 0.73, 0.88);   // klar blau, NICHT weiß
 uniform vec3 sun_col     : source_color = vec3(1.0, 0.98, 0.92);
 uniform vec3 sun_halo    : source_color = vec3(1.0, 0.88, 0.70);    // warmer Halo
-uniform vec3 cloud_lit   : source_color = vec3(1.0, 1.0, 1.0);
-uniform vec3 cloud_dark  : source_color = vec3(0.80, 0.86, 0.96);   // helle, leicht blaue Schattenseite
+uniform vec3 cloud_lit   : source_color = vec3(0.90, 0.93, 0.97);   // leicht gebrochenes Weiß (kein Knall-Weiß)
+uniform vec3 cloud_dark  : source_color = vec3(0.66, 0.73, 0.85);   // blaue Schattenseite
 uniform vec3 sun_dir = vec3(0.55, 0.62, 0.55);
 uniform float cloud_cover : hint_range(0.0, 1.0) = 0.32;     // mehr Wolken (verspielt)
 uniform float cloud_soft  : hint_range(0.05, 0.6) = 0.30;   // weich, aber puffig
@@ -46,8 +46,8 @@ void sky() {
 
 	// --- weiche Sonne: Scheibe + großer warmer Halo ---
 	float sdot = max(dot(dir, sd), 0.0);
-	sky_col += sun_col  * pow(sdot, 1800.0) * 8.0;     // weiche Scheibe
-	sky_col += sun_halo * pow(sdot, 5.0) * 0.45;       // breiter warmer Halo
+	sky_col += sun_col  * pow(sdot, 1800.0) * 6.0;     // weiche Scheibe (etwas gezähmt)
+	sky_col += sun_halo * pow(sdot, 5.0) * 0.35;       // breiter warmer Halo
 
 	// --- GROSSE weiche Wolken ---
 	if (dir.y > 0.01) {

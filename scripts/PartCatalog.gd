@@ -41,45 +41,50 @@ static func _build() -> void:
 	# --- Rumpf -------------------------------------------------------------
 	_add({
 		"id": "cockpit", "name": "Cockpit", "category": CAT_BODY,
-		"mass": 180.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.3, 1.1, 2.2), "root": true,
+		"mass": 180.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"size": Vector3(1.2, 1.2, 2.2), "root": true,
+		"canopy": Vector3(0.42, 0.36, 0.62),
 		"desc": "Das Herz des Flugzeugs. Hier startet jeder Bau.",
 	})
-	# Cockpit-/Kanzel-Varianten (Blender-glTF, lackierbarer Body + Glas-Kanzel)
+	# Cockpit-/Kanzel-Varianten: voll runder Zylinder-Körper + Glaskuppel obendrauf.
 	_add({
 		"id": "cockpit_bubble", "name": "Bubble-Kanzel", "category": CAT_BODY,
-		"mass": 165.0, "color": C_COCKPIT, "shape": "cockpit",
+		"mass": 165.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
 		"size": Vector3(1.3, 1.3, 2.4),
+		"canopy": Vector3(0.50, 0.50, 0.66),
 		"desc": "Runde Jäger-Bubble-Kanzel mit Rundumsicht.",
 	})
 	_add({
 		"id": "cockpit_jet", "name": "Jet-Kanzel", "category": CAT_BODY,
-		"mass": 150.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.1, 1.05, 2.6),
+		"mass": 150.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"size": Vector3(1.1, 1.1, 2.6),
+		"canopy": Vector3(0.42, 0.30, 0.92),
 		"desc": "Flache, schnittige Tropfen-Kanzel für Jets.",
 	})
 	_add({
 		"id": "cockpit_frame", "name": "Rahmen-Kanzel", "category": CAT_BODY,
-		"mass": 185.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.3, 1.4, 2.25),
+		"mass": 185.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"size": Vector3(1.35, 1.35, 2.25),
+		"canopy": Vector3(0.46, 0.44, 0.66), "canopy_style": "frame",
 		"desc": "Klassische Mehrscheiben-Kanzel mit Streben.",
 	})
 	_add({
 		"id": "cockpit_tandem", "name": "Tandem-Kanzel", "category": CAT_BODY,
-		"mass": 220.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.2, 1.25, 3.1),
+		"mass": 220.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"size": Vector3(1.225, 1.225, 3.1),
+		"canopy": Vector3(0.44, 0.40, 1.0), "canopy_style": "tandem",
 		"desc": "Zweisitzer mit zwei Kanzeln hintereinander.",
 	})
 	_add({
 		"id": "fuselage", "name": "Rumpfsegment", "category": CAT_BODY,
 		"mass": 120.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.3, 1.1, 2.0), "biends": true,
+		"size": Vector3(1.2, 1.2, 2.0), "biends": true,
 		"desc": "Rumpf-Tubus. BEIDE Enden einzeln skalierbar (Panel »Vorne«/»Hinten«) — vorne/hinten verschieden dick, für fließend zulaufende Rümpfe.",
 	})
 	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
 		"mass": 175.0, "color": C_BODY, "shape": "box",
-		"size": Vector3(1.3, 1.1, 3.2), "biends": true,
+		"size": Vector3(1.2, 1.2, 3.2), "biends": true,
 		"desc": "Langer Rumpf-Tubus. Beide Enden einzeln dick/dünn (Panel »Vorne«/»Hinten«).",
 	})
 	_add({
@@ -92,7 +97,7 @@ static func _build() -> void:
 		"id": "fuselage_taper", "name": "Verjüngungs-Rumpf", "category": CAT_BODY,
 		"mass": 140.0, "color": C_BODY, "shape": "box",
 		"size": Vector3(1.45, 1.05, 2.8), "biends": true, "taper": 0.55,
-		"desc": "Läuft von breit auf schmal zu (Übergang Rumpf↔Nase/Heck). Beide Enden einzeln skalierbar, mit R umdrehbar.",
+		"desc": "Läuft von breit auf schmal zu (Übergang Rumpf zu Nase/Heck). Beide Enden einzeln skalierbar, mit R umdrehbar.",
 	})
 	_add({
 		"id": "f22_body", "name": "F-22 Stealth-Rumpf", "category": CAT_BODY,
@@ -113,7 +118,7 @@ static func _build() -> void:
 		"mass": 200.0, "color": Color(0.37, 0.39, 0.43), "shape": "prism",
 		"size": Vector3(1.5, 0.95, 2.6), "col_size": Vector3(1.42, 0.9, 2.6),
 		"metal": 0.25, "rough": 0.55, "biends": true, "taper": 0.78,
-		"desc": "Gechinter Stealth-Rumpf — passt exakt an den Querschnitt des F-22-Kopfes. BEIDE Enden einzeln skalierbar (Panel »Vorne«/»Hinten«) → vorne breit, hinten schmal.",
+		"desc": "Gechinter Stealth-Rumpf — passt exakt an den Querschnitt des F-22-Kopfes. BEIDE Enden einzeln skalierbar (Panel »Vorne«/»Hinten«): vorne breit, hinten schmal.",
 	})
 	_add({
 		"id": "mustang_body", "name": "P-51 Mustang-Rumpf", "category": CAT_BODY,
@@ -170,6 +175,13 @@ static func _build() -> void:
 		"size": Vector3(0.06, 0.6, 0.6), "col_size": Vector3(0.12, 0.55, 0.55),
 		"metal": 0.1, "rough": 0.5,
 		"desc": "Flacher roter Sowjet-Stern als Hoheitsabzeichen. Flach auf Rumpf/Flügel/Leitwerk kleben (Default-Seite = rechts).",
+	})
+	_add({
+		"id": "iron_cross", "name": "Eisernes Kreuz (Markierung)", "category": CAT_BODY,
+		"mass": 2.0, "color": Color(0.07, 0.07, 0.08), "shape": "cross",
+		"size": Vector3(0.08, 0.72, 0.72), "col_size": Vector3(0.14, 0.66, 0.66),
+		"metal": 0.0, "rough": 0.6,
+		"desc": "Schwarzes Balkenkreuz mit weißem Rand (deutsches WWI-Hoheitsabzeichen). Flach auf Rumpf/Flügel/Leitwerk kleben.",
 	})
 	_add({
 		"id": "mig15_hull", "name": "MiG-15-Rumpf (1 Stück, berechnet)", "category": CAT_BODY,
@@ -323,13 +335,13 @@ static func _build() -> void:
 	})
 	_add({
 		"id": "nose", "name": "Nasenkonus", "category": CAT_BODY,
-		"mass": 70.0, "color": C_BODY, "shape": "nose",
-		"size": Vector3(1.3, 1.1, 1.8),
+		"mass": 70.0, "color": C_BODY, "shape": "nose", "force_proc": true,
+		"size": Vector3(1.2, 1.2, 1.8),
 	})
 	_add({
 		"id": "tailcone", "name": "Heckkonus", "category": CAT_BODY,
-		"mass": 60.0, "color": C_BODY, "shape": "nose", "reverse": true,
-		"size": Vector3(1.3, 1.1, 1.8),
+		"mass": 60.0, "color": C_BODY, "shape": "nose", "reverse": true, "force_proc": true,
+		"size": Vector3(1.2, 1.2, 1.8),
 	})
 	_add({
 		"id": "strut", "name": "Tragflächenstrebe", "category": CAT_BODY,
@@ -378,6 +390,14 @@ static func _build() -> void:
 		"mass": 250.0, "color": C_ENGINE, "shape": "prop", "thrust": 11000.0,
 		"size": Vector3(1.5, 1.5, 1.9), "metal": 0.7, "rough": 0.35,
 	})
+	# Bündige Bugmotor-Variante: wird beim Snappen des Propellermotors an einen Rumpf gesetzt.
+	# Querschnitt (Breite/Höhe) passt sich per Auto-Fit an den Rumpf an -> geht perfekt über.
+	_add({
+		"id": "prop_engine_nose", "name": "Propeller-Bugmotor", "category": CAT_PROP,
+		"mass": 160.0, "color": C_ENGINE, "shape": "prop", "thrust": 6500.0,
+		"size": Vector3(1.07, 1.07, 1.08), "col_size": Vector3(1.07, 1.07, 1.08), "metal": 0.7, "rough": 0.35,
+		"desc": "Propellermotor (gleiches Blender-Modell, hinten flach durchgeschnitten) als bündige Bughaube.",
+	})
 	_add({
 		"id": "jet_engine", "name": "Düsentriebwerk", "category": CAT_PROP,
 		"mass": 300.0, "color": C_ENGINE, "shape": "jet", "thrust": 20000.0, "jet": true,
@@ -406,32 +426,32 @@ static func _build() -> void:
 	# --- Fahrwerk (mit Traglast in kg; Summe muss das Gewicht tragen) ------
 	_add({
 		"id": "wheel_light", "name": "Leichtes Fahrwerk", "category": CAT_GEAR,
-		"mass": 28.0, "color": C_GEAR, "shape": "wheel", "gear_capacity": 450.0,
+		"mass": 28.0, "color": C_GEAR, "shape": "wheel", "force_proc": true, "wheel_style": "vintage", "gear_capacity": 450.0,
 		"size": Vector3(0.5, 1.0, 0.7), "metal": 0.1, "rough": 0.8,
 		"desc": "Leicht, aber nur ~450 kg Traglast.",
 	})
 	_add({
 		"id": "wheel", "name": "Standard-Fahrwerk", "category": CAT_GEAR,
-		"mass": 45.0, "color": C_GEAR, "shape": "wheel", "gear_capacity": 850.0,
+		"mass": 45.0, "color": C_GEAR, "shape": "wheel", "force_proc": true, "wheel_style": "vintage", "gear_capacity": 850.0,
 		"size": Vector3(0.6, 1.2, 0.9), "metal": 0.1, "rough": 0.8,
 		"desc": "Ausgewogen, ~850 kg Traglast.",
 	})
 	_add({
 		"id": "wheel_heavy", "name": "Schweres Fahrwerk", "category": CAT_GEAR,
-		"mass": 85.0, "color": C_GEAR, "shape": "wheel", "gear_capacity": 1750.0,
+		"mass": 85.0, "color": C_GEAR, "shape": "wheel", "force_proc": true, "wheel_style": "vintage", "gear_capacity": 1750.0,
 		"size": Vector3(0.78, 1.4, 1.05), "metal": 0.15, "rough": 0.75,
 		"desc": "Robust, ~1750 kg Traglast — für schwere Jets.",
 	})
 	_add({
 		"id": "wheel_retract", "name": "Einziehfahrwerk (G)", "category": CAT_GEAR,
-		"mass": 60.0, "color": Color(0.16, 0.16, 0.2), "shape": "wheel", "gear_capacity": 1050.0,
+		"mass": 60.0, "color": Color(0.16, 0.16, 0.2), "shape": "wheel", "force_proc": true, "gear_capacity": 1050.0,
 		"size": Vector3(0.4, 1.1, 0.65), "col_size": Vector3(0.36, 1.05, 0.62),
 		"col_offset": Vector3(0, -0.52, 0), "metal": 0.5, "rough": 0.45, "retract": true,
 		"desc": "Im Flug mit G einfahren (Bein klappt hoch, Klappe schwenkt) -> weniger Widerstand. ~1050 kg.",
 	})
 	_add({
 		"id": "wheel_jet", "name": "Jet-Fahrwerk (Einzug)", "category": CAT_GEAR,
-		"mass": 55.0, "color": Color(0.17, 0.18, 0.21), "shape": "wheel", "gear_capacity": 1250.0,
+		"mass": 55.0, "color": Color(0.17, 0.18, 0.21), "shape": "wheel", "force_proc": true, "gear_capacity": 1250.0,
 		"size": Vector3(0.32, 1.05, 0.6), "col_size": Vector3(0.3, 1.0, 0.55),
 		"col_offset": Vector3(0, -0.5, 0), "metal": 0.6, "rough": 0.4, "retract": true,
 		"desc": "Modernes Kampfjet-Fahrwerk: schlanker Öldämpfer-Beinholm, kleines Low-Profile-Rad mit Bremsscheibe. Einziehbar (G). ~1250 kg.",
@@ -505,6 +525,12 @@ static func _build() -> void:
 		"size": Vector3(0.5, 0.5, 1.9), "metal": 0.3, "rough": 0.6,
 		"desc": "Freifallbombe (Taste B). Großer Knall — fällt mit der Schwerkraft.",
 	})
+	_add({
+		"id": "missile_drop", "name": "Abwurf-Boost-Rakete", "category": CAT_WEAPON,
+		"mass": 130.0, "color": Color(0.55, 0.58, 0.63), "shape": "missile", "weapon": "missile_drop",
+		"size": Vector3(0.5, 0.5, 2.9), "metal": 0.5, "rough": 0.4,
+		"desc": "Lenkrakete mit Abwurf-Start (LEERTASTE/Linksklick): fällt erst frei aus der Aufhängung, zündet dann den Turbo-Motor mit dicker Rauchfahne und kurvt auf den nächsten Luftballon. Dicker Körper, großer Suchkopf.",
+	})
 
 
 
@@ -566,6 +592,28 @@ static func parts_in(cat: String) -> Array:
 		if _parts[id]["category"] == cat:
 			out.append(_parts[id])
 	return out
+
+
+# Vereinfachter Rumpfbau: Diese Body-Teile bleiben im KATALOG (Presets/Default brauchen sie),
+# werden aber NICHT mehr in der Bau-Palette gezeigt. Übrig in „Rumpf": Cockpits + EIN
+# bearbeitbares Rumpfsegment (+ Streben/Tank/Markierung). Geformt wird über Auto-Fit beim
+# Andocken + den Ausfahr-Kegel (Länge) + die Enden-Skalierung (Querschnitt vorne/hinten).
+const PALETTE_HIDDEN := {
+	"fuselage_long": true, "fuselage_wide": true, "fuselage_taper": true,
+	"f22_body": true, "f22_head": true, "f22_fuselage": true,
+	"mustang_body": true, "me262_body": true,
+	"jet_nose": true, "jet_body": true, "jet_cockpit": true,
+	"mig15_hull": true, "mig15_body": true, "f86_body": true,
+	"mig21_nose": true, "mig21_front": true, "mig21_cockpit": true,
+	"mig21_body": true, "mig21_tail": true, "mig21_rear": true,
+	"f4_nose": true, "f4_front": true, "f14_front": true, "f4_intake": true,
+	"jet_nose_point": true, "nose": true, "tailcone": true,
+	"prop_engine_nose": true,
+}
+
+# Soll dieses Teil in der Bau-Palette erscheinen? (Katalog/Presets bleiben unberührt.)
+static func in_palette(id: String) -> bool:
+	return not PALETTE_HIDDEN.has(id)
 
 ## Strukturelle Belastbarkeit pro m² Flügelfläche (N) — für die G-Last-Grenze
 const WING_STRESS := 3600.0
@@ -734,6 +782,56 @@ static func _mi(mesh: Mesh, mat: Material, pos := Vector3.ZERO, rot := Vector3.Z
 	return m
 
 
+static func _glass_mat() -> StandardMaterial3D:
+	# Glaskuppel-Material (leicht getöntes, glänzendes Glas).
+	var glass := make_material(Color(0.13, 0.24, 0.4), 0.35, 0.06)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.albedo_color.a = 0.62
+	glass.rim_enabled = true
+	glass.rim = 0.6
+	return glass
+
+
+static func _dome(root: Node3D, mat: Material, pos: Vector3, diam: Vector3) -> void:
+	# Glaskuppel als skaliertes Ellipsoid — untere Hälfte steckt im runden Rumpf,
+	# die obere Hälfte ragt als Kanzel über die Hülle.
+	var sm := SphereMesh.new()
+	sm.radius = 0.5
+	sm.height = 1.0
+	sm.radial_segments = 24
+	sm.rings = 12
+	root.add_child(_mi(sm, mat, pos, Vector3.ZERO, diam))
+
+
+static func _cockpit_canopy(root: Node3D, p: Dictionary, size: Vector3) -> void:
+	# Setzt eine Glaskuppel (oder zwei beim Tandem) auf die runde Oberseite des Zylinders.
+	# "canopy" = (Breite, Höhe, Länge) als Bruchteile der Körpermaße;
+	# "canopy_style" = "normal" | "frame" (mit Streben) | "tandem" (zwei Kuppeln).
+	var cano: Vector3 = p.get("canopy", Vector3(0.42, 0.36, 0.62))
+	var style: String = p.get("canopy_style", "normal")
+	var glass := _glass_mat()
+	var yc := size.y * 0.46   # Zentrum knapp unter der obersten Kante -> Kuppel sitzt sauber auf
+	if style == "tandem":
+		# Zweisitzer: zwei Kuppeln hintereinander.
+		var dl := cano.z * 0.42 * size.z
+		for zc in [-size.z * 0.2, size.z * 0.2]:
+			_dome(root, glass, Vector3(0.0, yc, zc),
+				Vector3(cano.x * size.x, cano.y * size.y, dl))
+	else:
+		_dome(root, glass, Vector3(0.0, yc, -size.z * 0.05),
+			Vector3(cano.x * size.x, cano.y * size.y, cano.z * size.z))
+	if style == "frame":
+		# Dunkle Querstreben (Mehrscheiben-Kanzel) als schmale Bügel über der Kuppel.
+		var bar_mat := make_material(Color(0.11, 0.12, 0.15), 0.4, 0.5)
+		var half_len := cano.z * size.z * 0.5
+		for f in [-0.6, 0.0, 0.6]:
+			var bm := BoxMesh.new()
+			bm.size = Vector3(cano.x * size.x * 1.04, size.y * 0.045, size.z * 0.03)
+			root.add_child(_mi(bm, bar_mat,
+				Vector3(0.0, yc + cano.y * size.y * 0.34, -size.z * 0.05 + f * half_len),
+				Vector3.ZERO, Vector3.ONE))
+
+
 # ---------------------------------------------------------------------------
 # Visuelle Erzeugung — gibt einen Node3D zurück (kann mehrere Meshes enthalten)
 # ---------------------------------------------------------------------------
@@ -754,8 +852,9 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 	var eb := Vector2(maxf(taper, 0.02), maxf(taper_y if taper_y >= 0.0 else taper, 0.02))
 	var root := Node3D.new()
 	# Hochwertiges Blender-Modell (glTF), falls vorhanden — sonst prozedural.
-	var pid: String = p.get("id", "")
-	if has_model(pid):
+	# "model" erlaubt, ein FREMDES glb zu nutzen (z.B. die Bugmotor-Variante teilt das prop_engine-glb).
+	var pid: String = p.get("model", p.get("id", ""))
+	if has_model(pid) and not p.get("force_proc", false):
 		_attach_model(root, pid, col_override)
 		return root
 	var shape: String = p.get("shape", "box")
@@ -771,7 +870,8 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			# Rumpfsegment als glatter, leicht abgerundeter Tubus (elliptischer Querschnitt).
 			# BEIDE Enden einzeln in X UND Y skalierbar (elliptischer Loft): ef = vorderes
 			# (-Z) Ende (x,y), eb = hinteres (+Z) -> Segment vorne/hinten verschieden breit/hoch.
-			var tube := _box_tube(ef, eb, 18)
+			# Normaler runder Zylinder mit flachen, scharfkantigen Enden (kein Rundungs-Bevel).
+			var tube := _box_tube(ef, eb, 24)
 			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
 
@@ -785,6 +885,23 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			var plm := BoxMesh.new()
 			plm.size = size
 			root.add_child(_mi(plm, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO, Vector3.ONE))
+
+		"cross":
+			# Balkenkreuz (deutsches WWI-Hoheitsabzeichen): schwarzes Kreuz mit weißem Rand.
+			# Flach (dünn in X), Kreuz in der Y-Z-Ebene -> wie der rote Stern auf Rumpf/Flügel.
+			var white := make_material(Color(0.93, 0.93, 0.91), 0.0, 0.6)
+			var black := make_material(Color(0.06, 0.06, 0.07), 0.0, 0.55)
+			var arm := 0.34   # Balkenbreite (Anteil der Markierungsgröße)
+			# weißer Rand (größer, hinten) + schwarzes Kreuz (kleiner, leicht nach vorne)
+			for layer in [[white, 1.0, 0.0], [black, 0.72, size.x * 0.5]]:
+				var f: float = layer[1]
+				var xo: float = layer[2]
+				var hb := BoxMesh.new()
+				hb.size = Vector3(size.x * 0.5, size.y * arm * f, size.z * f)
+				root.add_child(_mi(hb, layer[0], Vector3(xo, 0, 0)))
+				var vb := BoxMesh.new()
+				vb.size = Vector3(size.x * 0.5, size.y * f, size.z * arm * f)
+				root.add_child(_mi(vb, layer[0], Vector3(xo, 0, 0)))
 
 		"prism":
 			# Gechinter Stealth-Rumpf (F-22-Querschnitt). Beide Enden in X UND Y getrennt:
@@ -811,39 +928,26 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 				_trailing_panel(root, p, "CtrlHinge", 0.85, 0.5, 0.42, col, metal, rough)
 
 		"cyl":
-			# Tank mit gewölbten Enden (Kapselprofil), schön metallisch.
-			var tank := _revolve(_capsule_profile(), 22)
+			# Tank als normaler Zylinder mit flachen, scharfkantigen Enden (kein Kapsel-Rund).
+			var tank := _box_tube(Vector2.ONE, Vector2.ONE, 24)
 			root.add_child(_mi(tank, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
 
 		"nose":
 			# Glatte paraboloide Ogive. Standard: Spitze nach vorne (-Z),
 			# reverse = Spitze nach hinten (Heckkonus).
-			var og := _revolve(_ogive_profile(p.get("reverse", false)), 24)
+			# Runder Kegel mit SCHARFER Spitze (kantig am Ende) statt rundlicher Ogive.
+			var og := _revolve(_cone_profile(p.get("reverse", false)), 20)
 			root.add_child(_mi(og, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
 
 		"cockpit":
-			# Runder Rumpf-Körper, vorne leicht verjüngt (verrundet).
-			var cbody := _revolve([
-				Vector2(-0.5, 0.4), Vector2(-0.42, 0.48), Vector2(-0.2, 0.5),
-				Vector2(0.46, 0.5), Vector2(0.5, 0.49)
-			], 20)
+			# Voll runder Zylinder-Körper mit flachen, scharfkantigen Enden (wie Rumpfsegmente) —
+			# KEINE abgeflachte Oberseite. Die Glaskuppel sitzt obendrauf auf der runden Hülle.
+			var cbody := _box_tube(Vector2.ONE, Vector2.ONE, 24)
 			root.add_child(_mi(cbody, make_material(col, metal, rough), Vector3.ZERO,
 				Vector3.ZERO, size))
-			# Blasen-Kanzel (halb eingelassene Glaskuppel).
-			var sm := SphereMesh.new()
-			sm.radius = 0.5
-			sm.height = 1.0
-			sm.radial_segments = 24
-			sm.rings = 12
-			var glass := make_material(Color(0.13, 0.24, 0.4), 0.1, 0.05)
-			glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			glass.albedo_color.a = 0.6
-			glass.rim_enabled = true
-			glass.rim = 0.6
-			root.add_child(_mi(sm, glass, Vector3(0, size.y * 0.32, -size.z * 0.06),
-				Vector3.ZERO, Vector3(size.x * 0.62, size.y * 0.7, size.z * 0.92)))
+			_cockpit_canopy(root, p, size)
 
 		"prop":
 			# Gondel als runder Tubus, hinten verrundet.
@@ -887,6 +991,35 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			dm.material = dmat
 			root.add_child(_mi(dm, null, Vector3(0, 0, -size.z * 0.54), Vector3(PI * 0.5, 0, 0)))
 
+		"prop_nose":
+			# DASSELBE Motormodell wie freistehend (Gondel + Spinner + Prop), nur VOLL auf den
+			# Rumpf-Querschnitt skaliert (size.x × size.y, elliptisch wie der Rumpf) und mit
+			# HARTEM (flachem) Heck-Schnitt hinten (+Z) -> setzt perfekt bündig am Rumpf an.
+			var ncowl := _revolve([
+				Vector2(-0.5, 0.42), Vector2(-0.44, 0.5), Vector2(0.5, 0.5)
+			], 22)
+			root.add_child(_mi(ncowl, make_material(col, metal, rough), Vector3.ZERO, Vector3.ZERO,
+				Vector3(size.x, size.y, size.z)))
+			# Spinner (Ogive, Spitze nach -Z) auf der vollen Front
+			var nspin := _revolve(_ogive_profile(false), 20)
+			root.add_child(_mi(nspin, make_material(Color(0.72, 0.12, 0.1), 0.5, 0.4),
+				Vector3(0, 0, -size.z * 0.52), Vector3.ZERO,
+				Vector3(size.x * 0.34, size.y * 0.34, size.x * 0.52)))
+			# Propeller (dreht im Flug)
+			var nprop := Node3D.new()
+			nprop.name = "Prop"
+			nprop.position = Vector3(0, 0, -size.z * 0.52)
+			var nbmat := make_material(Color(0.08, 0.08, 0.09), 0.25, 0.5)
+			var nblen: float = maxf(size.x, size.y) * 1.0
+			for i in 3:
+				var nh := Node3D.new()
+				nh.rotation = Vector3(0, 0, deg_to_rad(120.0 * i))
+				var nbb := BoxMesh.new()
+				nbb.size = Vector3(0.055, nblen, 0.18)
+				nh.add_child(_mi(nbb, nbmat, Vector3(0, nblen * 0.5, 0), Vector3(0, deg_to_rad(22), 0)))
+				nprop.add_child(nh)
+			root.add_child(nprop)
+
 		"jet":
 			# Triebwerksgondel als runder Tubus (vorne/hinten leicht verrundet).
 			var jbody := _revolve([
@@ -928,38 +1061,90 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			root.add_child(_mi(glow, em, Vector3(0, 0, size.z * 0.6), Vector3(PI * 0.5, 0, 0)))
 
 		"wheel":
-			# Reifen als runder Torus (Achse entlang X), Felge + Nabe + Federbein.
+			# Radachse entlang X. Der "Wheel"-Node dreht beim Rollen (Reifen+Felge+Nabe),
+			# das Federbein bleibt fest am root. Reifen = voller Gummi-Mantel (kein Donut-Loch).
 			var r: float = size.z * 0.5
-			var wpos := Vector3(0, -size.y * 0.5 + r, 0)
-			var tire_w: float = size.x * 0.5
-			var tire := TorusMesh.new()
-			tire.inner_radius = r * 0.52
-			tire.outer_radius = r
-			tire.rings = 24
-			tire.ring_segments = 14
-			# Torus liegt in XZ (Loch-Achse Y); 90° um Z -> Loch-Achse X (Raddrehachse).
-			root.add_child(_mi(tire, make_material(col, 0.05, 0.9),
-				wpos, Vector3(0, 0, PI * 0.5)))
-			# Felge/Radscheibe (metallisch)
-			var rim := CylinderMesh.new()
-			rim.top_radius = r * 0.56
-			rim.bottom_radius = r * 0.56
-			rim.height = tire_w * 0.7
-			rim.radial_segments = 20
-			root.add_child(_mi(rim, make_material(Color(0.7, 0.72, 0.78), 0.85, 0.3),
-				wpos, Vector3(0, 0, PI * 0.5)))
-			# Nabe
-			var hub := CylinderMesh.new()
-			hub.top_radius = r * 0.2
-			hub.bottom_radius = r * 0.2
-			hub.height = tire_w * 1.02
-			root.add_child(_mi(hub, make_material(Color(0.3, 0.31, 0.34), 0.8, 0.35),
-				wpos, Vector3(0, 0, PI * 0.5)))
-			# Federbein (rundes Standrohr) + Achsschenkel
-			var leg := _revolve(_capsule_profile(), 12)
-			root.add_child(_mi(leg, make_material(Color(0.55, 0.57, 0.62), 0.8, 0.35),
-				Vector3(0, size.y * 0.12, 0), Vector3(PI * 0.5, 0, 0),
-				Vector3(0.16, 0.16, size.y * 0.72)))
+			var hw: float = maxf(size.x * 0.5, 0.05)
+			# Reifen-Unterkante = Kollisions-Boden (col_offset/col_size), damit das Rad exakt auf
+			# der Bahn steht — wichtig für die langbeinigen Einziehfahrwerke (mit col_offset.y).
+			var cs: Vector3 = col_size(p)
+			var co: Vector3 = col_offset(p)
+			var top_y: float = co.y + cs.y * 0.5              # Beinansatz (Box-Oberkante)
+			var axle := Vector3(0, (co.y - cs.y * 0.5) + r, 0)   # Achsmitte, Reifen-Boden = Box-Boden
+			var rubber := make_material(Color(0.07, 0.07, 0.08), 0.0, 0.95)
+			var rim_col: Color = col if col.a > 0.0 else Color(0.60, 0.62, 0.67)
+			var rim_mat := make_material(rim_col, 0.88, 0.3)
+			var hub_mat := make_material(Color(0.28, 0.29, 0.33), 0.8, 0.42)
+			var oleo_mat := make_material(Color(0.40, 0.42, 0.47), 0.7, 0.4)
+			var pist_mat := make_material(Color(0.82, 0.84, 0.88), 0.95, 0.14)
+			var style: String = p.get("wheel_style", "modern")
+			var leg_x := hw + r * 0.22                        # Federbein außen neben dem Reifen
+			if style == "vintage":
+				# WWI: einfache schräge Strebe (kein Oleo).
+				var dy: float = top_y - axle.y
+				var vstrut := CylinderMesh.new()
+				vstrut.top_radius = r * 0.09; vstrut.bottom_radius = r * 0.12
+				vstrut.height = sqrt(dy * dy + (leg_x * 0.6) * (leg_x * 0.6)); vstrut.radial_segments = 10
+				root.add_child(_mi(vstrut, oleo_mat, Vector3(leg_x * 0.3, (top_y + axle.y) * 0.5, 0),
+					Vector3(0, 0, atan2(leg_x * 0.6, dy))))
+			else:
+				# Modern: Oleo-Standrohr (oben) + Chromkolben (unten) — einseitiges Auslegerbein.
+				var strut := CylinderMesh.new()
+				strut.top_radius = r * 0.2; strut.bottom_radius = r * 0.19
+				strut.height = (top_y - axle.y) * 0.62; strut.radial_segments = 14
+				root.add_child(_mi(strut, oleo_mat, Vector3(leg_x, top_y - strut.height * 0.5, 0)))
+				var pist := CylinderMesh.new()
+				pist.top_radius = r * 0.13; pist.bottom_radius = r * 0.13
+				pist.height = (top_y - axle.y) * 0.58; pist.radial_segments = 12
+				root.add_child(_mi(pist, pist_mat, Vector3(leg_x, axle.y + pist.height * 0.42, 0)))
+			# Achsstummel vom Bein zur Nabenmitte (beide Stile)
+			var axle_rod := CylinderMesh.new()
+			axle_rod.top_radius = r * 0.1; axle_rod.bottom_radius = r * 0.1
+			axle_rod.height = leg_x + r * 0.12; axle_rod.radial_segments = 10
+			root.add_child(_mi(axle_rod, hub_mat, Vector3(leg_x * 0.5, axle.y, 0), Vector3(0, 0, PI * 0.5)))
+			# --- Drehendes Rad ---
+			var wheel := Node3D.new()
+			wheel.name = "Wheel"
+			wheel.position = axle
+			root.add_child(wheel)
+			# Reifenmantel: revolviertes Profil (flacher Tread, runde Schultern) statt dünnem Torus.
+			var tire := _revolve(_tire_profile(), 28)
+			wheel.add_child(_mi(tire, rubber, Vector3.ZERO, Vector3(0, PI * 0.5, 0),
+				Vector3(size.z, size.z, size.x)))
+			if style == "vintage":
+				# WWI-Scheibenrad (Fokker-Stil): große stoffbespannte Scheibe deckt fast die ganze
+				# Seite ab, außen ein schmaler dunkler Reifen. Die Scheibe nimmt die LACKFARBE an
+				# (dunkel lackierte Räder -> dunkel wie im Bild; bemalbar in Plane-Farbe).
+				var disc_col: Color = col if col.a > 0.0 else Color(0.78, 0.74, 0.64)
+				var linen := make_material(disc_col, 0.05, 0.72)
+				var disc_r := r * 0.93
+				for sx in [-1.0, 1.0]:
+					var disc := SphereMesh.new()
+					disc.radius = disc_r; disc.height = disc_r * 2.0
+					disc.radial_segments = 28; disc.rings = 10
+					wheel.add_child(_mi(disc, linen, Vector3(sx * hw * 0.96, 0, 0),
+						Vector3.ZERO, Vector3(0.12, 1, 1)))   # flache, leicht gewölbte Scheibe
+					# kleine Nabe in der Mitte (dunkles Metall)
+					var nb := CylinderMesh.new()
+					nb.top_radius = r * 0.12; nb.bottom_radius = r * 0.16
+					nb.height = hw * 0.42; nb.radial_segments = 12
+					wheel.add_child(_mi(nb, hub_mat, Vector3(sx * hw * 1.0, 0, 0), Vector3(0, 0, sx * PI * 0.5)))
+			else:
+				# Modern: metallische Felge + vertiefte Schüssel + Nabenkappe.
+				var rim := CylinderMesh.new()
+				rim.top_radius = r * 0.62; rim.bottom_radius = r * 0.62
+				rim.height = hw * 2.05; rim.radial_segments = 28
+				wheel.add_child(_mi(rim, rim_mat, Vector3.ZERO, Vector3(0, 0, PI * 0.5)))
+				var dish := CylinderMesh.new()
+				dish.top_radius = r * 0.46; dish.bottom_radius = r * 0.46
+				dish.height = hw * 2.12; dish.radial_segments = 22
+				wheel.add_child(_mi(dish, hub_mat, Vector3.ZERO, Vector3(0, 0, PI * 0.5)))
+				for sx in [-1.0, 1.0]:
+					var cap := SphereMesh.new()
+					cap.radius = r * 0.2; cap.height = r * 0.4
+					cap.radial_segments = 14; cap.rings = 7
+					wheel.add_child(_mi(cap, rim_mat, Vector3(sx * hw * 1.02, 0, 0),
+						Vector3.ZERO, Vector3(0.5, 1, 1)))
 
 		"missile":
 			# Flugkörper: spitze Nase (-Z) -> Körper -> verjüngtes Heck, + Finnen + Düse.
@@ -1280,6 +1465,17 @@ static func _revolve(profile: Array, segs := 24) -> ArrayMesh:
 	return st.commit()
 
 
+# Reifen-Querschnitt für _revolve (Achse = Z, Einheit r<=0.5, z in [-0.5,0.5] = Breite).
+# Flacher Tread (r=0.5) mit runden Schultern, Seitenwände fallen zum Felgensitz (0.30) ab.
+# Enden mit r>0 -> innere Seitenflächen werden gedeckelt: KEIN Durchsehen (kein Donut-Loch).
+static func _tire_profile() -> Array:
+	return [
+		Vector2(-0.5, 0.30), Vector2(-0.5, 0.41), Vector2(-0.46, 0.47),
+		Vector2(-0.33, 0.50), Vector2(0.33, 0.50), Vector2(0.46, 0.47),
+		Vector2(0.5, 0.41), Vector2(0.5, 0.30),
+	]
+
+
 # Gechinter F-22-Rumpf-Querschnitt (normiert auf ±0.5, Flugrichtung -Z). Wird vom Kopf-Modell
 # (Blender) UND vom prozeduralen "prism"-Rumpf geteilt -> beide docken bündig aneinander.
 static func _f22_cross_section() -> PackedVector2Array:
@@ -1321,42 +1517,43 @@ static func _prism_mesh(cs: PackedVector2Array, ef: Vector2, eb: Vector2) -> Arr
 
 # Elliptischer Rumpf-Tubus entlang Z (leicht gerundete Enden). Vorderes (-Z) Ende
 # Querschnitt × ef=(x,y), hinteres (+Z) × eb=(x,y) -> X UND Y pro Ende getrennt.
-static func _box_tube(ef: Vector2, eb: Vector2, segs := 18) -> ArrayMesh:
-	var prof := [Vector2(-0.5, 0.49), Vector2(-0.46, 0.5), Vector2(0.46, 0.5), Vector2(0.5, 0.49)]
+static func _box_tube(ef: Vector2, eb: Vector2, segs := 24) -> ArrayMesh:
+	# NORMALER ZYLINDER/FRUSTUM: runde Seite, aber FLACHE Deckel mit SCHARFEN Kanten
+	# (keine abgerundeten Ecken). Vorderes (-Z) Ende Radius × ef=(x,y), hinteres (+Z) × eb.
+	# Eigene Deckel-Verts mit Achsen-Normale -> die Kante Seite↔Deckel bleibt knackig scharf.
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var n := prof.size()
-	var stride := segs + 1
-	for ring in n:
-		var z: float = prof[ring].x
-		var rad: float = prof[ring].y
-		var t: float = z + 0.5                          # 0 vorne (-Z) .. 1 hinten (+Z)
-		var sx: float = lerp(ef.x, eb.x, t)
-		var sy: float = lerp(ef.y, eb.y, t)
-		for s in stride:
-			var a: float = TAU * float(s) / float(segs)
-			st.add_vertex(Vector3(cos(a) * rad * sx, sin(a) * rad * sy, z))
-	for ring in n - 1:
-		for s in segs:
-			var i0 := ring * stride + s
-			var i1 := ring * stride + s + 1
-			var i2 := (ring + 1) * stride + s
-			var i3 := (ring + 1) * stride + s + 1
-			# Wicklung so, dass die Normalen NACH AUSSEN zeigen (sonst Rumpf inside-out)
-			st.add_index(i0); st.add_index(i2); st.add_index(i1)
-			st.add_index(i1); st.add_index(i2); st.add_index(i3)
-	var verts := n * stride
-	st.add_vertex(Vector3(0, 0, prof[0].x))             # Deckel vorne (-Z)
-	var c0 := verts
-	verts += 1
+	var rf := Vector2(0.5 * ef.x, 0.5 * ef.y)
+	var rb := Vector2(0.5 * eb.x, 0.5 * eb.y)
 	for s in segs:
-		st.add_index(c0); st.add_index(s); st.add_index(s + 1)
-	st.add_vertex(Vector3(0, 0, prof[n - 1].x))         # Deckel hinten (+Z)
-	var cn := verts
-	var rb := (n - 1) * stride
-	for s in segs:
-		st.add_index(cn); st.add_index(rb + s + 1); st.add_index(rb + s)
-	st.generate_normals()
+		var a0: float = TAU * float(s) / float(segs)
+		var a1: float = TAU * float(s + 1) / float(segs)
+		var c0 := Vector2(cos(a0), sin(a0))
+		var c1 := Vector2(cos(a1), sin(a1))
+		var f0 := Vector3(c0.x * rf.x, c0.y * rf.y, -0.5)
+		var f1 := Vector3(c1.x * rf.x, c1.y * rf.y, -0.5)
+		var b0 := Vector3(c0.x * rb.x, c0.y * rb.y, 0.5)
+		var b1 := Vector3(c1.x * rb.x, c1.y * rb.y, 0.5)
+		# glatte Außen-Normalen (Ellipsen-Gradient) -> runde, glatte Seitenwand
+		var nf0 := Vector3(c0.x / maxf(rf.x, 0.001), c0.y / maxf(rf.y, 0.001), 0.0).normalized()
+		var nf1 := Vector3(c1.x / maxf(rf.x, 0.001), c1.y / maxf(rf.y, 0.001), 0.0).normalized()
+		var nb0 := Vector3(c0.x / maxf(rb.x, 0.001), c0.y / maxf(rb.y, 0.001), 0.0).normalized()
+		var nb1 := Vector3(c1.x / maxf(rb.x, 0.001), c1.y / maxf(rb.y, 0.001), 0.0).normalized()
+		# Mantel (outward): f0,b0,f1 / f1,b0,b1
+		st.set_normal(nf0); st.add_vertex(f0)
+		st.set_normal(nb0); st.add_vertex(b0)
+		st.set_normal(nf1); st.add_vertex(f1)
+		st.set_normal(nf1); st.add_vertex(f1)
+		st.set_normal(nb0); st.add_vertex(b0)
+		st.set_normal(nb1); st.add_vertex(b1)
+		# Flacher Deckel vorne (-Z) — eigene Verts, Normale (0,0,-1)
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(Vector3(0, 0, -0.5))
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f0)
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f1)
+		# Flacher Deckel hinten (+Z)
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(Vector3(0, 0, 0.5))
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b1)
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b0)
 	return st.commit()
 
 
@@ -1472,6 +1669,14 @@ static func _face(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, want_dir:
 	st.set_normal(nrm); st.add_vertex(a)
 	st.set_normal(nrm); st.add_vertex(b)
 	st.set_normal(nrm); st.add_vertex(c)
+
+
+# Gerader Kegel: SCHARFE Spitze (kantig) bei -Z, volle runde Basis bei +Z. reverse -> Spitze hinten.
+# Round (per _revolve), aber gerade Flanken zur scharfen Spitze statt rundlicher Ogive.
+static func _cone_profile(reverse: bool) -> Array:
+	if reverse:
+		return [Vector2(-0.5, 0.5), Vector2(0.5, 0.0)]
+	return [Vector2(-0.5, 0.0), Vector2(0.5, 0.5)]
 
 
 # Ogiven-/Paraboloid-Nasenprofil (Spitze bei -Z). reverse -> Spitze bei +Z.

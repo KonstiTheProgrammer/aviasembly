@@ -105,7 +105,7 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 - **Bewaffnung (feuerbar!):** Bordkanone (Schnellfeuer) · **Ungelenkte Rakete** (fliegt
   geradeaus) · **Raketenwerfer** (3er-Salve) · **Zielsuchrakete** (Heat-Seeker) ·
   **Schwere Lenkrakete** (große Reichweite, viel Schaden) · Bombe (Freifall, **Taste B**) —
-  alles außer Bombe feuert per **Leertaste**
+  alles außer Bombe feuert per **Leertaste** oder **linker Maustaste**
 
 *Mit `tools/build_jet.gd` gibt's einen vorgebauten zweimotorigen Delta-Canard-Jet
 (zwei eckige Triebwerke) im Speicherstand.*
@@ -115,7 +115,7 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 Am Himmel schweben **Luftballons** und **Luftschiffe** (Zeppeline) zum Abschießen.
 Bau Waffen an dein Flugzeug, ziel mit dem Fadenkreuz und feuere:
 
-- **Leertaste** — feuert alle montierten Rohrwaffen: Kanone (geradeaus), ungelenkte
+- **Leertaste / linke Maustaste** — feuert alle montierten Rohrwaffen: Kanone (geradeaus), ungelenkte
   Raketen & Salven (geradeaus) sowie Lenkraketen. **Heat-Seeker fliegen erst geradeaus
   und kurven erst dann aufs Ziel, wenn eines in ihre Nähe kommt** — also vorher grob zielen.
 - **Taste B** — Bombe abwerfen
