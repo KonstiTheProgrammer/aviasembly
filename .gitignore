@@ -20,3 +20,4 @@ tools/*.png.import
 graphify-out/
 CLAUDE.md.pre-graphify.bak
 __pycache__/
+*.blend1
