@@ -524,6 +524,30 @@ static func _build() -> void:
 		"col_offset": Vector3(0, -0.52, 0), "metal": 0.5, "rough": 0.45, "retract": true,
 		"desc": "Im Flug mit G einfahren (Bein klappt hoch, Klappe schwenkt) -> weniger Widerstand. ~1050 kg.",
 	})
+	# Animierte Blender-Fahrwerke (tools/wheels_animated.blend): jede glb traegt eine
+	# "retract"-Animation (AnimationPlayer) — AircraftBody treibt sie direkt ueber _gear_anim
+	# (vor- UND rueckwaerts, synchron zur Kollisions-Abschaltung). Node "Wheel" rollt am Boden.
+	_add({
+		"id": "wheel_biplane_spoke", "name": "Speichenrad (G)", "category": CAT_GEAR,
+		"mass": 42.0, "color": Color(0.35, 0.37, 0.33), "shape": "wheel", "gear_capacity": 520.0,
+		"size": Vector3(0.94, 1.59, 0.99), "col_size": Vector3(0.90, 1.58, 0.98),
+		"col_offset": Vector3(0.07, -0.66, 0), "retract": true,
+		"desc": "WW1-Speichenrad mit Gummiseil-Federung — klappt mit G nach hinten hoch. ~520 kg.",
+	})
+	_add({
+		"id": "wheel_biplane_disc", "name": "Scheibenrad (G)", "category": CAT_GEAR,
+		"mass": 40.0, "color": Color(0.75, 0.72, 0.65), "shape": "wheel", "gear_capacity": 560.0,
+		"size": Vector3(0.40, 1.38, 0.97), "col_size": Vector3(0.38, 1.38, 0.96),
+		"col_offset": Vector3(0.03, -0.65, 0), "retract": true,
+		"desc": "Stoffbespanntes Scheibenrad (Doppeldecker) — klappt mit G seitlich ein. ~560 kg.",
+	})
+	_add({
+		"id": "wheel_spitfire", "name": "Spitfire-Fahrwerk (G)", "category": CAT_GEAR,
+		"mass": 55.0, "color": Color(0.45, 0.50, 0.42), "shape": "wheel", "gear_capacity": 900.0,
+		"size": Vector3(0.25, 1.32, 0.85), "col_size": Vector3(0.25, 1.31, 0.85),
+		"col_offset": Vector3(0.04, -0.66, 0), "retract": true,
+		"desc": "Schmales Oleo-Bein mit Verkleidung — klappt mit G nach außen in die Fläche (Spitfire-Art). ~900 kg.",
+	})
 	_add({
 		"id": "wheel_jet", "name": "Jet-Fahrwerk (Einzug)", "category": CAT_GEAR,
 		"mass": 55.0, "color": Color(0.17, 0.18, 0.21), "shape": "wheel", "force_proc": true, "gear_capacity": 1250.0,

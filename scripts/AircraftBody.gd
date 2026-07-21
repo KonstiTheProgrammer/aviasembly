@@ -343,7 +343,15 @@ func _process(delta: float) -> void:
 				if not g["retract"]:
 					continue
 				var leg = g["leg"]
-				if leg != null and is_instance_valid(leg):
+				var gap = g.get("anim")
+				if gap != null and is_instance_valid(gap):
+					# Blender-Animation "retract" direkt von _gear_anim treiben: seek statt
+					# play -> laeuft synchron rueckwaerts, wenn man mitten im Einfahren G drueckt.
+					if gap.current_animation != "retract":
+						gap.play("retract")
+						gap.pause()
+					gap.seek(a * float(g["anim_len"]), true)
+				elif leg != null and is_instance_valid(leg):
 					# Außen sitzende Beine (Tragflächen-Fahrwerk) klappen um die LÄNGSACHSE (Z)
 					# nach AUSSEN in den Flügel hoch (echte Spitfire-Art); die gespiegelte linke
 					# Hälfte (improper Basis) klappt automatisch zur Gegenseite (auch nach außen).
@@ -480,8 +488,19 @@ func recompute_aero() -> void:
 					glr = gleg.transform
 				if gdoor != null:
 					gdr = gdoor.transform
+			# Animierte Blender-Fahrwerke: glb bringt eine "retract"-Animation mit ->
+			# _gear_anim treibt sie direkt per seek (vor- UND rueckwaerts, synchron zur
+			# Kollisions-Abschaltung), statt Leg/Door prozedural zu klappen.
+			var ganim: AnimationPlayer = null
+			var ganim_len := 0.0
+			if is_instance_valid(gvis):
+				var gap := gvis.find_child("AnimationPlayer", true, false) as AnimationPlayer
+				if gap != null and gap.has_animation("retract"):
+					ganim = gap
+					ganim_len = gap.get_animation("retract").length
 			gi.append({"vis": gvis, "cs": pi["cs"], "retract": pi["retract"], "base": pi["xform"],
-				"leg": gleg, "door": gdoor, "leg_rest": glr, "door_rest": gdr})
+				"leg": gleg, "door": gdoor, "leg_rest": glr, "door_rest": gdr,
+				"anim": ganim, "anim_len": ganim_len})
 			# Rad-Node ("Wheel", Origin = Achse) fürs sichtbare Rollen am Boden
 			var wn = pi.get("wheel")
 			if wn != null and is_instance_valid(wn):
@@ -1334,6 +1353,13 @@ func reset_gear() -> void:
 			var door = g["door"]
 			if door != null and is_instance_valid(door):
 				door.transform = g["door_rest"]
+			var gap = g.get("anim")
+			if gap != null and is_instance_valid(gap):
+				# animierte Fahrwerke: zurueck auf ausgefahren (Frame 0)
+				if gap.current_animation != "retract":
+					gap.play("retract")
+					gap.pause()
+				gap.seek(0.0, true)
 		_update_gear_status()
 
 
