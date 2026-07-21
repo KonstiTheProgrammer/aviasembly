@@ -115,5 +115,22 @@ func _process(_d: float) -> bool:
 		print("  Pick-Box: %s" % _pickbox(e2))
 	else:
 		print("  KEIN Snap")
+
+	print("=== 5) Rumpf ans Doppeldecker-Cockpit docken (gleiche Profil-Familie) ===")
+	var cp := bc._place_id("cockpit_radial", Transform3D(Basis(), Vector3(12, 0, 0)))
+	bc._notify_changed()
+	var cpd := PartCatalog.get_part("cockpit_radial")
+	var h5 := _hit_on(cp, Vector3(0, 0, -PartCatalog.col_size(cpd).z * 0.5), Vector3(0, 0, -1))
+	var s5 := bc._compute_snap_for("fuselage", h5)
+	if s5.get("valid", false):
+		var fd5 := PartCatalog.get_part("fuselage_radial")
+		var xf5: Transform3D = s5["xform"]
+		var front: float = cp.global_position.z - PartCatalog.col_size(cpd).z * 0.5
+		var rear: float = xf5.origin.z + PartCatalog.col_size(fd5).z * 0.5
+		print("  id=%s  scale=%v  (erwartet fuselage_radial, (1,1,1))" % [s5.get("id"), s5.get("scale")])
+		print("  Rumpf-Hinterkante z=%.4f  Cockpit-Vorderkante z=%.4f  -> Spalt %.5f"
+			% [rear, front, absf(rear - front)])
+	else:
+		print("  KEIN Snap")
 	quit()
 	return true

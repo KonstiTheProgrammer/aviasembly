@@ -75,6 +75,16 @@ static func _build() -> void:
 		"canopy": Vector3(0.44, 0.40, 1.0), "canopy_style": "tandem",
 		"desc": "Zweisitzer mit zwei Kanzeln hintereinander.",
 	})
+	# Offenes Doppeldecker-Cockpit aus Engine.blend (rote Schale, Lederrand, Instrumente) —
+	# gleiche Profil-Familie wie der Sternmotor: Rumpfsegmente, die andocken, uebernehmen
+	# den RADIAL_PROFILE-Querschnitt (BuildController-Hook wie beim Motor).
+	_add({
+		"id": "cockpit_radial", "name": "Doppeldecker-Cockpit (Stern)", "category": CAT_BODY,
+		"mass": 185.0, "color": Color(0.58, 0.10, 0.08), "shape": "cockpit",
+		"size": Vector3(1.228, 1.183, 1.301),
+		"canopy": Vector3(0.42, 0.36, 0.62),
+		"desc": "Offenes Doppeldecker-Cockpit mit Lederrand und Instrumenten (Blender-Import) — passt zur Profil-Familie des Sternmotors.",
+	})
 	_add({
 		"id": "spitfire_cockpit", "name": "Spitfire-Cockpit", "category": CAT_BODY,
 		"mass": 190.0, "color": Color(0.26, 0.33, 0.22), "shape": "cockpit",

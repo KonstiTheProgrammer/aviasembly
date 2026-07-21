@@ -1,28 +1,37 @@
-# Engine.blend -> models/engine_radial.glb + Profil-Extraktion (tools/radial_profile.json).
+# Engine.blend -> models/engine_radial.glb + models/cockpit_radial.glb
+#                + Profil-Extraktion (tools/radial_profile.json).
 #
 # Quelle (Downloads/Engine.blend):
 #   'engine_full' = freistehende Motorgondel (eigenes geschlossenes Heck)
 #   'engine_half' = dieselbe Vordersektion, hinten FLACH abgeschnitten -> hier dockt der Rumpf an
 #   'Fuselage'    = flaches Blatt = Querschnitt GENAU an dieser Schnittebene
 #   'propeller'   = 2-Blatt-Holzprop
+#   'Cockpit_Shell' + 'Cockpit_LeatherRim' = offenes Doppeldecker-Cockpit im selben Profil
+#     (Rim ist eine CURVE mit Bevel -> vor dem Export in Mesh konvertieren!)
 #
 # Nase liegt in der Datei bei -Y -> Projekt-Konvention (+Y = vorne, Godot -Z): 180° um Z.
-# Beide Varianten teilen Nasenebene + Achse -> im Spiel per Sichtbarkeit umschaltbar, ohne
-# dass sich irgendwas verschiebt. Ursprung = Mitte der HALF-Box, damit ein andockendes
+# Beide Engine-Varianten teilen Nasenebene + Achse -> im Spiel per Sichtbarkeit umschaltbar,
+# ohne dass sich irgendwas verschiebt. Ursprung = Mitte der HALF-Box, damit ein andockendes
 # Rumpfsegment (generischer _fuselage_fit ueber col_size/col_offset) exakt auf der
-# Schnittebene landet -> kein Sonderfall noetig.
+# Schnittebene landet -> kein Sonderfall noetig. Cockpit = eigenes glb, Box-zentriert.
+#
+# FALLE (Cockpit): ALLE Cockpit_*-Materialien liegen als unkonfiguriertes Default-Grau (0.8)
+# in der Datei — nur die NAMEN beschreiben die Absicht. Farben werden hier aus den Namen
+# gesetzt, sonst kaeme das Cockpit komplett grau raus.
 import bpy, json, math
 import numpy as np
 from mathutils import Matrix, Vector
 
 SRC = "C:/Users/Konst/Downloads/Engine.blend"
 OUT = "C:/Users/Konst/Projects/aviasembly/models/engine_radial.glb"
+OUT_CP = "C:/Users/Konst/Projects/aviasembly/models/cockpit_radial.glb"
 PROFILE_OUT = "C:/Users/Konst/Projects/aviasembly/tools/radial_profile.json"
 TARGET_W = 1.2   # Spiel-Breite des Querschnitts = Standard-Rumpfbreite (fuselage: 1.2 x 1.2)
 
 bpy.ops.wm.open_mainfile(filepath=SRC)
 objs = bpy.data.objects
 full, half, sheet, prop = objs["engine_full"], objs["engine_half"], objs["Fuselage"], objs["propeller"]
+cp_shell, cp_rim = objs.get("Cockpit_Shell"), objs.get("Cockpit_LeatherRim")
 
 
 def sel(o):
@@ -67,11 +76,15 @@ bpy.data.objects.remove(sheet, do_unlink=True)
 # --- 2) Transforms einbacken, HALF koaxial zu FULL schieben (im Blend nur zur Seite geparkt) --
 for o in (full, half, prop):
     bake(o)
-hx = (wverts(half)[:, 0].max() + wverts(half)[:, 0].min()) * 0.5   # HALF-Achse X
-fx = (wverts(full)[:, 0].max() + wverts(full)[:, 0].min()) * 0.5   # FULL-Achse X
-half.matrix_world = Matrix.Translation(Vector((fx - hx, 0.0, 0.0))) @ half.matrix_world
+# HALF liegt im Blend nur GEPARKT (Position aendert sich zwischen Datei-Versionen!) ->
+# in ALLEN Achsen an FULL ausrichten: X/Z auf die Achse, Y an der NASE ankern (min Y).
+VH0, VF0 = wverts(half), wverts(full)
+dx = (VF0[:, 0].max() + VF0[:, 0].min()) * 0.5 - (VH0[:, 0].max() + VH0[:, 0].min()) * 0.5
+dz = (VF0[:, 2].max() + VF0[:, 2].min()) * 0.5 - (VH0[:, 2].max() + VH0[:, 2].min()) * 0.5
+dy = VF0[:, 1].min() - VH0[:, 1].min()
+half.matrix_world = Matrix.Translation(Vector((dx, dy, dz))) @ half.matrix_world
 bake(half)
-print("HALF koaxial geschoben: dx=%+.4f" % (fx - hx))
+print("HALF an FULL ausgerichtet: d=(%+.4f, %+.4f, %+.4f)" % (dx, dy, dz))
 
 # --- 3) Deckungs-Check: ist HALF wirklich die vordere Teilmenge von FULL? ------------------
 VF, VH = wverts(full), wverts(half)
@@ -116,6 +129,29 @@ print("PROP-Blatt gerichtet: %+.1f°" % math.degrees(ang))
 for o in (full, half, prop):
     o.matrix_world = Matrix.Scale(S, 4) @ o.matrix_world
     bake(o)
+
+# --- 7b) COCKPIT: Rim-Curve -> Mesh, joinen, gleiche Konvention (180°/zentriert/skaliert) --
+cockpit = None
+if cp_shell is not None:
+    if cp_rim is not None:
+        sel(cp_rim)
+        bpy.ops.object.convert(target='MESH')        # Curve mit Bevel -> echtes Mesh
+        cp_rim = bpy.context.view_layer.objects.active
+        bpy.ops.object.select_all(action='DESELECT')
+        cp_rim.select_set(True)
+        cp_shell.select_set(True)
+        bpy.context.view_layer.objects.active = cp_shell
+        bpy.ops.object.join()                        # ein Objekt, Materialslots bleiben
+    cockpit = cp_shell
+    bake(cockpit)
+    cockpit.matrix_world = rz @ cockpit.matrix_world # Nase -Y -> +Y wie Motor/Rumpf
+    bake(cockpit)
+    VC = wverts(cockpit)
+    cc = Vector((float((VC[:, i].max() + VC[:, i].min()) * 0.5) for i in range(3)))
+    cockpit.matrix_world = Matrix.Translation(-cc) @ cockpit.matrix_world
+    bake(cockpit)
+    cockpit.matrix_world = Matrix.Scale(S, 4) @ cockpit.matrix_world
+    bake(cockpit)
 
 # --- 8) Materialien ------------------------------------------------------------------------
 # ZUERST die .001-Duplikate von engine_half auf die Originale umhaengen — danach werden die
@@ -167,9 +203,28 @@ for nm, col, me, ro in (("LP_Interior", (0.05, 0.055, 0.06), 0.2, 0.85),
                         ("LP_Caps", (0.22, 0.235, 0.26), 0.55, 0.42),
                         ("LP_Pipes", (0.26, 0.27, 0.30), 0.7, 0.38)):
     setmat(nm, nm.lower(), col, me, ro)
+# COCKPIT-Materialien: liegen ALLE als Default-Grau in der Datei (nur Namen gesetzt) ->
+# Farben aus den Namen ableiten. RedPaint -> "cockpit_body" = lackierbar (PAINT_MATS).
+# WICHTIG: Blender-Base-Color ist LINEAR, Godot zeigt sRGB — Zielfarben (sRGB) hier
+# nach linear wandeln, sonst kommt z. B. sattes Rot als blasses Lachsrosa raus.
+def srgb2lin(c):
+    return tuple(((x + 0.055) / 1.055) ** 2.4 if x > 0.04045 else x / 12.92 for x in c)
+
+setmat("Cockpit_RedPaint", "cockpit_body", srgb2lin((0.58, 0.10, 0.08)), 0.25, 0.45)
+for nm, col, me, ro in (("Cockpit_ConnectorMetal", (0.45, 0.47, 0.50), 0.80, 0.30),
+                        ("Cockpit_StructureWood", (0.42, 0.26, 0.13), 0.00, 0.55),
+                        ("Cockpit_InteriorLinen", (0.70, 0.63, 0.50), 0.00, 0.85),
+                        ("Cockpit_FrameGreen", (0.20, 0.30, 0.18), 0.15, 0.50),
+                        ("Cockpit_DullAluminum", (0.55, 0.57, 0.60), 0.75, 0.50),
+                        ("Cockpit_GaugeGlass", (0.07, 0.08, 0.10), 0.20, 0.12),
+                        ("Cockpit_WornLeather", (0.30, 0.18, 0.10), 0.00, 0.70),
+                        ("Cockpit_InteriorDark", (0.06, 0.06, 0.07), 0.10, 0.85)):
+    setmat(nm, nm.replace("Cockpit_", "cp_").lower(), srgb2lin(col), me, ro)
 print("FULL-Materialien:", [m.name if m else None for m in full.data.materials])
 print("HALF-Materialien:", [m.name if m else None for m in half.data.materials])
 print("PROP-Materialien:", [m.name if m else None for m in prop.data.materials])
+if cockpit is not None:
+    print("COCKPIT-Materialien:", [m.name if m else None for m in cockpit.data.materials])
 
 # --- 9) Namen fuer Godot -------------------------------------------------------------------
 for o, nm in ((full, "Full"), (half, "Half"), (prop, "Prop")):
@@ -182,9 +237,19 @@ for o in (full, half, prop):
     o.select_set(True)
 bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True)
 
-for o, nm in ((full, "Full"), (half, "Half"), (prop, "Prop")):
+if cockpit is not None:
+    cockpit.name = "Cockpit"
+    cockpit.data.name = "Cockpit"
+    bpy.ops.object.select_all(action='DESELECT')
+    cockpit.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=OUT_CP, export_format='GLB', use_selection=True)
+
+report = [(full, "Full"), (half, "Half"), (prop, "Prop")]
+if cockpit is not None:
+    report.append((cockpit, "Cockpit"))
+for o, nm in report:
     V = wverts(o)
     lo, hi = V.min(axis=0), V.max(axis=0)
-    print("%-5s Blender X %+.3f..%+.3f  Y %+.3f..%+.3f  Z %+.3f..%+.3f   -> Godot size(%.3f, %.3f, %.3f)"
+    print("%-7s Blender X %+.3f..%+.3f  Y %+.3f..%+.3f  Z %+.3f..%+.3f   -> Godot size(%.3f, %.3f, %.3f)"
           % (nm, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], hi[0] - lo[0], hi[2] - lo[2], hi[1] - lo[1]))
-print("EXPORTED", OUT)
+print("EXPORTED", OUT, "+", OUT_CP if cockpit is not None else "(kein Cockpit)")

@@ -2033,12 +2033,16 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 		return {"valid": true, "xform": Transform3D(etb, forg), "scale": Vector3.ONE,
 			"id": "fuselage_radial"}
 
-	# Profil-Segment an Profil-Segment: hier passt _fuselage_fit (Box 1.2×1.13×2.0 -> Z ist
-	# korrekt die Längsachse) -> Kette führt die Form weiter, Querschnitt wird übernommen.
-	if p.get("biends", false) and _reto_tgt == "fuselage_radial":
+	# Profil-Segment an Profil-Segment ODER ans Doppeldecker-Cockpit (gleiche Profil-Familie):
+	# hier passt _fuselage_fit (Z ist jeweils die längste Achse) -> Kette führt die Form weiter.
+	# Am Cockpit scale=ONE: das Segment bekommt exakt die Profilblatt-Größe (1.20×1.13) und
+	# schiebt sich unter die minimal größere Cockpit-Außenschale (1.23×1.18) = Haut-Überlapp.
+	if p.get("biends", false) and (_reto_tgt == "fuselage_radial" or _reto_tgt == "cockpit_radial"):
 		var afit := _fuselage_fit(PartCatalog.get_part("fuselage_radial"), part, n, surface)
 		if not afit.is_empty():
 			afit["id"] = "fuselage_radial"
+			if _reto_tgt == "cockpit_radial":
+				afit["scale"] = Vector3.ONE
 			return afit
 
 	# AUTO-FIT Rumpf-an-Rumpf: neues Rumpfteil koaxial & bündig ans getroffene Ende setzen
