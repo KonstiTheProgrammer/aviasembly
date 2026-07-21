@@ -41,45 +41,69 @@ static func _build() -> void:
 	# --- Rumpf -------------------------------------------------------------
 	_add({
 		"id": "cockpit", "name": "Cockpit", "category": CAT_BODY,
-		"mass": 180.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"mass": 180.0, "color": C_COCKPIT, "shape": "cockpit",
 		"size": Vector3(1.2, 1.2, 2.2), "root": true,
 		"canopy": Vector3(0.42, 0.36, 0.62),
-		"desc": "Das Herz des Flugzeugs. Hier startet jeder Bau.",
+		"desc": "Offenes Doppeldecker-Cockpit mit echter Einkerbung, Lederrand und Sitz. Hier startet jeder Bau.",
 	})
 	# Cockpit-/Kanzel-Varianten: voll runder Zylinder-Körper + Glaskuppel obendrauf.
 	_add({
 		"id": "cockpit_bubble", "name": "Bubble-Kanzel", "category": CAT_BODY,
-		"mass": 165.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"mass": 165.0, "color": C_COCKPIT, "shape": "cockpit",
 		"size": Vector3(1.3, 1.3, 2.4),
 		"canopy": Vector3(0.50, 0.50, 0.66),
 		"desc": "Runde Jäger-Bubble-Kanzel mit Rundumsicht.",
 	})
 	_add({
 		"id": "cockpit_jet", "name": "Jet-Kanzel", "category": CAT_BODY,
-		"mass": 150.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"mass": 150.0, "color": C_COCKPIT, "shape": "cockpit",
 		"size": Vector3(1.1, 1.1, 2.6),
 		"canopy": Vector3(0.42, 0.30, 0.92),
 		"desc": "Flache, schnittige Tropfen-Kanzel für Jets.",
 	})
 	_add({
 		"id": "cockpit_frame", "name": "Rahmen-Kanzel", "category": CAT_BODY,
-		"mass": 185.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"mass": 185.0, "color": C_COCKPIT, "shape": "cockpit",
 		"size": Vector3(1.35, 1.35, 2.25),
 		"canopy": Vector3(0.46, 0.44, 0.66), "canopy_style": "frame",
 		"desc": "Klassische Mehrscheiben-Kanzel mit Streben.",
 	})
 	_add({
 		"id": "cockpit_tandem", "name": "Tandem-Kanzel", "category": CAT_BODY,
-		"mass": 220.0, "color": C_COCKPIT, "shape": "cockpit", "force_proc": true,
+		"mass": 220.0, "color": C_COCKPIT, "shape": "cockpit",
 		"size": Vector3(1.225, 1.225, 3.1),
 		"canopy": Vector3(0.44, 0.40, 1.0), "canopy_style": "tandem",
 		"desc": "Zweisitzer mit zwei Kanzeln hintereinander.",
+	})
+	_add({
+		"id": "spitfire_cockpit", "name": "Spitfire-Cockpit", "category": CAT_BODY,
+		"mass": 190.0, "color": Color(0.26, 0.33, 0.22), "shape": "cockpit",
+		"size": Vector3(1.2, 1.18, 2.2), "root": true,
+		"desc": "Gerahmte WWII-Kanzel mit Rücken-Spine, Schienen und dunklem Innenraum (Blender).",
 	})
 	_add({
 		"id": "fuselage", "name": "Rumpfsegment", "category": CAT_BODY,
 		"mass": 120.0, "color": C_BODY, "shape": "box",
 		"size": Vector3(1.2, 1.2, 2.0), "biends": true,
 		"desc": "Rumpf-Tubus. BEIDE Enden einzeln skalierbar (Panel »Vorne«/»Hinten«) — vorne/hinten verschieden dick, für fließend zulaufende Rümpfe.",
+	})
+	# Rumpfsegment mit dem RETO-Profilquerschnitt (aus dem Blatt in reto_test.blend).
+	# Nicht in der Palette: entsteht automatisch, wenn man ein Rumpfsegment an den
+	# Reto-Motor (oder an ein weiteres Profil-Segment) andockt. Frei skalierbar.
+	_add({
+		"id": "fuselage_reto", "name": "Profil-Rumpfsegment", "category": CAT_BODY,
+		"mass": 110.0, "color": C_BODY, "shape": "reto_tube",
+		"size": Vector3(0.953, 1.243, 2.0), "biends": true,
+		"desc": "Rumpfsegment mit dem Reto-Profilquerschnitt — dockt nahtlos an den Reto-Sternmotor an. Beide Enden einzeln formbar.",
+	})
+	# Rumpfsegment mit dem Querschnitt des Sternmotors (Profilblatt aus Engine.blend).
+	# Nicht in der Palette: entsteht automatisch beim Andocken an den Sternmotor (oder an ein
+	# weiteres Profil-Segment) -> die Kette fuehrt die Form nahtlos weiter. Frei skalierbar.
+	_add({
+		"id": "fuselage_radial", "name": "Profil-Rumpfsegment (Stern)", "category": CAT_BODY,
+		"mass": 110.0, "color": C_BODY, "shape": "radial_tube",
+		"size": Vector3(1.2, 1.129, 2.0), "biends": true,
+		"desc": "Rumpfsegment mit dem Querschnitt des Sternmotors — dockt nahtlos an dessen Schnittebene an. Beide Enden einzeln formbar.",
 	})
 	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
@@ -390,6 +414,13 @@ static func _build() -> void:
 		"mass": 250.0, "color": C_ENGINE, "shape": "prop", "thrust": 11000.0,
 		"size": Vector3(1.5, 1.5, 1.9), "metal": 0.7, "rough": 0.35,
 	})
+	_add({
+		"id": "spitfire_engine", "name": "Spitfire-Merlin-Motor", "category": CAT_PROP,
+		"mass": 250.0, "color": Color(0.26, 0.33, 0.22), "shape": "prop", "thrust": 11000.0,
+		"size": Vector3(1.5, 1.5, 1.9), "col_size": Vector3(1.42, 1.32, 1.92),
+		"metal": 0.7, "rough": 0.35,
+		"desc": "Langer Merlin-Cowling mit Fünfblatt-Propeller, Spinner, Lufteinlass und seitlichen Auspuffstutzen (Blender).",
+	})
 	# Bündige Bugmotor-Variante: wird beim Snappen des Propellermotors an einen Rumpf gesetzt.
 	# Querschnitt (Breite/Höhe) passt sich per Auto-Fit an den Rumpf an -> geht perfekt über.
 	_add({
@@ -397,6 +428,40 @@ static func _build() -> void:
 		"mass": 160.0, "color": C_ENGINE, "shape": "prop", "thrust": 6500.0,
 		"size": Vector3(1.07, 1.07, 1.08), "col_size": Vector3(1.07, 1.07, 1.08), "metal": 0.7, "rough": 0.35,
 		"desc": "Propellermotor (gleiches Blender-Modell, hinten flach durchgeschnitten) als bündige Bughaube.",
+	})
+	# Reto-Motor (aus reto_test.blend): Koerper 'Rumpf' + drehender 'RotorBlade' am "Prop"-Pivot.
+	# Sein Heck-Querschnitt kommt aus dem Profil-Blatt der Datei (RETO_PROFILE): normale
+	# Rumpfsegmente, die hinten andocken, uebernehmen diese Form automatisch (fuselage_reto).
+	_add({
+		"id": "reto_engine", "name": "Reto-Sternmotor", "category": CAT_PROP,
+		"mass": 230.0, "color": C_BODY, "shape": "reto_prop", "thrust": 7500.0,
+		"size": Vector3(1.19, 1.22, 1.9), "col_size": Vector3(1.19, 1.22, 1.9),
+		"metal": 0.6, "rough": 0.4,
+		"desc": "Sternmotor mit drehendem Rotor (Blender-Import). Rumpfsegmente, die hinten andocken, übernehmen automatisch seine Profil-Form.",
+	})
+	# STERNMOTOR (Engine.blend). Das glb traegt ZWEI Varianten derselben Vordersektion:
+	#   "Full" = freistehende Gondel mit eigenem geschlossenen Heck,
+	#   "Half" = vorne bis auf 0.000 identisch, hinten flach aufgeschnitten.
+	# Dockt hinten ein Rumpfteil an, wird auf "Half" umgeschaltet (BuildController/
+	# FlightController via rear_docked) -> das Heck weicht dem Rumpf statt ihn zu durchdringen.
+	# col_size = die HALF-Box (Nase..Schnittebene), mittig um den Ursprung. Das ist bewusst die
+	# MONTAGE-Box, nicht die sichtbare: die Snap-Mathematik rechnet damit, und weil ihre
+	# Rueckseite GENAU die Schnittebene ist, landet der Motor beim Ziehen auf ein Rumpfteil
+	# von selbst so, dass seine Schnittebene bündig am Rumpf sitzt (der generische Snap
+	# ignoriert col_offset -> der muss 0 bleiben, sonst versinkt der Motor im Rumpf).
+	# solo_size/solo_offset = die VOLLE Gondel: nur der Klickkoerper wird darauf aufgezogen,
+	# solange "Full" sichtbar ist (_sync_engine_variants) — sonst greift der Editor-Raycast am
+	# sichtbaren Heck ins Leere und man kann dort nichts andocken.
+	# Heck-Querschnitt = RADIAL_PROFILE -> andockende Segmente uebernehmen die Form (fuselage_radial).
+	_add({
+		"id": "engine_radial", "name": "Sternmotor", "category": CAT_PROP,
+		"mass": 230.0, "color": C_BODY, "shape": "radial_prop", "thrust": 7500.0,
+		"size": Vector3(1.206, 1.135, 1.494),
+		"col_size": Vector3(1.2, 1.135, 0.639),
+		"solo_size": Vector3(1.206, 1.135, 1.494),
+		"solo_offset": Vector3(0.0, 0.0, 0.4274),
+		"metal": 0.45, "rough": 0.38,
+		"desc": "Sternmotor mit drehendem Holzpropeller (Blender-Import). Freistehend zeigt er sein eigenes Heck; dockt hinten ein Rumpfsegment an, öffnet er sich und das Segment übernimmt automatisch seine Profil-Form.",
 	})
 	_add({
 		"id": "jet_engine", "name": "Düsentriebwerk", "category": CAT_PROP,
@@ -426,13 +491,13 @@ static func _build() -> void:
 	# --- Fahrwerk (mit Traglast in kg; Summe muss das Gewicht tragen) ------
 	_add({
 		"id": "wheel_light", "name": "Leichtes Fahrwerk", "category": CAT_GEAR,
-		"mass": 28.0, "color": C_GEAR, "shape": "wheel", "force_proc": true, "wheel_style": "vintage", "gear_capacity": 450.0,
+		"mass": 28.0, "color": C_GEAR, "shape": "wheel", "wheel_style": "vintage", "gear_capacity": 450.0,
 		"size": Vector3(0.5, 1.0, 0.7), "metal": 0.1, "rough": 0.8,
 		"desc": "Leicht, aber nur ~450 kg Traglast.",
 	})
 	_add({
 		"id": "wheel", "name": "Standard-Fahrwerk", "category": CAT_GEAR,
-		"mass": 45.0, "color": C_GEAR, "shape": "wheel", "force_proc": true, "wheel_style": "vintage", "gear_capacity": 850.0,
+		"mass": 45.0, "color": C_GEAR, "shape": "wheel", "wheel_style": "vintage", "gear_capacity": 850.0,
 		"size": Vector3(0.6, 1.2, 0.9), "metal": 0.1, "rough": 0.8,
 		"desc": "Ausgewogen, ~850 kg Traglast.",
 	})
@@ -608,7 +673,7 @@ const PALETTE_HIDDEN := {
 	"mig21_body": true, "mig21_tail": true, "mig21_rear": true,
 	"f4_nose": true, "f4_front": true, "f14_front": true, "f4_intake": true,
 	"jet_nose_point": true, "nose": true, "tailcone": true,
-	"prop_engine_nose": true,
+	"prop_engine_nose": true, "fuselage_reto": true, "fuselage_radial": true,
 }
 
 # Soll dieses Teil in der Bau-Palette erscheinen? (Katalog/Presets bleiben unberührt.)
@@ -629,6 +694,10 @@ static func part_cd(p: Dictionary) -> float:
 		"cyl": return 0.45         # liegender Zylinder (gerundet)
 		"jet": return 0.42
 		"prop": return 0.55
+		"reto_prop": return 0.55   # Sternmotor-Cowl (wie Prop-Gondel)
+		"reto_tube": return 0.45   # Profil-Tubus (wie Rumpf)
+		"radial_prop": return 0.55 # Sternmotor-Cowl (stumpfe Gondel-Stirn)
+		"radial_tube": return 0.45 # Profil-Tubus Sternmotor (wie Rumpf)
 		"missile": return 0.12     # schlanker Flugkörper
 		"bomb": return 0.16        # tropfenförmig
 		"wheel": return 0.85       # stumpfer Reifen (Bluff-Körper)
@@ -810,16 +879,22 @@ static func _cockpit_canopy(root: Node3D, p: Dictionary, size: Vector3) -> void:
 	var cano: Vector3 = p.get("canopy", Vector3(0.42, 0.36, 0.62))
 	var style: String = p.get("canopy_style", "normal")
 	var glass := _glass_mat()
+	# OPAKER dunkler Innenraum knapp unter dem Glas: füllt die Kanzel sauber. Ohne ihn sieht
+	# man durch die transparente Front auf die innere Rückwand der Kuppel -> "offene Wanne".
+	var interior := make_material(Color(0.05, 0.055, 0.07), 0.1, 0.85)
 	var yc := size.y * 0.46   # Zentrum knapp unter der obersten Kante -> Kuppel sitzt sauber auf
 	if style == "tandem":
 		# Zweisitzer: zwei Kuppeln hintereinander.
 		var dl := cano.z * 0.42 * size.z
 		for zc in [-size.z * 0.2, size.z * 0.2]:
-			_dome(root, glass, Vector3(0.0, yc, zc),
-				Vector3(cano.x * size.x, cano.y * size.y, dl))
+			var d := Vector3(cano.x * size.x, cano.y * size.y, dl)
+			_dome(root, interior, Vector3(0.0, yc, zc), d * Vector3(0.9, 0.84, 0.94))
+			_dome(root, glass, Vector3(0.0, yc, zc), d)
 	else:
-		_dome(root, glass, Vector3(0.0, yc, -size.z * 0.05),
-			Vector3(cano.x * size.x, cano.y * size.y, cano.z * size.z))
+		var d := Vector3(cano.x * size.x, cano.y * size.y, cano.z * size.z)
+		var pos := Vector3(0.0, yc, -size.z * 0.05)
+		_dome(root, interior, pos, d * Vector3(0.9, 0.84, 0.94))   # dunkler Innenraum
+		_dome(root, glass, pos, d)                                 # getönte Glaskuppel drüber
 	if style == "frame":
 		# Dunkle Querstreben (Mehrscheiben-Kanzel) als schmale Bügel über der Kuppel.
 		var bar_mat := make_material(Color(0.11, 0.12, 0.15), 0.4, 0.5)
@@ -844,6 +919,73 @@ static func has_model(id: String) -> bool:
 	return id != "" and ResourceLoader.exists(MODEL_DIR + id + ".glb")
 
 
+# Der glTF-Export gibt dem "Prop"-Node des Reto-Motors eine falsche Rotation+Versatz, obwohl
+# das MESH korrekt ist (Propellerscheibe in X-Y, dünn in Z, Zentrum ~ Nase). Wir setzen den
+# Node auf Identität und zentrieren die Scheibe exakt auf die Schubachse (Godot Z) -> schaut
+# vorwärts, sitzt bündig an der Nase, dreht symmetrisch bei FlightController.rotate_z(Prop).
+static func _fix_reto_prop(root: Node3D) -> void:
+	var prop := root.find_child("Prop", true, false)
+	if prop == null or not (prop is MeshInstance3D):
+		return
+	var mi := prop as MeshInstance3D
+	var ab := mi.get_aabb()
+	var c: Vector3 = ab.position + ab.size * 0.5   # Mesh-Zentrum im Lokalframe (~0,0,-1.32)
+	prop.transform = Transform3D(Basis(), Vector3(-c.x, -c.y, 0.0))
+
+
+# --- Sternmotor: freistehende Gondel <-> hinten offene Variante -------------------------
+# Das glb engine_radial.glb enthaelt BEIDE Varianten als Geschwister-Knoten ("Full"/"Half"),
+# vorne bis auf 0.000 deckungsgleich (in Blender nachgemessen). Umschalten = Sichtbarkeit,
+# kein Neubau, keine Verschiebung. Genau eine ist sichtbar.
+static func set_engine_half(vis: Node, half: bool) -> void:
+	var f := vis.find_child("Full", true, false)
+	var h := vis.find_child("Half", true, false)
+	if f is Node3D:
+		(f as Node3D).visible = not half
+	if h is Node3D:
+		(h as Node3D).visible = half
+
+
+# Ist das ein Rumpfteil? (Kategorie Rumpf, kein Fluegel) -> darf hinten am Motor andocken.
+static func is_fuselage_part(p: Dictionary) -> bool:
+	return p.get("category", "") == CAT_BODY and not p.get("is_wing", false)
+
+
+# Box der FREISTEHENDEN Gondel (inkl. Heckkonus) — nur fuer Klickkoerper/Nachbarschaft,
+# solange "Full" sichtbar ist. Faellt auf die Montage-Box zurueck, wenn nicht definiert.
+static func engine_solo_box(p: Dictionary) -> Array:
+	return [p.get("solo_size", col_size(p)), p.get("solo_offset", col_offset(p))]
+
+
+# Lokales z der SCHNITTEBENE = Rueckseite der Montage-Box. Dort setzt ein Rumpfteil an.
+static func engine_cut_z(p: Dictionary) -> float:
+	return col_offset(p).z + col_size(p).z * 0.5
+
+
+# Sitzt HINTER dem Motor (in +Z, seiner Heckrichtung) ein Rumpfteil? Testpunkt = knapp hinter
+# der Schnittebene auf der Schubachse; trifft er die Box eines Rumpfteils, ist angedockt.
+# others = [{id, xform, pscale}] aller ANDEREN Teile (im selben Bezugssystem wie eng_xf).
+static func rear_docked(eng_id: String, eng_xf: Transform3D, eng_psc: Vector3, others: Array) -> bool:
+	var ep := get_part(eng_id)
+	if ep.is_empty():
+		return false
+	var co := col_offset(ep)
+	var probe: Vector3 = eng_xf * Vector3(co.x * eng_psc.x, co.y * eng_psc.y,
+		engine_cut_z(ep) * eng_psc.z + 0.06)
+	for o in others:
+		var op := get_part(o.get("id", ""))
+		if op.is_empty() or not is_fuselage_part(op):
+			continue
+		var opsc: Vector3 = o.get("pscale", Vector3.ONE)
+		var oxf: Transform3D = o.get("xform", Transform3D())
+		var lp: Vector3 = oxf.affine_inverse() * probe        # Testpunkt im Lokalsystem des Teils
+		var c: Vector3 = col_offset(op) * opsc
+		var hf: Vector3 = col_size(op) * opsc * 0.5
+		if absf(lp.x - c.x) <= hf.x and absf(lp.y - c.y) <= hf.y and absf(lp.z - c.z) <= hf.z:
+			return true
+	return false
+
+
 static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0, taper_front := 1.0, taper_y := -1.0, taper_front_y := -1.0) -> Node3D:
 	# taper/taper_front = X-Skalierung des hinteren/vorderen Endes; taper_y/taper_front_y =
 	# separate Y-Skalierung (< 0 -> wie X, also gleichförmig). So lässt sich jedes Rumpf-Ende
@@ -856,6 +998,10 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 	var pid: String = p.get("model", p.get("id", ""))
 	if has_model(pid) and not p.get("force_proc", false):
 		_attach_model(root, pid, col_override)
+		if pid == "reto_engine":
+			_fix_reto_prop(root)
+		elif pid == "engine_radial":
+			set_engine_half(root, false)   # Standard: freistehende Gondel; Andocken schaltet um
 		return root
 	var shape: String = p.get("shape", "box")
 	var col: Color = p.get("color", Color.WHITE)
@@ -872,7 +1018,7 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			# (-Z) Ende (x,y), eb = hinteres (+Z) -> Segment vorne/hinten verschieden breit/hoch.
 			# Normaler runder Zylinder mit flachen, scharfkantigen Enden (kein Rundungs-Bevel).
 			var tube := _box_tube(ef, eb, 24)
-			root.add_child(_mi(tube, make_material(col, metal, rough), Vector3.ZERO,
+			root.add_child(_mi(tube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
 		"jet_hull":
@@ -930,7 +1076,21 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 		"cyl":
 			# Tank als normaler Zylinder mit flachen, scharfkantigen Enden (kein Kapsel-Rund).
 			var tank := _box_tube(Vector2.ONE, Vector2.ONE, 24)
-			root.add_child(_mi(tank, make_material(col, metal, rough), Vector3.ZERO,
+			root.add_child(_mi(tank, make_material(col, metal, rough, true), Vector3.ZERO,
+				Vector3.ZERO, size))
+
+		"reto_tube":
+			# Rumpf-Tubus mit dem RETO-Profilquerschnitt (aus dem Blender-Profilblatt) statt
+			# Ellipse. Beide Enden einzeln skalierbar (ef/eb) wie beim normalen Rumpfsegment.
+			var rtube := _profile_tube(RETO_PROFILE, ef, eb)
+			root.add_child(_mi(rtube, make_material(col, metal, rough, true), Vector3.ZERO,
+				Vector3.ZERO, size))
+
+		"radial_tube":
+			# Wie "reto_tube", aber mit dem Querschnitt des Sternmotors (abgerundetes Quadrat) —
+			# fuehrt dessen Schnittebene nahtlos als Rumpf weiter. Beide Enden einzeln skalierbar.
+			var atube := _profile_tube(RADIAL_PROFILE, ef, eb)
+			root.add_child(_mi(atube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
 		"nose":
@@ -938,14 +1098,14 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			# reverse = Spitze nach hinten (Heckkonus).
 			# Runder Kegel mit SCHARFER Spitze (kantig am Ende) statt rundlicher Ogive.
 			var og := _revolve(_cone_profile(p.get("reverse", false)), 20)
-			root.add_child(_mi(og, make_material(col, metal, rough), Vector3.ZERO,
+			root.add_child(_mi(og, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
 		"cockpit":
 			# Voll runder Zylinder-Körper mit flachen, scharfkantigen Enden (wie Rumpfsegmente) —
 			# KEINE abgeflachte Oberseite. Die Glaskuppel sitzt obendrauf auf der runden Hülle.
 			var cbody := _box_tube(Vector2.ONE, Vector2.ONE, 24)
-			root.add_child(_mi(cbody, make_material(col, metal, rough), Vector3.ZERO,
+			root.add_child(_mi(cbody, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 			_cockpit_canopy(root, p, size)
 
@@ -1551,6 +1711,85 @@ static func _box_tube(ef: Vector2, eb: Vector2, segs := 24) -> ArrayMesh:
 		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f0)
 		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f1)
 		# Flacher Deckel hinten (+Z)
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(Vector3(0, 0, 0.5))
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b1)
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b0)
+	return st.commit()
+
+
+# RETO-Profilquerschnitt: aus dem flachen "Blatt"-Objekt in reto_test.blend extrahiert
+# (tools/build_reto_engine.py -> 32 Punkte, CCW, normiert auf [-0.5, 0.5]²; echte Blattgröße
+# 0.953 × 1.243 m steckt in der size des Teils fuselage_reto). x=Breite, y=Höhe (Godot).
+const RETO_PROFILE: Array = [
+	Vector2(-0.4917, -0.0148), Vector2(-0.473, -0.1426), Vector2(-0.4588, -0.1967),
+	Vector2(-0.422, -0.2905), Vector2(-0.3759, -0.3666), Vector2(-0.2931, -0.4338),
+	Vector2(-0.1852, -0.4824), Vector2(-0.0595, -0.5), Vector2(0.0595, -0.5),
+	Vector2(0.1852, -0.4824), Vector2(0.2931, -0.4338), Vector2(0.3759, -0.3666),
+	Vector2(0.422, -0.2905), Vector2(0.4588, -0.1967), Vector2(0.473, -0.1426),
+	Vector2(0.4917, -0.0148), Vector2(0.5, 0.0724), Vector2(0.4873, 0.169),
+	Vector2(0.4699, 0.2388), Vector2(0.4444, 0.3161), Vector2(0.3994, 0.4),
+	Vector2(0.2945, 0.4598), Vector2(0.1668, 0.4891), Vector2(0.0415, 0.4997),
+	Vector2(-0.0415, 0.4997), Vector2(-0.1668, 0.4891), Vector2(-0.2945, 0.4598),
+	Vector2(-0.3994, 0.4), Vector2(-0.4444, 0.3161), Vector2(-0.4699, 0.2388),
+	Vector2(-0.4873, 0.169), Vector2(-0.5, 0.0724),
+]
+
+
+# STERNMOTOR-Profilquerschnitt: aus dem flachen "Fuselage"-Blatt in Engine.blend extrahiert
+# (tools/build_engine_radial.py -> 24 Punkte in n-gon-Reihenfolge, CCW, normiert auf [-0.5, 0.5]²).
+# Abgerundetes Quadrat; die echte Blattgroesse 3.72 × 3.50 steckt (auf Spielmassstab 0.3226
+# gebracht = 1.200 × 1.129) in der size von fuselage_radial. x=Breite, y=Hoehe (Godot).
+const RADIAL_PROFILE: Array = [
+	Vector2(-0.2031, 0.4886), Vector2(-0.315, 0.4543), Vector2(-0.3969, 0.3969),
+	Vector2(-0.4543, 0.315), Vector2(-0.4886, 0.2031), Vector2(-0.5, 0.0),
+	Vector2(-0.4886, -0.2031), Vector2(-0.4543, -0.315), Vector2(-0.3969, -0.3969),
+	Vector2(-0.315, -0.4543), Vector2(-0.2031, -0.4886), Vector2(0.0, -0.5),
+	Vector2(0.2031, -0.4886), Vector2(0.315, -0.4543), Vector2(0.3969, -0.3969),
+	Vector2(0.4543, -0.315), Vector2(0.4886, -0.2031), Vector2(0.5, 0.0),
+	Vector2(0.4886, 0.2031), Vector2(0.4543, 0.315), Vector2(0.3969, 0.3969),
+	Vector2(0.315, 0.4543), Vector2(0.2031, 0.4886), Vector2(0.0, 0.5),
+]
+
+
+# Rumpf-Tubus mit BELIEBIGEM Profilquerschnitt (geschlossener CCW-Punktzug in [-0.5,0.5]²).
+# Vorderes (-Z) Ende × ef=(x,y), hinteres (+Z) × eb — wie _box_tube, nur mit Profil-Punkten
+# statt Ellipse. Glatte Seiten-Normalen aus dem Umriss, flache Deckel mit scharfer Kante.
+static func _profile_tube(profile: Array, ef: Vector2, eb: Vector2) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := profile.size()
+	var norms: Array = []
+	for i in n:
+		var t2: Vector2 = (profile[(i + 1) % n] as Vector2) - (profile[(i - 1 + n) % n] as Vector2)
+		var n2 := Vector2(t2.y, -t2.x).normalized()   # CCW -> (t.y, -t.x) zeigt nach außen
+		if n2.dot(profile[i]) < 0.0:                  # Sicherheit: immer auswärts
+			n2 = -n2
+		norms.append(n2)
+	for s in n:
+		var j := (s + 1) % n
+		var p0: Vector2 = profile[s]
+		var p1: Vector2 = profile[j]
+		var f0 := Vector3(p0.x * ef.x, p0.y * ef.y, -0.5)
+		var f1 := Vector3(p1.x * ef.x, p1.y * ef.y, -0.5)
+		var b0 := Vector3(p0.x * eb.x, p0.y * eb.y, 0.5)
+		var b1 := Vector3(p1.x * eb.x, p1.y * eb.y, 0.5)
+		var n0: Vector2 = norms[s]
+		var n1: Vector2 = norms[j]
+		var nf0 := Vector3(n0.x / maxf(ef.x, 0.001), n0.y / maxf(ef.y, 0.001), 0.0).normalized()
+		var nf1 := Vector3(n1.x / maxf(ef.x, 0.001), n1.y / maxf(ef.y, 0.001), 0.0).normalized()
+		var nb0 := Vector3(n0.x / maxf(eb.x, 0.001), n0.y / maxf(eb.y, 0.001), 0.0).normalized()
+		var nb1 := Vector3(n1.x / maxf(eb.x, 0.001), n1.y / maxf(eb.y, 0.001), 0.0).normalized()
+		# Mantel (outward, wie _box_tube)
+		st.set_normal(nf0); st.add_vertex(f0)
+		st.set_normal(nb0); st.add_vertex(b0)
+		st.set_normal(nf1); st.add_vertex(f1)
+		st.set_normal(nf1); st.add_vertex(f1)
+		st.set_normal(nb0); st.add_vertex(b0)
+		st.set_normal(nb1); st.add_vertex(b1)
+		# Flache Deckel vorne (-Z) / hinten (+Z)
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(Vector3(0, 0, -0.5))
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f0)
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f1)
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(Vector3(0, 0, 0.5))
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b1)
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b0)

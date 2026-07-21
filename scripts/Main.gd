@@ -99,8 +99,10 @@ var _cat_icon_btns: Array = []     # runde Kategorie-Reiter (Icons) — fürs Hi
 var tools_icon_btn: Button         # ••• -Reiter (Werkzeuge & mehr)
 var parts_view: ScrollContainer    # Bauteile-Ansicht (Grid)
 var tools_view: ScrollContainer    # Werkzeuge-Ansicht (hinter dem ••• -Reiter)
-var snap_btn: Button               # Snapping-Toggle (Magnet) in der unteren Leiste
-var mirror_btn: Button             # Spiegelung-Toggle in der unteren Leiste
+var snap_btn: Button               # Snapping-Toggle (Magnet) — jetzt in der oberen Werkzeugleiste
+var mirror_btn: Button             # Spiegelung-Toggle — jetzt in der oberen Werkzeugleiste
+var _tb_view_btns: Array = []      # Ansicht-Buttons (Frei/Front/Seite/Oben) der Werkzeugleiste
+var _tb_tool_btns: Array = []      # Werkzeug-Buttons (Bewegen/Drehen/Skalieren) der Werkzeugleiste
 var _show_tools := false           # zeigt gerade die Werkzeuge-Ansicht?
 var upgrade_box: VBoxContainer     # Upgrade-Panel
 var mode_overlay: Control          # Modus-Auswahl-Overlay
@@ -1380,26 +1382,9 @@ func _build_hangar_ui() -> void:
 		sw.pressed.connect(_on_paint_color.bind(c))
 		pal.add_child(sw)
 
-	tv.add_child(_section("ANSICHT"))
-	var row3 := HBoxContainer.new()
-	row3.add_theme_constant_override("separation", 6)
-	tv.add_child(row3)
-	var redo_btn := Button.new()
-	redo_btn.text = "Redo"
-	redo_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	redo_btn.pressed.connect(_on_redo)
-	row3.add_child(redo_btn)
-	var cam_btn := Button.new()
-	cam_btn.text = "Zentrieren"
-	cam_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cam_btn.pressed.connect(_on_reset_view)
-	row3.add_child(cam_btn)
-
-	drag_view_btn = Button.new()
-	drag_view_btn.text = "Windkanal-Ansicht"
-	drag_view_btn.toggle_mode = true
-	drag_view_btn.toggled.connect(_on_drag_view)
-	tv.add_child(drag_view_btn)
+	# Ansicht/Undo/Redo/Windkanal/Zentrieren sind jetzt in der oberen WERKZEUGLEISTE (_build_toolbar).
+	# Hier bleibt nur die Windkanal-Farblegende (erscheint, wenn der Windkanal an ist).
+	tv.add_child(_section("WINDKANAL-LEGENDE"))
 	var leg := VBoxContainer.new()
 	leg.add_theme_constant_override("separation", 2)
 	var bar := TextureRect.new()
@@ -1455,35 +1440,7 @@ func _build_hangar_ui() -> void:
 
 	_refresh_cat_icons()
 
-	# --- Untere Aktionsleiste: Snapping (Magnet) · Undo · Spiegeln ---
-	var bottom := HBoxContainer.new()
-	bottom.add_theme_constant_override("separation", 8)
-	vb.add_child(bottom)
-	snap_btn = _make_icon_btn("res://icons/magnet.svg")
-	snap_btn.toggle_mode = true
-	_style_icon_toggle(snap_btn)
-	snap_btn.button_pressed = build_ctrl.snap_enabled
-	snap_btn.tooltip_text = "Andocken / Snapping (Taste N)"
-	snap_btn.toggled.connect(_on_snap_toggled)
-	bottom.add_child(snap_btn)
-	var undo2 := _make_icon_btn("res://icons/undo.svg")
-	undo2.tooltip_text = "Rückgängig (Strg+Z)"
-	undo2.pressed.connect(_on_undo)
-	bottom.add_child(undo2)
-	mirror_btn = Button.new()
-	mirror_btn.text = "Mirror"
-	mirror_btn.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	mirror_btn.icon = load("res://icons/mirror.svg")
-	mirror_btn.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	mirror_btn.toggle_mode = true
-	mirror_btn.focus_mode = Control.FOCUS_NONE
-	mirror_btn.button_pressed = build_ctrl.symmetry
-	mirror_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mirror_btn.custom_minimum_size = Vector2(0, 50)
-	mirror_btn.add_theme_font_size_override("font_size", 18)
-	_style_pill_toggle(mirror_btn)
-	mirror_btn.toggled.connect(_on_symmetry_toggled)
-	bottom.add_child(mirror_btn)
+	# (Snap/Undo/Symmetrie + alle weiteren Aktionen sind jetzt in der oberen WERKZEUGLEISTE.)
 
 	# --- Testflug-Button oben mitte ---
 	var fly_btn := Button.new()
@@ -1505,6 +1462,9 @@ func _build_hangar_ui() -> void:
 	_rect(fly_btn, 0.5, 0, 0.5, 0, -160, 18, 160, 60)
 	fly_btn.pressed.connect(_on_fly_pressed)
 	build_root.add_child(fly_btn)
+
+	# Obere WERKZEUGLEISTE: alle Editor-Funktionen sichtbar & klickbar (statt nur Tastenkürzel).
+	_build_toolbar()
 
 	# --- Flug-Check (grafisch) oben rechts ---
 	var spanel := _panel(Color(0, 0, 0, 0.5))
@@ -2217,6 +2177,107 @@ func _on_snap_changed(on: bool) -> void:
 
 
 # ===========================================================================
+# OBERE WERKZEUGLEISTE — alle Editor-Funktionen sichtbar & klickbar (statt nur Tastenkürzel)
+# ===========================================================================
+func _build_toolbar() -> void:
+	var bar := _panel(Color(0.05, 0.07, 0.11, 0.86))
+	_rect(bar, 0.5, 0, 0.5, 0, -640, 84, 640, 124)   # oben mittig, unter dem Testflug-Button
+	build_root.add_child(bar)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 3)
+	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	bar.add_child(hb)
+	# Verlauf
+	hb.add_child(_tb_btn("Undo", "Rückgängig (Strg+Z)", _on_undo))
+	hb.add_child(_tb_btn("Redo", "Wiederholen (Strg+Y)", _on_redo))
+	hb.add_child(VSeparator.new())
+	# Bearbeiten
+	hb.add_child(_tb_btn("Dupliz.", "Auswahl duplizieren + spiegeln (Strg+D)", func() -> void: build_ctrl.duplicate_selected()))
+	hb.add_child(_tb_btn("Löschen", "Ausgewähltes Teil löschen (X)", func() -> void: build_ctrl.delete_selected()))
+	hb.add_child(VSeparator.new())
+	# Werkzeug-Modi (Bewegen/Drehen/Skalieren)
+	_tb_tool_btns.clear()
+	var tools := [["Bewegen", "Bewegen-Gizmo (G)"], ["Drehen", "Drehen-Gizmo (R)"], ["Skalieren", "Skalieren-Gizmo (S)"]]
+	for ti in tools.size():
+		var gi := ti
+		var rb := _tb_radio(tools[ti][0], tools[ti][1], func() -> void: build_ctrl.set_gizmo_mode(gi))
+		_tb_tool_btns.append(rb)
+		hb.add_child(rb)
+	hb.add_child(VSeparator.new())
+	# Optionen (Toggles)
+	mirror_btn = _tb_toggle("Symmetrie", "Symmetrie-Spiegelung (M)", build_ctrl.symmetry, _on_symmetry_toggled)
+	hb.add_child(mirror_btn)
+	snap_btn = _tb_toggle("Snap", "Magnetisches Andocken (N)", build_ctrl.snap_enabled, _on_snap_toggled)
+	hb.add_child(snap_btn)
+	hb.add_child(VSeparator.new())
+	# Ansichten (Frei/Front/Seite/Oben)
+	_tb_view_btns.clear()
+	var views := [["Frei", "Freie Perspektive (4)"], ["Front", "Front-Ansicht (1)"], ["Seite", "Seiten-Ansicht (2)"], ["Oben", "Ober-Ansicht (3)"]]
+	for vi in views.size():
+		var vp := vi
+		var vbtn := _tb_radio(views[vi][0], views[vi][1], func() -> void: build_ctrl.set_view(vp))
+		_tb_view_btns.append(vbtn)
+		hb.add_child(vbtn)
+	hb.add_child(VSeparator.new())
+	# Analyse
+	drag_view_btn = _tb_toggle("Windkanal", "Windkanal-Widerstandsansicht (Heatmap)", build_ctrl.wind_tunnel, _on_drag_view)
+	hb.add_child(drag_view_btn)
+	hb.add_child(_tb_btn("Zentrieren", "Kamera auf das Flugzeug zentrieren (F)", _on_reset_view))
+	_sync_toolbar()
+
+
+func _tb_btn(txt: String, tip: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = txt
+	b.tooltip_text = tip
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 30)
+	b.add_theme_font_size_override("font_size", 12)
+	if cb.is_valid():
+		b.pressed.connect(cb)
+	return b
+
+
+func _tb_toggle(txt: String, tip: String, pressed: bool, cb: Callable) -> Button:
+	var b := _tb_btn(txt, tip, Callable())
+	b.toggle_mode = true
+	b.button_pressed = pressed
+	b.toggled.connect(cb)
+	return b
+
+
+func _tb_radio(txt: String, tip: String, cb: Callable) -> Button:
+	var b := _tb_btn(txt, tip, Callable())
+	b.toggle_mode = true
+	b.pressed.connect(cb)
+	return b
+
+
+# Toolbar-Zustand mit dem BuildController synchron halten (auch bei Tastenkürzeln).
+# Aktive Toggles/Modi/Ansichten werden eingedrückt + grün getönt.
+func _sync_toolbar() -> void:
+	if build_ctrl == null:
+		return
+	if mirror_btn != null:
+		_tb_hl(mirror_btn, build_ctrl.symmetry)
+	if snap_btn != null:
+		_tb_hl(snap_btn, build_ctrl.snap_enabled)
+	if drag_view_btn != null:
+		_tb_hl(drag_view_btn, build_ctrl.wind_tunnel)
+	for i in _tb_view_btns.size():
+		_tb_hl(_tb_view_btns[i], build_ctrl._ortho_view == i)
+	for i in _tb_tool_btns.size():
+		_tb_hl(_tb_tool_btns[i], build_ctrl.gizmo_mode == i)
+	if wind_legend != null:
+		wind_legend.visible = build_ctrl.wind_tunnel
+
+
+func _tb_hl(b: Button, active: bool) -> void:
+	b.set_pressed_no_signal(active)
+	b.modulate = Color(0.5, 1.0, 0.6) if active else Color(1, 1, 1)
+
+
+# ===========================================================================
 # ZIELE (Luftballons / Luftschiffe zum Abschießen)
 # ===========================================================================
 const _TARGET_COLORS := [
@@ -2302,6 +2363,9 @@ func _respawn_balloon() -> void:
 
 # --- Survival: Wellen-System + Flug-Score ----------------------------------
 func _process(delta: float) -> void:
+	# Werkzeugleiste mit dem Editor-Zustand synchron halten (auch bei Tastenkürzeln)
+	if mode == Mode.BUILD and not _tb_view_btns.is_empty():
+		_sync_toolbar()
 	# Terrain-Chunks um den Spieler streamen (nur im Flug nötig)
 	if mode == Mode.FLY and terrain != null and flight_ctrl != null \
 			and is_instance_valid(flight_ctrl.aircraft):

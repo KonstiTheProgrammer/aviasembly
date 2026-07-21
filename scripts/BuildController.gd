@@ -2001,10 +2001,50 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 	var n: Vector3 = hit["normal"].normalized()
 	var surface: Vector3 = hit["position"]
 
+	# AUTO-FIT am RETO-Motor: ein normales Rumpfsegment (biends), das am Reto-Motor oder an
+	# einem Profil-Segment andockt, ÜBERNIMMT dessen Profil-Form (Querschnitt aus dem
+	# Blender-Profilblatt) -> die Kette führt die Form nahtlos weiter. Skalierbar wie immer.
+	var _reto_tgt := String(part.get_meta("part_id"))
+	if p.get("biends", false) and (_reto_tgt == "reto_engine" or _reto_tgt == "fuselage_reto"):
+		var rdef := PartCatalog.get_part("fuselage_reto")
+		var rfit := _fuselage_fit(rdef, part, n, surface)
+		if not rfit.is_empty():
+			rfit["id"] = "fuselage_reto"
+			if _reto_tgt == "reto_engine":
+				rfit["scale"] = Vector3.ONE   # Motor-Heck = exakt die Profilblatt-Größe (0.95×1.24)
+			return rfit
+
+	# ANDOCKEN AM STERNMOTOR: er hat GENAU EINE Andockfläche — die Schnittebene hinten.
+	# Darum hier direkt rechnen statt _fuselage_fit: dessen "längste Achse"-Heuristik nähme bei
+	# dieser Gondel X (die Montage-Box ist mit 1.2 breiter als lang) und dockte SEITLICH an.
+	# Zusätzlich ist es egal, wo man den Motor trifft — ein Rumpfteil gehört immer hinter ihn;
+	# das macht das Ziehen tolerant (die große Cowl reicht als Ziel).
+	if p.get("biends", false) and _reto_tgt == "engine_radial":
+		var edef := PartCatalog.get_part("engine_radial")
+		var fdef := PartCatalog.get_part("fuselage_radial")
+		var etb := part.global_transform.basis.orthonormalized()
+		var etsc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+		var eoff: Vector3 = PartCatalog.col_offset(edef)
+		var cut: Vector3 = part.global_position + etb * Vector3(eoff.x * etsc.x, eoff.y * etsc.y,
+			PartCatalog.engine_cut_z(edef) * etsc.z)        # Schnittebene in Weltkoordinaten
+		var forg: Vector3 = cut + etb.z * (PartCatalog.col_size(fdef).z * 0.5) \
+			- etb * PartCatalog.col_offset(fdef)
+		# scale = ONE: die Schnittebene IST exakt die Profilblatt-Größe (1.200 × 1.129).
+		return {"valid": true, "xform": Transform3D(etb, forg), "scale": Vector3.ONE,
+			"id": "fuselage_radial"}
+
+	# Profil-Segment an Profil-Segment: hier passt _fuselage_fit (Box 1.2×1.13×2.0 -> Z ist
+	# korrekt die Längsachse) -> Kette führt die Form weiter, Querschnitt wird übernommen.
+	if p.get("biends", false) and _reto_tgt == "fuselage_radial":
+		var afit := _fuselage_fit(PartCatalog.get_part("fuselage_radial"), part, n, surface)
+		if not afit.is_empty():
+			afit["id"] = "fuselage_radial"
+			return afit
+
 	# AUTO-FIT Rumpf-an-Rumpf: neues Rumpfteil koaxial & bündig ans getroffene Ende setzen
 	# und Breite/Höhe an den Querschnitt des Zielteils anpassen ("in der Mitte", gleiche Größe).
 	if _is_fuselage(p) and _is_fuselage(PartCatalog.get_part(part.get_meta("part_id"))):
-		var fit := _fuselage_fit(p, part, n)
+		var fit := _fuselage_fit(p, part, n, surface)
 		if not fit.is_empty():
 			return fit
 
@@ -2012,7 +2052,7 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 	# Statt der freistehenden Gondel wird die "prop_engine_nose"-Variante gesetzt.
 	if _is_prop_engine(p) and _is_fuselage(PartCatalog.get_part(part.get_meta("part_id"))):
 		var nose_def := PartCatalog.get_part("prop_engine_nose")
-		var nfit := _fuselage_fit(nose_def, part, n)
+		var nfit := _fuselage_fit(nose_def, part, n, surface)
 		if not nfit.is_empty():
 			# Das Modell ist hinten FLACH durchgeschnitten -> setzt direkt bündig an (kein Versenken,
 			# keine Geometrie im Rumpf). Querschnitt kommt per Auto-Fit auf die Rumpfgröße.
@@ -2085,7 +2125,7 @@ func _is_prop_engine(p: Dictionary) -> bool:
 # Auto-Fit: neues Rumpfteil koaxial & bündig an die getroffene Fläche des Zielteils setzen
 # und seine Breite/Höhe (die beiden Querschnitt-Achsen) an das Zielteil anpassen.
 # Liefert {valid, xform, scale} — scale = die übernommene pscale.
-func _fuselage_fit(pd: Dictionary, target: Node3D, n: Vector3) -> Dictionary:
+func _fuselage_fit(pd: Dictionary, target: Node3D, n: Vector3, hit_pos := Vector3.INF) -> Dictionary:
 	var tdef := PartCatalog.get_part(target.get_meta("part_id"))
 	if tdef.is_empty():
 		return {}
@@ -2101,6 +2141,19 @@ func _fuselage_fit(pd: Dictionary, target: Node3D, n: Vector3) -> Dictionary:
 	elif absf(ln.z) >= absf(ln.x) and absf(ln.z) >= absf(ln.y):
 		axis = 2
 	var sgn := 1.0 if ln[axis] >= 0.0 else -1.0
+	# KETTENBAU-HILFE: liegt der Treffer deutlich im ENDBEREICH der Längsachse, die Kette dort
+	# bündig verlängern — auch bei einem Seitentreffer nahe dem Ende. Macht das Andocken von
+	# Rumpfsegmenten viel leichter (man muss nicht die kleine runde Endkappe exakt treffen).
+	if hit_pos.is_finite():
+		var tlen := tcs * tsc
+		var laxis := 0
+		if tlen.y >= tlen.x and tlen.y >= tlen.z: laxis = 1
+		elif tlen.z >= tlen.x and tlen.z >= tlen.y: laxis = 2
+		var tcenter0 := target.global_position + tb * (PartCatalog.col_offset(tdef) * tsc)
+		var lhit := tb.inverse() * (hit_pos - tcenter0)
+		if laxis != axis and absf(lhit[laxis]) > tlen[laxis] * 0.30:   # >60% zum Ende hin
+			axis = laxis
+			sgn = 1.0 if lhit[laxis] >= 0.0 else -1.0
 	# Querschnitt (die beiden ANDEREN Achsen): Breite/Höhe vom Ziel übernehmen.
 	var ns := Vector3.ONE
 	for a in 3:
@@ -2589,6 +2642,7 @@ func compute_stats() -> Dictionary:
 
 
 func _notify_changed() -> void:
+	_sync_engine_variants()     # VOR compute_stats: setzt das Variant-Meta, das _part_box liest
 	var stats := compute_stats()
 	if com_marker:
 		com_marker.position = stats["com"]
@@ -2601,14 +2655,68 @@ func _notify_changed() -> void:
 	design_changed.emit(stats)
 
 
+# Sternmotor: hinten ein Rumpfteil angedockt -> offene Variante ("Half", Heck weicht dem Rumpf),
+# sonst die freistehende Gondel ("Full"). Hier zentral, damit Setzen/Verschieben/Löschen/Undo/
+# Laden alle durch denselben Pfad laufen. Nur Sichtbarkeit -> kein Visual-Neubau.
+func _sync_engine_variants() -> void:
+	var parts: Array = []
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			parts.append(c)
+	var items: Array = []
+	for pp in parts:
+		items.append({"id": String(pp.get_meta("part_id")), "xform": pp.transform,
+			"pscale": pp.get_meta("pscale", Vector3.ONE)})
+	for i in parts.size():
+		if items[i]["id"] != "engine_radial":
+			continue
+		var vis: Node = parts[i].get_node_or_null("Visual")
+		if vis == null:
+			continue
+		var others: Array = items.duplicate()
+		others.remove_at(i)
+		var half: bool = PartCatalog.rear_docked(
+			"engine_radial", items[i]["xform"], items[i]["pscale"], others)
+		PartCatalog.set_engine_half(vis, half)
+		parts[i].set_meta("engine_half", half)
+		_apply_engine_pickbox(parts[i])
+
+
+# Box eines Teils als [size, offset]. Nur der Sternmotor weicht ab: seine Katalog-Box ist die
+# MONTAGE-Box (Nase..Schnittebene, damit die Snap-Mathematik stimmt) — solange aber die volle
+# Gondel zu SEHEN ist, muss Klickkörper/Nachbarschaft den Heckkonus mit abdecken.
+func _part_box(part: Node3D) -> Array:
+	var p := PartCatalog.get_part(part.get_meta("part_id"))
+	if String(part.get_meta("part_id", "")) == "engine_radial" \
+			and not part.get_meta("engine_half", false):
+		return PartCatalog.engine_solo_box(p)
+	return [PartCatalog.col_size(p), PartCatalog.col_offset(p)]
+
+
+# Klickkörper des Motors auf die sichtbare Variante ziehen (freistehend inkl. Heckkonus,
+# angedockt nur bis zur Schnittebene -> greift nicht durch den Rumpf).
+func _apply_engine_pickbox(part: Node3D) -> void:
+	var cs := part.get_node_or_null("Pick/CollisionShape3D") as CollisionShape3D
+	if cs == null:
+		var body := part.get_node_or_null("Pick")
+		if body != null and body.get_child_count() > 0:
+			cs = body.get_child(0) as CollisionShape3D
+	if cs == null or not (cs.shape is BoxShape3D):
+		return
+	var psc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+	var b := _part_box(part)
+	(cs.shape as BoxShape3D).size = (b[0] as Vector3) * psc
+	cs.transform = Transform3D(Basis(), (b[1] as Vector3) * psc)
+
+
 # --- Verbindungs-Prüfung: kein freies Schweben ----------------------------
 # Welt-AABB der Teil-Box (rotiert), für Nachbarschafts-Test.
 func _part_world_aabb(part: Node3D) -> AABB:
-	var p := PartCatalog.get_part(part.get_meta("part_id"))
 	var psc: Vector3 = part.get_meta("pscale", Vector3.ONE)
-	var half: Vector3 = PartCatalog.col_size(p) * psc * 0.5
+	var b := _part_box(part)                       # Sternmotor: je nach sichtbarer Variante
+	var half: Vector3 = (b[0] as Vector3) * psc * 0.5
 	var t := part.transform
-	var center: Vector3 = t * (PartCatalog.col_offset(p) * psc)
+	var center: Vector3 = t * ((b[1] as Vector3) * psc)
 	var ab := AABB(center, Vector3.ZERO)
 	for sx in [-1.0, 1.0]:
 		for sy in [-1.0, 1.0]:

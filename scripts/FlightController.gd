@@ -224,6 +224,13 @@ func build_from_design(d: Array) -> void:
 			continue
 		body_boxes.append(PartCatalog.part_box(bpp, it.get("xform", Transform3D()), it.get("scale", Vector3.ONE)))
 
+	# Vorab: {id, xform, pscale} aller Teile -> Sternmotor prüft damit, ob hinten ein Rumpfteil
+	# sitzt (dann offene Variante). Der Motor selbst stört nicht: rear_docked sieht nur Rumpfteile.
+	var dock_items: Array = []
+	for it in d:
+		dock_items.append({"id": it.get("id", ""), "xform": it.get("xform", Transform3D()),
+			"pscale": it.get("scale", Vector3.ONE)})
+
 	for item in d:
 		var id: String = item.get("id", "")
 		if not PartCatalog.has(id):
@@ -242,6 +249,8 @@ func build_from_design(d: Array) -> void:
 		var psx_eff: float = psc.x + (fill / nspan if has_fill else 0.0)
 
 		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)), item.get("taper", 1.0), item.get("taper_front", 1.0), item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
+		if id == "engine_radial":   # Heck offen (Rumpf dockt an) oder freistehende Gondel?
+			PartCatalog.set_engine_half(vis, PartCatalog.rear_docked(id, xf, psc, dock_items))
 		# Skalierung in die Basis einrechnen (NICHT vis.scale setzen): bei gespiegelten
 		# Teilen ist die Basis improper (det<0); vis.scale würde die Spiegelung zerstören
 		# -> Flügel klappt auf die andere Seite -> "halbes Flugzeug".

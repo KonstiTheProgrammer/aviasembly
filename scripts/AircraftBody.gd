@@ -1120,10 +1120,11 @@ func _rebuild_fx() -> void:
 		var light: OmniLight3D = d["light"]
 		light.position = Vector3(0, 0, 0.4 * rfac)
 		_afterburners.append(d)
-	# Auspuff-Rauch NUR für die Spitfire-Engine (prop_engine_big), direkt AUS DEN EXHAUST-Stutzen.
+	# Auspuff-Rauch für die Spitfire/Merlin-Engine, direkt AUS DEN EXHAUST-Stutzen.
 	# Viel Qualm (hohe Anzahl), aber bleibt NAH (kurze Lebenszeit + starke Dämpfung, kein weiter Trail).
 	for pi in parts:
-		if pi.get("broken", false) or String(pi.get("id", "")) != "prop_engine_big":
+		var pid := String(pi.get("id", ""))
+		if pi.get("broken", false) or not (pid == "prop_engine_big" or pid == "spitfire_engine"):
 			continue
 		var evis = pi.get("vis")
 		if evis == null or not is_instance_valid(evis):
