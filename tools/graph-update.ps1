@@ -14,17 +14,20 @@ if (-not (Test-Path $fork)) {
     exit 1
 }
 
-Write-Host "[1/4] AST-Extraktion (Godot-Fork) ..."
+Write-Host "[1/5] AST-Extraktion (Godot-Fork) ..."
 & $fork "$PSScriptRoot\graph_ast_extract.py" $proj
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "[2/4] Merge Code + Doku-Schicht ..."
+Write-Host "[2/5] Merge Code + Doku-Schicht ..."
 & $fork "$PSScriptRoot\graph_merge_semantic.py" $proj
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Host "[3/4] Communities benennen ..."
+Write-Host "[3/5] Communities benennen ..."
 & $fork "$PSScriptRoot\graph_label.py" $proj
 
-Write-Host "[4/4] Testsuite ..."
+Write-Host "[4/5] Obsidian-Vault ..."
+& $fork "$PSScriptRoot\graph_obsidian.py" $proj
+
+Write-Host "[5/5] Testsuite ..."
 & $fork "$PSScriptRoot\graph_check.py" $proj
 exit $LASTEXITCODE
