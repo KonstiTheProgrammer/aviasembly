@@ -42,7 +42,7 @@ das Flugzeug längsstabil.
 | Eingabe | Aktion |
 |---|---|
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
-| **M** | **Maus-Flug** an/aus (War-Thunder-Stil — siehe unten) |
+| **M** | **Maus-/Tastatur-Flug** umschalten (Maus-Flug ist **Standard** — siehe unten) |
 | **J** | **Arcade-Lenkung** an/aus (super-smooth, schnappt sofort aufs Ziel; aktiviert Maus-Flug) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
@@ -84,8 +84,10 @@ Auftrieb mehr — so baust du Winglets/Querruder-Flächen.
 
 **Luftwiderstand & Windkanal:** Der Widerstand wird aus der Bauform berechnet
 (Stirnflächen + Form, Stat „cW·A") und bremst das Flugzeug. Button
-**„🌬 Windkanal-Ansicht"** → das Flugzeug wird zu **einem Modell zusammengebacken**
-und **Luftstrom-Linien** strömen wie im Windkanal darüber.
+**„🌬 Windkanal-Ansicht"** → **Pro-Teil-Druckwiderstands-Heatmap mit Verdeckung**:
+nur windzugewandte Flächen färben sich (grün→gelb→rot), Teile im **Windschatten**
+hinter anderen bleiben grau — dazu Strömungslinien und ein „Hotspot"-Hinweis
+auf das widerstandsstärkste Teil.
 
 **Abheben:** Vollgas (Shift halten), auf der Bahn beschleunigen, ab ~120 km/h sanft
 ziehen (S) → das Flugzeug rotiert und steigt. Die Flügel haben einen Einstellwinkel,
@@ -135,19 +137,26 @@ fährt im Flug mit **G** ein → weniger Widerstand, höhere Geschwindigkeit.
 
 ## 🛠️ Technik
 
-Alles ist **prozedural** erzeugt (Meshes, Materialien, UI) – keine externen Assets nötig.
+**Welt, UI, Flügel und Terrain sind prozedural** erzeugt; die **Bauteil-Modelle**
+(Rumpf, Kanzeln, Triebwerke, Fahrwerke, Raketen …) sind in **Blender** modelliert und
+liegen als glTF in `res://models/*.glb` — fehlt ein Modell, greift automatisch der
+prozedurale Fallback.
 
 ```
-project.godot          Projektkonfiguration (Godot 4.6, Forward+)
+project.godot          Projektkonfiguration (Forward+)
 scenes/Main.tscn        Hauptszene (nur Wurzelknoten + Main.gd)
 scripts/
   Main.gd               Welt, Licht, Himmel, Modus-Umschaltung, UI/HUD, Speichern/Laden
-  PartCatalog.gd        Alle Bauteile + prozedurale Mesh-/Material-Erzeugung
-  BuildController.gd    Hangar: Orbit-Kamera, flächenbündiges Snapping, Ghost, Symmetrie, Statistik
-  FlightController.gd   Baut den Flieger aus dem Design, Steuerung, Verfolgerkamera, HUD
-  AircraftBody.gd       Der fliegende RigidBody: Aerodynamik (Auftrieb/Widerstand/Stabilität), Rate-Regler
+  PartCatalog.gd        Alle Bauteile + glTF-Anbindung + prozedurale Mesh-/Material-Erzeugung
+  BuildController.gd    Hangar: Orbit-Kamera, flächenbündiges Snapping, Gizmos, Symmetrie, Windkanal
+  FlightController.gd   Baut den Flieger aus dem Design, Steuerung/Maus-Flug, Verfolgerkamera, Waffen
+  AircraftBody.gd       Der fliegende RigidBody: Aerodynamik, Schadensmodell (Flügelbruch, Fahrwerk)
+  TerrainWorld.gd       Chunk-Terrain mit Biomen, Flüssen, Seen und Flora (Worker-Thread-Streaming)
+  GameState.gd          Spielmodi, Geld, Freischaltungen, Upgrades (Persistenz)
+  Projectile.gd/Target.gd/FlakGun.gd   Geschosse, Ziele, Flak-Zone
 tools/
   phys_test.gd          Headless-Physiktest (zum Nachtunen): Godot --headless --path . --script res://tools/phys_test.gd
+  graph-update.ps1      Wissensgraph des Codes aktualisieren (graphify, siehe graphify-out/)
 ```
 
 **Flugmodell (wissenschaftlich, aber spielbar):** Gebündelte Koeffizienten-Aufbaumethode
@@ -162,9 +171,11 @@ wie in vielen Flugsimulationen — stabil bei 60 Hz, trotzdem physikalisch fundi
 - **Statische Stabilität** (Nase folgt der Anströmung) skaliert mit der Leitwerksfläche
 - **G-Kraft** wird aus der resultierenden Kraft berechnet und im HUD angezeigt
 
-Darüber liegt ein **Fly-by-Wire-Lageassistent** (Taste **T**): Eingabe kommandiert
-Drehraten, ohne Eingabe wird Lage/Querlage gehalten (ruhiges, spaßiges Fliegen).
-Mit **T aus** bekommst du den direkteren „Pro"-Modus.
+Die Steuerung sind **direkte Steuerflächen** (SimplePlanes-Gefühl): Eingabe = Ausschlag,
+Autorität wächst mit dem Staudruck (langsam teigig, schnell knackig). **Kein**
+Lage-Autopilot und **kein** Auto-Ausnivellieren — eine mit A/D gesetzte Querlage
+bleibt stehen. Taste **T** (Assist) erhöht nur die Nick-/Gier-**Dämpfung** (ruhiger),
+**T aus** = roh/direkt. Rollen ist immer knackig.
 
 **Was beim Bauen zählt:** Flügelfläche (Auftrieb & Abrissgeschwindigkeit), Streckung
 (Gleitleistung/Widerstand), Leitwerksfläche (Stabilität & Steuerautorität), Schub
@@ -192,12 +203,12 @@ Fortschritt (Geld, Freischaltungen, Upgrades) wird in
 
 - 🎯 Missionen & Parcours (Ringe durchfliegen, Landeherausforderungen, Zeitrennen)
 - 🪙 Münzen sammeln → neue Teile / Lackierungen freischalten
-- 💥 Schadensmodell & Crash-Effekte, Landungsbewertung
+- 💥 Landungsbewertung/-Score, mehr Crash-Effekte
 - 🌦️ Wind, Turbulenzen, Wetter, Tag/Nacht
 - 🌊 Schwimmer & Wasserung, Träger-Starts
 - 🎨 Lackier-Editor, Foto-Modus, Replays
 - 🕹️ Gamepad-Support, mehr Kamera-Modi (Cockpit-Sicht)
-- 🧰 Mehr Teile: Klappen, Luftbremsen, Raketen, Fahrwerk einfahrbar
+- 🧰 Mehr Teile: Klappen, Luftbremsen
 - 👥 Geteilte Designs / Bestenlisten
 
 Viel Spaß beim Bauen und Fliegen! 🛩️

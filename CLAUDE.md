@@ -410,6 +410,42 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Papier-Zipfel mehr) + 8 Stationen. Hebt ALLE Generik-Flügel gleichzeitig. Rein visuell —
   Aero/Pickbox kommen aus dem Teil-Dict. **Spitfire** hat ein eigenes Blender-Teil
   `spitfire_wing` (echte elliptische Planform, 6° V-Stellung).
+- **Sternmotor `engine_radial` (ZWEI Varianten in EINEM glb):** aus `Downloads/Engine.blend` via
+  `tools/build_engine_radial.py` (Regenerator; schreibt auch `tools/radial_profile.json`).
+  Das glb trägt drei Geschwister-Knoten: **`Full`** (freistehende Gondel mit eigenem Heck),
+  **`Half`** (vorne bis auf 0.000 deckungsgleich, hinten flach aufgeschnitten) und **`Prop`**.
+  `PartCatalog.set_engine_half(vis, bool)` schaltet nur die SICHTBARKEIT um (kein Neubau, keine
+  Verschiebung — Nasenebene beider Varianten ist identisch, in Blender nachgemessen).
+  Wer umschaltet: `PartCatalog.rear_docked()` (Testpunkt knapp hinter der Schnittebene auf der
+  Schubachse; trifft er die Box eines Rumpfteils = angedockt) — aufgerufen aus
+  `BuildController._sync_engine_variants()` (in `_notify_changed`, deckt Setzen/Verschieben/
+  Löschen/Undo/Laden ab) und `FlightController.build_from_design`.
+  **ZWEI Boxen, das ist der Knackpunkt:** `col_size` (1.2×1.135×**0.639**, col_offset=0) ist die
+  MONTAGE-Box Nase..Schnittebene — mit ihr rechnet die Snap-Mathematik; ihre Rückseite IST die
+  Schnittebene. `solo_size`/`solo_offset` (1.206×1.135×**1.494**, off z=+0.427) ist die volle
+  Gondel und wird NUR auf Klickkörper/Nachbarschaft gezogen, solange „Full“ sichtbar ist
+  (`_part_box()` + `_apply_engine_pickbox()`, gesteuert übers Meta `engine_half`).
+  Warum so: (a) Der generische Snap IGNORIERT `col_offset` (er setzt den Ursprung stumpf
+  `col_size.z/2` von der Fläche weg) -> col_offset MUSS 0 bleiben, sonst versinkt der Motor beim
+  Ziehen auf einen Rumpf. (b) Weil die Montage-Box hinten die Schnittebene ist, landet dabei die
+  Schnittebene GRATIS bündig am Rumpf (gemessen: Spalt 0.00000) und `rear_docked` greift -> Half.
+  (c) Wäre nur die Montage-Box da, hätte der sichtbare Heckkonus (57 % der Länge!) keinen
+  Klickkörper — man könnte dort nichts andocken (genau der gemeldete Bug).
+  Andocken selbst läuft NICHT über `_fuselage_fit` (dessen „längste Achse“-Heuristik hielte die
+  1.2 breite / 0.639 lange Montage-Box für quer und dockte SEITLICH an), sondern über einen
+  eigenen Zweig in `_compute_snap_for`, der immer koaxial an `engine_cut_z()` setzt — egal wo man
+  den Motor trifft (die große Cowl reicht als Ziel, das macht das Ziehen tolerant).
+  Querschnitt = `RADIAL_PROFILE` (24 Punkte, aus dem flachen 'Fuselage'-Blatt der Datei) ->
+  andockende Segmente werden zu `fuselage_radial` (Shape `radial_tube`, palette-versteckt).
+  Regressions-Harness: `tools/_dock_test.gd` (fährt den echten BuildController: beide
+  Richtungen, Treffer auf Cowl-Seite/Heckkonus, Löschen -> zurück auf Full).
+  **FALLEN (beide hier reingelaufen):** (1) Die Nase liegt in Engine.blend bei **−Y** -> 180° um Z
+  statt der üblichen +90°. (2) Das Prop-Blatt nutzt eine **prozedurale** Wave-Texture+Color-Ramp —
+  glTF exportiert das NICHT (Blatt käme flach weiß); das Skript mittelt die Color-Ramp zu einem
+  flachen Holzton. (3) `engine_half` trägt `.001`-Material-Duplikate — erst umhängen, DANN die
+  Originale umbenennen (sonst findet der Namens-Lookup sie nicht mehr).
+  Anders als beim Reto-Motor braucht der Prop **keinen** Node-Fix: nach JEDEM Transformschritt
+  `transform_apply` -> alle glTF-Knoten kommen mit Identität an (in Godot nachgemessen).
 - **Raketen (Blender, detailliert):** `missile` (Sidewinder: IR-Glas-Suchkopf, Canards,
   Heckflossen mit Rollerons, Kabelkanal), `missile_heavy` (Sparrow: Radom, Mittelflügel,
   Steuerflossen), `rocket` (Hydra: Ogive, Heckflossen). Material `body` lackierbar,
@@ -471,3 +507,39 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - **Ideen für später:** Lande-Score/Punkte, Cockpit-Kamera, Strömungslinien die sich
   am Modell verbiegen, Rumpf/Leitwerk auch abreißbar, Funken/Rauch, Missionen/Parcours,
   Teile freischalten.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships. It COVERS THE GDSCRIPT GAME CODE (classes, functions, signals, inheritance, call graph, scene instantiation) plus the Python tools.
+
+WICHTIG — zwei graphify-Installationen (GDScript-Grund):
+- Der Extraktor MUSS der Godot-Fork sein (`graphifyy 0.5.0+godot1`, via `tree-sitter-language-pack`), sonst werden ALLE `.gd`-Dateien als "not classified" übersprungen. Der Fork liegt in einem eigenen venv: `C:\Users\Konst\graphify-godot\.venv\Scripts\python.exe`.
+- Zum LESEN/Abfragen ist die globale `graphify` (0.9.22) ok — sie liest den Fork-Graphen problemlos (verifiziert: god-nodes/query liefern die .gd-Symbole mit Quellorten).
+
+Node-IDs sind pro Datei qualifiziert (`aircraftbody_toy_explosion`) — gleichnamige Funktionen in
+verschiedenen Dateien sind SEPARATE Knoten (gemessen: `_process` = 27 Knoten, `_ready` = 9), also
+KEINE Namenskollision trotz der pre-#1504-Warnung (die betrifft nur gleichnamige DATEIEN in
+verschiedenen Ordnern — hat dieses Projekt nicht).
+
+DOKU-SCHICHT (semantisch, LLM war der Host-Agent — KEIN API-Key noetig/verwendet): CLAUDE.md +
+README.md sind als ~140 Konzept-/Rationale-Knoten eingemerged, 393 Kanten treffen echte Code-Knoten.
+Das WARUM (GESCHICHTE/FALLE/LEKTION-Abschnitte) haengt als `rationale`-Attribut an den Konzept-Knoten
+— `graphify explain "<Konzept>"` liefert Konzept + Code-Verbindungen, das Rationale steht im
+graph.json-Knoten. Die Extraktion liegt GETRACKT in `tools/semantic_docs_chunk.json` (Graph damit
+komplett offline reproduzierbar); neu extrahieren nur noetig, wenn sich CLAUDE.md/README stark
+aendern -> Subagent nach Muster in tools/graph_merge_semantic.py-Docstring, IDs MUESSEN aus
+`graphify-out/.existing_nodes.tsv` kommen (Skill-Spec-ID-Schema passt NICHT zum Fork -> Geisterknoten).
+
+Rules:
+- Für Orientierung/Navigation zuerst `graphify-out/COMMUNITIES.md` lesen — ~15 Cluster mit
+  Klartext-Thema + zentralen Symbolen; Doku-Konzepte clustern MIT ihrem Code (z. B. Flugmodell-
+  Rationale bei _integrate_forces/recompute_aero). Löst die `Community N`-Nummern auf.
+- For codebase questions, run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, refresh with `tools/graph-update.ps1` — volle Pipeline, kein LLM:
+  [1] AST (Fork, tools/graph_ast_extract.py) -> [2] Merge Code+Doku (tools/graph_merge_semantic.py:
+  haltbar-Regrade Doku->Code auf INFERRED, Stub-Knoten fuer Shader/Fonts/bpy, TSV-Refresh) ->
+  [3] Labeling (tools/graph_label.py: COMMUNITIES.md + Report-Namen + graph.html) ->
+  [4] Testsuite (tools/graph_check.py, 12 Pruefungen, Exit != 0 bei rot).
+  NIE `graphify update .` mit der globalen 0.9.22 — droppt GDScript UND (watch.py-Filter) alle
+  EXTRACTED-Doku->Code-Kanten.

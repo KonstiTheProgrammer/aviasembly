@@ -15,3 +15,8 @@ Thumbs.db
 # Dev-Render-Artefakte (tools/snap_render.gd, tools/preview.py)
 tools/*.png
 tools/*.png.import
+
+# graphify-Wissensgraph = generierter Output (regenerierbar via tools/graph-update.ps1)
+graphify-out/
+CLAUDE.md.pre-graphify.bak
+__pycache__/
