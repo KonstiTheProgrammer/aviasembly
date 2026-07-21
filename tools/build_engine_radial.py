@@ -30,8 +30,26 @@ TARGET_W = 1.2   # Spiel-Breite des Querschnitts = Standard-Rumpfbreite (fuselag
 
 bpy.ops.wm.open_mainfile(filepath=SRC)
 objs = bpy.data.objects
-full, half, sheet, prop = objs["engine_full"], objs["engine_half"], objs["Fuselage"], objs["propeller"]
+# Namen nach dem Aufraeum-Pass (Collection STERNMOTOR, deutsch benannt); Fallback auf die
+# alten Namen, falls jemand eine aeltere Engine.blend einspielt.
+def _obj(*names):
+    for n in names:
+        if n in objs:
+            return objs[n]
+    raise KeyError(f"Objekt fehlt: {names}")
+
+full = _obj("Motor_Gondel", "engine_full")
+half = _obj("Motor_Vorderteil", "engine_half")
+sheet = _obj("Rumpf_Profilblatt", "Fuselage")
+prop = _obj("Motor_Propeller", "propeller")
 cp_shell, cp_rim = objs.get("Cockpit_Shell"), objs.get("Cockpit_LeatherRim")
+
+# Propeller haengt (seit dem Cleanup) als Kind an der Gondel -> fuer die eigenstaendige
+# Transform-Pipeline loesen, Welt-Pose beibehalten (wie beim Reto-Skript).
+if prop.parent is not None:
+    mw = prop.matrix_world.copy()
+    prop.parent = None
+    prop.matrix_world = mw
 
 
 def sel(o):
