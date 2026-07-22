@@ -52,6 +52,28 @@ if prop.parent is not None:
     prop.matrix_world = mw
 
 
+# SHADING-UEBERNAHME: die Quelle nutzt "Shade Auto Smooth" = ein "Smooth by Angle"-
+# NODES-Modifier (glatt, harte Kanten ab Winkel). Der ging beim Export bisher VERLOREN
+# (glb kam fast komplett flat raus). Modifier hier ANWENDEN -> der Look wird als Custom
+# Split Normals ins Mesh gebacken und uebersteht Transforms + glTF-Export exakt.
+def apply_modifiers(o):
+    if o is None or o.type != 'MESH' or not o.modifiers:
+        return
+    bpy.ops.object.select_all(action='DESELECT')
+    o.select_set(True)
+    bpy.context.view_layer.objects.active = o
+    for m in list(o.modifiers):
+        try:
+            bpy.ops.object.modifier_apply(modifier=m.name)
+        except Exception as ex:  # noqa: BLE001
+            print("modifier_apply fail:", o.name, m.name, ex)
+            o.modifiers.remove(m)
+
+
+for _o in (full, half, prop, cp_shell):
+    apply_modifiers(_o)
+
+
 def sel(o):
     bpy.ops.object.select_all(action='DESELECT')
     o.select_set(True)
@@ -253,14 +275,14 @@ for o, nm in ((full, "Full"), (half, "Half"), (prop, "Prop")):
 bpy.ops.object.select_all(action='DESELECT')
 for o in (full, half, prop):
     o.select_set(True)
-bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True)
+bpy.ops.export_scene.gltf(filepath=OUT, export_format='GLB', use_selection=True, export_apply=True)
 
 if cockpit is not None:
     cockpit.name = "Cockpit"
     cockpit.data.name = "Cockpit"
     bpy.ops.object.select_all(action='DESELECT')
     cockpit.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=OUT_CP, export_format='GLB', use_selection=True)
+    bpy.ops.export_scene.gltf(filepath=OUT_CP, export_format='GLB', use_selection=True, export_apply=True)
 
 report = [(full, "Full"), (half, "Half"), (prop, "Prop")]
 if cockpit is not None:
