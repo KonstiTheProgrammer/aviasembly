@@ -317,6 +317,10 @@ func _setup_world() -> void:
 		{"name": "NORDFELD", "pos": Vector3(-1500, 0, -2000), "heading": 0.7, "color": Color(0.95, 0.75, 0.3)},
 		{"name": "OSTHAFEN", "pos": Vector3(2200, 0, -250), "heading": -1.15, "color": Color(0.45, 0.75, 0.98)},
 		{"name": "BERGPISTE", "pos": Vector3(900, 0, 2000), "heading": 2.3, "color": Color(0.95, 0.5, 0.45)},
+		# Aussenfelder der GROSSEN Insel (~10-15 km Kuestenradius) — echte Reiseziele
+		{"name": "WESTKAP", "pos": Vector3(-9200, 0, -600), "heading": 1.9, "color": Color(0.55, 0.85, 0.60)},
+		{"name": "SÜDSTRAND", "pos": Vector3(2600, 0, 9200), "heading": -0.6, "color": Color(0.95, 0.60, 0.85)},
+		{"name": "VULKANFELD", "pos": Vector3(8800, 0, -4600), "heading": 0.9, "color": Color(0.95, 0.45, 0.20)},
 	]
 
 	# SEED-BASIERTES TERRAIN ersetzt die flache Platte + Deko-Berge/-See.
@@ -347,12 +351,12 @@ func _setup_world() -> void:
 	# -> echte Küsten mit Türkis-Schelf, egal welcher Seed).
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
-		{"pos": Vector3(5400, 0, -2600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
-		{"pos": Vector3(7600, 0, -1800), "r": 520.0, "peak": 40.0, "type": "insel"},
-		{"pos": Vector3(5800, 0, -5400), "r": 500.0, "peak": 34.0, "type": "insel"},
-		{"pos": Vector3(-5400, 0, 6200), "r": 700.0, "peak": 55.0, "type": "insel"},
-		{"pos": Vector3(-6900, 0, 4300), "r": 430.0, "peak": 24.0, "type": "insel"},
-		{"pos": Vector3(1800, 0, -7500), "r": 600.0, "peak": 45.0, "type": "insel"},
+		{"pos": Vector3(11800, 0, -5600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
+		{"pos": Vector3(16000, 0, -3800), "r": 520.0, "peak": 40.0, "type": "insel"},
+		{"pos": Vector3(12500, 0, -11500), "r": 500.0, "peak": 34.0, "type": "insel"},
+		{"pos": Vector3(-11500, 0, 13000), "r": 700.0, "peak": 55.0, "type": "insel"},
+		{"pos": Vector3(-14500, 0, 9000), "r": 430.0, "peak": 24.0, "type": "insel"},
+		{"pos": Vector3(3800, 0, -15800), "r": 600.0, "peak": 45.0, "type": "insel"},
 	]
 	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
 	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
@@ -373,7 +377,7 @@ func _setup_world() -> void:
 		{"name": "Stadt", "pos": town_pos, "color": Color(0.95, 0.85, 0.35)},
 		{"name": "Leuchtturm", "pos": lh_pos, "color": Color(0.95, 0.45, 0.40)},
 		{"name": "Bergdorf", "pos": village_pos, "color": Color(0.80, 0.70, 0.55)},
-		{"name": "Vulkan", "pos": Vector3(5400, 0, -2600), "color": Color(0.85, 0.35, 0.25)},
+		{"name": "Vulkan", "pos": Vector3(11800, 0, -5600), "color": Color(0.85, 0.35, 0.25)},
 		{"name": "FLAK-ZONE", "pos": Vector3(250, 0, -2400), "color": Color(1.0, 0.25, 0.2)},
 	]
 	_map_thread = Thread.new()

@@ -188,8 +188,8 @@ func height_at(x: float, z: float) -> float:
 	# Vor den Massiven angewandt -> erzwungene Inseln/Vulkan draußen bleiben bestehen (max).
 	var ang := atan2(z, x)
 	var rvar := _biome.get_noise_2d(cos(ang) * 900.0, sin(ang) * 900.0)
-	var r_coast := 6400.0 + rvar * 1200.0
-	var fall := smoothstep(r_coast - 900.0, r_coast + 500.0, d)
+	var r_coast := 12800.0 + rvar * 2400.0
+	var fall := smoothstep(r_coast - 1400.0, r_coast + 800.0, d)
 	if fall > 0.0:
 		h = lerpf(h, SEA_Y - 18.0, fall)
 	# MESA-TERRASSEN in der Wüste: gestufte Tafelberge/Canyon-Kanten (Low-Poly-Ikone).

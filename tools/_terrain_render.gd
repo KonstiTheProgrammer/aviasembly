@@ -25,7 +25,7 @@ func _process(_d: float) -> bool:
 			["pan1", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],     # Spawn -> Stadt/See/Berge
 			["pan2", Vector3(3550, 360, 600), Vector3(2500, 90, 1450)],    # Blick aufs Bergmassiv
 			["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],          # über dem Flugfeld
-			["vulkan", Vector3(5400, 780, -1750), Vector3(5400, 120, -2600)],  # nah von Norden auf die Vulkaninsel
+			["vulkan", Vector3(11800, 780, -4750), Vector3(11800, 120, -5600)],  # nah von Norden auf die Vulkaninsel
 		]
 		return false
 	if frame == 6:
@@ -135,10 +135,10 @@ func _setup() -> void:
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
-		{"pos": Vector3(5400, 0, -2600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
-		{"pos": Vector3(7600, 0, -1800), "r": 520.0, "peak": 40.0, "type": "insel"},
-		{"pos": Vector3(5800, 0, -5400), "r": 500.0, "peak": 34.0, "type": "insel"},
-		{"pos": Vector3(1800, 0, -7500), "r": 600.0, "peak": 45.0, "type": "insel"},
+		{"pos": Vector3(11800, 0, -5600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
+		{"pos": Vector3(16000, 0, -3800), "r": 520.0, "peak": 40.0, "type": "insel"},
+		{"pos": Vector3(12500, 0, -11500), "r": 500.0, "peak": 34.0, "type": "insel"},
+		
 	]
 	var rivers := [{
 		"w": 13.0, "valley": 55.0, "depth": 4.0,
@@ -168,8 +168,8 @@ func _setup() -> void:
 	terrain.build_now_around(town_pos, 700.0, false)
 	terrain.build_now_around(Vector3(1950, 0, 1400), 800.0, false)   # Flusstal
 	terrain.build_now_around(village_pos, 800.0, false)
-	terrain.build_now_around(Vector3(5400, 0, -2600), 1400.0, false)   # Vulkaninsel
-	terrain.build_now_around(Vector3(4300, 0, -1400), 600.0, false)    # Archipel
+	terrain.build_now_around(Vector3(11800, 0, -5600), 1400.0, false)   # Vulkaninsel
+	
 	# Scan: finde ein Wüsten- und ein Hochgebirgs-Zentrum (Noise ist sofort abfragbar)
 	var desert_c := Vector3(4200, 0, 0)
 	var mtn_c := Vector3(0, 0, 4200)

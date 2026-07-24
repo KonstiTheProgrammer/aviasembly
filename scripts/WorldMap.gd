@@ -11,7 +11,7 @@ extends Control
 ## HUD dahinter), kraeftiges Abdunkeln, 2-km-Grid, Massstabsbalken, Kompass-Buchstaben,
 ## Marker mit dunkler Kontur + Schattentext.
 
-const WORLD_R := 8200.0        # halbe Kartenbreite in Weltmetern (Insel ~7.6 km + Rand)
+const WORLD_R := 17000.0       # halbe Kartenbreite in Weltmetern (Insel ~15 km + Rand)
 const F_BOLD := preload("res://fonts/TitilliumWeb-Bold.ttf")
 const F_SEMI := preload("res://fonts/TitilliumWeb-SemiBold.ttf")
 
@@ -134,7 +134,7 @@ func _draw() -> void:
 
 	# Karte + feines 2-km-Grid + Kompass-Buchstaben
 	draw_texture_rect(_tex, _map_rect, false)
-	var step := _map_rect.size.x * (2000.0 / (WORLD_R * 2.0))
+	var step := _map_rect.size.x * (5000.0 / (WORLD_R * 2.0))   # 5-km-Grid auf der grossen Insel
 	var gx := _map_rect.position.x + step
 	while gx < _map_rect.end.x - 1.0:
 		draw_line(Vector2(gx, _map_rect.position.y), Vector2(gx, _map_rect.end.y), Color(1, 1, 1, 0.08), 1.0)
@@ -155,7 +155,7 @@ func _draw() -> void:
 	var bar_x := _map_rect.position.x + 18.0 * ui
 	draw_line(Vector2(bar_x, bar_y), Vector2(bar_x + step, bar_y), Color(0, 0, 0, 0.8), 6.0 * ui)
 	draw_line(Vector2(bar_x, bar_y), Vector2(bar_x + step, bar_y), Color(1, 1, 1, 0.95), 3.0 * ui)
-	_shadow_text(F_SEMI, Vector2(bar_x, bar_y - 8.0 * ui), "2 km", int(16.0 * ui), C_TEXT)
+	_shadow_text(F_SEMI, Vector2(bar_x, bar_y - 8.0 * ui), "5 km", int(16.0 * ui), C_TEXT)
 
 	# Flugplaetze: Quadrat mit Kontur + Label
 	var fs_af := int(19.0 * ui)
