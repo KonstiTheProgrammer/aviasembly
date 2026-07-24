@@ -88,7 +88,7 @@ static func _build() -> void:
 	_add({
 		"id": "cockpit_radial_frame", "name": "Cockpit-Metallrahmen", "category": CAT_BODY,
 		"mass": 28.0, "color": Color(0.45, 0.47, 0.50), "shape": "box",
-		"size": Vector3(1.2, 1.129, 0.502),
+		"size": Vector3(1.2, 1.129, 0.085),
 		"metallic": 0.8, "roughness": 0.30,
 		"desc": "Separater genieteter Metallrahmen für das Rotes-Baron-Cockpit. Nur anstecken, wenn der sichtbare Adapter gewünscht ist.",
 	})

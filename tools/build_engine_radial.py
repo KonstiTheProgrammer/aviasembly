@@ -197,6 +197,53 @@ def filter_material_faces(o, material_name, keep):
     o.data.update()
 
 
+def remove_central_frame_details(o):
+    """Entfernt die drei Cockpit-Schraubenköpfe, die nur zufällig dasselbe Material
+    wie der Anschlussrahmen tragen. Rahmen und Randnieten liegen am Profilrand."""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    xs = [v.co.x for v in bm.verts]
+    zs = [v.co.z for v in bm.verts]
+    cx = (min(xs) + max(xs)) * 0.5
+    cz = (min(zs) + max(zs)) * 0.5
+    hx = max((max(xs) - min(xs)) * 0.5, 1e-6)
+    hz = max((max(zs) - min(zs)) * 0.5, 1e-6)
+
+    seen = set()
+    remove = []
+    removed_islands = 0
+    for seed in bm.faces:
+        if seed in seen:
+            continue
+        island = []
+        stack = [seed]
+        seen.add(seed)
+        while stack:
+            face = stack.pop()
+            island.append(face)
+            for edge in face.edges:
+                for neighbor in edge.link_faces:
+                    if neighbor not in seen:
+                        seen.add(neighbor)
+                        stack.append(neighbor)
+        verts = {v for face in island for v in face.verts}
+        edge_radius = max(max(abs(v.co.x - cx) / hx, abs(v.co.z - cz) / hz)
+                          for v in verts)
+        if edge_radius < 0.55:
+            remove.extend(island)
+            removed_islands += 1
+    if remove:
+        bmesh.ops.delete(bm, geom=remove, context='FACES')
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.to_mesh(o.data)
+    bm.free()
+    o.data.update()
+    print("RAHMEN: %d mittige Fremd-Inseln entfernt" % removed_islands)
+
+
 def material_bounds(o, material_name):
     ids = set()
     for p in o.data.polygons:
@@ -209,6 +256,34 @@ def material_bounds(o, material_name):
     return pts.min(axis=0), pts.max(axis=0)
 
 
+def seal_profile_cap(o, profile, width, height, material_name):
+    """Ersetzt die löchrige +Y-Stirnseite durch einen vollständigen roten Profildeckel."""
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    y = max(v.co.y for v in bm.verts)
+    eps = 1e-4
+    old_cap = [f for f in bm.faces if all(abs(v.co.y - y) <= eps for v in f.verts)]
+    if old_cap:
+        bmesh.ops.delete(bm, geom=old_cap, context='FACES_ONLY')
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+
+    cap_verts = [bm.verts.new((float(px) * width, y, float(pz) * height))
+                 for px, pz in profile]
+    cap = bm.faces.new(cap_verts)
+    cap.normal_update()
+    if cap.normal.y < 0.0:
+        cap.normal_flip()
+    cap.material_index = next(i for i, mat in enumerate(o.data.materials)
+                              if mat is not None and mat.name == material_name)
+    bm.to_mesh(o.data)
+    bm.free()
+    o.data.update()
+    print("COCKPIT: +Y-Profildeckel geschlossen (%d alte Stirnflächen ersetzt)"
+          % len(old_cap))
+
+
 cockpit = None
 cockpit_frame = None
 if cp_shell is not None:
@@ -217,6 +292,7 @@ if cp_shell is not None:
     cockpit_frame.data = cp_shell.data.copy()
     cp_shell.users_collection[0].objects.link(cockpit_frame)
     filter_material_faces(cockpit_frame, "Cockpit_ConnectorMetal", True)
+    remove_central_frame_details(cockpit_frame)
     filter_material_faces(cp_shell, "Cockpit_ConnectorMetal", False)
 
     # Lederwulst bleibt Teil des Cockpits, nicht des optionalen Metallrahmens.
@@ -251,6 +327,7 @@ if cp_shell is not None:
     sz = target_h / float(bhi[2] - blo[2])
     cockpit.matrix_world = Matrix.Diagonal(Vector((sx, 1.0, sz, 1.0))) @ cockpit.matrix_world
     bake(cockpit)
+    seal_profile_cap(cockpit, norm, TARGET_W, target_h, "Cockpit_RedPaint")
     print("COCKPIT-Profil korrigiert: sx=%.5f sz=%.5f -> %.3f x %.3f"
           % (sx, sz, TARGET_W, target_h))
 

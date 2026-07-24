@@ -404,7 +404,7 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - **Rotes-Baron-Cockpit:** `cockpit_radial.glb` enthält nur noch die maßkorrigierte rote
   Cockpitschale samt Innenraum/Lederrand (Anschlussprofil exakt 1.200×1.129 wie
   `fuselage_radial`). Der ehemals fest eingebaute genietete Ring ist das eigenständige
-  Paletten-Bauteil `cockpit_radial_frame.glb` (1.200×1.129×0.502). Beide werden reproduzierbar
+  Paletten-Bauteil `cockpit_radial_frame.glb` (1.200×1.129×0.085). Beide werden reproduzierbar
   von `tools/build_engine_radial.py` aus `Engine.blend` exportiert.
 - **MiG-21 (Hybrid-Ikone, Referenz-Qualitätspfad):** `mig21_front` (edler Vorderrumpf:
   Einlauf-Lippe, grüner Matt-Radom-Schockkonus, Pitot, Kanzel + Fairing, Panel-Linien) +
