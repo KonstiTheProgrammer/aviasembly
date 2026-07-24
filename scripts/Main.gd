@@ -50,6 +50,9 @@ var hangar_lights: Node3D           # Studio-Beleuchtung NUR für den Bau-Modus
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
 var env_sky: Environment
 var env_blueprint: Environment
+var world_map: WorldMap             # KARTE (Taste M im Flug), Bild kommt aus dem Thread
+var _map_thread: Thread
+var _map_pois: Array = []
 
 # UI
 var ui: CanvasLayer
@@ -344,12 +347,11 @@ func _setup_world() -> void:
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
 		{"pos": Vector3(5400, 0, -2600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
-		{"pos": Vector3(4300, 0, -1400), "r": 420.0, "peak": 26.0, "type": "insel"},
-		{"pos": Vector3(6400, 0, -1300), "r": 520.0, "peak": 40.0, "type": "insel"},
-		{"pos": Vector3(4600, 0, -3950), "r": 500.0, "peak": 34.0, "type": "insel"},
-		{"pos": Vector3(-3400, 0, 4600), "r": 700.0, "peak": 55.0, "type": "insel"},
-		{"pos": Vector3(-4400, 0, 3800), "r": 430.0, "peak": 24.0, "type": "insel"},
-		{"pos": Vector3(1200, 0, -5200), "r": 600.0, "peak": 45.0, "type": "insel"},
+		{"pos": Vector3(7600, 0, -1800), "r": 520.0, "peak": 40.0, "type": "insel"},
+		{"pos": Vector3(5800, 0, -5400), "r": 500.0, "peak": 34.0, "type": "insel"},
+		{"pos": Vector3(-5400, 0, 6200), "r": 700.0, "peak": 55.0, "type": "insel"},
+		{"pos": Vector3(-6900, 0, 4300), "r": 430.0, "peak": 24.0, "type": "insel"},
+		{"pos": Vector3(1800, 0, -7500), "r": 600.0, "peak": 45.0, "type": "insel"},
 	]
 	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
 	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
@@ -364,6 +366,19 @@ func _setup_world() -> void:
 	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs)
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
+	# KARTE: Bild im Hintergrund-Thread generieren (~100k height_at-Samples, kein Startup-Ruckler;
+	# height_at ist pure Noise-Mathematik und laeuft schon jetzt parallel im Chunk-Worker).
+	_map_pois = [
+		{"name": "Stadt", "pos": town_pos, "color": Color(0.95, 0.85, 0.35)},
+		{"name": "Leuchtturm", "pos": lh_pos, "color": Color(0.95, 0.45, 0.40)},
+		{"name": "Bergdorf", "pos": village_pos, "color": Color(0.80, 0.70, 0.55)},
+		{"name": "Vulkan", "pos": Vector3(5400, 0, -2600), "color": Color(0.85, 0.35, 0.25)},
+		{"name": "FLAK-ZONE", "pos": Vector3(250, 0, -2400), "color": Color(1.0, 0.25, 0.2)},
+	]
+	_map_thread = Thread.new()
+	_map_thread.start(func() -> void:
+		var img := WorldMap.generate_image(terrain)
+		call_deferred("_on_map_image_ready", img))
 	for af in airfields:
 		_build_airfield(af)
 	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
@@ -1043,6 +1058,7 @@ func _setup_controllers() -> void:
 	add_child(flight_ctrl)
 	flight_ctrl.set_camera(camera)
 	flight_ctrl.hud_changed.connect(_on_hud_changed)
+	flight_ctrl.map_requested.connect(_toggle_map)
 
 
 # ===========================================================================
@@ -1203,7 +1219,7 @@ func _show_controls_hint() -> void:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rect(box, 0.5, 0, 0.5, 0, -300, 84, 300, 246)
 	ui.add_child(box)
-	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste / Linksklick = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = Maus-/Tastatur-Flug (Start: MAUS)    ·    H = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste / Linksklick = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = KARTE    ·    N = Maus-/Tastatur-Flug (Start: MAUS)    ·    H = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
 	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -2308,6 +2324,26 @@ func _spawn_targets() -> void:
 
 # FLAK-ZONE: ein verteidigter Bereich ein Stück vor dem Spawn (Flieger schaut nach -Z).
 # Mehrere Geschütze feuern nur, wenn der Spieler IN der Zone und im Höhen-Band ist.
+func _on_map_image_ready(img: Image) -> void:
+	if _map_thread != null:
+		_map_thread.wait_to_finish()
+		_map_thread = null
+	var lay := CanvasLayer.new()
+	lay.layer = 30                      # ueber dem Flug-HUD
+	add_child(lay)
+	world_map = WorldMap.new()
+	lay.add_child(world_map)
+	world_map.setup(img, airfields, _map_pois, null)
+
+
+func _toggle_map() -> void:
+	if world_map == null:
+		_toast("Karte wird noch gezeichnet ...")
+		return
+	world_map.set_player(flight_ctrl.aircraft)   # Flieger wird je Flug neu gebaut
+	world_map.toggle()
+
+
 func _spawn_flak() -> void:
 	var center := Vector3(250.0, 0.0, -2400.0)
 	var radius := 300.0

@@ -136,9 +136,9 @@ func _setup() -> void:
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
 		{"pos": Vector3(5400, 0, -2600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
-		{"pos": Vector3(4300, 0, -1400), "r": 420.0, "peak": 26.0, "type": "insel"},
-		{"pos": Vector3(6400, 0, -1300), "r": 520.0, "peak": 40.0, "type": "insel"},
-		{"pos": Vector3(4600, 0, -3950), "r": 500.0, "peak": 34.0, "type": "insel"},
+		{"pos": Vector3(7600, 0, -1800), "r": 520.0, "peak": 40.0, "type": "insel"},
+		{"pos": Vector3(5800, 0, -5400), "r": 500.0, "peak": 34.0, "type": "insel"},
+		{"pos": Vector3(1800, 0, -7500), "r": 600.0, "peak": 45.0, "type": "insel"},
 	]
 	var rivers := [{
 		"w": 13.0, "valley": 55.0, "depth": 4.0,

@@ -42,7 +42,8 @@ das Flugzeug längsstabil.
 | Eingabe | Aktion |
 |---|---|
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
-| **M** | **Maus-/Tastatur-Flug** umschalten (Maus-Flug ist **Standard** — siehe unten) |
+| **M** | **KARTE** öffnen/schließen (Insel-Übersicht mit Flugplätzen, POIs, eigener Position) |
+| **N** | **Maus-/Tastatur-Flug** umschalten (Maus-Flug ist **Standard** — siehe unten) |
 | **J** | **Arcade-Lenkung** an/aus (super-smooth, schnappt sofort aufs Ziel; aktiviert Maus-Flug) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
@@ -60,7 +61,7 @@ fliegt es nach links; schaust du nach hinten, dreht es sich **komplett herum** (
 auch steil hoch/runter). Ein **grüner Zielmarker** ⊕ zeigt, wohin du zielst, ein **gelber
 Nasenmarker** ◇ zeigt, wohin die Nase gerade weist — decken sie sich, fliegst du genau aufs
 Ziel. Kurven (Rollen + Ziehen) werden automatisch koordiniert. Tastatur (W/S/A/D/Q/E) wirkt
-zusätzlich. Nochmal **M** schaltet zurück auf freies Umschauen.
+zusätzlich. Nochmal **N** schaltet zurück auf freies Umschauen.
 
 **🎮 Arcade-Lenkung (Taste J):** Für maximal smoothes, direktes Handling. Die Nase folgt der
 Maus **butterweich und sofort** (schnappt in ~0,3–0,4 s auf jede Richtung, auch 180°),

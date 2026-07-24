@@ -183,6 +183,15 @@ func height_at(x: float, z: float) -> float:
 	var rdg := clampf(_ridge.get_noise_2d(x, z) * 0.5 + 0.5, 0.0, 1.0)
 	var peaks := pow(rdg, 1.6) * lerpf(0.0, 175.0, relief) * relief
 	var h := rolling + peaks
+	# RIESIGE INSEL: die Welt ist EINE grosse Insel. Das Basis-Terrain fällt jenseits eines
+	# winkelabhängig verrauschten Küstenradius (~5.3–7.6 km) unter den Meeresspiegel.
+	# Vor den Massiven angewandt -> erzwungene Inseln/Vulkan draußen bleiben bestehen (max).
+	var ang := atan2(z, x)
+	var rvar := _biome.get_noise_2d(cos(ang) * 900.0, sin(ang) * 900.0)
+	var r_coast := 6400.0 + rvar * 1200.0
+	var fall := smoothstep(r_coast - 900.0, r_coast + 500.0, d)
+	if fall > 0.0:
+		h = lerpf(h, SEA_Y - 18.0, fall)
 	# MESA-TERRASSEN in der Wüste: gestufte Tafelberge/Canyon-Kanten (Low-Poly-Ikone).
 	# Weiche Quantisierung: flache Tops, steile Flanken; nur im Wüsten-Biom & ab 8 m.
 	if h > 8.0 and dist_k > 0.25 and _biome.get_noise_2d(x, z) < -0.32:

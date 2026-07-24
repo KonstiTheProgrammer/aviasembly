@@ -5,6 +5,7 @@ class_name FlightController
 extends Node3D
 
 signal hud_changed(data: Dictionary)
+signal map_requested                    # M im Flug -> Main öffnet/schließt die Karte
 
 const AIRCRAFT_LAYER := 4
 const GROUND_LAYER := 1
@@ -833,8 +834,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ENTER or event.keycode == KEY_BACKSPACE or event.keycode == KEY_KP_ENTER:
 			_reset_to_runway()
-		elif event.keycode == KEY_M:
+		elif event.keycode == KEY_N:
+			# N = Maus-/Tastatur-Flug (war M; M oeffnet jetzt die KARTE — Signal an Main)
 			_toggle_mouse_fly()
+		elif event.keycode == KEY_M:
+			map_requested.emit()
 		elif event.keycode == KEY_H:
 			g_protect = not g_protect
 		elif event.keycode == KEY_J:
