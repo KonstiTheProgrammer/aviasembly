@@ -1,8 +1,10 @@
-# blender_lib/gebaeude.blend  ->  blender_lib/haeuser.blend  (Kopie + viele neue Haeuser)
+# blender_lib/haeuser.blend — EIGENSTAENDIGER Gebaeude-Baukasten (42 Typen)
 #
-# Baut 22 zusaetzliche Gebaeude-Varianten im STIL DES SPIELS (Low-Poly, flat shaded,
-# gedeckte Palette wie Landmarks.gd) direkt neben die bereits exportierten Original-
-# Bauwerke — so kann man Proportion/Farbe/Detailgrad im selben File vergleichen.
+# Baut die Datei KOMPLETT NEU aus einer LEEREN Szene: nur die hier generierten Haeuser,
+# keine importierten Landmarks mehr (Wunsch: "clear die restlichen gebaeude").
+# `blender_lib/gebaeude.blend` wird dadurch nicht einmal mehr GELESEN und kann somit
+# unmoeglich veraendert werden (frueher: shutil.copyfile als Quelle).
+# Stil wie im Spiel: Low-Poly, flat shaded, gedeckte Palette wie Landmarks.gd.
 #
 # PERFORMANCE-REGELN (bewusst eingehalten, das Terrain streamt schon genug):
 #   * EIN Mesh-Objekt je Haus (Multi-Material statt vieler Objekte) -> MultiMesh-tauglich
@@ -19,11 +21,9 @@
 import bpy
 import math
 import os
-import shutil
 from mathutils import Vector
 
 ROOT = "C:/Users/Konst/Projects/aviasembly/"
-SRC = ROOT + "blender_lib/gebaeude.blend"
 OUT = ROOT + "blender_lib/haeuser.blend"
 PREVIEW = os.environ.get("HAEUSER_PREVIEW", "")
 
@@ -556,27 +556,309 @@ def leuchtfeuer_haus(b):     # kleines Hafen-/Lotsenhaus mit Signalmast
     b.feld((-2.6, -3.0, 1.05), 1.1, 2.1, "-y", "holz_dunkel")
 
 
+# --- Hochhaeuser, Grossbauten & Sonderbauten ------------------------------------------------
+def _baender(b, x, y, sx, sy, z0, z1, n, key="fenster", hoehe=1.5, rand=1.4):
+    """Umlaufende Fensterbaender: EIN Quad je Fassade und Band statt Einzelfenster —
+    aus der Luft dieselbe Wirkung fuer einen Bruchteil der Dreiecke."""
+    for i in range(n):
+        z = z0 + (z1 - z0) * (i + 0.5) / max(n, 1)
+        b.feld((x, y - sy * 0.5, z), sx - rand * 2.0, hoehe, "-y", key)
+        b.feld((x, y + sy * 0.5, z), sx - rand * 2.0, hoehe, "+y", key)
+        b.feld((x - sx * 0.5, y, z), sy - rand * 2.0, hoehe, "-x", key)
+        b.feld((x + sx * 0.5, y, z), sy - rand * 2.0, hoehe, "+x", key)
+
+
+def hochhaus_wohnturm(b):
+    b.box(0, 0, 0, 14, 14, 40.0, "beton")
+    _baender(b, 0, 0, 14, 14, 3.5, 37.0, 7, "fenster", 1.8)
+    b.box(0, 0, 40.0, 15.2, 15.2, 0.7, "beton")             # Attika
+    b.box(3.2, 3.2, 40.7, 5.0, 5.0, 2.8, "wand_grau")       # Technikaufbau
+    b.zyl(-3.6, -3.6, 40.7, 0.16, 0.16, 5.5, 6, "metall")   # Antenne
+    for z in (11.0, 22.0, 33.0):                            # Balkonbaender
+        b.box(0, -7.5, z, 12.0, 1.8, 0.35, "wand_weiss")
+    b.feld((0, -7.0, 1.6), 3.4, 3.0, "-y", "glas")          # Eingang
+
+
+def hochhaus_buero(b):
+    b.box(0, 0, 0, 18, 15, 52.0, "metall_dunkel")
+    for i in range(5):                                       # senkrechte Glasbaender
+        t = (i + 0.5) / 5 - 0.5
+        b.feld((t * 15.0, -7.5, 27.0), 2.1, 46.0, "-y", "glas")
+        b.feld((t * 15.0, 7.5, 27.0), 2.1, 46.0, "+y", "glas")
+    for i in range(4):
+        t = (i + 0.5) / 4 - 0.5
+        b.feld((-9.0, t * 12.5, 27.0), 2.1, 46.0, "-x", "glas")
+        b.feld((9.0, t * 12.5, 27.0), 2.1, 46.0, "+x", "glas")
+    b.box(0, 0, 52.0, 19.0, 16.0, 0.8, "metall")            # Dachkranz
+    b.box(0, 3.0, 52.8, 8.0, 6.0, 3.2, "metall_dunkel")
+    b.zyl(0, -4.0, 52.8, 0.2, 0.2, 9.0, 6, "metall")        # Mast
+    b.feld((0, -7.5, 3.0), 9.0, 5.0, "-y", "glas")          # Lobby
+
+
+def wolkenkratzer(b):
+    b.box(0, 0, 0, 22, 22, 34.0, "beton")                   # Sockelblock
+    _baender(b, 0, 0, 22, 22, 4.0, 31.0, 6, "fenster", 2.0)
+    b.box(0, 0, 34.0, 23.0, 23.0, 0.8, "wand_grau")
+    b.box(0, 0, 34.8, 16, 16, 24.0, "beton")                # 1. Ruecksprung
+    _baender(b, 0, 0, 16, 16, 37.0, 57.0, 4, "fenster", 2.0)
+    b.box(0, 0, 58.8, 17.0, 17.0, 0.8, "wand_grau")
+    b.box(0, 0, 59.6, 10, 10, 15.0, "beton")                # 2. Ruecksprung
+    _baender(b, 0, 0, 10, 10, 62.0, 72.0, 3, "fenster", 1.6)
+    b.spitze(0, 0, 74.6, 10.4, 10.4, 5.0, "metall")         # Krone
+    b.zyl(0, 0, 79.6, 0.35, 0.12, 12.0, 6, "metall")        # Turmspitze
+    b.feld((0, -11.0, 3.4), 7.0, 6.0, "-y", "glas")
+
+
+def plattenbau(b):
+    b.box(0, 0, 0, 44, 12, 19.0, "beton")
+    for i in range(6):
+        z = 2.0 + i * 2.9
+        b.feld((0, -6.0, z), 40.0, 1.5, "-y", "fenster")
+        b.feld((0, 6.0, z), 40.0, 1.5, "+y", "fenster")
+    b.box(0, 0, 19.0, 45.0, 13.0, 0.5, "wand_grau")
+    for x in (-15.0, 0.0, 15.0):                             # Hauseingaenge
+        b.feld((x, -6.0, 1.3), 2.2, 2.6, "-y", "holz_dunkel")
+    b.box(-9.0, 3.0, 19.5, 3.4, 3.4, 2.2, "wand_grau")       # Aufzugsturm
+
+
+def hotel(b):
+    b.box(0, 0, 0, 24, 15, 26.0, "wand_creme")
+    _baender(b, 0, 0, 24, 15, 5.0, 23.5, 6, "fenster", 1.5)
+    b.box(0, 0, 26.0, 25.0, 16.0, 0.6, "dach_terra")
+    b.box(0, -8.8, 3.4, 12.0, 3.6, 0.35, "wand_weiss")       # Vorfahrt-Vordach
+    for x in (-5.0, 5.0):
+        b.box(x, -10.2, 0, 0.4, 0.4, 3.4, "metall")
+    b.feld((0, -7.5, 1.8), 8.0, 3.4, "-y", "glas")
+    b.feld((0, -7.5, 24.6), 10.0, 1.8, "-y", "dach_rot", eps=0.1)   # Leuchtschrift
+    b.box(9.0, 4.0, 26.6, 4.0, 4.0, 2.0, "metall_dunkel")
+
+
+def kaufhaus(b):
+    b.box(0, 0, 0, 28, 20, 11.5, "wand_taupe")
+    b.feld((0, -10.0, 2.4), 24.0, 4.0, "-y", "glas")         # Schaufensterfront
+    b.feld((0, -10.0, 8.0), 24.0, 2.2, "-y", "fenster")
+    b.feld((-14.0, 0, 6.0), 16.0, 6.0, "-x", "fenster")
+    b.feld((14.0, 0, 6.0), 16.0, 6.0, "+x", "fenster")
+    b.box(0, 0, 11.5, 29.0, 21.0, 0.6, "beton")
+    b.box(7.0, 5.0, 12.1, 7.0, 6.0, 2.4, "metall_dunkel")    # Lueftungszentrale
+    b.feld((0, -10.2, 10.2), 14.0, 1.8, "-y", "dach_rot", eps=0.12)
+
+
+def parkhaus(b):
+    for i in range(5):                                        # offene Decks
+        b.box(0, 0, i * 3.3, 26, 18, 0.4, "beton", skip=())
+    for x in (-11.5, 0.0, 11.5):                              # Stuetzen
+        for y in (-8.0, 8.0):
+            b.box(x, y, 0, 0.8, 0.8, 13.2, "beton", skip=("top", "bottom"))
+    for i in range(4):                                        # Bruestungsbaender
+        z = i * 3.3 + 2.6
+        b.feld((0, -9.0, z), 25.0, 0.9, "-y", "metall_dunkel")
+        b.feld((0, 9.0, z), 25.0, 0.9, "+y", "metall_dunkel")
+    b.box(-10.0, 7.0, 13.6, 4.4, 4.4, 3.4, "wand_grau")       # Treppenhaus
+    b.feld((0, -9.0, 1.4), 5.0, 2.6, "-y", "metall_dunkel")   # Einfahrt
+
+
+def krankenhaus(b):
+    b.box(0, 0, 0, 30, 16, 22.0, "wand_weiss")
+    _baender(b, 0, 0, 30, 16, 3.6, 20.0, 6, "fenster", 1.5)
+    b.box(0, 0, 22.0, 31.0, 17.0, 0.5, "wand_grau")
+    b.zyl(0, 0, 22.5, 6.5, 6.5, 0.3, 12, "beton")             # Hubschrauberdeck
+    b.feld((0, 0, 22.85), 3.0, 0.9, "-y", "wand_weiss", eps=0.0)   # "H"
+    b.feld((0, 0, 22.85), 0.9, 3.0, "-y", "wand_weiss", eps=0.0)
+    b.box(-11.0, -9.5, 0, 8.0, 5.0, 5.0, "wand_weiss")        # Notaufnahme-Vorbau
+    b.pultdach(-11.0, -9.5, 5.0, 8.0, 5.0, 0.8, "dach_rot")
+    b.feld((-11.0, -12.0, 1.8), 3.4, 3.0, "-y", "glas")
+    b.feld((-11.0, -12.0, 4.4), 5.0, 0.9, "-y", "dach_rot", eps=0.1)
+
+
+def bahnhof(b):
+    b.box(0, 0, 0, 30, 12, 10.0, "wand_sand")
+    b.dach(0, 0, 10.0, 30, 12, 2.8, "dach_schiefer", axis="x", inset=3.0, over=0.6)
+    b.box(0, -1.0, 10.0, 8.0, 10.0, 5.0, "wand_sand")         # Mittelrisalit
+    b.spitze(0, -1.0, 15.0, 8.4, 10.4, 3.4, "dach_kupfer")
+    b.feld((0, -6.0, 12.6), 2.6, 2.6, "-y", "wand_weiss")     # Bahnhofsuhr
+    b.feld((0, -6.0, 12.6), 2.0, 2.0, "-y", "fenster", eps=0.09)
+    b.feld((0, -6.0, 2.4), 5.5, 4.6, "-y", "glas")            # Portal
+    b.fenster_reihe("-y", -6.0, -10.0, 7.0, 5.8, 2, 1.6, 3.0, "glas")
+    b.fenster_reihe("-y", -6.0, 10.0, 7.0, 5.8, 2, 1.6, 3.0, "glas")
+    b.box(0, 13.0, 6.2, 34, 16, 0.4, "metall_dunkel")         # Bahnsteighalle
+    for x in (-15.0, 0.0, 15.0):
+        for y in (6.5, 19.5):
+            b.box(x, y, 0, 0.6, 0.6, 6.2, "metall", skip=("top", "bottom"))
+    b.box(0, 13.0, 0, 30, 4.0, 0.35, "beton")                 # Bahnsteig
+
+
+def fabrik(b):
+    b.box(0, 0, 0, 30, 18, 8.0, "ziegel", skip=("bottom", "top"))
+    prof = [(-15.0, 0.0), (-15.0, 11.0)]                      # SHEDDACH (Saegezahn)
+    x = -15.0
+    for i in range(4):
+        x += 7.5
+        prof.append((x, 8.0))
+        if i < 3:
+            prof.append((x, 11.0))
+    prof.append((15.0, 0.0))
+    b.profil(0, 0, 0, prof, 18.0, "ziegel")
+    for gx in (-7.5, 0.0, 7.5):                                # Nordlicht-Verglasung
+        b.feld((gx, 0, 9.5), 17.0, 2.9, "-x", "glas")
+    b.zyl(-12.0, 7.0, 8.0, 1.5, 1.2, 18.0, 8, "ziegel")        # Schornstein
+    b.box(13.0, -11.0, 0, 5.0, 4.0, 4.0, "wand_grau")          # Pfoertner
+    b.pultdach(13.0, -11.0, 4.0, 5.0, 4.0, 0.8, "metall_dunkel")
+    b.feld((0, -9.0, 3.0), 6.0, 4.4, "-y", "metall_dunkel")    # Werkstor
+
+
+def kraftwerk(b):
+    b.box(-7.0, 0, 0, 22, 16, 15.0, "beton")                   # Maschinenhaus
+    b.pultdach(-7.0, 0, 15.0, 22, 16, 1.6, "metall_dunkel")
+    for x in (-14.0, -9.0):
+        b.zyl(x, 6.0, 15.0, 1.4, 1.1, 20.0, 8, "ziegel")       # Doppelschornstein
+    b.zyl(13.0, 0, 0, 9.5, 6.6, 13.0, 12, "beton", cap_top=False)   # Kuehlturm
+    b.zyl(13.0, 0, 13.0, 6.6, 8.0, 15.0, 12, "beton", cap_top=False)
+    b.feld((-7.0, -8.0, 7.0), 16.0, 7.0, "-y", "fenster")
+    b.box(-7.0, -10.0, 0, 6.0, 4.0, 3.0, "wand_grau")          # Schaltwarte
+
+
+def funkturm(b):
+    b.zyl(0, 0, 0, 4.5, 2.6, 22.0, 4, "metall_dunkel", cap_top=False)
+    b.zyl(0, 0, 22.0, 2.6, 1.5, 16.0, 4, "metall_dunkel", cap_top=False)
+    for z, w, hh in ((6.0, 7.0, 11.0), (16.0, 4.6, 9.0), (28.0, 3.4, 8.0)):
+        for f, fx in (("-y", -w * 0.30), ("+y", w * 0.30)):    # Kreuzstreben
+            b.feld((0, fx, z), 0.5, hh, f, "metall", eps=0.0, winkel=0.6)
+            b.feld((0, fx, z), 0.5, hh, f, "metall", eps=0.0, winkel=-0.6)
+    b.zyl(0, 0, 30.0, 4.2, 4.2, 2.6, 10, "wand_weiss")         # Kanzel
+    b.zyl(0, 0, 29.7, 4.5, 4.5, 0.3, 10, "metall_dunkel")
+    for i in range(5):
+        t = (i + 0.5) / 5 - 0.5
+        b.feld((t * 7.0, -4.2, 31.4), 1.2, 1.4, "-y", "glas")
+    b.zyl(0, 0, 38.0, 0.5, 0.15, 16.0, 6, "metall")            # Sendemast
+    b.feld((0, 0, 46.0), 2.2, 0.25, "-y", "dach_rot", eps=0.3)
+
+
+def hafenkran(b):
+    b.box(0, 0, 0, 9.0, 9.0, 2.0, "metall_dunkel")             # Portal/Fahrwerk
+    for x in (-3.6, 3.6):
+        for y in (-3.6, 3.6):
+            b.zyl(x, y, 0, 0.7, 0.7, 1.4, 6, "metall_dunkel")
+    b.zyl(0, 0, 2.0, 2.4, 1.4, 22.0, 6, "dach_rot", cap_top=False)   # Turm
+    b.box(0, 0, 24.0, 4.0, 4.0, 2.6, "metall")                 # Drehkopf
+    b.box(9.0, 0, 25.4, 26.0, 2.0, 1.4, "dach_rot")            # Ausleger
+    b.box(-6.0, 0, 25.4, 8.0, 3.0, 2.6, "metall_dunkel")       # Gegengewicht
+    b.box(0, -2.4, 24.2, 2.6, 1.6, 2.0, "glas")                # Fuehrerkanzel
+    b.box(17.0, 0, 18.2, 0.25, 0.25, 7.2, "metall_dunkel")     # Hubseil
+    b.box(17.0, 0, 16.6, 1.8, 1.6, 1.6, "metall_dunkel")       # Spreader
+
+
+def getreidesilo(b):
+    for i in range(5):
+        x = (i - 2) * 4.6
+        b.zyl(x, 0, 0, 2.3, 2.3, 20.0, 10, "beton", cap_top=False)
+        b.kegel(x, 0, 20.0, 2.4, 1.6, 10, "metall_dunkel")
+    b.box(0, 0, 20.0, 23.0, 5.6, 4.0, "metall")                # Kopfbau/Foerderbruecke
+    b.pultdach(0, 0, 24.0, 23.0, 5.6, 1.0, "metall_dunkel")
+    b.box(-13.5, 0, 0, 5.0, 7.0, 8.0, "wand_grau")             # Annahme
+    b.pultdach(-13.5, 0, 8.0, 5.0, 7.0, 1.0, "metall_dunkel")
+    b.feld((-13.5, -3.5, 2.6), 3.4, 4.6, "-y", "metall_dunkel")
+
+
+def stadion(b):
+    n = 16
+    R, RT, RI, hh = 38.0, 29.0, 26.0, 17.0
+    V = []
+    for i in range(n):
+        a = 2.0 * math.pi * i / n
+        c, sa = math.cos(a), math.sin(a)
+        V += [(c * R, sa * R, 0.0), (c * R, sa * R, hh),
+              (c * RT, sa * RT, hh), (c * RI, sa * RI, 2.5)]
+    F = []
+    for i in range(n):
+        j = (i + 1) % n
+        a0, b0 = i * 4, j * 4
+        F.append((a0 + 0, b0 + 0, b0 + 1, a0 + 1))     # Aussenwand
+        F.append((a0 + 1, b0 + 1, b0 + 2, a0 + 2))     # Dachkante
+        F.append((a0 + 2, b0 + 2, b0 + 3, a0 + 3))     # Raenge
+    b.add(V, F, "beton")
+    spielfeld = [(math.cos(2.0 * math.pi * i / n) * RI * 0.97,
+                  math.sin(2.0 * math.pi * i / n) * RI * 0.97, 0.35) for i in range(n)]
+    b.add(spielfeld, [tuple(range(n))], "gruen")
+    for k in range(4):                                  # Flutlichtmasten
+        a = math.pi * 0.25 + k * math.pi * 0.5
+        x, y = math.cos(a) * (R - 1.5), math.sin(a) * (R - 1.5)
+        b.zyl(x, y, hh, 0.5, 0.35, 12.0, 6, "metall_dunkel")
+        b.box(x, y, hh + 12.0, 4.4, 1.0, 1.8, "wand_weiss")
+
+
+def burg(b):
+    b.box(0, 0, 0, 15, 15, 20.0, "stein")                      # Bergfried
+    b.box(0, 0, 20.0, 16.4, 16.4, 1.2, "stein")                # Wehrkranz
+    b.spitze(0, 0, 21.2, 15.0, 15.0, 7.0, "dach_schiefer")
+    for sx in (-1, 1):                                          # Ringmauer
+        b.box(sx * 17.0, 0, 0, 3.0, 34.0, 9.0, "stein")
+        b.box(0, sx * 17.0, 0, 34.0, 3.0, 9.0, "stein")
+    for sx in (-1, 1):                                          # Ecktuerme
+        for sy in (-1, 1):
+            b.zyl(sx * 17.0, sy * 17.0, 0, 3.4, 3.0, 13.0, 8, "stein", cap_top=False)
+            b.kegel(sx * 17.0, sy * 17.0, 13.0, 3.6, 5.0, 8, "dach_rot")
+    b.feld((0, -18.5, 2.6), 4.0, 5.2, "-y", "holz_dunkel")      # Torbau
+    for z in (8.0, 13.0, 16.5):
+        b.feld((0, -7.5, z), 1.0, 2.2, "-y", "fenster")
+
+
+def radarstation(b):
+    b.box(0, 0, 0, 12, 10, 5.0, "beton")                        # Betriebsgebaeude
+    b.pultdach(0, 0, 5.0, 12, 10, 1.0, "metall_dunkel")
+    b.feld((0, -5.0, 2.2), 8.0, 2.2, "-y", "fenster")
+    b.zyl(0, 3.0, 6.0, 3.2, 3.2, 5.0, 10, "beton")              # Kuppelsockel
+    b.zyl(0, 3.0, 11.0, 4.4, 3.1, 2.6, 10, "wand_weiss")        # Radom
+    b.kegel(0, 3.0, 13.6, 3.1, 2.2, 10, "wand_weiss")
+    b.zyl(-7.0, -3.0, 0, 0.25, 0.25, 14.0, 6, "metall")         # Antennenmast
+    b.feld((-7.0, -3.0, 12.5), 3.0, 0.3, "-y", "metall_dunkel", eps=0.3)
+    b.feld((-7.0, -3.0, 10.5), 2.4, 0.3, "-y", "metall_dunkel", eps=0.3)
+
+
+def bunker(b):
+    prof = [(-7.0, 0.0), (-5.2, 4.2), (5.2, 4.2), (7.0, 0.0)]   # abgeschraegte Waende
+    b.profil(0, 0, 0, prof, 10.0, "beton")
+    b.box(0, 0, 4.2, 11.2, 10.6, 0.9, "beton")                  # Deckenplatte
+    b.feld((0, -5.0, 2.6), 6.0, 0.7, "-y", "fenster", eps=0.35)  # Schartenband
+    b.box(0, 4.2, 5.1, 3.6, 3.6, 1.8, "beton")                  # Beobachtungskanzel
+    b.zyl(0, 4.2, 6.9, 1.5, 1.1, 1.0, 8, "metall_dunkel")
+    b.zyl(-4.0, -3.0, 5.1, 0.18, 0.18, 4.0, 6, "metall")
+    b.box(4.6, -3.6, 0, 2.4, 2.2, 2.6, "beton")                 # Eingangsschleuse
+
 HAEUSER = [
+    # Reihe 1-2: Dorf & Kleinstadt
     ("Haus_Bauernhaus", bauernhaus), ("Haus_Fachwerk", fachwerkhaus), ("Haus_Kate", kate),
     ("Haus_Scheune", scheune), ("Haus_Stall", stall), ("Haus_Silo", silo),
-    ("Haus_Wassermuehle", wassermuehle), ("Haus_Windmuehle", windmuehle),
-    ("Haus_Stadthaus2", stadthaus2), ("Haus_Stadthaus3", stadthaus3),
-    ("Haus_Reihenhaus", reihenhaus), ("Haus_Eckhaus", eckhaus),
-    ("Haus_Gasthaus", gasthaus), ("Haus_Villa", villa),
+    ("Haus_Wassermuehle", wassermuehle),
+    ("Haus_Windmuehle", windmuehle), ("Haus_Stadthaus2", stadthaus2),
+    ("Haus_Stadthaus3", stadthaus3), ("Haus_Reihenhaus", reihenhaus),
+    ("Haus_Eckhaus", eckhaus), ("Haus_Gasthaus", gasthaus), ("Haus_Villa", villa),
+    # Reihe 3: oeffentliche Bauten
     ("Haus_Kirche", kirche), ("Haus_Kapelle", kapelle), ("Haus_Rathaus", rathaus),
-    ("Haus_Speicher", speicher), ("Haus_Werkstatt", werkstatt),
-    ("Haus_Hangar", hangar), ("Haus_Tower", tower), ("Haus_Tanklager", tanklager),
-    ("Haus_Wasserturm", wasserturm), ("Haus_Lotsenhaus", leuchtfeuer_haus),
+    ("Haus_Bahnhof", bahnhof), ("Haus_Krankenhaus", krankenhaus),
+    ("Haus_Kaufhaus", kaufhaus), ("Haus_Hotel", hotel),
+    # Reihe 4: HOCHHAEUSER
+    ("Haus_Wohnturm", hochhaus_wohnturm), ("Haus_Bueroturm", hochhaus_buero),
+    ("Haus_Wolkenkratzer", wolkenkratzer), ("Haus_Plattenbau", plattenbau),
+    ("Haus_Parkhaus", parkhaus), ("Haus_Speicher", speicher), ("Haus_Werkstatt", werkstatt),
+    # Reihe 5: Industrie & Infrastruktur
+    ("Haus_Fabrik", fabrik), ("Haus_Kraftwerk", kraftwerk),
+    ("Haus_Getreidesilo", getreidesilo), ("Haus_Hafenkran", hafenkran),
+    ("Haus_Funkturm", funkturm), ("Haus_Wasserturm", wasserturm),
+    ("Haus_Tanklager", tanklager),
+    # Reihe 6: Flugplatz & Sonderbauten
+    ("Haus_Hangar", hangar), ("Haus_Tower", tower), ("Haus_Radarstation", radarstation),
+    ("Haus_Bunker", bunker), ("Haus_Stadion", stadion), ("Haus_Burg", burg),
+    ("Haus_Lotsenhaus", leuchtfeuer_haus),
 ]
 
-PER_ROW = 6
-SPACING = 44.0
-ORIGIN_Y = -260.0
+PER_ROW = 7
+SPACING = 92.0
+ORIGIN_Y = 0.0
 
 
 def main():
-    shutil.copyfile(SRC, OUT)          # "kopiere das blender file"
-    bpy.ops.wm.open_mainfile(filepath=OUT)
+    bpy.ops.wm.read_factory_settings(use_empty=True)   # leere Szene -> keine Alt-Gebaeude
     scn = bpy.context.scene
 
     top = bpy.data.collections.get("HAEUSER")
@@ -672,6 +954,10 @@ def render_previews(scn):
          hoehe=0.30, res=(1500, 900))
     shot(["Haus_Fachwerk", "Haus_Villa"], os.path.join(PREVIEW, "detail_wohnen.png"),
          hoehe=0.26, res=(1500, 900))
+    shot(["Haus_Wohnturm", "Haus_Bueroturm", "Haus_Wolkenkratzer"],
+         os.path.join(PREVIEW, "detail_hochhaus.png"), hoehe=0.30, res=(1500, 1000))
+    shot(["Haus_Stadion", "Haus_Burg"], os.path.join(PREVIEW, "detail_spezial.png"),
+         hoehe=0.40, res=(1500, 900))
 
 
 main()
