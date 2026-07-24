@@ -123,6 +123,30 @@ static func _build() -> void:
 		"desc": "Rumpfsegment mit dem Querschnitt des Sternmotors — dockt nahtlos an dessen Schnittebene an. Beide Enden einzeln formbar.",
 	})
 	_add({
+		"id": "fuselage_bubble", "name": "Rumpfsegment (Bubble)", "category": CAT_BODY,
+		"mass": 125.0, "color": C_BODY, "shape": "profile_tube", "profile": "bubble",
+		"size": Vector3(1.300, 1.300, 2.0), "biends": true,
+		"desc": "Rumpfsegment im Querschnitt der Bubble-Kanzel — schliesst ohne Absatz an deren ebene Stirnflaeche an. Beide Enden einzeln formbar.",
+	})
+	_add({
+		"id": "fuselage_jet", "name": "Rumpfsegment (Jet)", "category": CAT_BODY,
+		"mass": 115.0, "color": C_BODY, "shape": "profile_tube", "profile": "jet",
+		"size": Vector3(1.100, 1.100, 2.0), "biends": true,
+		"desc": "Rumpfsegment im Querschnitt der Jet-Kanzel — schliesst ohne Absatz an deren ebene Stirnflaeche an. Beide Enden einzeln formbar.",
+	})
+	_add({
+		"id": "fuselage_frame", "name": "Rumpfsegment (Rahmen)", "category": CAT_BODY,
+		"mass": 130.0, "color": C_BODY, "shape": "profile_tube", "profile": "frame",
+		"size": Vector3(1.350, 1.350, 2.0), "biends": true,
+		"desc": "Rumpfsegment im Querschnitt der Rahmen-Kanzel — schliesst ohne Absatz an deren ebene Stirnflaeche an. Beide Enden einzeln formbar.",
+	})
+	_add({
+		"id": "fuselage_tandem", "name": "Rumpfsegment (Tandem)", "category": CAT_BODY,
+		"mass": 128.0, "color": C_BODY, "shape": "profile_tube", "profile": "tandem",
+		"size": Vector3(1.225, 1.225, 2.0), "biends": true,
+		"desc": "Rumpfsegment im Querschnitt der Tandem-Kanzel — schliesst ohne Absatz an deren ebene Stirnflaeche an. Beide Enden einzeln formbar.",
+	})
+	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
 		"mass": 175.0, "color": C_BODY, "shape": "box",
 		"size": Vector3(1.2, 1.2, 3.2), "biends": true,
@@ -1167,6 +1191,13 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			root.add_child(_mi(rtube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
+		"profile_tube":
+			# Rumpfsegment im Querschnitt der jeweiligen Kanzel (Feld "profile") — dieselbe
+			# Loft-Mathematik, nur mit einem anderen Punktzug.
+			var ptube := _profile_tube(named_profile(String(p.get("profile", "radial"))), ef, eb)
+			root.add_child(_mi(ptube, make_material(col, metal, rough, true), Vector3.ZERO,
+				Vector3.ZERO, size))
+
 		"radial_tube":
 			# Wie "reto_tube", aber mit dem Querschnitt des Sternmotors (abgerundetes Quadrat) —
 			# fuehrt dessen Schnittebene nahtlos als Rumpf weiter. Beide Enden einzeln skalierbar.
@@ -1831,6 +1862,78 @@ const RADIAL_PROFILE: Array = [
 	Vector2(0.315, 0.4543), Vector2(0.2031, 0.4886), Vector2(0.0, 0.5),
 ]
 
+
+
+# QUERSCHNITTE DER GENERISCHEN KANZELN (aus tools/build_cockpit_models.py ->
+# tools/cockpit_profiles.json). Jede Kanzel hat EBENE Stirnflaechen auf genau diesem
+# Profil; das gleichnamige Rumpfsegment nutzt es ebenfalls -> nahtloser Uebergang.
+# Normiert auf [-0.5, 0.5]^2, CCW (x = Breite, y = Hoehe in Godot).
+
+const BUBBLE_PROFILE: Array = [
+	Vector2(0.5000, 0.0000), Vector2(0.4911, 0.1093), Vector2(0.4645, 0.2046),
+	Vector2(0.4211, 0.2894), Vector2(0.3622, 0.3622), Vector2(0.2894, 0.4211),
+	Vector2(0.2046, 0.4645), Vector2(0.1093, 0.4911), Vector2(0.0000, 0.5000),
+	Vector2(-0.1093, 0.4911), Vector2(-0.2046, 0.4645), Vector2(-0.2894, 0.4211),
+	Vector2(-0.3622, 0.3622), Vector2(-0.4211, 0.2894), Vector2(-0.4645, 0.2046),
+	Vector2(-0.4911, 0.1093), Vector2(-0.5000, 0.0000), Vector2(-0.4911, -0.1093),
+	Vector2(-0.4645, -0.2046), Vector2(-0.4211, -0.2894), Vector2(-0.3622, -0.3622),
+	Vector2(-0.2894, -0.4211), Vector2(-0.2046, -0.4500), Vector2(-0.1093, -0.4500),
+	Vector2(-0.0000, -0.4500), Vector2(0.1093, -0.4500), Vector2(0.2046, -0.4500),
+	Vector2(0.2894, -0.4211), Vector2(0.3622, -0.3622), Vector2(0.4211, -0.2894),
+	Vector2(0.4645, -0.2046), Vector2(0.4911, -0.1093),
+]
+
+const JET_PROFILE: Array = [
+	Vector2(0.5000, 0.0000), Vector2(0.4926, 0.1422), Vector2(0.4705, 0.2388),
+	Vector2(0.4338, 0.3181), Vector2(0.3830, 0.3830), Vector2(0.3181, 0.4338),
+	Vector2(0.2388, 0.4705), Vector2(0.1422, 0.4926), Vector2(0.0000, 0.5000),
+	Vector2(-0.1422, 0.4926), Vector2(-0.2388, 0.4705), Vector2(-0.3181, 0.4338),
+	Vector2(-0.3830, 0.3830), Vector2(-0.4338, 0.3181), Vector2(-0.4705, 0.2388),
+	Vector2(-0.4926, 0.1422), Vector2(-0.5000, 0.0000), Vector2(-0.4926, -0.1422),
+	Vector2(-0.4705, -0.2388), Vector2(-0.4338, -0.3181), Vector2(-0.3830, -0.3830),
+	Vector2(-0.3181, -0.4338), Vector2(-0.2388, -0.4700), Vector2(-0.1422, -0.4700),
+	Vector2(-0.0000, -0.4700), Vector2(0.1422, -0.4700), Vector2(0.2388, -0.4700),
+	Vector2(0.3181, -0.4338), Vector2(0.3830, -0.3830), Vector2(0.4338, -0.3181),
+	Vector2(0.4705, -0.2388), Vector2(0.4926, -0.1422),
+]
+
+const FRAME_PROFILE: Array = [
+	Vector2(0.5000, 0.0000), Vector2(0.4938, 0.1742), Vector2(0.4751, 0.2691),
+	Vector2(0.4439, 0.3422), Vector2(0.3998, 0.3998), Vector2(0.3422, 0.4439),
+	Vector2(0.2691, 0.4751), Vector2(0.1742, 0.4938), Vector2(0.0000, 0.5000),
+	Vector2(-0.1742, 0.4938), Vector2(-0.2691, 0.4751), Vector2(-0.3422, 0.4439),
+	Vector2(-0.3998, 0.3998), Vector2(-0.4439, 0.3422), Vector2(-0.4751, 0.2691),
+	Vector2(-0.4938, 0.1742), Vector2(-0.5000, 0.0000), Vector2(-0.4938, -0.1742),
+	Vector2(-0.4751, -0.2691), Vector2(-0.4439, -0.3422), Vector2(-0.3998, -0.3998),
+	Vector2(-0.3422, -0.4400), Vector2(-0.2691, -0.4400), Vector2(-0.1742, -0.4400),
+	Vector2(-0.0000, -0.4400), Vector2(0.1742, -0.4400), Vector2(0.2691, -0.4400),
+	Vector2(0.3422, -0.4400), Vector2(0.3998, -0.3998), Vector2(0.4439, -0.3422),
+	Vector2(0.4751, -0.2691), Vector2(0.4938, -0.1742),
+]
+
+const TANDEM_PROFILE: Array = [
+	Vector2(0.5000, 0.0000), Vector2(0.4918, 0.1244), Vector2(0.4674, 0.2208),
+	Vector2(0.4273, 0.3032), Vector2(0.3723, 0.3723), Vector2(0.3032, 0.4273),
+	Vector2(0.2208, 0.4674), Vector2(0.1244, 0.4918), Vector2(0.0000, 0.5000),
+	Vector2(-0.1244, 0.4918), Vector2(-0.2208, 0.4674), Vector2(-0.3032, 0.4273),
+	Vector2(-0.3723, 0.3723), Vector2(-0.4273, 0.3032), Vector2(-0.4674, 0.2208),
+	Vector2(-0.4918, 0.1244), Vector2(-0.5000, 0.0000), Vector2(-0.4918, -0.1244),
+	Vector2(-0.4674, -0.2208), Vector2(-0.4273, -0.3032), Vector2(-0.3723, -0.3723),
+	Vector2(-0.3032, -0.4273), Vector2(-0.2208, -0.4500), Vector2(-0.1244, -0.4500),
+	Vector2(-0.0000, -0.4500), Vector2(0.1244, -0.4500), Vector2(0.2208, -0.4500),
+	Vector2(0.3032, -0.4273), Vector2(0.3723, -0.3723), Vector2(0.4273, -0.3032),
+	Vector2(0.4674, -0.2208), Vector2(0.4918, -0.1244),
+]
+
+
+# Profil zu einem Namen aus dem Teil-Dict (Feld "profile").
+static func named_profile(nm: String) -> Array:
+	match nm:
+		"bubble": return BUBBLE_PROFILE
+		"jet": return JET_PROFILE
+		"frame": return FRAME_PROFILE
+		"tandem": return TANDEM_PROFILE
+	return RADIAL_PROFILE
 
 # Rumpf-Tubus mit BELIEBIGEM Profilquerschnitt (geschlossener CCW-Punktzug in [-0.5,0.5]²).
 # Vorderes (-Z) Ende × ef=(x,y), hinteres (+Z) × eb — wie _box_tube, nur mit Profil-Punkten

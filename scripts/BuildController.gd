@@ -2051,6 +2051,19 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 				afit["scale"] = Vector3.ONE
 			return afit
 
+	# KANZEL-FAMILIEN: ein Rumpfsegment, das an einer generischen Kanzel (oder an deren
+	# eigenem Segment) andockt, uebernimmt DEREN Querschnitt — sonst klafft an der ebenen
+	# Stirnflaeche eine Kante. Gleiches Prinzip wie beim Sternmotor weiter oben.
+	if p.get("biends", false):
+		for stil in ["bubble", "jet", "frame", "tandem"]:
+			if _reto_tgt == "cockpit_" + stil or _reto_tgt == "fuselage_" + stil:
+				var sfit := _fuselage_fit(PartCatalog.get_part("fuselage_" + stil), part, n, surface)
+				if not sfit.is_empty():
+					sfit["id"] = "fuselage_" + stil
+					if _reto_tgt.begins_with("cockpit_"):
+						sfit["scale"] = Vector3.ONE   # exakt die Kanzel-Stirnflaeche
+					return sfit
+
 	# AUTO-FIT Rumpf-an-Rumpf: neues Rumpfteil koaxial & bündig ans getroffene Ende setzen
 	# und Breite/Höhe an den Querschnitt des Zielteils anpassen ("in der Mitte", gleiche Größe).
 	if _is_fuselage(p) and _is_fuselage(PartCatalog.get_part(part.get_meta("part_id"))):
