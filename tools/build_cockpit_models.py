@@ -440,6 +440,52 @@ def baue(pid, spec):
     return ob, gl, profil
 
 
+def blend_bibliothek():
+    """blender_lib/kanzeln.blend: jede Kanzel MIT ihrem Rumpfsegment, damit man den
+    Uebergang an der ebenen Stirnflaeche direkt anschauen kann. Eigene Datei — die
+    generierte cockpits.blend bleibt unangetastet."""
+    ab = 0.0
+    for pid, spec in STILE.items():
+        sx, sz, sy = spec["size"]
+        profil = superellipse(PROFIL_PUNKTE, 0.5, 0.5, spec["exp"], spec["flach_unten"])
+        ob = bpy.data.objects[pid]
+        ob.location.x = ab
+
+        # Rumpfsegment (2.0 lang) buendig HINTER die Kanzel: +Y ist vorne
+        fu = neues_objekt(pid.replace("cockpit_", "fuselage_"), ["cockpit_body", "frame"])
+        bmf = bmesh.new()
+        y_hinten = -sy * 0.5
+        rumpfhaut(bmf, profil, sx, sz, y_hinten - 2.0, y_hinten, 12, 0)
+        panelband(bmf, profil, sx, sz, y_hinten - 1.0, 0.035, 1)
+        bmesh.ops.recalc_face_normals(bmf, faces=bmf.faces[:])
+        bmf.normal_update()
+        bmf.to_mesh(fu.data)
+        bmf.free()
+        fu.location.x = ab
+        for o2_ in (fu,):
+            o2_.select_set(True)
+            bpy.context.view_layer.objects.active = o2_
+            bpy.ops.object.shade_auto_smooth(angle=math.radians(38))
+            o2_.select_set(False)
+
+        col = bpy.data.collections.new(pid.replace("cockpit_", ""))
+        bpy.context.scene.collection.children.link(col)
+        for o3 in (ob, bpy.data.objects[pid + "_Glas"], fu):
+            for c in list(o3.users_collection):
+                c.objects.unlink(o3)
+            col.objects.link(o3)
+
+        txt = bpy.data.curves.new(pid + "_lbl", type='FONT')
+        txt.body = pid.replace("cockpit_", "")
+        txt.size = 0.45
+        tob = bpy.data.objects.new(pid + "_lbl", txt)
+        tob.location = (ab - 0.7, -sy * 0.5 - 3.0, 0.0)
+        col.objects.link(tob)
+        ab += 3.4
+    bpy.ops.wm.save_as_mainfile(filepath=ROOT + "blender_lib/kanzeln.blend")
+    print("SAVED", ROOT + "blender_lib/kanzeln.blend")
+
+
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     profile_out = {}
@@ -466,6 +512,8 @@ def main():
         bericht.append((pid, tris))
         print("EXPORTED %s  %d Tris" % (pfad, tris))
         bpy.ops.object.select_all(action='DESELECT')
+
+    blend_bibliothek()
 
     with open(PROFILE_JSON, "w") as f:
         json.dump(profile_out, f, indent=1)

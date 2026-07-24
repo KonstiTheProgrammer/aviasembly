@@ -25,7 +25,10 @@ func _zeige() -> void:
 	akt.add_child(fu)
 	var laenge: float = PartCatalog.col_size(cd).z + PartCatalog.col_size(fd).z
 	var ctr := Vector3(0, 0, laenge * 0.5 - PartCatalog.col_size(cd).z * 0.5)
-	cam.position = ctr + Vector3(-1.0, 0.52, -1.15).normalized() * laenge * 1.15
+	# Bildfuellend einpassen: Abstand aus der VERTIKALEN Oeffnung (das Fenster ist 2.4:1,
+	# ueber die Breite gerechnet bliebe das Teil winzig).
+	var r: float = laenge * 0.52
+	cam.position = ctr + Vector3(-1.0, 0.46, -1.05).normalized() * (r / tan(deg_to_rad(cam.fov * 0.5)) * 1.30)
 	cam.look_at(ctr, Vector3.UP)
 
 func _process(_d: float) -> bool:
@@ -54,7 +57,11 @@ func _process(_d: float) -> bool:
 		_zeige()
 		return false
 	if f > 8 and (f - 8) % 14 == 0:
-		get_root().get_viewport().get_texture().get_image().save_png(
+		var img := get_root().get_viewport().get_texture().get_image()
+		var vs := img.get_size()
+		var cw: int = mini(1900, vs.x)
+		var ch: int = mini(1300, vs.y)
+		img.get_region(Rect2i((vs.x - cw) / 2, (vs.y - ch) / 2, cw, ch)).save_png(
 			"user://cp3d_%s.png" % teile[i])
 		print("SHOT ", teile[i])
 		i += 1
