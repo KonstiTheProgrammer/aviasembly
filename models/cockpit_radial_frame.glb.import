@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cfm7uwp0pyvv5"
-path="res://.godot/imported/cockpit_radial.glb-11469767554bf7f21cdf6f01d9e051ad.scn"
+uid="uid://c0fto0we3rela"
+path="res://.godot/imported/cockpit_radial_frame.glb-20c0a74f5c73fe44ed275e3326484851.scn"
 
 [deps]
 
-source_file="res://models/cockpit_radial.glb"
-dest_files=["res://.godot/imported/cockpit_radial.glb-11469767554bf7f21cdf6f01d9e051ad.scn"]
+source_file="res://models/cockpit_radial_frame.glb"
+dest_files=["res://.godot/imported/cockpit_radial_frame.glb-20c0a74f5c73fe44ed275e3326484851.scn"]
 
 [params]
 

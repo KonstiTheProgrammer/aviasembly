@@ -401,6 +401,11 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
+- **Rotes-Baron-Cockpit:** `cockpit_radial.glb` enthält nur noch die maßkorrigierte rote
+  Cockpitschale samt Innenraum/Lederrand (Anschlussprofil exakt 1.200×1.129 wie
+  `fuselage_radial`). Der ehemals fest eingebaute genietete Ring ist das eigenständige
+  Paletten-Bauteil `cockpit_radial_frame.glb` (1.200×1.129×0.502). Beide werden reproduzierbar
+  von `tools/build_engine_radial.py` aus `Engine.blend` exportiert.
 - **MiG-21 (Hybrid-Ikone, Referenz-Qualitätspfad):** `mig21_front` (edler Vorderrumpf:
   Einlauf-Lippe, grüner Matt-Radom-Schockkonus, Pitot, Kanzel + Fairing, Panel-Linien) +
   `mig21_rear` (Heck aus einem Guss: Boattail, dunkler Düsenring+Innenkonus, Ventralflosse,

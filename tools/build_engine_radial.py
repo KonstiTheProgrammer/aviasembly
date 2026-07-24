@@ -18,13 +18,14 @@
 # FALLE (Cockpit): ALLE Cockpit_*-Materialien liegen als unkonfiguriertes Default-Grau (0.8)
 # in der Datei — nur die NAMEN beschreiben die Absicht. Farben werden hier aus den Namen
 # gesetzt, sonst kaeme das Cockpit komplett grau raus.
-import bpy, json, math
+import bpy, bmesh, json, math
 import numpy as np
 from mathutils import Matrix, Vector
 
 SRC = "C:/Users/Konst/Downloads/Engine.blend"
 OUT = "C:/Users/Konst/Projects/aviasembly/models/engine_radial.glb"
 OUT_CP = "C:/Users/Konst/Projects/aviasembly/models/cockpit_radial.glb"
+OUT_CP_FRAME = "C:/Users/Konst/Projects/aviasembly/models/cockpit_radial_frame.glb"
 PROFILE_OUT = "C:/Users/Konst/Projects/aviasembly/tools/radial_profile.json"
 TARGET_W = 1.2   # Spiel-Breite des Querschnitts = Standard-Rumpfbreite (fuselage: 1.2 x 1.2)
 
@@ -170,9 +171,55 @@ for o in (full, half, prop):
     o.matrix_world = Matrix.Scale(S, 4) @ o.matrix_world
     bake(o)
 
-# --- 7b) COCKPIT: Rim-Curve -> Mesh, joinen, gleiche Konvention (180°/zentriert/skaliert) --
+# --- 7b) COCKPIT: roter Rumpf und verschraubter Metall-Anschluss werden ZWEI Teile --------
+# Der Quell-Mesh mischt beides über Material-Slots. Der rote Körper war an beiden
+# Anschlussenden 1.228 x 1.157 statt des echten RADIAL_PROFILE 1.200 x 1.129 und
+# der Metallrahmen war untrennbar mitgebacken. Jetzt:
+#   cockpit_radial.glb       = maßhaltiger Cockpit-Rumpf OHNE Metallrahmen
+#   cockpit_radial_frame.glb = nur der verschraubte Metallrahmen, eigenes Spielteil
+def filter_material_faces(o, material_name, keep):
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    bm.faces.ensure_lookup_table()
+    remove = []
+    for f in bm.faces:
+        mat = o.data.materials[f.material_index] if f.material_index < len(o.data.materials) else None
+        match = mat is not None and mat.name == material_name
+        if match != keep:
+            remove.append(f)
+    if remove:
+        bmesh.ops.delete(bm, geom=remove, context='FACES')
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.to_mesh(o.data)
+    bm.free()
+    o.data.update()
+
+
+def material_bounds(o, material_name):
+    ids = set()
+    for p in o.data.polygons:
+        mat = o.data.materials[p.material_index] if p.material_index < len(o.data.materials) else None
+        if mat is not None and mat.name == material_name:
+            ids.update(p.vertices)
+    if not ids:
+        raise RuntimeError("Material-Geometrie fehlt: %s / %s" % (o.name, material_name))
+    pts = np.array([(o.matrix_world @ o.data.vertices[i].co)[:] for i in ids])
+    return pts.min(axis=0), pts.max(axis=0)
+
+
 cockpit = None
+cockpit_frame = None
 if cp_shell is not None:
+    # Rahmen als echte Geometrie-Kopie isolieren, aus dem Cockpit selbst entfernen.
+    cockpit_frame = cp_shell.copy()
+    cockpit_frame.data = cp_shell.data.copy()
+    cp_shell.users_collection[0].objects.link(cockpit_frame)
+    filter_material_faces(cockpit_frame, "Cockpit_ConnectorMetal", True)
+    filter_material_faces(cp_shell, "Cockpit_ConnectorMetal", False)
+
+    # Lederwulst bleibt Teil des Cockpits, nicht des optionalen Metallrahmens.
     if cp_rim is not None:
         sel(cp_rim)
         bpy.ops.object.convert(target='MESH')        # Curve mit Bevel -> echtes Mesh
@@ -183,15 +230,36 @@ if cp_shell is not None:
         bpy.context.view_layer.objects.active = cp_shell
         bpy.ops.object.join()                        # ein Objekt, Materialslots bleiben
     cockpit = cp_shell
+
+    # Gleiche Achsenkonvention und Grundskalierung wie Motor/Rumpf.
+    for o in (cockpit, cockpit_frame):
+        bake(o)
+        o.matrix_world = rz @ o.matrix_world         # Nase -Y -> +Y wie Motor/Rumpf
+        bake(o)
+        o.matrix_world = Matrix.Scale(S, 4) @ o.matrix_world
+        bake(o)
+
+    # Cockpit am ROTEN RUMPF zentrieren (nicht am ehemals vorstehenden Rahmen) und
+    # nur X/Z exakt auf das Stern-Rumpfprofil korrigieren. Innenausbau/Leder folgt mit.
+    blo, bhi = material_bounds(cockpit, "Cockpit_RedPaint")
+    bc = Vector((float((blo[i] + bhi[i]) * 0.5) for i in range(3)))
+    cockpit.matrix_world = Matrix.Translation(-bc) @ cockpit.matrix_world
     bake(cockpit)
-    cockpit.matrix_world = rz @ cockpit.matrix_world # Nase -Y -> +Y wie Motor/Rumpf
+    blo, bhi = material_bounds(cockpit, "Cockpit_RedPaint")
+    target_h = h_full * S
+    sx = TARGET_W / float(bhi[0] - blo[0])
+    sz = target_h / float(bhi[2] - blo[2])
+    cockpit.matrix_world = Matrix.Diagonal(Vector((sx, 1.0, sz, 1.0))) @ cockpit.matrix_world
     bake(cockpit)
-    VC = wverts(cockpit)
-    cc = Vector((float((VC[:, i].max() + VC[:, i].min()) * 0.5) for i in range(3)))
-    cockpit.matrix_world = Matrix.Translation(-cc) @ cockpit.matrix_world
-    bake(cockpit)
-    cockpit.matrix_world = Matrix.Scale(S, 4) @ cockpit.matrix_world
-    bake(cockpit)
+    print("COCKPIT-Profil korrigiert: sx=%.5f sz=%.5f -> %.3f x %.3f"
+          % (sx, sz, TARGET_W, target_h))
+
+    # Rahmen ist ein selbstständiger Adapter: eigener Mittelpunkt, ursprüngliches
+    # maßhaltiges 1.200-x-1.129-Profil, im Editor normal ansteck-/skalierbar.
+    VFRA = wverts(cockpit_frame)
+    fc = Vector((float((VFRA[:, i].max() + VFRA[:, i].min()) * 0.5) for i in range(3)))
+    cockpit_frame.matrix_world = Matrix.Translation(-fc) @ cockpit_frame.matrix_world
+    bake(cockpit_frame)
 
 # --- 8) Materialien ------------------------------------------------------------------------
 # ZUERST die .001-Duplikate von engine_half auf die Originale umhaengen — danach werden die
@@ -265,6 +333,8 @@ print("HALF-Materialien:", [m.name if m else None for m in half.data.materials])
 print("PROP-Materialien:", [m.name if m else None for m in prop.data.materials])
 if cockpit is not None:
     print("COCKPIT-Materialien:", [m.name if m else None for m in cockpit.data.materials])
+if cockpit_frame is not None:
+    print("RAHMEN-Materialien:", [m.name if m else None for m in cockpit_frame.data.materials])
 
 # --- 9) Namen fuer Godot -------------------------------------------------------------------
 for o, nm in ((full, "Full"), (half, "Half"), (prop, "Prop")):
@@ -284,12 +354,24 @@ if cockpit is not None:
     cockpit.select_set(True)
     bpy.ops.export_scene.gltf(filepath=OUT_CP, export_format='GLB', use_selection=True, export_apply=True)
 
+if cockpit_frame is not None:
+    cockpit_frame.name = "CockpitRadialFrame"
+    cockpit_frame.data.name = "CockpitRadialFrame"
+    bpy.ops.object.select_all(action='DESELECT')
+    cockpit_frame.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=OUT_CP_FRAME, export_format='GLB',
+                              use_selection=True, export_apply=True)
+
 report = [(full, "Full"), (half, "Half"), (prop, "Prop")]
 if cockpit is not None:
     report.append((cockpit, "Cockpit"))
+if cockpit_frame is not None:
+    report.append((cockpit_frame, "Frame"))
 for o, nm in report:
     V = wverts(o)
     lo, hi = V.min(axis=0), V.max(axis=0)
     print("%-7s Blender X %+.3f..%+.3f  Y %+.3f..%+.3f  Z %+.3f..%+.3f   -> Godot size(%.3f, %.3f, %.3f)"
           % (nm, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], hi[0] - lo[0], hi[2] - lo[2], hi[1] - lo[1]))
-print("EXPORTED", OUT, "+", OUT_CP if cockpit is not None else "(kein Cockpit)")
+print("EXPORTED", OUT,
+      "+", OUT_CP if cockpit is not None else "(kein Cockpit)",
+      "+", OUT_CP_FRAME if cockpit_frame is not None else "(kein Rahmen)")

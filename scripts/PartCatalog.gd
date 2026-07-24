@@ -75,15 +75,22 @@ static func _build() -> void:
 		"canopy": Vector3(0.44, 0.40, 1.0), "canopy_style": "tandem",
 		"desc": "Zweisitzer mit zwei Kanzeln hintereinander.",
 	})
-	# Offenes Doppeldecker-Cockpit aus Engine.blend (rote Schale, Lederrand, Instrumente) —
-	# gleiche Profil-Familie wie der Sternmotor: Rumpfsegmente, die andocken, uebernehmen
-	# den RADIAL_PROFILE-Querschnitt (BuildController-Hook wie beim Motor).
+	# Offenes Doppeldecker-Cockpit aus Engine.blend (rote Schale, Lederrand, Instrumente).
+	# Die rote Schale endet exakt im 1.200-x-1.129-Sternmotorprofil. Der ehemals fest
+	# eingebackene genietete Anschlussrahmen ist darunter als eigenes Bauteil verfügbar.
 	_add({
 		"id": "cockpit_radial", "name": "Doppeldecker-Cockpit (Stern)", "category": CAT_BODY,
 		"mass": 185.0, "color": Color(0.58, 0.10, 0.08), "shape": "cockpit",
-		"size": Vector3(1.228, 1.183, 1.301),
+		"size": Vector3(1.2, 1.129, 1.216),
 		"canopy": Vector3(0.42, 0.36, 0.62),
-		"desc": "Offenes Doppeldecker-Cockpit mit Lederrand und Instrumenten (Blender-Import) — passt zur Profil-Familie des Sternmotors.",
+		"desc": "Rotes-Baron-Cockpit mit Lederrand und Instrumenten. Die Rumpfschale passt ohne Überstand exakt auf das Sternmotor-Profil.",
+	})
+	_add({
+		"id": "cockpit_radial_frame", "name": "Cockpit-Metallrahmen", "category": CAT_BODY,
+		"mass": 28.0, "color": Color(0.45, 0.47, 0.50), "shape": "box",
+		"size": Vector3(1.2, 1.129, 0.502),
+		"metallic": 0.8, "roughness": 0.30,
+		"desc": "Separater genieteter Metallrahmen für das Rotes-Baron-Cockpit. Nur anstecken, wenn der sichtbare Adapter gewünscht ist.",
 	})
 	_add({
 		"id": "spitfire_cockpit", "name": "Spitfire-Cockpit", "category": CAT_BODY,
