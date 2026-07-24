@@ -55,7 +55,7 @@ das Flugzeug längsstabil.
 | **Enter** | Reset auf die Startbahn (repariert auch gebrochenes Fahrwerk) |
 | **Tab** | zurück in den Hangar |
 
-**🖱 Maus-Flug (Taste M) — wie in War Thunder:** Die Maus zeigt frei in eine **Richtung in
+**🖱 Maus-Flug (Taste N) — wie in War Thunder:** Die Maus zeigt frei in eine **Richtung in
 der Welt** — und das Flugzeug **dreht seine Nase genau dorthin**. Schaust du nach links,
 fliegt es nach links; schaust du nach hinten, dreht es sich **komplett herum** (volle 360°,
 auch steil hoch/runter). Ein **grüner Zielmarker** ⊕ zeigt, wohin du zielst, ein **gelber
