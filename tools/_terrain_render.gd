@@ -26,6 +26,8 @@ func _process(_d: float) -> bool:
 			["pan2", Vector3(3550, 360, 600), Vector3(2500, 90, 1450)],    # Blick aufs Bergmassiv
 			["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],          # über dem Flugfeld
 			["vulkan", Vector3(11800, 780, -4750), Vector3(11800, 120, -5600)],  # nah von Norden auf die Vulkaninsel
+			["canyon", Vector3(-6300, 120, 1300), Vector3(-4900, 20, 3100)],  # IN die Schlucht blicken
+			["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)],  # Schlucht von oben
 		]
 		return false
 	if frame == 6:
@@ -132,15 +134,30 @@ func _setup() -> void:
 		{"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0},
 		{"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0},
 	]
-	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
+	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0},
+		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0}]
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
+				# CANYON-FLANKEN: erzwungene Grate beidseits der Schlucht-Spline — der River-Carve
+		# schneidet DANACH hindurch (Reihenfolge in height_at) -> echte Waende, seed-robust.
+		{"pos": Vector3(-6725, 0, 1450), "r": 750.0, "peak": 120.0},
+		{"pos": Vector3(-5875, 0, 950), "r": 750.0, "peak": 135.0},
+		{"pos": Vector3(-5675, 0, 3050), "r": 750.0, "peak": 140.0},
+		{"pos": Vector3(-4825, 0, 2550), "r": 750.0, "peak": 125.0},
+		{"pos": Vector3(-4625, 0, 4350), "r": 700.0, "peak": 110.0},
+		{"pos": Vector3(-3775, 0, 3850), "r": 700.0, "peak": 120.0},
 		{"pos": Vector3(11800, 0, -5600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
 		{"pos": Vector3(16000, 0, -3800), "r": 520.0, "peak": 40.0, "type": "insel"},
 		{"pos": Vector3(12500, 0, -11500), "r": 500.0, "peak": 34.0, "type": "insel"},
 		
 	]
 	var rivers := [{
+		"w": 40.0, "valley": 260.0, "depth": 7.0,
+		"pts": [
+			Vector3(-6600, 46, 900), Vector3(-6050, 34, 1900), Vector3(-5250, 22, 2800),
+			Vector3(-4450, 12, 3700), Vector3(-3800, 8, 4500), Vector3(-3380, 4, 5100),
+		],
+	}, {
 		"w": 13.0, "valley": 55.0, "depth": 4.0,
 		"pts": [
 			Vector3(2545, 112, 1760), Vector3(2330, 82, 1600), Vector3(2110, 56, 1460),
@@ -169,6 +186,9 @@ func _setup() -> void:
 	terrain.build_now_around(Vector3(1950, 0, 1400), 800.0, false)   # Flusstal
 	terrain.build_now_around(village_pos, 800.0, false)
 	terrain.build_now_around(Vector3(11800, 0, -5600), 1400.0, false)   # Vulkaninsel
+	terrain.build_now_around(Vector3(-5250, 0, 2800), 1100.0, false)    # Canyon-Mitte
+	terrain.build_now_around(Vector3(-6300, 0, 1300), 800.0, false)     # Canyon-Nord (Kamera)
+	terrain.build_now_around(Vector3(-4100, 0, 4200), 900.0, false)     # Canyon-Sued
 	
 	# Scan: finde ein Wüsten- und ein Hochgebirgs-Zentrum (Noise ist sofort abfragbar)
 	var desert_c := Vector3(4200, 0, 0)

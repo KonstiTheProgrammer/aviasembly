@@ -345,12 +345,21 @@ func _setup_world() -> void:
 	flat_zones.append({"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0})  # See-Umfeld flach
 	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
 	flat_zones.append({"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0})
-	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
+	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0},
+		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0}]   # Canyon-Endsee
 	# Erzwungene Formen: Bergmassiv (Bergdorf/Flussquelle) + VULKANINSEL + ARCHIPEL
 	# draußen im Ozean als Ausflugsziele (Insel-Typ fällt am Rand unter den Meeresspiegel
 	# -> echte Küsten mit Türkis-Schelf, egal welcher Seed).
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
+				# CANYON-FLANKEN: erzwungene Grate beidseits der Schlucht-Spline — der River-Carve
+		# schneidet DANACH hindurch (Reihenfolge in height_at) -> echte Waende, seed-robust.
+		{"pos": Vector3(-6725, 0, 1450), "r": 750.0, "peak": 120.0},
+		{"pos": Vector3(-5875, 0, 950), "r": 750.0, "peak": 135.0},
+		{"pos": Vector3(-5675, 0, 3050), "r": 750.0, "peak": 140.0},
+		{"pos": Vector3(-4825, 0, 2550), "r": 750.0, "peak": 125.0},
+		{"pos": Vector3(-4625, 0, 4350), "r": 700.0, "peak": 110.0},
+		{"pos": Vector3(-3775, 0, 3850), "r": 700.0, "peak": 120.0},
 		{"pos": Vector3(11800, 0, -5600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
 		{"pos": Vector3(16000, 0, -3800), "r": 520.0, "peak": 40.0, "type": "insel"},
 		{"pos": Vector3(12500, 0, -11500), "r": 500.0, "peak": 34.0, "type": "insel"},
@@ -361,6 +370,14 @@ func _setup_world() -> void:
 	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
 	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
 	var rivers := [{
+		# CANYON DES WESTENS: extrem breites/tiefes "Flusstal" = durchfliegbare Schlucht
+		# (die Distanz-Rampe macht dort echte Berge -> hohe Waende links und rechts).
+		"w": 40.0, "valley": 260.0, "depth": 7.0,
+		"pts": [
+			Vector3(-6600, 46, 900), Vector3(-6050, 34, 1900), Vector3(-5250, 22, 2800),
+			Vector3(-4450, 12, 3700), Vector3(-3800, 8, 4500), Vector3(-3380, 4, 5100),
+		],
+	}, {
 		"w": 13.0, "valley": 55.0, "depth": 4.0,
 		"pts": [
 			Vector3(2545, 112, 1760), Vector3(2330, 82, 1600), Vector3(2110, 56, 1460),
@@ -379,6 +396,9 @@ func _setup_world() -> void:
 		{"name": "Bergdorf", "pos": village_pos, "color": Color(0.80, 0.70, 0.55)},
 		{"name": "Vulkan", "pos": Vector3(11800, 0, -5600), "color": Color(0.85, 0.35, 0.25)},
 		{"name": "FLAK-ZONE", "pos": Vector3(250, 0, -2400), "color": Color(1.0, 0.25, 0.2)},
+		{"name": "Canyon", "pos": Vector3(-5250, 0, 2800), "color": Color(0.90, 0.62, 0.30)},
+		{"name": "Windpark", "pos": Vector3(-3900, 0, -700), "color": Color(0.75, 0.88, 0.95)},
+		{"name": "Wrack", "pos": Vector3(16600, 0, -4600), "color": Color(0.62, 0.42, 0.30)},
 	]
 	_map_thread = Thread.new()
 	_map_thread.start(func() -> void:
@@ -389,6 +409,12 @@ func _setup_world() -> void:
 	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
 	_build_town(town_pos)
 	_build_lighthouse(lh_pos)
+	_build_windfarm(Vector3(-3900, 0, -700))
+	# Ozean-Leben: Segelschiffe weit draussen (garantiert Wasser, d > 16 km) + Wrack
+	for sh in [[Vector2(15600, -5200), 0.7], [Vector2(13400, -11000), 2.4],
+			[Vector2(-11400, 12800), -0.9], [Vector2(4600, -16600), 1.6]]:
+		Landmarks.build_ship(fly_world, sh[0], sh[1])
+	Landmarks.build_wreck(fly_world, Vector2(16600, -4600), 0.8)
 	Landmarks.build_village(fly_world, village_pos)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
 	# WOLKEN: hoch in der Luft, locker über viele Höhen verteilte Kumulus zum Durchfliegen
@@ -2330,6 +2356,23 @@ func _spawn_targets() -> void:
 
 # FLAK-ZONE: ein verteidigter Bereich ein Stück vor dem Spawn (Flieger schaut nach -Z).
 # Mehrere Geschütze feuern nur, wenn der Spieler IN der Zone und im Höhen-Band ist.
+# Windpark: 7 Raeder auf den Huegeln, Hoehe je Standort aus dem Terrain abgefragt
+# (seed-robust: zu flache/versunkene Standorte werden uebersprungen).
+var _wind_rotors: Array = []
+func _build_windfarm(center: Vector3) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4711
+	for i in 7:
+		var off := Vector3(rng.randf_range(-750, 750), 0, rng.randf_range(-550, 550))
+		var p := center + off
+		var h := terrain.height_at(p.x, p.z)
+		if h < 14.0:
+			continue
+		var rotor := Landmarks.build_windmill(fly_world, Vector3(p.x, h - 0.4, p.z),
+			0.6 + rng.randf_range(-0.15, 0.15))
+		_wind_rotors.append(rotor)
+
+
 func _on_map_image_ready(img: Image) -> void:
 	if _map_thread != null:
 		_map_thread.wait_to_finish()
@@ -2418,6 +2461,11 @@ func _respawn_balloon() -> void:
 
 # --- Survival: Wellen-System + Flug-Score ----------------------------------
 func _process(delta: float) -> void:
+	# Windraeder drehen (billig; nur sichtbar im Flug)
+	if mode == Mode.FLY:
+		for r in _wind_rotors:
+			if is_instance_valid(r):
+				r.rotate_z(delta * 1.1)
 	# Werkzeugleiste mit dem Editor-Zustand synchron halten (auch bei Tastenkürzeln)
 	if mode == Mode.BUILD and not _tb_view_btns.is_empty():
 		_sync_toolbar()

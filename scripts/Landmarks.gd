@@ -197,3 +197,78 @@ static func build_bridge(parent: Node3D, center: Vector3, length: float, yaw: fl
 			_box(node, Vector3(x, -ph * 0.5 - 0.8, sz * W * 0.32), Vector3(3.0, ph, 3.0), stone2)
 		# Querstrebe oben am Pfeilerpaar (Andeutung Bogen/Joch)
 		_box(node, Vector3(x, -2.2, 0), Vector3(3.0, 1.4, W * 0.7), stone2)
+
+
+# Windrad: konischer Turm + Gondel + 3-Blatt-Rotor. Gibt den ROTOR-Pivot zurueck —
+# Main dreht ihn in _process (die einzige bewegte Landmark, darum kein eigener Script).
+static func build_windmill(parent: Node3D, pos: Vector3, face_yaw := 0.6) -> Node3D:
+	var node := Node3D.new()
+	node.position = pos
+	node.rotation.y = face_yaw
+	parent.add_child(node)
+	var white := _mat(Color(0.92, 0.93, 0.95), 0.5)
+	var gray := _mat(Color(0.55, 0.58, 0.62), 0.5)
+	var H := 26.0
+	var mi := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.bottom_radius = 1.3
+	cyl.top_radius = 0.7
+	cyl.height = H
+	cyl.radial_segments = 10
+	mi.mesh = cyl
+	mi.position = Vector3(0, H * 0.5, 0)
+	mi.material_override = white
+	node.add_child(mi)
+	_box(node, Vector3(0, H + 0.6, -0.4), Vector3(1.8, 1.8, 3.4), gray)   # Gondel
+	var rotor := Node3D.new()
+	rotor.position = Vector3(0, H + 0.6, -2.4)                            # Nabe vor der Gondel
+	node.add_child(rotor)
+	_box(rotor, Vector3.ZERO, Vector3(1.0, 1.0, 1.0), gray)               # Nabe
+	for i in 3:
+		var blade := Node3D.new()
+		blade.rotation.z = i * TAU / 3.0
+		rotor.add_child(blade)
+		_box(blade, Vector3(0, 5.6, 0), Vector3(0.55, 11.0, 0.18), white)
+	return rotor
+
+
+# Segelschiff: Low-Poly-Rumpf + Bugkeil + Masten mit Segeln. Liegt auf dem Meer (SEA_Y).
+static func build_ship(parent: Node3D, pos2: Vector2, heading := 0.0) -> void:
+	var node := Node3D.new()
+	node.position = Vector3(pos2.x, TerrainWorld.SEA_Y + 0.4, pos2.y)
+	node.rotation.y = heading
+	parent.add_child(node)
+	var hullm := _mat(Color(0.34, 0.22, 0.14), 0.7)
+	var deckm := _mat(Color(0.55, 0.42, 0.27), 0.8)
+	var sailm := _mat(Color(0.93, 0.91, 0.85), 0.9)
+	_box(node, Vector3(0, 1.2, 0), Vector3(6.0, 2.4, 20.0), hullm)        # Rumpf
+	_box(node, Vector3(0, 2.55, 0), Vector3(5.4, 0.3, 19.0), deckm)       # Deck
+	# Bugkeil (45° gedrehte Box als Spitze)
+	var bow := Node3D.new()
+	bow.position = Vector3(0, 1.2, -12.2)
+	bow.rotation.y = PI * 0.25
+	node.add_child(bow)
+	_box(bow, Vector3.ZERO, Vector3(4.3, 2.4, 4.3), hullm)
+	for mz in [-4.5, 4.0]:
+		_box(node, Vector3(0, 8.0, mz), Vector3(0.5, 11.0, 0.5), deckm)   # Mast
+		_box(node, Vector3(0, 8.6, mz + 0.6), Vector3(7.0, 6.4, 0.16), sailm)  # Segel
+	_box(node, Vector3(0, 3.6, 8.2), Vector3(4.2, 2.0, 3.0), deckm)       # Achterhaus
+
+
+# Halb versunkenes WRACK: gekraengter Rumpf, gebrochener Mast, rostig — Mystery-Landmark.
+static func build_wreck(parent: Node3D, pos2: Vector2, heading := 0.8) -> void:
+	var node := Node3D.new()
+	node.position = Vector3(pos2.x, TerrainWorld.SEA_Y - 2.6, pos2.y)     # tief eingesunken
+	node.rotation.y = heading
+	node.rotation.z = 0.42                                                # Kraengung ~24°
+	parent.add_child(node)
+	var rust := _mat(Color(0.38, 0.22, 0.15), 0.95)
+	var rust2 := _mat(Color(0.28, 0.17, 0.13), 0.95)
+	_box(node, Vector3(0, 1.4, 0), Vector3(7.0, 2.8, 26.0), rust)         # Rumpf
+	_box(node, Vector3(0, 3.1, -6.0), Vector3(6.2, 0.4, 12.0), rust2)     # Deckrest
+	_box(node, Vector3(0, 4.4, 6.5), Vector3(5.0, 2.6, 5.0), rust2)       # Aufbau
+	var mast := Node3D.new()
+	mast.position = Vector3(0, 4.2, -3.0)
+	mast.rotation.x = 0.9                                                 # abgeknickt
+	node.add_child(mast)
+	_box(mast, Vector3(0, 4.0, 0), Vector3(0.5, 8.0, 0.5), rust)
