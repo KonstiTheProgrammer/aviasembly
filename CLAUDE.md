@@ -46,7 +46,13 @@ project.godot            Godot 4.6, Hauptszene res://scenes/Main.tscn, forward_p
 scenes/Main.tscn         nur ein Node3D-Wurzelknoten + Main.gd
 scripts/Main.gd          Welt (Licht/Himmel + blauer Blueprint-Raum), Modus BUILD<->FLY,
                          gesamtes UI (Bau-Panel links, Flug-HUD), Speichern/Laden
-                         (user://aircraft_design.json), Start-Flugzeug (_default_design).
+                         (user://aircraft_design.json), Start-Flugzeug (_default_design):
+                         laedt beim ERSTSTART ohne Speicherstand (20-Teile-Doppeldecker,
+                         verifiziert via tools/_firststart_check.gd — Save-Datei beiseite
+                         legen!). AUTOSAVE: design_changed -> _design_dirty, 2-s-Debounce
+                         in _process + Sicherung bei WM_CLOSE/Quit-Button. (War seit dem
+                         Slot-Menue-Umbau TOT — Bauten gingen beim Beenden verloren, dazu
+                         startete der Hangar leer: genau die Nutzer-Beschwerde.)
                          Teile-Palette: aufklappbare Kategorie-Sektionen (▾/▸) mit Grid aus
                          3D-Vorschau-Kacheln. Jede Kachel = eigener SubViewport (own_world_3d,
                          eigene Cam+Licht+Environment, UPDATE_ONCE) der das Teil-Visual rendert.

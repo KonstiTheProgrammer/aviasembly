@@ -6,6 +6,8 @@ extends Node3D
 enum Mode { BUILD, FLY }
 
 const SAVE_PATH := "user://aircraft_design.json"   # Autoload: zuletzt gebautes/geladenes
+var _design_dirty := false   # AUTOSAVE: Bauänderung seit letztem Schreiben? (2-s-Debounce)
+var _autosave_t := 0.0
 const SLOT_DIR := "user://hangar"                  # benannte eigene Speicher-Slots
 const F_BOLD := preload("res://fonts/TitilliumWeb-Bold.ttf")   # fetter Schnitt für Überschriften
 const F_SEMI := preload("res://fonts/TitilliumWeb-SemiBold.ttf")  # Standard-UI-Schnitt (crisp)
@@ -160,10 +162,9 @@ func _ready() -> void:
 	_spawn_flak()
 	_setup_ui()
 	if not _load_design():
-		# Leer starten — KEIN vorgesetztes Cockpit. Der Spieler platziert das erste
-		# Cockpit selbst; es wird auf den Ursprung zentriert und startet den Bauplan.
-		# (_default_design() bleibt als Beispiel-Flieger erhalten, wird aber nicht mehr automatisch geladen.)
-		build_ctrl.load_design([])
+		# Erststart ohne Speicherstand: fertiger Beispiel-Doppeldecker im Hangar,
+		# damit man sofort losfliegen kann (Umbauen/Abreissen jederzeit möglich).
+		build_ctrl.load_design(_default_design())
 	_set_mode(Mode.BUILD)
 	_refresh_tool_ui()
 	_on_game_changed()
@@ -1227,7 +1228,10 @@ func _build_pause_overlay() -> void:
 	v.add_child(b_hangar)
 	var b_quit := Button.new()
 	b_quit.text = "Spiel beenden"
-	b_quit.pressed.connect(func(): get_tree().quit())
+	b_quit.pressed.connect(func():
+		if _design_dirty:
+			_save_design()   # ungesicherte Bauänderungen noch mitnehmen
+		get_tree().quit())
 	v.add_child(b_quit)
 
 
@@ -2056,6 +2060,7 @@ func _build_flight_ui() -> void:
 # Signal-Handler
 # ===========================================================================
 func _on_design_changed(stats: Dictionary) -> void:
+	_design_dirty = true   # -> Autosave-Debounce in _process (seit dem Slot-Menü fehlte JEDES Autosave)
 	if flight_check == null:
 		return
 	# Umlaut-fähige Schrift vom echten Label übernehmen (generisches Control liefert sie nicht).
@@ -2489,7 +2494,22 @@ func _respawn_balloon() -> void:
 
 
 # --- Survival: Wellen-System + Flug-Score ----------------------------------
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and _design_dirty:
+		_save_design()   # Fenster-X vor Ablauf des Autosave-Debounce: noch schnell sichern
+
+
 func _process(delta: float) -> void:
+	# AUTOSAVE (Debounce): Bauänderungen landen nach 2 s Ruhe in user:// —
+	# Bauen ohne explizites Slot-Speichern übersteht so den Neustart.
+	if _design_dirty:
+		_autosave_t += delta
+		if _autosave_t >= 2.0:
+			_design_dirty = false
+			_autosave_t = 0.0
+			_save_design()
+	else:
+		_autosave_t = 0.0
 	# Windraeder drehen (billig; nur sichtbar im Flug)
 	if mode == Mode.FLY:
 		for r in _wind_rotors:
