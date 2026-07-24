@@ -1,7 +1,7 @@
 # Landmarks-Gebaeude -> blender_lib/gebaeude.blend
 # Quelle: blender_lib/_gebaeude_export.glb (erzeugt von tools/_export_buildings.gd —
 # exportiert die ECHTE prozedurale Godot-Geometrie, daher immer synchron zum Spiel).
-# Je Bauwerk eine Collection: Stadt / Bergdorf / Leuchtturm / Windrad / Bruecke / Haus_A..F.
+# Je Bauwerk eine Collection: Stadt / Bergdorf / Leuchtturm / Windrad / Bruecke / Haus_A..L.
 # Usage: [Godot-Export laufen lassen, dann] blender --background --python tools/build_gebaeude_blend.py
 import bpy
 import os
@@ -37,6 +37,14 @@ for m in bpy.data.materials:
         b = m.node_tree.nodes.get("Principled BSDF")
         if b:
             m.diffuse_color = b.inputs["Base Color"].default_value[:]
+
+# Die neuen Häuser tragen ihre Wand-/Dach-/Fensterfarben als Vertex-Colors in EINEM
+# Material. Material-Preview zeigt sie korrekt; deshalb die gespeicherte Bibliothek
+# direkt so öffnen lassen (Solid/Material-Farbe wäre für diese Meshes nur einfarbig).
+for screen in bpy.data.screens:
+    for area in screen.areas:
+        if area.type == 'VIEW_3D':
+            area.spaces.active.shading.type = 'MATERIAL'
 
 bpy.ops.wm.save_as_mainfile(filepath=OUT)
 print("SAVED", OUT)

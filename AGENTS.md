@@ -419,10 +419,15 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   (motoren/fahrwerke/cockpits/ruempfe/fluegel_leitwerk/waffen — Quelle models/*.glb,
   via `tools/build_blender_lib.py`) + **`gebaeude.blend`**: ALLE prozeduralen
   Landmarks-Bauwerke (Stadt/Bergdorf/Leuchtturm/Windrad/Bruecke + Einzelhaeuser
-  Haus_A..F, je eigene Collection). Pipeline dafuer ist ZWEISTUFIG, weil die Quelle
+  Haus_A..L, je eigene Collection). Die Häuser sind bewusst flugtaugliche Ein-Mesh-
+  Low-Poly-Modelle mit Vertex-Colors: sechs Silhouetten (Sattel/Walm/Stadthaus/Flachdach/
+  Chalet/Scheune), wenige kontrastreiche Fenster/Türen, Fundament, Balkon und Kamin.
+  Dadurch mehr Fernwirkung/Variation bei weniger Nodes (Stadt 87, Bergdorf 41 Meshes).
+  Pipeline dafuer ist ZWEISTUFIG, weil die Quelle
   GDScript ist: `tools/_export_buildings.gd` (Godot headless, GLTFDocument.append_from_scene
   -> transientes glb) -> `tools/build_gebaeude_blend.py` (Blender: Collections, Viewport-
   Farben aus glTF-Materialien, speichern; env `GEBAEUDE_PREVIEW=<png>` rendert Uebersicht).
+  Schnelle echte Godot-Luftbild-QA: `tools/_buildings_render.gd -- <out_prefix>`.
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.

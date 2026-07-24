@@ -16,6 +16,9 @@ Thumbs.db
 tools/*.png
 tools/*.png.import
 
+# Transiente Quelle für blender_lib/gebaeude.blend (wird von _export_buildings.gd neu gebaut)
+blender_lib/_gebaeude_export.glb
+
 # graphify-Wissensgraph = generierter Output (regenerierbar via tools/graph-update.ps1)
 graphify-out/
 CLAUDE.md.pre-graphify.bak
