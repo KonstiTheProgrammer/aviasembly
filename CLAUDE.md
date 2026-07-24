@@ -423,6 +423,22 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   GDScript ist: `tools/_export_buildings.gd` (Godot headless, GLTFDocument.append_from_scene
   -> transientes glb) -> `tools/build_gebaeude_blend.py` (Blender: Collections, Viewport-
   Farben aus glTF-Materialien, speichern; env `GEBAEUDE_PREVIEW=<png>` rendert Uebersicht).
+- **HAEUSER-BAUKASTEN `blender_lib/haeuser.blend`** (`tools/build_haeuser_blend.py`):
+  KOPIE von `gebaeude.blend` (shutil.copyfile — das Original wird NUR gelesen, per md5
+  nachgewiesen) + 24 zusaetzlich generierte Gebaeudetypen im Spiel-Stil, je eigene
+  Collection unter `HAEUSER`: Bauernhaus/Fachwerk/Kate/Scheune/Stall/Silo/Wassermuehle/
+  Windmuehle/Stadthaus2/Stadthaus3/Reihenhaus/Eckhaus/Gasthaus/Villa/Kirche/Kapelle/
+  Rathaus/Speicher/Werkstatt/Hangar/Tower/Tanklager/Wasserturm/Lotsenhaus.
+  PERFORMANCE: EIN Multi-Material-Mesh je Haus (MultiMesh-tauglich), verdeckte Flaechen
+  (Bodenplatten/Dachunterseiten) werden gar nicht erst erzeugt, Fenster/Tueren/Fachwerk-
+  balken sind flache Quads statt Boxen, flat shaded, keine UVs -> **1726 Tris fuer alle 24
+  zusammen, Schnitt 72, Maximum 180** (Tanklager). Baukasten in `class Bau`:
+  box/dach(inset=Walm)/spitze/pultdach/zyl(achse="y" = liegender Tank)/kegel/feld/
+  fenster_reihe/profil(Hallenbogen)/rad(Muehlrad). Alle Haeuser schauen nach -Y.
+  FALLEN: (1) ein um 180 Grad gedrehtes Rechteck ist mit sich selbst deckungsgleich —
+  4 Windmuehlen-Fluegel als 4 Panels gaben 2 Duplikate mit Z-Fighting, richtig sind ZWEI
+  gekreuzte Bahnen; (2) Blender-BaseColor ist LINEAR -> `srgb2lin` wie beim Cockpit.
+  `HAEUSER_PREVIEW=<ordner>` rendert Uebersicht + Reihen + Detail-Nahaufnahmen (Workbench).
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
