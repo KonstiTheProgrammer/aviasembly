@@ -68,22 +68,22 @@ func _setup() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.80                    # gedämpft: kein flacher Weiß-Schleier mehr
+	env.ambient_light_energy = 0.85
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_white = 1.0
-	env.tonemap_exposure = 0.82                        # globale Belichtung runter -> blendet nicht mehr
+	env.tonemap_white = 6.0
+	env.tonemap_exposure = 1.0
 	# KLAR & LEBENDIG (aber nicht grell): satte Farben halten, Helligkeit gezähmt.
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.22
-	env.adjustment_contrast = 1.06
-	env.adjustment_brightness = 0.97
+	env.adjustment_saturation = 1.18
+	env.adjustment_contrast = 1.05
+	env.adjustment_brightness = 1.0
 	# Klare Luft: nur dezente Fern-Tiefe (kein dichter Milchnebel mehr).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.72, 0.80, 0.90)
-	env.fog_sun_scatter = 0.12
-	env.fog_density = 0.00013
-	env.fog_aerial_perspective = 0.15
+	env.fog_light_color = Color(0.66, 0.79, 0.94)
+	env.fog_sun_scatter = 0.15
+	env.fog_density = 0.00006
+	env.fog_aerial_perspective = 0.30
 	env.fog_sky_affect = 0.1
 	env.glow_enabled = true
 	env.glow_intensity = 0.15                          # dezentes Glühen, kein Schleier
@@ -98,7 +98,7 @@ func _setup() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-50, -50, 0)
 	sun.light_color = Color(1.0, 0.97, 0.88)
-	sun.light_energy = 1.02
+	sun.light_energy = 1.30
 	sun.shadow_enabled = false
 	sun.directional_shadow_max_distance = 600.0
 	w.add_child(sun)

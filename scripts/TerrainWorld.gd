@@ -98,11 +98,15 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mesh_palm = _build_palm_mesh()
 	# Vertex-Farbe DIREKT als Albedo (StandardMaterial ignorierte die Farben trotz
 	# vertex_color_use_as_albedo bei material_override + SurfaceTool-Mesh).
+	# WICHTIG (war DIE Ursache der faden Map): die set_color-Werte sind sRGB, ALBEDO
+	# erwartet LINEAR. Rohes COLOR.rgb wurde als linear gelesen -> systematisch
+	# aufgehellt/entsaettigt (Mint statt Wiese, Geister-Berge). -> sRGB->linear wandeln.
 	var sh := Shader.new()
 	sh.code = """
 shader_type spatial;
 void fragment() {
-	ALBEDO = COLOR.rgb;
+	vec3 c = COLOR.rgb;
+	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.1;
 }
@@ -131,7 +135,7 @@ void fragment() {
 		lake.mesh = lm
 		lake.position = Vector3(lp.x, float(lk["surf"]), lp.z)
 		var lkmat := StandardMaterial3D.new()
-		lkmat.albedo_color = Color(0.28, 0.62, 0.72, 0.80)
+		lkmat.albedo_color = Color(0.20, 0.68, 0.72, 0.78)
 		lkmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		lkmat.roughness = 0.08
 		lkmat.metallic = 0.35
@@ -297,7 +301,7 @@ func _build_river_water(rv: Dictionary) -> void:
 		var c := Vector3(pts[i].x, pts[i].y + 0.15, pts[i].z)
 		left.append(c + perp * w)
 		right.append(c - perp * w)
-	var col := Color(0.28, 0.62, 0.72)
+	var col := Color(0.20, 0.68, 0.72)
 	for i in pts.size() - 1:
 		st.set_color(col)
 		st.add_vertex(left[i]); st.add_vertex(right[i]); st.add_vertex(right[i + 1])
@@ -306,7 +310,7 @@ func _build_river_water(rv: Dictionary) -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.28, 0.62, 0.72, 0.84)
+	m.albedo_color = Color(0.20, 0.68, 0.72, 0.82)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.roughness = 0.08
 	m.metallic = 0.35
@@ -553,7 +557,7 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# GEDÄMPFTE, erdig-pastellige Low-Poly-Palette (Aviassembly-Look): Sage-Grün,
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	if cen.y < SEA_Y + 1.6:
-		return Color(0.88, 0.79, 0.60)        # warmer, heller Sandstrand/Ufer
+		return Color(0.93, 0.85, 0.62)        # heller, warmer Sandstrand/Ufer
 	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die GIPFEL weiß,
 	# breite FELS-Flanken darunter (sonst wird der Berg ein weißer Klumpen).
 	if cen.y > 188.0:
@@ -563,7 +567,7 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 			clampf((cen.y - 160.0) / 28.0, 0.0, 1.0))   # schmaler Schnee-Übergang (mehr Fels sichtbar)
 	if cen.y > 52.0 or ny < 0.70:
 		# Fels: satt grau-braun (nicht pastell-weiß); etwas heller in der Höhe für Bergform
-		return Color(0.38, 0.34, 0.31).lerp(Color(0.52, 0.49, 0.46),
+		return Color(0.35, 0.31, 0.27).lerp(Color(0.56, 0.52, 0.46),
 			clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	match biome_at(cen.x, cen.z):
@@ -589,8 +593,8 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 				return Color(0.50, 0.52, 0.40) # seltener erdiger Fleck
 			if t > 0.55:
 				return Color(0.62, 0.62, 0.44) # seltener trockener Gras-Fleck
-			var g1 := Color(0.40, 0.55, 0.33)  # sattes Wiesen-Grün
-			var g2 := Color(0.31, 0.45, 0.28)  # tieferes Grün
+			var g1 := Color(0.40, 0.61, 0.28)  # frisches, sattes Wiesen-Grün
+			var g2 := Color(0.28, 0.49, 0.23)  # tieferes Grün
 			return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
 
 

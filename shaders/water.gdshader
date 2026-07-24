@@ -6,11 +6,11 @@ render_mode cull_disabled, diffuse_burley, specular_schlick_ggx;
 
 uniform sampler2D depth_tex : hint_depth_texture, filter_linear_mipmap;
 // Aviassembly: ruhiges, gedämpftes Blau-Grau (kein Türkis), weiche helle Untiefen.
-uniform vec3 shallow_col : source_color = vec3(0.60, 0.66, 0.70);   // pales Grau-Blau (Ufer)
-uniform vec3 mid_col     : source_color = vec3(0.40, 0.50, 0.61);
-uniform vec3 deep_col    : source_color = vec3(0.28, 0.39, 0.52);   // gedämpftes Stahlblau
+uniform vec3 shallow_col : source_color = vec3(0.32, 0.80, 0.78);   // TROPISCHES Ufer-Tuerkis
+uniform vec3 mid_col     : source_color = vec3(0.15, 0.55, 0.68);   // Lagune
+uniform vec3 deep_col    : source_color = vec3(0.06, 0.29, 0.55);   // sattes Ozean-Blau
 uniform vec3 foam_col    : source_color = vec3(0.86, 0.89, 0.92);
-uniform float depth_fade = 26.0;     // Tiefe (m), über die shallow -> deep blendet
+uniform float depth_fade = 18.0;     // Tiefe (m), über die shallow -> deep blendet
 uniform float foam_band  = 1.8;      // Schaum bei sehr geringer Wassertiefe
 uniform float wave_amp   = 0.010;
 uniform float wave_scale = 6.0;
