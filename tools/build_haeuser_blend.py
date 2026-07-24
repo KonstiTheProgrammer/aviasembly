@@ -25,6 +25,7 @@ from mathutils import Vector
 
 ROOT = "C:/Users/Konst/Projects/aviasembly/"
 OUT = ROOT + "blender_lib/haeuser.blend"
+GLB = ROOT + "models/world_buildings.glb"
 PREVIEW = os.environ.get("HAEUSER_PREVIEW", "")
 
 # --- Palette (sRGB wie im Spiel; Blender-BaseColor ist LINEAR -> umrechnen) ---------------
@@ -890,6 +891,21 @@ def main():
 
     bpy.ops.wm.save_mainfile(filepath=OUT)
     print("SAVED", OUT)
+
+    # Fuers SPIEL: alle 42 Haeuser als EIN glb (scripts/CityBuilder.gd zieht daraus die
+    # Meshes und setzt sie per MultiMesh in die Welt). Kein Teil-glb -> PartCatalog
+    # (models/<part_id>.glb) fasst die Datei nicht an.
+    bpy.ops.object.select_all(action='DESELECT')
+    erste = None
+    for nm, _fn in HAEUSER:
+        ob = bpy.data.objects.get(nm)
+        if ob is not None:
+            ob.select_set(True)
+            erste = erste or ob
+    bpy.context.view_layer.objects.active = erste
+    bpy.ops.export_scene.gltf(filepath=GLB, export_format='GLB', use_selection=True,
+                              export_apply=True)
+    print("EXPORTED", GLB)
     total = sum(r[1] for r in report)
     print("HAEUSER: %d Stueck, %d Tris gesamt, Schnitt %.0f Tris"
           % (len(report), total, total / max(len(report), 1)))

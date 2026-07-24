@@ -446,6 +446,25 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Z-Fighting, richtig sind ZWEI gekreuzte Bahnen; (2) Blender-BaseColor ist LINEAR ->
   `srgb2lin` wie beim Cockpit. `HAEUSER_PREVIEW=<ordner>` rendert Uebersicht, Reihen und
   Detail-Nahaufnahmen (Workbench).
+- **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser gehen als EIN glb
+  (`models/world_buildings.glb`, aus `build_haeuser_blend.py` mitexportiert) ins Spiel;
+  `CityBuilder` zieht daraus die Meshes und setzt sie **je Typ und Viertel als ein
+  MultiMeshInstance3D** (ein Draw-Call pro Typ, wie die Baeume). Keine Kollision — genau
+  wie die Landmarks-Bauten. 12 Viertel / 180 Gebaeude: Grossstadt (Skyline + Blockrand,
+  70), Industriehafen, Landdorf, Burgberg (eigenes Massiv + Flachzone y=78), Militaerposten
+  an der FLAK-ZONE und Hangar/Tower/Radar an ALLEN 7 Flugplaetzen. Layouts sind
+  deterministisch (feste RNG-Seeds), Positionen/Flachzonen stehen in `Main._setup_world`.
+  Werkzeuge: `tools/_city_count.gd` (zaehlt headless, was wirklich gesetzt wurde),
+  `tools/_city_render.gd` (Luftbilder je Viertel), `tools/_citylib_check.gd` (glb-Inhalt).
+  DREI FALLEN, alle hier reingelaufen: (1) ein neues glb muss ERST importiert werden
+  (`--headless --editor --import`), sonst liefert `load()` null und es wird stumm nichts
+  gebaut — `--quit-after 4` reicht dafuer NICHT; (2) ein von Hand gesetztes `custom_aabb`
+  am MultiMeshInstance3D cullt das ganze Viertel weg, wenn die Instanzen in Weltkoordinaten
+  liegen, die Box aber am Node-Ursprung — MultiMesh leitet seine Bounds selbst aus den
+  Instanzen ab, also weglassen; (3) Render-Tools MUESSEN das Flugzeug mitversetzen, sonst
+  laesst `update_center(aircraft.pos)` den Chunk-Worker endlos bauen und verwerfen (Haenger).
+  Die Flugplatzbauten sitzen NEBEN der Bahn (die laeuft im lokalen Z, 900 m) und werden mit
+  `dreh = af.heading` mitgedreht.
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.

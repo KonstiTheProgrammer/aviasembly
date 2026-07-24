@@ -347,6 +347,18 @@ func _setup_world() -> void:
 	flat_zones.append({"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0})  # See-Umfeld flach
 	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
 	flat_zones.append({"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0})
+	# --- NEUE VIERTEL aus den Blender-Gebaeuden (scripts/CityBuilder.gd) ---------------
+	# Jedes braucht eine Einebnung, sonst stehen Hochhaeuser auf einem Hang.
+	var city_pos := Vector3(4300, 0, 2500)      # Grossstadt mit Skyline
+	var indu_pos := Vector3(3500, 0, -1500)     # Industriehafen
+	var dorf_pos := Vector3(-2300, 0, 1900)     # Landdorf
+	var burg_pos := Vector3(-1750, 0, 3150)     # Burgberg
+	var mil_pos := Vector3(250, 0, -2400)       # Militaerposten (bei der FLAK-ZONE)
+	flat_zones.append({"pos": city_pos, "r_flat": 480.0, "r_blend": 980.0})
+	flat_zones.append({"pos": indu_pos, "r_flat": 300.0, "r_blend": 700.0})
+	flat_zones.append({"pos": dorf_pos, "r_flat": 260.0, "r_blend": 620.0})
+	flat_zones.append({"pos": burg_pos, "r_flat": 160.0, "r_blend": 420.0, "y": 78.0})
+	flat_zones.append({"pos": mil_pos, "r_flat": 200.0, "r_blend": 480.0})
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0},
 		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0}]   # Canyon-Endsee
 	# Erzwungene Formen: Bergmassiv (Bergdorf/Flussquelle) + VULKANINSEL + ARCHIPEL
@@ -354,6 +366,7 @@ func _setup_world() -> void:
 	# -> echte Küsten mit Türkis-Schelf, egal welcher Seed).
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
+		{"pos": burg_pos, "r": 420.0, "peak": 88.0},   # Burgberg (Flachzone y=78 sitzt oben drauf)
 				# CANYON-FLANKEN: erzwungene Grate beidseits der Schlucht-Spline — der River-Carve
 		# schneidet DANACH hindurch (Reihenfolge in height_at) -> echte Waende, seed-robust.
 		{"pos": Vector3(-6725, 0, 1450), "r": 750.0, "peak": 120.0},
@@ -402,6 +415,10 @@ func _setup_world() -> void:
 		{"name": "Canyon", "pos": Vector3(-5250, 0, 2800), "color": Color(0.90, 0.62, 0.30)},
 		{"name": "Windpark", "pos": Vector3(-3900, 0, -700), "color": Color(0.75, 0.88, 0.95)},
 		{"name": "Wrack", "pos": Vector3(16600, 0, -4600), "color": Color(0.62, 0.42, 0.30)},
+		{"name": "GROSSSTADT", "pos": city_pos, "color": Color(0.95, 0.90, 0.55)},
+		{"name": "Industriehafen", "pos": indu_pos, "color": Color(0.80, 0.70, 0.62)},
+		{"name": "Landdorf", "pos": dorf_pos, "color": Color(0.72, 0.86, 0.60)},
+		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90)},
 	]
 	_map_thread = Thread.new()
 	_map_thread.start(func() -> void:
@@ -420,6 +437,20 @@ func _setup_world() -> void:
 		Landmarks.build_ship(fly_world, sh[0], sh[1])
 	Landmarks.build_wreck(fly_world, Vector2(16600, -4600), 0.8)
 	Landmarks.build_village(fly_world, village_pos)
+	# Blender-Gebaeude einbauen (MultiMesh je Typ; ohne Kollision wie die Landmarks)
+	if CityBuilder.has_lib():
+		CityBuilder.build(fly_world, terrain, city_pos, CityBuilder.plan_grossstadt(), "Grossstadt")
+		CityBuilder.build(fly_world, terrain, indu_pos, CityBuilder.plan_industrie(), "Industriehafen")
+		CityBuilder.build(fly_world, terrain, dorf_pos, CityBuilder.plan_dorf(), "Landdorf")
+		CityBuilder.build(fly_world, terrain, burg_pos, CityBuilder.plan_burg(), "Burgberg")
+		CityBuilder.build(fly_world, terrain, mil_pos, CityBuilder.plan_militaer(), "Militaerposten")
+		for af in airfields:   # Hangars/Tower an JEDEN Flugplatz
+			# NEBEN die Bahn (die laeuft im lokalen Z des Flugplatzes, 900 m lang!) und die
+			# ganze Planung mit dem Bahnkurs drehen -> Hangars stehen parallel zur Piste.
+			var hd: float = af["heading"]
+			var ap: Vector3 = af["pos"] + Basis(Vector3.UP, hd) * Vector3(230.0, 0.0, -60.0)
+			CityBuilder.build(fly_world, terrain, ap, CityBuilder.plan_flugplatz(),
+				"Flugplatzbauten_" + String(af["name"]), hd)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
 	# WOLKEN: hoch in der Luft, locker über viele Höhen verteilte Kumulus zum Durchfliegen
 	# (keine Kollision, nur Flug-Welt).
