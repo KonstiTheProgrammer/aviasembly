@@ -80,6 +80,20 @@ scripts/FlightController.gd class_name FlightController. Baut AircraftBody aus d
                          Spawn/Reset (Reset = komplettes Neuaufbauen).
 scripts/AircraftBody.gd  class_name AircraftBody extends RigidBody3D. Das Flugmodell +
                          Schaden (Fahrwerk, Flügelbruch, Landung).
+scripts/FlightHud.gd     Canvas-HUD (Custom-_draw, Vorbild SimplePlanes-Mockup): FLUG-STATUS-
+                         Panel oben links (Zeilen mit Trennern, gruene AN-Werte), Kompass-Pille +
+                         Kursbox + NAV-Pille (naechster Flugplatz), grosse GESCHWINDIGKEIT/HOEHE-
+                         Boxen unten, Bottom-Bar Schub/Klappen/Fahrwerk, Corner-MINIMAP (7-km-
+                         Fenster, spielerzentriert). Design-Tokens P_BG/CYAN/GREEN/GOLD, Titillium-
+                         Fonts, alles skaliert mit u = size.y/1080. FALLE: `var x := dict/Variant`
+                         bricht als Warning-as-Error den ganzen Compile -> explizit typisieren;
+                         Check via tools/_loadcheck.gd (der --editor-Grep uebersieht diese Klasse!).
+scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug): Image wird im Hintergrund-THREAD
+                         aus height_at/biome_at gesampelt (keine Chunks noetig, dauert Minuten bei
+                         512px × 17-km-Insel), Zoom 1/2.5/6 per Mausrad (_unhandled_input +
+                         set_input_as_handled gegen Kamera-Zoom), spielerzentriertes geklemmtes
+                         UV-Fenster via draw_texture_rect_region, Label-Declutter (_try_label),
+                         km-Grid, Massstabsbalken, Marker + POIs.
 scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 384-m-Chunks,
                          8-m-Raster, Flatshading via Vertex-Colors + Mini-Shader ALBEDO=COLOR.
                          HÖHE (height_at): sanfte fBm-Grundwelligkeit + RIDGED-Noise-Bergketten,
@@ -277,8 +291,8 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links; **lange halten → Fass-Roll**) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
-`M` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `H` **G-Schutz** (Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
-**Maus-Flug (GROSSKREIS-INSTRUCTOR, STANDARD; `M` = Tastatur-Modus):** Maus zeigt eine
+`N` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `M` **Karte** (Vollbild-Inselkarte, Mausrad = Zoomstufen 1/2.5/6; Corner-Minimap läuft immer mit) · `H` **G-Schutz** (Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
+**Maus-Flug (GROSSKREIS-INSTRUCTOR, STANDARD; `N` = Tastatur-Modus):** Maus zeigt eine
 WELTRICHTUNG (`look_yaw/pitch`, ROH — kein Glättungs-Lag); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
 `mouse_fly=true` als Default; `set_active(true)` ruft `_reset_mouse_state()` (Aim an der
 Nase ausrichten, Filter/Trim nullen — auch vom M-Toggle genutzt).

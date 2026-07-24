@@ -27,6 +27,12 @@ var _airfields: Array = []
 var _pois: Array = []
 var _player: Node3D = null
 var _map_rect := Rect2()
+# Zoom (Mausrad / +-): 1 = ganze Insel, gezoomt = spielerzentriert (geklemmt)
+const ZOOMS := [1.0, 2.5, 6.0]
+var _zoom_i := 0
+var _win_min := Vector2.ZERO   # sichtbares Weltfenster in UV [0..1]
+var _win_size := Vector2.ONE
+var _label_rects: Array = []   # Label-Entzerrung (Overview-Cluster)
 
 
 static func generate_image(t: TerrainWorld, size := 640, world_r := WORLD_R) -> Image:
@@ -87,8 +93,44 @@ func _process(_dt: float) -> void:
 
 
 func _world_to_map(w: Vector3) -> Vector2:
-	return _map_rect.position + Vector2(w.x / WORLD_R * 0.5 + 0.5,
-		w.z / WORLD_R * 0.5 + 0.5) * _map_rect.size
+	var uv := Vector2(w.x / WORLD_R * 0.5 + 0.5, w.z / WORLD_R * 0.5 + 0.5)
+	return _map_rect.position + (uv - _win_min) / _win_size * _map_rect.size
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_zoom_i = mini(_zoom_i + 1, ZOOMS.size() - 1)
+			get_viewport().set_input_as_handled()   # nicht an die Flug-Kamera durchreichen
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_zoom_i = maxi(_zoom_i - 1, 0)
+			get_viewport().set_input_as_handled()
+
+
+## Sichtfenster (UV) aus Zoom + Spielerposition bestimmen; am Weltrand geklemmt.
+func _update_window() -> void:
+	var z: float = ZOOMS[_zoom_i]
+	var half := 0.5 / z
+	var c := Vector2(0.5, 0.5)
+	if z > 1.0 and _player != null and is_instance_valid(_player):
+		var pp := _player.global_position
+		c = Vector2(pp.x / WORLD_R * 0.5 + 0.5, pp.z / WORLD_R * 0.5 + 0.5)
+	c = c.clamp(Vector2(half, half), Vector2(1.0 - half, 1.0 - half))
+	_win_min = c - Vector2(half, half)
+	_win_size = Vector2(half, half) * 2.0
+
+
+## Label nur zeichnen, wenn es nicht mit einem bereits gezeichneten kollidiert (Marker bleibt).
+func _try_label(f: Font, pos: Vector2, txt: String, fs: int, col: Color) -> void:
+	var w := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x
+	var r := Rect2(pos - Vector2(0, fs * 0.8), Vector2(w, fs * 1.1))
+	for other in _label_rects:
+		if r.intersects(other):
+			return
+	_label_rects.append(r)
+	_shadow_text(f, pos, txt, fs, col)
 
 
 func _shadow_text(f: Font, pos: Vector2, txt: String, fs: int, col: Color) -> void:
@@ -127,14 +169,19 @@ func _draw() -> void:
 	draw_style_box(hb, Rect2(panel.position, Vector2(panel.size.x, head)))
 	var fs_title := int(26.0 * ui)
 	_shadow_text(F_BOLD, panel.position + Vector2(18.0 * ui, head * 0.5 + fs_title * 0.36), "KARTE", fs_title, C_TEXT)
-	var hint := "M — schließen"
+	var hint := "Mausrad — Zoom  ·  M — schließen"
 	var fs_hint := int(17.0 * ui)
 	var hw := F_SEMI.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_hint).x
 	_shadow_text(F_SEMI, panel.position + Vector2(panel.size.x - hw - 18.0 * ui, head * 0.5 + fs_hint * 0.36), hint, fs_hint, C_MUTED)
 
-	# Karte + feines 2-km-Grid + Kompass-Buchstaben
-	draw_texture_rect(_tex, _map_rect, false)
-	var step := _map_rect.size.x * (5000.0 / (WORLD_R * 2.0))   # 5-km-Grid auf der grossen Insel
+	# Karte (sichtbares Fenster je Zoom) + Grid + Kompass-Buchstaben
+	_update_window()
+	_label_rects.clear()
+	var ts := Vector2(_tex.get_width(), _tex.get_height())
+	draw_texture_rect_region(_tex, _map_rect, Rect2(_win_min * ts, _win_size * ts))
+	var win_world := _win_size.x * WORLD_R * 2.0
+	var grid_km := 5000.0 if _zoom_i == 0 else (2000.0 if _zoom_i == 1 else 1000.0)
+	var step := _map_rect.size.x * (grid_km / win_world)
 	var gx := _map_rect.position.x + step
 	while gx < _map_rect.end.x - 1.0:
 		draw_line(Vector2(gx, _map_rect.position.y), Vector2(gx, _map_rect.end.y), Color(1, 1, 1, 0.08), 1.0)
@@ -155,7 +202,7 @@ func _draw() -> void:
 	var bar_x := _map_rect.position.x + 18.0 * ui
 	draw_line(Vector2(bar_x, bar_y), Vector2(bar_x + step, bar_y), Color(0, 0, 0, 0.8), 6.0 * ui)
 	draw_line(Vector2(bar_x, bar_y), Vector2(bar_x + step, bar_y), Color(1, 1, 1, 0.95), 3.0 * ui)
-	_shadow_text(F_SEMI, Vector2(bar_x, bar_y - 8.0 * ui), "5 km", int(16.0 * ui), C_TEXT)
+	_shadow_text(F_SEMI, Vector2(bar_x, bar_y - 8.0 * ui), "%d km" % int(grid_km / 1000.0), int(16.0 * ui), C_TEXT)
 
 	# Flugplaetze: Quadrat mit Kontur + Label
 	var fs_af := int(19.0 * ui)
@@ -169,9 +216,11 @@ func _draw() -> void:
 	var fs_poi := int(17.0 * ui)
 	for poi in _pois:
 		var p := _world_to_map(poi["pos"])
+		if not _map_rect.grow(4.0).has_point(p):
+			continue
 		draw_circle(p, 6.5 * ui, Color(0, 0, 0, 0.8))
 		draw_circle(p, 5.0 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
-		_shadow_text(F_SEMI, p + Vector2(9.0 * ui, fs_poi * 0.36), String(poi["name"]), fs_poi, Color(0.92, 0.95, 1.0, 0.95))
+		_try_label(F_SEMI, p + Vector2(9.0 * ui, fs_poi * 0.36), String(poi["name"]), fs_poi, Color(0.92, 0.95, 1.0, 0.95))
 	# Spieler: grosser Pfeil mit weisser Kontur
 	if _player != null and is_instance_valid(_player):
 		var p := _world_to_map(_player.global_position)

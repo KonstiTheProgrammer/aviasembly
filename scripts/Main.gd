@@ -1998,6 +1998,7 @@ func _build_flight_ui() -> void:
 	var hp := _panel(Color(0, 0, 0, 0.45))
 	_rect(hp, 0, 0, 0, 0, 12, 12, 320, 290)
 	flight_root.add_child(hp)
+	hp.visible = false   # ersetzt durch das FLUG-STATUS-Panel im FlightHud (Mockup-Design)
 	var hv := VBoxContainer.new()
 	hp.add_child(hv)
 	hv.add_child(_lbl("FLUG-HUD", 16, Color(0.6, 0.85, 1.0)))
@@ -2012,7 +2013,7 @@ func _build_flight_ui() -> void:
 	# Survival-HUD oben rechts (Welle / Abschüsse / Combo / Score)
 	survival_label = _lbl("", 15, Color(0.7, 1.0, 0.8))
 	survival_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_rect(survival_label, 1, 0, 1, 0, -300, 44, -14, 120)
+	_rect(survival_label, 1, 0, 1, 0, -300, 62, -14, 138)
 	survival_label.visible = false
 	flight_root.add_child(survival_label)
 
@@ -2022,11 +2023,25 @@ func _build_flight_ui() -> void:
 	_rect(land_label, 0.5, 0, 0.5, 0, -320, 124, 320, 158)
 	flight_root.add_child(land_label)
 
-	# Zurück-Button
+	# Zurück-Button — oben RECHTS (mittig kollidierte er mit dem HUD-Kompass), HUD-Panel-Optik
 	var back_btn := Button.new()
-	back_btn.text = "ZURÜCK ZUM HANGAR  (Tab)"
+	back_btn.text = "HANGAR  (Tab)"
+	back_btn.add_theme_font_override("font", F_SEMI)
 	back_btn.add_theme_font_size_override("font_size", 16)
-	_rect(back_btn, 0.5, 0, 0.5, 0, -150, 10, 150, 48)
+	back_btn.add_theme_color_override("font_color", Color(0.86, 0.90, 0.96))
+	back_btn.add_theme_color_override("font_hover_color", Color(0.36, 0.78, 0.91))
+	var bsb := StyleBoxFlat.new()
+	bsb.bg_color = Color(0.075, 0.095, 0.135, 0.88)
+	bsb.set_corner_radius_all(9)
+	bsb.set_border_width_all(1)
+	bsb.border_color = Color(1, 1, 1, 0.10)
+	bsb.set_content_margin_all(10)
+	back_btn.add_theme_stylebox_override("normal", bsb)
+	var bsh: StyleBoxFlat = bsb.duplicate()
+	bsh.border_color = Color(0.36, 0.78, 0.91, 0.55)
+	back_btn.add_theme_stylebox_override("hover", bsh)
+	back_btn.add_theme_stylebox_override("pressed", bsh)
+	_rect(back_btn, 1, 0, 1, 0, -196, 14, -16, 52)
 	back_btn.pressed.connect(_on_hangar_pressed)
 	flight_root.add_child(back_btn)
 
@@ -2140,7 +2155,7 @@ func _on_hud_changed(d: Dictionary) -> void:
 		thr_txt = "Schub %d%%" % thr_pct
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
 	# Speed/Höhe/Kurs/Steig zeigt jetzt das PFD; hier nur noch Systeme/Status.
-	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (M): %s\n%s" % [
+	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (N): %s\n%s" % [
 		thr_txt, int(d["aoa"]), d.get("gforce", 1.0),
 		d.get("wings", "ok"), d.get("gear", "—"), d.get("flaps", "AUS"), inv_txt, assist_txt, mf_txt, nav]
 	var ammo_txt: String = d.get("ammo", "")
@@ -2148,6 +2163,16 @@ func _on_hud_changed(d: Dictionary) -> void:
 		hud_label.text += "\nMunition: " + ammo_txt
 	# Primary-Flight-Display füttern (Kompass, Speed/Höhe-Boxen, Zielkreis)
 	if flight_hud:
+		flight_hud.mini_player = flight_ctrl.aircraft
+		flight_hud.gear_text = str(d.get("gear", "—"))
+		flight_hud.flaps_text = str(d.get("flaps", "AUS"))
+		flight_hud.steer_text = inv_txt
+		flight_hud.assist_text = assist_txt
+		flight_hud.mousefly_text = mf_txt
+		flight_hud.wings_text = str(d.get("wings", "ok"))
+		flight_hud.nav_text = nav
+		flight_hud.ammo_text = str(d.get("ammo", ""))
+		flight_hud.badge_text = "SANDBOX" if game.is_sandbox() else fly_money_label.text
 		flight_hud.heading = d.get("heading", 0.0)
 		flight_hud.speed_kmh = d.get("kmh", 0.0)
 		flight_hud.speed_ms = d.get("speed", 0.0)
@@ -2383,6 +2408,11 @@ func _on_map_image_ready(img: Image) -> void:
 	world_map = WorldMap.new()
 	lay.add_child(world_map)
 	world_map.setup(img, airfields, _map_pois, null)
+	# Corner-Minimap im Flug-HUD mit derselben Karte fuettern
+	if flight_hud != null:
+		flight_hud.mini_tex = ImageTexture.create_from_image(img)
+		flight_hud.mini_airfields = airfields
+		flight_hud.mini_pois = _map_pois
 
 
 func _toggle_map() -> void:
@@ -2391,6 +2421,8 @@ func _toggle_map() -> void:
 		return
 	world_map.set_player(flight_ctrl.aircraft)   # Flieger wird je Flug neu gebaut
 	world_map.toggle()
+	if flight_hud != null:
+		flight_hud.big_map_open = world_map.visible
 
 
 func _spawn_flak() -> void:

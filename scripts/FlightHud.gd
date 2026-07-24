@@ -28,6 +28,36 @@ var _disp_heading := 0.0    # geglätteter Kurs (für sanftes Scrollen)
 var _font: Font
 const ACCENT := Color(0.35, 1.0, 0.5)        # HUD-Grün
 const DIM := Color(0.75, 0.9, 1.0)
+# --- Design-Sprache (Mockup): dunkle Panels, Cyan-Akzente, Gruen=positiv, Gold=Warn/Badge ---
+const P_BG := Color(0.075, 0.095, 0.135, 0.88)
+const P_BORDER := Color(0.72, 0.80, 0.92, 0.30)
+const CYAN := Color(0.36, 0.78, 0.91)
+const GREEN := Color(0.38, 0.92, 0.52)
+const GOLD := Color(0.97, 0.80, 0.28)
+const TXT := Color(0.94, 0.96, 1.0)
+const MUT := Color(0.62, 0.70, 0.82)
+var gear_text := "—"
+var flaps_text := "AUS"
+var steer_text := "normal"
+var assist_text := "AN"
+var mousefly_text := "AN"
+var wings_text := "ok"
+var badge_text := "SANDBOX"
+var nav_text := ""
+var ammo_text := ""
+
+
+func _panel_sb(radius: float) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = P_BG
+	sb.set_corner_radius_all(int(radius))
+	sb.border_color = P_BORDER
+	sb.set_border_width_all(2)
+	return sb
+
+
+func _txt_r(pos: Vector2, w: float, t: String, fs: int, col: Color) -> void:
+	draw_string(_font, pos, t, HORIZONTAL_ALIGNMENT_RIGHT, w, fs, col)
 
 
 func _ready() -> void:
@@ -46,24 +76,120 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	_draw_status_panel()
 	_draw_compass()
 	_draw_modes()
 	_draw_speed_box()
 	_draw_alt_box()
+	_draw_bottom_bar()
 	_draw_reticle()
 	_draw_lock()
 	_draw_stall()
+	_draw_minimap()
+
+
+# --- FLUG-STATUS-Panel oben links (Mockup: Icons, rechtsbuendige Werte, Gruppen) ---
+func _draw_status_panel() -> void:
+	var u := size.y / 1080.0
+	var w := 340.0 * u
+	var rowh := 30.0 * u
+	var rows: Array = [
+		["Schub", "%d%%" % int(round(throttle * 100.0)), TXT],
+		["Anstellwinkel", "%d°" % int(round(aoa)), TXT],
+		["G-Kraft", "%.1f g" % gforce, (GOLD if gforce > 4.0 else TXT)],
+		null,
+		["Fahrwerk (G)", gear_text, (GREEN if gear_text.begins_with("ausgef") else GOLD)],
+		["Klappen (F)", flaps_text, (TXT if flaps_text == "AUS" else CYAN)],
+		["Steuerung (I)", steer_text, (TXT if steer_text == "normal" else GOLD)],
+		null,
+		["Assist (T)", assist_text, (GREEN if assist_text.begins_with("AN") else MUT)],
+		["Maus-Flug (N)", mousefly_text, (GREEN if mousefly_text.begins_with("AN") else MUT)],
+	]
+	if wings_text != "ok":
+		rows.append(["Flügel", wings_text, GOLD])
+	if ammo_text != "":
+		rows.append(["Munition", ammo_text, TXT])
+	var head := 44.0 * u
+	var pad := 14.0 * u
+	var h := head + pad
+	for r in rows:
+		h += (10.0 * u) if r == null else rowh
+	var rect := Rect2(Vector2(24.0 * u, 20.0 * u), Vector2(w, h))
+	draw_style_box(_panel_sb(12.0 * u), rect)
+	# Header: Titel cyan + gruener Punkt + Badge gold rechts
+	var fs_h := int(19.0 * u)
+	draw_string(_font, rect.position + Vector2(16.0 * u, 30.0 * u), "FLUG-STATUS",
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_h, CYAN)
+	draw_circle(rect.position + Vector2(w - 16.0 * u - _font.get_string_size(badge_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, int(15.0 * u)).x - 16.0 * u, 24.0 * u), 5.0 * u, GREEN)
+	_txt_r(rect.position + Vector2(0, 30.0 * u), w - 16.0 * u, badge_text, int(15.0 * u), GOLD)
+	draw_line(rect.position + Vector2(12.0 * u, head), rect.position + Vector2(w - 12.0 * u, head), P_BORDER, 1.0)
+	var y := rect.position.y + head + 22.0 * u
+	for r in rows:
+		if r == null:
+			draw_line(Vector2(rect.position.x + 12.0 * u, y - 14.0 * u),
+				Vector2(rect.position.x + w - 12.0 * u, y - 14.0 * u), Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.16), 1.0)
+			y += 10.0 * u
+			continue
+		# kleines Icon: Raute
+		var ic := Vector2(rect.position.x + 22.0 * u, y - 6.0 * u)
+		draw_colored_polygon(PackedVector2Array([ic + Vector2(0, -4.5 * u), ic + Vector2(4.5 * u, 0),
+			ic + Vector2(0, 4.5 * u), ic + Vector2(-4.5 * u, 0)]), Color(MUT.r, MUT.g, MUT.b, 0.75))
+		draw_string(_font, Vector2(rect.position.x + 38.0 * u, y), String(r[0]),
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, int(16.0 * u), MUT)
+		_txt_r(Vector2(rect.position.x, y), w - 16.0 * u, String(r[1]), int(16.0 * u), r[2])
+		y += rowh
+
+
+# --- Bottom-Bar Mitte: SCHUB (Balken) · KLAPPEN · FAHRWERK -------------------
+func _draw_bottom_bar() -> void:
+	var u := size.y / 1080.0
+	var w := 700.0 * u
+	var h := 62.0 * u
+	var rect := Rect2(Vector2(size.x * 0.5 - w * 0.5, size.y - h - 104.0 * u), Vector2(w, h))
+	draw_style_box(_panel_sb(12.0 * u), rect)
+	var seg := w / 3.0
+	for i in [1, 2]:
+		draw_line(rect.position + Vector2(seg * i, 10.0 * u), rect.position + Vector2(seg * i, h - 10.0 * u), Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.25), 1.0)
+	var fs_l := int(14.0 * u)
+	var fs_v := int(18.0 * u)
+	# SCHUB + Fortschrittsbalken (Nachbrenner orange)
+	var x0 := rect.position.x + 22.0 * u
+	draw_string(_font, Vector2(x0, rect.position.y + 24.0 * u), "SCHUB", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
+	var thr_col: Color = CYAN if throttle <= 1.0 else Color(1.0, 0.55, 0.2)
+	if throttle < 0.0:
+		thr_col = Color(1.0, 0.45, 0.3)
+	draw_string(_font, Vector2(x0, rect.position.y + 46.0 * u), "%d%%" % int(round(throttle * 100.0)),
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_v, TXT)
+	var bar := Rect2(Vector2(x0 + 62.0 * u, rect.position.y + 36.0 * u), Vector2(seg - 110.0 * u, 7.0 * u))
+	draw_rect(bar, Color(1, 1, 1, 0.12))
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(absf(throttle), 0.0, 1.0), bar.size.y)), thr_col)
+	# KLAPPEN
+	var x1 := rect.position.x + seg + 22.0 * u
+	draw_string(_font, Vector2(x1, rect.position.y + 24.0 * u), "KLAPPEN", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
+	draw_string(_font, Vector2(x1, rect.position.y + 46.0 * u), flaps_text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_v, TXT if flaps_text == "AUS" else CYAN)
+	# FAHRWERK
+	var x2 := rect.position.x + seg * 2.0 + 22.0 * u
+	draw_string(_font, Vector2(x2, rect.position.y + 24.0 * u), "FAHRWERK", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
+	var gt := gear_text.to_upper()
+	draw_string(_font, Vector2(x2, rect.position.y + 46.0 * u), gt,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_v, GREEN if gt.begins_with("AUSGEF") else GOLD)
 
 
 # --- Kompass-Leiste oben (scrollt mit dem Kurs) -----------------------------
+
+
 func _draw_compass() -> void:
 	var w := 560.0
 	var h := 34.0
 	var cx := size.x * 0.5
 	var top := 16.0
+	var u := size.y / 1080.0
+	w *= u
+	h = 40.0 * u
+	top = 18.0 * u
 	var bg := Rect2(cx - w * 0.5, top, w, h)
-	draw_rect(bg, Color(0, 0, 0, 0.5))
-	draw_rect(bg, Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.35), false, 1.5)
+	draw_style_box(_panel_sb(h * 0.5), bg)
 	var ppd := w / 120.0          # 120° sichtbar
 	var span := 62
 	for off in range(-span, span + 1):
@@ -78,17 +204,31 @@ func _draw_compass() -> void:
 		var tlen := (h * 0.5) if major else (h * 0.28)
 		draw_line(Vector2(x, top), Vector2(x, top + tlen), Color(1, 1, 1, 0.85 if major else 0.5), 2.0 if major else 1.0)
 		if major:
-			draw_string(_font, Vector2(x - 18.0, top + h - 4.0), _hdg_label(di),
-				HORIZONTAL_ALIGNMENT_CENTER, 36.0, 13, Color(1, 1, 1, 0.95))
+			var lab := _hdg_label(di)
+			var lcol := CYAN if lab == "N" else Color(1, 1, 1, 0.95)
+			draw_string(_font, Vector2(x - 18.0, top + h - 6.0), lab,
+				HORIZONTAL_ALIGNMENT_CENTER, 36.0, int(15.0 * (size.y / 1080.0)), lcol)
 	# Mittelzeiger (Dreieck nach unten) + exakte Kurszahl
 	var tip := top + h + 2.0
 	draw_colored_polygon(PackedVector2Array([
-		Vector2(cx, tip + 9.0), Vector2(cx - 8.0, tip), Vector2(cx + 8.0, tip)]), ACCENT)
+		Vector2(cx, tip + 8.0 * u), Vector2(cx - 7.0 * u, tip), Vector2(cx + 7.0 * u, tip)]), CYAN)
 	var num := "%03d°" % int(round(fposmod(_disp_heading, 360.0)))
-	var nbox := Rect2(cx - 34.0, tip + 11.0, 68.0, 24.0)
-	draw_rect(nbox, Color(0, 0, 0, 0.55))
-	draw_rect(nbox, Color(ACCENT.r, ACCENT.g, ACCENT.b, 0.5), false, 1.5)
-	draw_string(_font, Vector2(cx - 34.0, tip + 29.0), num, HORIZONTAL_ALIGNMENT_CENTER, 68.0, 18, ACCENT)
+	var nbox := Rect2(cx - 44.0 * u, tip + 10.0 * u, 88.0 * u, 30.0 * u)
+	draw_style_box(_panel_sb(8.0 * u), nbox)
+	draw_string(_font, Vector2(nbox.position.x, nbox.position.y + 22.0 * u), num,
+		HORIZONTAL_ALIGNMENT_CENTER, nbox.size.x, int(19.0 * u), CYAN)
+	# NAV-Pille: naechster Flugplatz ("◆ HEIMAT 0.1 km")
+	if nav_text != "":
+		var fs_n := int(16.0 * u)
+		var tw := _font.get_string_size(nav_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_n).x
+		var pw := tw + 44.0 * u
+		var pbox := Rect2(cx - pw * 0.5, nbox.end.y + 8.0 * u, pw, 30.0 * u)
+		draw_style_box(_panel_sb(8.0 * u), pbox)
+		var dc := pbox.position + Vector2(18.0 * u, 15.0 * u)
+		draw_colored_polygon(PackedVector2Array([dc + Vector2(0, -6.0 * u), dc + Vector2(6.0 * u, 0),
+			dc + Vector2(0, 6.0 * u), dc + Vector2(-6.0 * u, 0)]), GOLD)
+		draw_string(_font, Vector2(pbox.position.x + 32.0 * u, pbox.position.y + 21.0 * u), nav_text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_n, TXT)
 
 
 func _hdg_label(di: int) -> String:
@@ -100,58 +240,56 @@ func _hdg_label(di: int) -> String:
 	return str(di)
 
 
-# --- Speed-Box links (mittig) ----------------------------------------------
+# --- GESCHWINDIGKEIT-Box unten links (Mockup: grosse Zahl, m/s, AoA) --------
 func _draw_speed_box() -> void:
-	var bx := 22.0
-	var by := size.y * 0.5
-	var r := Rect2(bx, by - 30.0, 132.0, 60.0)
-	draw_rect(r, Color(0, 0, 0, 0.5))
-	var thr_col: Color = ACCENT if throttle >= 0.0 else Color(1, 0.5, 0.3)
-	if throttle > 1.0:
-		thr_col = Color(1.0, 0.42, 0.12)        # Nachbrenner: heißes Orange-Rot
-	draw_rect(r, Color(thr_col.r, thr_col.g, thr_col.b, 0.5), false, 2.0)
-	var spd_col: Color = Color(1, 0.45, 0.3) if stall else Color(1, 1, 1)
-	draw_string(_font, Vector2(bx + 12.0, by + 4.0), "%d" % int(round(speed_kmh)),
-		HORIZONTAL_ALIGNMENT_LEFT, 110.0, 30, spd_col)
-	draw_string(_font, Vector2(bx + 12.0, by + 23.0), "km/h  ·  %d m/s" % int(round(speed_ms)),
-		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 12, DIM)
-	# Anstellwinkel direkt unter der Speed-Box (rot ab Stall-Nähe)
-	var aoa_col: Color = Color(1, 0.45, 0.3) if stall else (Color(1, 0.8, 0.35) if aoa > 11.0 else DIM)
-	draw_string(_font, Vector2(bx + 12.0, by + 48.0), "AoA  %d°" % int(round(aoa)),
-		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 13, aoa_col)
-	# Schub-/Bremsbalken am linken Rand der Box (über 100 % = Nachbrenner-Zone)
-	var bar := Rect2(bx - 8.0, by - 30.0, 5.0, 60.0)
-	draw_rect(bar, Color(0, 0, 0, 0.5))
-	if throttle >= 0.0:
-		var norm := clampf(throttle, 0.0, 1.0)
-		var fill_h := norm * 30.0
-		draw_rect(Rect2(bx - 8.0, by - fill_h, 5.0, fill_h), thr_col)
-		if throttle > 1.0:
-			# Nachbrenner: pulsierender heller Kopf oben am vollen Balken
-			var pulse := 0.6 + 0.4 * sin(float(Time.get_ticks_msec()) * 0.02)
-			draw_rect(Rect2(bx - 8.0, by - 30.0, 5.0, 5.0), Color(1.0, 0.9, 0.4, pulse))
-	else:
-		var fill_n := absf(throttle) * 30.0
-		draw_rect(Rect2(bx - 8.0, by, 5.0, fill_n), thr_col)
+	var u := size.y / 1080.0
+	var w := 230.0 * u
+	var h := 210.0 * u
+	var rect := Rect2(Vector2(40.0 * u, size.y - h - 46.0 * u), Vector2(w, h))
+	draw_style_box(_panel_sb(12.0 * u), rect)
+	draw_string(_font, rect.position + Vector2(0, 30.0 * u), "GESCHWINDIGKEIT",
+		HORIZONTAL_ALIGNMENT_CENTER, w, int(15.0 * u), MUT)
+	var spd_col: Color = Color(1, 0.45, 0.3) if stall else TXT
+	var num := "%d" % int(round(speed_kmh))
+	var fs_big := int(56.0 * u)
+	var nw := _font.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_big).x
+	draw_string(_font, rect.position + Vector2(w * 0.5 - nw * 0.5 - 18.0 * u, 92.0 * u), num,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_big, spd_col)
+	draw_string(_font, rect.position + Vector2(w * 0.5 + nw * 0.5 - 10.0 * u, 90.0 * u), "km/h",
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, int(15.0 * u), MUT)
+	draw_line(rect.position + Vector2(16.0 * u, 112.0 * u), rect.position + Vector2(w - 16.0 * u, 112.0 * u), Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.2), 1.0)
+	draw_string(_font, rect.position + Vector2(0, 142.0 * u), "%d m/s" % int(round(speed_ms)),
+		HORIZONTAL_ALIGNMENT_CENTER, w, int(21.0 * u), TXT)
+	draw_line(rect.position + Vector2(16.0 * u, 160.0 * u), rect.position + Vector2(w - 16.0 * u, 160.0 * u), Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.2), 1.0)
+	var aoa_col: Color = Color(1, 0.45, 0.3) if stall else (GOLD if aoa > 11.0 else MUT)
+	draw_string(_font, rect.position + Vector2(0, 190.0 * u), "AoA %d°" % int(round(aoa)),
+		HORIZONTAL_ALIGNMENT_CENTER, w, int(19.0 * u), aoa_col)
 
-
-# --- Höhen-/Steig-Box rechts (mittig) --------------------------------------
+# --- HOEHE-Box unten rechts (Mockup: grosse Zahl, Steigen, G-Kraft) ---------
 func _draw_alt_box() -> void:
-	var r := Rect2(size.x - 154.0, size.y * 0.5 - 30.0, 132.0, 60.0)
-	draw_rect(r, Color(0, 0, 0, 0.5))
-	draw_rect(r, Color(DIM.r, DIM.g, DIM.b, 0.45), false, 2.0)
-	draw_string(_font, Vector2(r.position.x + 12.0, r.position.y + 34.0), "%d" % int(round(altitude)),
-		HORIZONTAL_ALIGNMENT_LEFT, 110.0, 30, Color(1, 1, 1))
-	var arrow := "▲" if climb > 0.4 else ("▼" if climb < -0.4 else "■")
-	var cc: Color = ACCENT if climb > 0.4 else (Color(1, 0.6, 0.3) if climb < -0.4 else DIM)
-	# Im neutralen Band stabil "0.0" zeigen (kein +/- Zappeln am Stand), sonst mit Vorzeichen.
+	var u := size.y / 1080.0
+	var w := 230.0 * u
+	var h := 210.0 * u
+	var rect := Rect2(Vector2(size.x - w - 40.0 * u, size.y - h - 46.0 * u), Vector2(w, h))
+	draw_style_box(_panel_sb(12.0 * u), rect)
+	draw_string(_font, rect.position + Vector2(0, 30.0 * u), "HÖHE",
+		HORIZONTAL_ALIGNMENT_CENTER, w, int(15.0 * u), MUT)
+	var num := "%d" % int(round(altitude))
+	var fs_big := int(56.0 * u)
+	var nw := _font.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_big).x
+	draw_string(_font, rect.position + Vector2(w * 0.5 - nw * 0.5 - 14.0 * u, 92.0 * u), num,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_big, TXT)
+	draw_string(_font, rect.position + Vector2(w * 0.5 + nw * 0.5 - 2.0 * u, 90.0 * u), "m",
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, int(15.0 * u), MUT)
+	draw_line(rect.position + Vector2(16.0 * u, 112.0 * u), rect.position + Vector2(w - 16.0 * u, 112.0 * u), Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.2), 1.0)
+	var cc: Color = CYAN if climb > 0.4 else (Color(1, 0.6, 0.3) if climb < -0.4 else MUT)
 	var ctxt := "0.0" if absf(climb) <= 0.4 else ("%+.1f" % climb)
-	draw_string(_font, Vector2(r.position.x + 12.0, r.position.y + 53.0), "m  %s %s m/s" % [arrow, ctxt],
-		HORIZONTAL_ALIGNMENT_LEFT, 124.0, 12, cc)
-	# G-Kraft kleiner darunter
-	draw_string(_font, Vector2(r.position.x, r.position.y + 76.0), "%.1f g" % gforce,
-		HORIZONTAL_ALIGNMENT_RIGHT, 130.0, 13, Color(1, 0.85, 0.4) if gforce > 4.0 else DIM)
-
+	draw_string(_font, rect.position + Vector2(0, 142.0 * u), "↕  %s m/s" % ctxt,
+		HORIZONTAL_ALIGNMENT_CENTER, w, int(21.0 * u), cc)
+	draw_line(rect.position + Vector2(16.0 * u, 160.0 * u), rect.position + Vector2(w - 16.0 * u, 160.0 * u), Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.2), 1.0)
+	var gcol: Color = GOLD if gforce > 4.0 else CYAN
+	draw_string(_font, rect.position + Vector2(0, 190.0 * u), "G-KRAFT  %.1f g" % gforce,
+		HORIZONTAL_ALIGNMENT_CENTER, w, int(19.0 * u), gcol)
 
 # --- Zielkreis / Fadenkreuz ------------------------------------------------
 func _draw_reticle() -> void:
@@ -207,13 +345,14 @@ func _draw_lock() -> void:
 func _draw_modes() -> void:
 	if mode_text == "":
 		return
-	var fw: float = _font.get_string_size(mode_text, HORIZONTAL_ALIGNMENT_CENTER, -1, 14).x + 22.0
-	var y := 84.0
-	var r := Rect2(size.x * 0.5 - fw * 0.5, y, fw, 22.0)
-	draw_rect(r, Color(0, 0, 0, 0.5))
-	draw_rect(r, Color(0.5, 0.85, 1.0, 0.55), false, 1.5)
-	draw_string(_font, Vector2(r.position.x, y + 16.0), mode_text,
-		HORIZONTAL_ALIGNMENT_CENTER, fw, 14, Color(0.6, 0.95, 1.0))
+	var u := size.y / 1080.0
+	var fs := int(14.0 * u)
+	var fw: float = _font.get_string_size(mode_text, HORIZONTAL_ALIGNMENT_CENTER, -1, fs).x + 26.0 * u
+	var y := 172.0 * u   # unter Kompass + Kursbox + NAV-Pille
+	var r := Rect2(size.x * 0.5 - fw * 0.5, y, fw, 26.0 * u)
+	draw_style_box(_panel_sb(8.0 * u), r)
+	draw_string(_font, Vector2(r.position.x, y + 19.0 * u), mode_text,
+		HORIZONTAL_ALIGNMENT_CENTER, fw, fs, CYAN)
 
 
 # --- Prominente Stall-Warnung (pulsierender Rahmen + Banner) ----------------
@@ -234,3 +373,71 @@ func _draw_stall() -> void:
 	var by := size.y * 0.30
 	draw_string(_font, Vector2(bx, by), "STALL",
 		HORIZONTAL_ALIGNMENT_CENTER, bw, 30, Color(1.0, 0.3, 0.24, 0.65 + 0.35 * pulse))
+
+
+# ---------------------------------------------------------------------------
+# CORNER-MINIMAP (immer sichtbar im Flug): spielerzentrierter Ausschnitt der
+# Weltkarte (Textur kommt von Main, sobald der Karten-Thread fertig ist),
+# Norden oben, eigene Marker in Reichweite. Versteckt sich, wenn die grosse
+# M-Karte offen ist. Wird am Ende von _draw() aufgerufen.
+# ---------------------------------------------------------------------------
+var mini_tex: Texture2D = null
+var mini_player: Node3D = null
+var mini_airfields: Array = []
+var mini_pois: Array = []
+var big_map_open := false
+const MINI_SPAN := 7000.0        # sichtbare Weltbreite (m)
+
+
+func _draw_minimap() -> void:
+	if mini_tex == null or big_map_open or mini_player == null or not is_instance_valid(mini_player):
+		return
+	var vs := size
+	var ui := vs.y / 1080.0
+	var s := floorf(170.0 * ui)
+	var rect := Rect2(Vector2(vs.x - s - 40.0 * ui, vs.y - s - 286.0 * ui), Vector2(s, s))
+	# Fenster (UV) um den Spieler, am Weltrand geklemmt
+	var wr := WorldMap.WORLD_R
+	var half := MINI_SPAN / (4.0 * wr)
+	var pp := mini_player.global_position
+	var c := Vector2(pp.x / wr * 0.5 + 0.5, pp.z / wr * 0.5 + 0.5)
+	c = c.clamp(Vector2(half, half), Vector2(1.0 - half, 1.0 - half))
+	var win_min := c - Vector2(half, half)
+	var win_size := Vector2(half, half) * 2.0
+	# Panel + Kartenausschnitt
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.055, 0.065, 0.085, 0.85)
+	sb.set_corner_radius_all(int(10.0 * ui))
+	sb.border_color = Color(0.90, 0.93, 0.97, 0.55)
+	sb.set_border_width_all(maxi(2, int(2.0 * ui)))
+	draw_style_box(sb, rect.grow(6.0 * ui))
+	var ts := Vector2(mini_tex.get_width(), mini_tex.get_height())
+	draw_texture_rect_region(mini_tex, rect, Rect2(win_min * ts, win_size * ts))
+	draw_rect(rect, Color(0, 0, 0, 0.5), false, 1.5 * ui)
+
+	var to_px := func(w: Vector3) -> Vector2:
+		var uv := Vector2(w.x / wr * 0.5 + 0.5, w.z / wr * 0.5 + 0.5)
+		return rect.position + (uv - win_min) / win_size * rect.size
+	# Marker in Reichweite
+	for af in mini_airfields:
+		var p: Vector2 = to_px.call(af["pos"])
+		if rect.has_point(p):
+			draw_rect(Rect2(p - Vector2(4.0 * ui, 4.0 * ui), Vector2(8.0 * ui, 8.0 * ui)), Color(0, 0, 0, 0.8))
+			draw_rect(Rect2(p - Vector2(3.0 * ui, 3.0 * ui), Vector2(6.0 * ui, 6.0 * ui)), af.get("color", Color.WHITE))
+	for poi in mini_pois:
+		var p: Vector2 = to_px.call(poi["pos"])
+		if rect.has_point(p):
+			draw_circle(p, 3.2 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
+	# Spieler-Pfeil (Blickrichtung), N-Kennung
+	var p: Vector2 = to_px.call(pp)
+	var fwd := -mini_player.global_transform.basis.z
+	var a := atan2(fwd.x, fwd.z)
+	var dirv := Vector2(sin(a), cos(a))
+	var side := Vector2(-dirv.y, dirv.x)
+	var L := 9.0 * ui
+	var pts := PackedVector2Array([p + dirv * L, p - dirv * L * 0.55 + side * L * 0.62,
+		p - dirv * L * 0.27, p - dirv * L * 0.55 - side * L * 0.62])
+	draw_colored_polygon(pts, Color(1.0, 0.36, 0.22))
+	draw_polyline(pts + PackedVector2Array([pts[0]]), Color(1, 1, 1, 0.9), 1.4 * ui)
+	draw_string(_font, rect.position + Vector2(rect.size.x * 0.5 - 5.0 * ui, 16.0 * ui), "N",
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, int(14.0 * ui), Color(1, 1, 1, 0.9))
