@@ -173,6 +173,16 @@ var mass_mult := 1.0
 
 # Waffen (feuerbar): Mündungs-Offsets je Typ, aus dem Design gesammelt
 var weapons: Array = []        # [{type, off:Vector3 lokal, cd:float}]
+# Waffengruppen (SimplePlanes-Stil): Leertaste feuert NUR die ausgewaehlte Gruppe.
+# Auswahl im Flug: Tasten 1-4 direkt, V zyklisch. Reihenfolge = WGROUPS-Reihenfolge.
+const WGROUPS := [
+	{"id": "gun", "label": "BORDKANONEN", "types": ["mg", "gun", "autocannon", "heavy", "minigun"]},
+	{"id": "rocket", "label": "RAKETEN", "types": ["rocket", "salvo"]},
+	{"id": "missile", "label": "LENKWAFFEN", "types": ["missile", "missile_heavy", "missile_drop"]},
+	{"id": "bomb", "label": "BOMBEN", "types": ["bomb"]},
+]
+var weapon_groups: Array = []   # nur die Gruppen, die dieser Bau tatsaechlich traegt
+var weapon_sel := 0             # Index in weapon_groups
 var world_root: Node3D         # wohin Geschosse/Effekte gespawnt werden (von Main gesetzt)
 
 
@@ -363,6 +373,8 @@ func build_from_design(d: Array) -> void:
 				went["spin"] = 0.0
 				went["barrels"] = vis.find_child("Barrels", true, false)   # rotierendes Laufbündel
 			weapons.append(went)
+
+	_rebuild_weapon_groups()
 
 	# Spawn-Höhe so, dass der tiefste Punkt knapp über der Bahn liegt
 	if min_y == INF:
@@ -665,19 +677,20 @@ func _physics_process(delta: float) -> void:
 	# Feuern: Leertaste ODER linke Maustaste (nur im Flug aktiv, da _physics_process
 	# nur bei set_active(true) läuft -> im Hangar bleibt Linksklick fürs Bauen).
 	var firing := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	var gun_sel := not weapon_groups.is_empty() and String(weapon_groups[weapon_sel]["id"]) == "gun"
 	for w in weapons:
 		if w["type"] != "minigun":
 			continue
 		var pidx: int = int(w.get("part_idx", -1))
 		var alive: bool = pidx < 0 or pidx >= aircraft.parts.size() or not aircraft.parts[pidx].get("broken", false)
-		var target := 1.0 if (firing and alive) else 0.0
+		var target := 1.0 if (firing and alive and gun_sel) else 0.0
 		var rate := (1.0 / MINIGUN_SPINUP) if target > float(w["spin"]) else (1.0 / MINIGUN_SPINDOWN)
 		w["spin"] = move_toward(float(w["spin"]), target, rate * delta)
 		var b = w.get("barrels")
 		if b != null and is_instance_valid(b):
 			b.rotate_z(float(w["spin"]) * MINIGUN_MAX_RPS * delta)
 	if firing:
-		_fire_primary()
+		_fire_selected()
 	if Input.is_physical_key_pressed(KEY_B):
 		_drop_bomb()
 
@@ -689,12 +702,36 @@ func _muzzle(off: Vector3) -> Vector3:
 	return aircraft.global_transform * off
 
 
-func _fire_primary() -> void:
+# Beim Bau: welche der WGROUPS traegt diese Zelle? Auswahl zurueck auf die erste.
+func _rebuild_weapon_groups() -> void:
+	weapon_groups.clear()
+	for g in WGROUPS:
+		for w in weapons:
+			if String(w["type"]) in g["types"]:
+				weapon_groups.append(g)
+				break
+	weapon_sel = 0
+
+
+# Leertaste/Linksklick feuert NUR die ausgewaehlte Waffengruppe.
+func _fire_selected() -> void:
+	if weapon_groups.is_empty():
+		return
+	var g: Dictionary = weapon_groups[weapon_sel]
+	if String(g["id"]) == "bomb":
+		_drop_bomb()
+	else:
+		_fire_primary(g["types"])
+
+
+func _fire_primary(types: Array = []) -> void:
 	if world_root == null:
 		return
 	var fwd := -aircraft.global_transform.basis.z.normalized()
 	var av := aircraft.linear_velocity
 	for w in weapons:
+		if not types.is_empty() and not (String(w["type"]) in types):
+			continue   # gehoert nicht zur ausgewaehlten Gruppe
 		if w["cd"] > 0.0 or int(w["ammo"]) == 0:   # Cooldown läuft ODER aufgebraucht
 			continue
 		var pidx: int = int(w.get("part_idx", -1))
@@ -839,6 +876,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_mouse_fly()
 		elif event.keycode == KEY_M:
 			map_requested.emit()
+		elif event.keycode >= KEY_1 and event.keycode <= KEY_4:
+			# 1-4 = Waffengruppe direkt anwaehlen (nur vorhandene)
+			var wi: int = event.keycode - KEY_1
+			if wi < weapon_groups.size():
+				weapon_sel = wi
+		elif event.keycode == KEY_V:
+			# V = Waffengruppe durchschalten
+			if weapon_groups.size() > 1:
+				weapon_sel = (weapon_sel + 1) % weapon_groups.size()
 		elif event.keycode == KEY_H:
 			g_protect = not g_protect
 		elif event.keycode == KEY_J:
@@ -1106,6 +1152,29 @@ func _update_markers() -> void:
 		break
 
 
+# Waffengruppen fuer die HUD-Leiste: Label + Restmunition (-1 = unbegrenzt).
+# Waffen auf abgebrochenen Teilen zaehlen nicht mehr mit.
+func _wgroups_hud() -> Array:
+	var out: Array = []
+	for g in weapon_groups:
+		var cnt := 0
+		var inf := false
+		for w in weapons:
+			if not (String(w["type"]) in g["types"]):
+				continue
+			var pidx: int = int(w.get("part_idx", -1))
+			if pidx >= 0 and is_instance_valid(aircraft) and pidx < aircraft.parts.size() \
+					and aircraft.parts[pidx].get("broken", false):
+				continue
+			var a: int = int(w["ammo"])
+			if a < 0:
+				inf = true
+			else:
+				cnt += a
+		out.append({"label": g["label"], "count": (-1 if inf else cnt)})
+	return out
+
+
 # Restmunition der begrenzten Waffen (Raketen/Lenkwaffen/Bomben) je Kategorie summiert.
 func _ammo_text() -> String:
 	var rockets := 0
@@ -1214,6 +1283,8 @@ func _emit_hud() -> void:
 		"assist": aircraft.assist,
 		"flaps": FLAP_NAMES[_flap_stage],
 		"ammo": _ammo_text(),
+		"wgroups": _wgroups_hud(),
+		"wsel": weapon_sel,
 		"gear": aircraft.gear_status,
 		"wings": aircraft.wing_status,
 		"inverted": aircraft.inverted,

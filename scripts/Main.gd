@@ -2051,7 +2051,7 @@ func _build_flight_ui() -> void:
 
 	# Hinweisleiste unten
 	var hint := _lbl("Maus: Zielen  ·  M: Karte  ·  N: Tastatur-Modus  ·  J: Arcade  ·  Schub: Shift/Strg (>100 % = Nachbrenner)  ·  Nase: W/S  ·  Rollen: A/D (halten = Barrel Roll)  ·  Gieren: Q/E
-Leertaste/Linksklick: feuern (gelber Pipper = Treffpunkt)  ·  B: Bombe  ·  G: Fahrwerk  ·  F: Klappen  ·  H: G-Schutz  ·  T: Assist  ·  C halten: Umsehen  ·  Enter: neu", 16, Color(0.90, 0.93, 0.97))
+Leertaste/Linksklick: feuern (gelber Pipper = Treffpunkt)  ·  1–4/V: Waffe wählen  ·  B: Bombe  ·  G: Fahrwerk  ·  F: Klappen  ·  H: G-Schutz  ·  T: Assist  ·  C halten: Umsehen  ·  Enter: neu", 16, Color(0.90, 0.93, 0.97))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rect(hint, 0, 1, 1, 1, 10, -56, -10, -8)
 	flight_root.add_child(hint)
@@ -2172,6 +2172,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.wings_text = str(d.get("wings", "ok"))
 		flight_hud.nav_text = nav
 		flight_hud.ammo_text = str(d.get("ammo", ""))
+		flight_hud.weapon_groups = d.get("wgroups", [])
+		flight_hud.weapon_sel = int(d.get("wsel", -1))
 		flight_hud.badge_text = "SANDBOX" if game.is_sandbox() else fly_money_label.text
 		flight_hud.heading = d.get("heading", 0.0)
 		flight_hud.speed_kmh = d.get("kmh", 0.0)

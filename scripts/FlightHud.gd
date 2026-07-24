@@ -45,6 +45,8 @@ var wings_text := "ok"
 var badge_text := "SANDBOX"
 var nav_text := ""
 var ammo_text := ""
+var weapon_groups: Array = []   # [{label, count}] — count -1 = unbegrenzt
+var weapon_sel := -1            # ausgewählte Gruppe (Index)
 
 
 func _panel_sb(radius: float) -> StyleBoxFlat:
@@ -81,7 +83,8 @@ func _draw() -> void:
 	_draw_modes()
 	_draw_speed_box()
 	_draw_alt_box()
-	_draw_bottom_bar()
+	_draw_systems_panel()
+	_draw_weapon_bar()
 	_draw_reticle()
 	_draw_lock()
 	_draw_stall()
@@ -140,40 +143,98 @@ func _draw_status_panel() -> void:
 		y += rowh
 
 
-# --- Bottom-Bar Mitte: SCHUB (Balken) · KLAPPEN · FAHRWERK -------------------
-func _draw_bottom_bar() -> void:
+# --- Systeme-Panel links (ueber der GESCHWINDIGKEIT-Box): Schub/Klappen/Fahrwerk ---
+# (Auf Wunsch von der Bildschirmmitte an die Seite verlegt — unten Mitte sitzt die Waffenwahl.)
+func _draw_systems_panel() -> void:
 	var u := size.y / 1080.0
-	var w := 700.0 * u
-	var h := 62.0 * u
-	var rect := Rect2(Vector2(size.x * 0.5 - w * 0.5, size.y - h - 104.0 * u), Vector2(w, h))
+	var w := 230.0 * u
+	var h := 148.0 * u
+	var rect := Rect2(Vector2(40.0 * u, size.y - 210.0 * u - 46.0 * u - 12.0 * u - h), Vector2(w, h))
 	draw_style_box(_panel_sb(12.0 * u), rect)
-	var seg := w / 3.0
-	for i in [1, 2]:
-		draw_line(rect.position + Vector2(seg * i, 10.0 * u), rect.position + Vector2(seg * i, h - 10.0 * u), Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.25), 1.0)
 	var fs_l := int(14.0 * u)
-	var fs_v := int(18.0 * u)
-	# SCHUB + Fortschrittsbalken (Nachbrenner orange)
-	var x0 := rect.position.x + 22.0 * u
-	draw_string(_font, Vector2(x0, rect.position.y + 24.0 * u), "SCHUB", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
+	var fs_v := int(16.0 * u)
+	var x0 := rect.position.x + 16.0 * u
+	var wr := w - 16.0 * u
+	# SCHUB (Wert rechts) + Fortschrittsbalken (Nachbrenner orange, Bremse rot)
+	var y := rect.position.y + 30.0 * u
+	draw_string(_font, Vector2(x0, y), "SCHUB", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
 	var thr_col: Color = CYAN if throttle <= 1.0 else Color(1.0, 0.55, 0.2)
 	if throttle < 0.0:
 		thr_col = Color(1.0, 0.45, 0.3)
-	draw_string(_font, Vector2(x0, rect.position.y + 46.0 * u), "%d%%" % int(round(throttle * 100.0)),
-		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_v, TXT)
-	var bar := Rect2(Vector2(x0 + 62.0 * u, rect.position.y + 36.0 * u), Vector2(seg - 110.0 * u, 7.0 * u))
+	_txt_r(Vector2(rect.position.x, y), wr, "%d%%" % int(round(throttle * 100.0)), fs_v, TXT)
+	var bar := Rect2(Vector2(x0, y + 12.0 * u), Vector2(w - 32.0 * u, 7.0 * u))
 	draw_rect(bar, Color(1, 1, 1, 0.12))
 	draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(absf(throttle), 0.0, 1.0), bar.size.y)), thr_col)
+	draw_line(rect.position + Vector2(12.0 * u, 66.0 * u), rect.position + Vector2(w - 12.0 * u, 66.0 * u),
+		Color(P_BORDER.r, P_BORDER.g, P_BORDER.b, 0.16), 1.0)
 	# KLAPPEN
-	var x1 := rect.position.x + seg + 22.0 * u
-	draw_string(_font, Vector2(x1, rect.position.y + 24.0 * u), "KLAPPEN", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
-	draw_string(_font, Vector2(x1, rect.position.y + 46.0 * u), flaps_text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_v, TXT if flaps_text == "AUS" else CYAN)
+	y = rect.position.y + 94.0 * u
+	draw_string(_font, Vector2(x0, y), "KLAPPEN", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
+	_txt_r(rect.position + Vector2(0, 94.0 * u), wr, flaps_text, fs_v, TXT if flaps_text == "AUS" else CYAN)
 	# FAHRWERK
-	var x2 := rect.position.x + seg * 2.0 + 22.0 * u
-	draw_string(_font, Vector2(x2, rect.position.y + 24.0 * u), "FAHRWERK", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
+	y = rect.position.y + 126.0 * u
+	draw_string(_font, Vector2(x0, y), "FAHRWERK", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_l, MUT)
 	var gt := gear_text.to_upper()
-	draw_string(_font, Vector2(x2, rect.position.y + 46.0 * u), gt,
-		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_v, GREEN if gt.begins_with("AUSGEF") else GOLD)
+	_txt_r(rect.position + Vector2(0, 126.0 * u), wr, gt, fs_v, GREEN if gt.begins_with("AUSGEF") else GOLD)
+
+
+# --- Waffenwahl unten Mitte: eine Pille je Gruppe, [1-4] direkt, V zyklisch ---
+func _draw_weapon_bar() -> void:
+	if weapon_groups.is_empty():
+		return
+	var u := size.y / 1080.0
+	var h := 54.0 * u
+	var fs := int(16.0 * u)
+	var fs_k := int(13.0 * u)
+	var fs_c := int(15.0 * u)
+	var pad := 16.0 * u
+	var gap := 10.0 * u
+	var key_w := 22.0 * u
+	# Breiten vorab messen -> Gesamtleiste zentrieren
+	var widths: Array = []
+	var total := 0.0
+	for i in weapon_groups.size():
+		var g: Dictionary = weapon_groups[i]
+		var cnt: int = int(g.get("count", -1))
+		var ct := "∞" if cnt < 0 else "× %d" % cnt
+		var lw: float = _font.get_string_size(String(g.get("label", "?")), HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x
+		var cw: float = _font.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_c).x
+		var pw: float = pad + key_w + 10.0 * u + lw + 10.0 * u + cw + pad
+		widths.append(pw)
+		total += pw
+	total += gap * float(weapon_groups.size() - 1)
+	var x := size.x * 0.5 - total * 0.5
+	var yb := size.y - h - 104.0 * u
+	for i in weapon_groups.size():
+		var g: Dictionary = weapon_groups[i]
+		var pw: float = widths[i]
+		var rect := Rect2(Vector2(x, yb), Vector2(pw, h))
+		var sel := i == weapon_sel
+		var sb := _panel_sb(12.0 * u)
+		if sel:
+			sb.bg_color = Color(0.10, 0.15, 0.21, 0.92)
+			sb.border_color = Color(CYAN.r, CYAN.g, CYAN.b, 0.85)
+		draw_style_box(sb, rect)
+		var cnt: int = int(g.get("count", -1))
+		var empty := cnt == 0
+		# Tasten-Kaestchen [1..4]
+		var kb := Rect2(rect.position + Vector2(pad, h * 0.5 - 11.0 * u), Vector2(key_w, 22.0 * u))
+		draw_rect(kb, Color(1, 1, 1, 0.10))
+		draw_rect(kb, Color(1, 1, 1, 0.22), false, 1.0)
+		draw_string(_font, Vector2(kb.position.x, kb.position.y + 16.0 * u), str(i + 1),
+			HORIZONTAL_ALIGNMENT_CENTER, key_w, fs_k, MUT)
+		# Label + Restmunition
+		var lcol: Color = CYAN if sel else TXT
+		var ccol := MUT
+		if empty:
+			lcol = Color(1.0, 0.45, 0.3, 0.75)
+			ccol = Color(1.0, 0.45, 0.3, 0.75)
+		var lx := rect.position.x + pad + key_w + 10.0 * u
+		draw_string(_font, Vector2(lx, yb + h * 0.5 + 6.0 * u), String(g.get("label", "?")),
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs, lcol)
+		var ct := "∞" if cnt < 0 else "× %d" % cnt
+		_txt_r(Vector2(rect.position.x, yb + h * 0.5 + 6.0 * u), pw - pad, ct, fs_c, ccol)
+		x += pw + gap
 
 
 # --- Kompass-Leiste oben (scrollt mit dem Kurs) -----------------------------

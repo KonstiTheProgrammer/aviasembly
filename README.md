@@ -44,6 +44,7 @@ das Flugzeug längsstabil.
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
 | **M** | **KARTE** öffnen/schließen (Insel-Übersicht mit Flugplätzen, POIs, eigener Position) |
 | **N** | **Maus-/Tastatur-Flug** umschalten (Maus-Flug ist **Standard** — siehe unten) |
+| **1–4 / V** | **Waffengruppe** wählen / durchschalten (Leiste unten Mitte) |
 | **J** | **Arcade-Lenkung** an/aus (super-smooth, schnappt sofort aufs Ziel; aktiviert Maus-Flug) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
@@ -108,7 +109,8 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 - **Bewaffnung (feuerbar!):** Bordkanone (Schnellfeuer) · **Ungelenkte Rakete** (fliegt
   geradeaus) · **Raketenwerfer** (3er-Salve) · **Zielsuchrakete** (Heat-Seeker) ·
   **Schwere Lenkrakete** (große Reichweite, viel Schaden) · Bombe (Freifall, **Taste B**) —
-  alles außer Bombe feuert per **Leertaste** oder **linker Maustaste**
+  gefeuert wird per **Leertaste** oder **linker Maustaste** — und zwar die unten in der
+  Mitte **ausgewählte Waffengruppe** (Auswahl: **1–4** direkt, **V** durchschalten)
 
 *Mit `tools/build_jet.gd` gibt's einen vorgebauten zweimotorigen Delta-Canard-Jet
 (zwei eckige Triebwerke) im Speicherstand.*
@@ -118,10 +120,13 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 Am Himmel schweben **Luftballons** und **Luftschiffe** (Zeppeline) zum Abschießen.
 Bau Waffen an dein Flugzeug, ziel mit dem Fadenkreuz und feuere:
 
-- **Leertaste / linke Maustaste** — feuert alle montierten Rohrwaffen: Kanone (geradeaus), ungelenkte
-  Raketen & Salven (geradeaus) sowie Lenkraketen. **Heat-Seeker fliegen erst geradeaus
-  und kurven erst dann aufs Ziel, wenn eines in ihre Nähe kommt** — also vorher grob zielen.
-- **Taste B** — Bombe abwerfen
+- Unten in der Bildmitte sitzt die **Waffenwahl-Leiste** (eine Pille je Gruppe:
+  Bordkanonen · Raketen · Lenkwaffen · Bomben, mit Restmunition). **1–4** wählt die
+  Gruppe direkt, **V** schaltet durch.
+- **Leertaste / linke Maustaste** — feuert die **ausgewählte** Gruppe. **Heat-Seeker fliegen
+  erst geradeaus und kurven erst dann aufs Ziel, wenn eines in ihre Nähe kommt** — also
+  vorher grob zielen.
+- **Taste B** — Bombe abwerfen (geht immer, egal welche Gruppe gewählt ist)
 
 Jeder Abschuss gibt **Geld** (Ballon +120, Luftschiff +600) → so verdienst du im Survival.
 Abgeschossene Ballons werden nach kurzer Zeit durch neue ersetzt.

@@ -83,7 +83,9 @@ scripts/AircraftBody.gd  class_name AircraftBody extends RigidBody3D. Das Flugmo
 scripts/FlightHud.gd     Canvas-HUD (Custom-_draw, Vorbild SimplePlanes-Mockup): FLUG-STATUS-
                          Panel oben links (Zeilen mit Trennern, gruene AN-Werte), Kompass-Pille +
                          Kursbox + NAV-Pille (naechster Flugplatz), grosse GESCHWINDIGKEIT/HOEHE-
-                         Boxen unten, Bottom-Bar Schub/Klappen/Fahrwerk, Corner-MINIMAP (7-km-
+                         Boxen unten, Systeme-Panel (Schub-Balken/Klappen/Fahrwerk) ueber der
+                         Speed-Box, WAFFENWAHL-Leiste unten Mitte (Pille je Gruppe, Tasten-
+                         Kaestchen 1-4, Cyan-Rahmen = gewaehlt, Restmunition/∞), Corner-MINIMAP (7-km-
                          Fenster, spielerzentriert). Design-Tokens P_BG/CYAN/GREEN/GOLD, Titillium-
                          Fonts, alles skaliert mit u = size.y/1080. FALLE: `var x := dict/Variant`
                          bricht als Warning-as-Error den ganzen Compile -> explizit typisieren;
@@ -503,9 +505,17 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   `targets_root` (in `fly_world`), vor der Startbahn (`_rand_target_pos`); Abschuss →
   `game.add_money` + Toast; Nachschub-Ballon nach 7 s.
 - **Feuern** (`FlightController`): sammelt `weapons` = `[{type, off, cd}]` beim Bauen
-  (jede Waffe hat **eigenen Cooldown** `cd`, pro Frame heruntergezählt). **Leertaste / Linksklick** →
-  `_fire_primary` (`match w["type"]` für gun/rocket/salvo/missile/missile_heavy; setzt bei
-  Lenkraketen `guided/turn/seek_range` + jeweiligen `cd`), **B** → `_drop_bomb`. `_spawn`
+  (jede Waffe hat **eigenen Cooldown** `cd`, pro Frame heruntergezählt).
+  **WAFFENGRUPPEN (SimplePlanes-Stil):** `WGROUPS` = Bordkanonen/Raketen/Lenkwaffen/Bomben;
+  `_rebuild_weapon_groups()` beim Bau sammelt die vorhandenen, `weapon_sel` = Auswahl
+  (**1–4** direkt, **V** zyklisch — nur im Flug; der Hangar behält 1–4 als Ansichten, weil
+  dort `set_process_unhandled_input(false)`). **Leertaste / Linksklick** → `_fire_selected`
+  feuert NUR die gewählte Gruppe (Bomben-Gruppe → `_drop_bomb`); die Minigun spint nur auf,
+  wenn die Kanonen-Gruppe gewählt ist. `_emit_hud` liefert `wgroups` (Label + Restmunition,
+  Waffen auf gebrochenen Teilen zählen nicht) + `wsel` → FlightHud-Waffenleiste unten Mitte.
+  `_fire_primary(types)` filtert auf die Gruppe (`match w["type"]` für gun/rocket/salvo/
+  missile/missile_heavy; setzt bei Lenkraketen `guided/turn/seek_range` + jeweiligen `cd`),
+  **B** → `_drop_bomb` (geht immer, unabhängig von der Auswahl). `_spawn`
   gibt das `Projectile` zurück. Spawnt in `world_root` (= `targets_root`, von Main gesetzt;
   `_fire_primary` guardet `world_root==null`). Mündung = `aircraft.global_transform * off`,
   Vorwärts = `-basis.z`. Fadenkreuz im Flug-HUD.
