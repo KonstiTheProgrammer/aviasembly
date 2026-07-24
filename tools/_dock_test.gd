@@ -161,5 +161,33 @@ func _process(_d: float) -> bool:
 	bc._notify_changed()
 	print("  Motor weg:    FrameF=%s FrameB=%s  (erwartet true/true)"
 		% [_shown(cp6, "FrameF"), _shown(cp6, "FrameB")])
+
+	print("=== 7) AUTO-Taper: Rumpf-Enden passen sich BEIDEN Nachbarn an ===")
+	var fus7 := bc._place_id("fuselage", Transform3D(Basis(), Vector3(30, 0, 0)))
+	bc._notify_changed()
+	print("  allein:  front=%.3f  back=%.3f  (erwartet 1.000/1.000)"
+		% [fus7.get_meta("taper_front", 1.0), fus7.get_meta("taper", 1.0)])
+	var fd7 := PartCatalog.get_part("fuselage")
+	var rd7 := PartCatalog.get_part("fuselage_radial")
+	# halb skaliertes Radial-Segment buendig VORNE, Standard-Cockpit buendig HINTEN
+	var small := bc._place_id("fuselage_radial", Transform3D(Basis(),
+		Vector3(30, 0, -PartCatalog.col_size(fd7).z * 0.5 - PartCatalog.col_size(rd7).z * 0.25)),
+		Vector3(0.5, 0.5, 0.5))
+	var cpd7 := PartCatalog.get_part("cockpit")
+	var cp7 := bc._place_id("cockpit", Transform3D(Basis(),
+		Vector3(30, 0, PartCatalog.col_size(fd7).z * 0.5 + PartCatalog.col_size(cpd7).z * 0.5)))
+	bc._notify_changed()
+	print("  halbes Segment vorn + Cockpit hinten:")
+	print("    front=%.3f  front_y=%.3f  (erwartet 0.500/0.470)  back=%.3f (erwartet 1.000)"
+		% [fus7.get_meta("taper_front", 1.0), fus7.get_meta("taper_front_y", -1.0), fus7.get_meta("taper", 1.0)])
+	# Nachbar weg -> Ende behaelt die Form; manuell geformtes Ende ist tabu fuer die Automatik
+	small.free()
+	fus7.set_meta("taper", 2.0)
+	fus7.set_meta("taper_user", true)
+	bc._notify_changed()
+	print("  vorne entfernt + hinten manuell 2.0: front=%.3f (bleibt)  back=%.3f (erwartet 2.000)"
+		% [fus7.get_meta("taper_front", 1.0), fus7.get_meta("taper", 1.0)])
+	if cp7 != null:
+		pass
 	quit()
 	return true

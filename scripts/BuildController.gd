@@ -1172,12 +1172,16 @@ func _update_transform_drag() -> void:
 		var te := _ray_axis_t(_drag_origin0, _drag_axis_w)
 		var new_t: float = clampf(_drag_taper0 + (te - _drag_t0) / _drag_half, 0.25, 2.5)
 		var ekey := _ends_key(_drag_sign, _drag_axis_i)
+		# manuell geformt -> Auto-Taper fasst dieses Ende nicht mehr an
+		var ukey := ("taper_front" if ekey.begins_with("taper_front") else "taper") + "_user"
 		selected_part.set_meta(ekey, new_t)
+		selected_part.set_meta(ukey, true)
 		_rebuild_visual(selected_part)
 		if selected_part.has_meta("mirror"):
 			var mm = selected_part.get_meta("mirror")
 			if is_instance_valid(mm):
 				mm.set_meta(ekey, new_t)
+				mm.set_meta(ukey, true)
 				_rebuild_visual(mm)
 		_update_handles()
 		_emit_selection()
@@ -1572,12 +1576,14 @@ func _apply_taper(meta_key: String, factor: float, front_only: bool) -> void:
 	var yk := meta_key + "_y"                          # Regler skaliert X UND Y gleichförmig
 	selected_part.set_meta(meta_key, tp)
 	selected_part.set_meta(yk, tp)
+	selected_part.set_meta(meta_key + "_user", true)   # manuell geformt -> Auto-Taper aus
 	_rebuild_visual(selected_part)
 	if selected_part.has_meta("mirror"):
 		var m = selected_part.get_meta("mirror")
 		if is_instance_valid(m):
 			m.set_meta(meta_key, tp)
 			m.set_meta(yk, tp)
+			m.set_meta(meta_key + "_user", true)
 			_rebuild_visual(m)
 	_emit_selection()
 	_push_history()
@@ -2453,6 +2459,8 @@ func get_design() -> Array:
 				"taper_front": child.get_meta("taper_front", 1.0),
 				"taper_y": child.get_meta("taper_y", -1.0),
 				"taper_front_y": child.get_meta("taper_front_y", -1.0),
+				"tuser_b": child.has_meta("taper_user"),        # Enden von Hand geformt?
+				"tuser_f": child.has_meta("taper_front_user"),  # (Auto-Taper respektiert das)
 				"fill": child.get_meta("fill", 0.0),   # Flügel-Mittelspalt-Füllung (für Flug + Speichern)
 				"thrust_reverse": child.get_meta("thrust_reverse", false),   # Prop-Schub umkehren
 			})
@@ -2469,6 +2477,26 @@ func load_design(arr: Array) -> void:
 				item.get("taper", -1.0), item.get("taper_front", -1.0),
 				item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 			np.set_meta("thrust_reverse", bool(item.get("thrust_reverse", false)))
+			# Manuell-geformt-Flags wiederherstellen. ALT-Saves (ohne tuser_*) kennzeichnen
+			# jedes vom Teil-Default abweichende Ende als manuell — die Auto-Anpassung darf
+			# bestehende Designs beim Laden nicht umformen.
+			if item.has("tuser_b") or item.has("tuser_f"):
+				if bool(item.get("tuser_b", false)):
+					np.set_meta("taper_user", true)
+				if bool(item.get("tuser_f", false)):
+					np.set_meta("taper_front_user", true)
+			else:
+				var pd := PartCatalog.get_part(id)
+				var d_b := float(pd.get("taper", 1.0))
+				var i_b := float(item.get("taper", d_b))
+				var i_by := float(item.get("taper_y", -1.0))
+				if absf(i_b - d_b) > 0.001 or (i_by >= 0.0 and absf(i_by - i_b) > 0.001):
+					np.set_meta("taper_user", true)
+				var d_f := float(pd.get("taper_front", 1.0))
+				var i_f := float(item.get("taper_front", d_f))
+				var i_fy := float(item.get("taper_front_y", -1.0))
+				if absf(i_f - d_f) > 0.001 or (i_fy >= 0.0 and absf(i_fy - i_f) > 0.001):
+					np.set_meta("taper_front_user", true)
 			if item.has("root"):   # gespeicherte Wurzel exakt wiederherstellen (neue Saves)
 				np.set_meta("is_root", bool(item["root"]))
 	_ensure_root()
@@ -2647,6 +2675,7 @@ func compute_stats() -> Dictionary:
 
 func _notify_changed() -> void:
 	_sync_engine_variants()     # VOR compute_stats: setzt das Variant-Meta, das _part_box liest
+	_sync_auto_taper()          # verbundene Rumpf-Enden an die Nachbar-Querschnitte anpassen
 	var stats := compute_stats()
 	if com_marker:
 		com_marker.position = stats["com"]
@@ -2694,6 +2723,91 @@ func _sync_engine_variants() -> void:
 		PartCatalog.set_engine_half(vis, half)
 		parts[i].set_meta("engine_half", half)
 		_apply_engine_pickbox(parts[i])
+
+
+# --- AUTO-Taper: verbundene Rumpf-Enden passen sich dem Nachbar-Querschnitt an -------------
+# Sitzt an einem Ende eines biends-Segments buendig ein Rumpfteil/Antrieb, wird dieses Ende
+# automatisch auf dessen Breite/Hoehe verjuengt bzw. aufgeweitet — VORNE und HINTEN einzeln
+# (Motor schmal + Cockpit breit -> Segment blendet fliessend ueber). Manuell geformte Enden
+# ("taper*_user"-Meta, gesetzt von Panel-Reglern/Enden-Drag und beim Laden alter Saves)
+# bleiben unangetastet; freie Enden behalten ihren Wert. Kein History-Push (abgeleiteter
+# Zustand wie engine_half). Bis zu 3 Durchlaeufe, damit Ketten sofort konvergieren.
+func _sync_auto_taper() -> void:
+	var parts: Array = []
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			parts.append(c)
+	for _pass in 3:
+		if not _auto_taper_pass(parts):
+			break
+
+
+func _auto_taper_pass(parts: Array) -> bool:
+	var any := false
+	for i in parts.size():
+		var part: Node3D = parts[i]
+		var p := PartCatalog.get_part(part.get_meta("part_id"))
+		if not p.get("biends", false):
+			continue
+		var psc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+		var sz: Vector3 = p.get("size", Vector3.ONE)
+		var changed := false
+		for back in [false, true]:
+			var key := "taper" if back else "taper_front"
+			if part.has_meta(key + "_user"):
+				continue   # von Hand geformt -> Automatik lässt die Finger davon
+			var n := _taper_neighbor(part, p, psc, parts, i, back)
+			if n.is_empty():
+				continue   # freies Ende: letzten Wert behalten
+			var tx: float = clampf(float(n["w"]) / maxf(sz.x * psc.x, 0.01), 0.25, 2.5)
+			var ty: float = clampf(float(n["h"]) / maxf(sz.y * psc.y, 0.01), 0.25, 2.5)
+			var cx: float = part.get_meta(key, 1.0)
+			var cyv: float = part.get_meta(key + "_y", -1.0)
+			var cy: float = cyv if cyv >= 0.0 else cx
+			if absf(cx - tx) > 0.004 or absf(cy - ty) > 0.004:
+				part.set_meta(key, tx)
+				part.set_meta(key + "_y", ty)
+				changed = true
+		if changed:
+			_rebuild_visual(part)
+			any = true
+	return any
+
+
+# Nachbar-Querschnitt am Ende (back=false: vorne/-Z) — {} wenn dort nichts buendig sitzt.
+# Beruecksichtigt beim Nachbarn dessen eigenes Taper am beruehrten Ende (Ketten-Verlauf).
+func _taper_neighbor(part: Node3D, p: Dictionary, psc: Vector3, parts: Array, i: int, back: bool) -> Dictionary:
+	var co := PartCatalog.col_offset(p)
+	var s := 1.0 if back else -1.0
+	var probe: Vector3 = part.transform * Vector3(co.x * psc.x, co.y * psc.y,
+		(co.z + s * PartCatalog.col_size(p).z * 0.5) * psc.z + s * 0.06)
+	for j in parts.size():
+		if j == i:
+			continue
+		var nb: Node3D = parts[j]
+		var op := PartCatalog.get_part(nb.get_meta("part_id"))
+		if op.is_empty():
+			continue
+		if not PartCatalog.is_fuselage_part(op) and op.get("category", "") != PartCatalog.CAT_PROP:
+			continue   # nur Rumpf/Antrieb gibt ein Profil vor (Fluegel/Fahrwerk nicht)
+		var opsc: Vector3 = nb.get_meta("pscale", Vector3.ONE)
+		var lp: Vector3 = nb.transform.affine_inverse() * probe
+		var c: Vector3 = PartCatalog.col_offset(op) * opsc
+		var hf: Vector3 = PartCatalog.col_size(op) * opsc * 0.5
+		if absf(lp.x - c.x) > hf.x or absf(lp.y - c.y) > hf.y or absf(lp.z - c.z) > hf.z:
+			continue
+		var osz: Vector3 = op.get("size", Vector3.ONE)
+		var w: float = osz.x * opsc.x
+		var h: float = osz.y * opsc.y
+		if op.get("biends", false):
+			var facing_front: bool = lp.z < c.z          # beruehrtes Ende des Nachbarn
+			var k := "taper_front" if facing_front else "taper"
+			var txn: float = nb.get_meta(k, float(op.get(k, 1.0)))
+			var tyn: float = nb.get_meta(k + "_y", -1.0)
+			w *= txn
+			h *= (tyn if tyn >= 0.0 else txn)
+		return {"w": w, "h": h}
+	return {}
 
 
 # Box eines Teils als [size, offset]. Nur der Sternmotor weicht ab: seine Katalog-Box ist die

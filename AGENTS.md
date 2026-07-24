@@ -235,6 +235,17 @@ Querruder, kein Auftrieb.
   Verifiziert mit `tools/occlusion_test.gd` (zwei Boxen hintereinander → Heck im Schatten).
   Hinweis: Das Flugmodell nutzt weiter die einfache `part_drag`-Summe als `drag_area`
   (verdeckungs-frei) — die Heatmap ist die verfeinerte, anschauliche Pro-Teil-Sicht.
+- **AUTO-TAPER (beidseitig):** `_sync_auto_taper` (in `_notify_changed`, bis zu 3 Passes fuer
+  Ketten): Sitzt an einem Ende eines `biends`-Segments buendig ein Rumpfteil/Antrieb
+  (Testpunkt 0.06 jenseits der Stirnflaeche, wie `cockpit_side_docked`), wird DIESES Ende
+  automatisch auf dessen Querschnitt (`size`.x/y × pscale, bei biends-Nachbarn inkl. deren
+  Taper am beruehrten Ende) verjuengt/aufgeweitet — vorne und hinten UNABHAENGIG (schmaler
+  Motor vorn + breites Cockpit hinten -> fliessender Uebergang). X und Y getrennt (echte
+  Ellipsen-Anpassung). MANUELL geformte Enden sind tabu: Panel-Regler/Enden-Drag setzen
+  `taper[_front]_user`-Metas (persistiert als `tuser_f/b`; ALT-Saves ohne Flags: jedes vom
+  Teil-Default abweichende Ende gilt als manuell -> bestehende Designs werden beim Laden
+  nicht umgeformt). Freie Enden behalten ihren letzten Wert. Kein History-Push
+  (abgeleiteter Zustand wie `engine_half`). Regression: `tools/_dock_test.gd` Abschnitt 7.
 - **Zoom:** Mausrad + Tastatur `+`/`−` + Trackpad-Pinch (`InputEventMagnifyGesture`) +
   Zwei-Finger-Scroll (`InputEventPanGesture`). Bereich `orbit_dist` 2.5–110.
 - **Blauer Blueprint-Raum** im Bau-Modus (eigenes Environment + Gitter-Shader; Shader
