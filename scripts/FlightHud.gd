@@ -204,7 +204,7 @@ func _draw_weapon_bar() -> void:
 		total += pw
 	total += gap * float(weapon_groups.size() - 1)
 	var x := size.x * 0.5 - total * 0.5
-	var yb := size.y - h - 104.0 * u
+	var yb := size.y - h - 46.0 * u   # gleiche Grundlinie wie Speed-/Hoehen-Box (Hilfezeile ist weg)
 	for i in weapon_groups.size():
 		var g: Dictionary = weapon_groups[i]
 		var pw: float = widths[i]

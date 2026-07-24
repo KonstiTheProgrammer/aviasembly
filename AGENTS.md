@@ -473,13 +473,18 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   **WAFFENGRUPPEN (SimplePlanes-Stil):** `WGROUPS` = Bordkanonen/Raketen/Lenkwaffen/Bomben;
   `_rebuild_weapon_groups()` beim Bau sammelt die vorhandenen, `weapon_sel` = Auswahl
   (**1–4** direkt, **V** zyklisch — nur im Flug; der Hangar behält 1–4 als Ansichten, weil
-  dort `set_process_unhandled_input(false)`). **Leertaste / Linksklick** → `_fire_selected`
-  feuert NUR die gewählte Gruppe (Bomben-Gruppe → `_drop_bomb`); die Minigun spint nur auf,
-  wenn die Kanonen-Gruppe gewählt ist. `_emit_hud` liefert `wgroups` (Label + Restmunition,
-  Waffen auf gebrochenen Teilen zählen nicht) + `wsel` → FlightHud-Waffenleiste unten Mitte.
-  `_fire_primary(types)` filtert auf die Gruppe (`match w["type"]` für gun/rocket/salvo/
-  missile/missile_heavy; setzt bei Lenkraketen `guided/turn/seek_range` + jeweiligen `cd`),
-  **B** → `_drop_bomb` (geht immer, unabhängig von der Auswahl). `_spawn`
+  dort `set_process_unhandled_input(false)`). **Leertaste / Linksklick** feuert NUR die
+  gewählte Gruppe — **Kanonen als Dauerfeuer solange gehalten, Raketen/Lenkwaffen/Bomben
+  als EINZELSCHUSS pro Klick** (Flanken-Erkennung `_fire_held`; `_fire_primary(types,
+  single)` bzw. `_drop_bomb(single)` returnen nach dem ersten Abschuss → naechster Mount
+  beim naechsten Klick). Die Minigun spint nur auf, wenn die Kanonen-Gruppe gewählt ist.
+  `_emit_hud` liefert `wgroups` (Label + Restmunition, Waffen auf gebrochenen Teilen zählen
+  nicht) + `wsel` → FlightHud-Waffenleiste unten Mitte. `_fire_primary` filtert auf die
+  Gruppe (`match w["type"]` für gun/rocket/salvo/missile/missile_heavy; setzt bei
+  Lenkraketen `guided/turn/seek_range` + jeweiligen `cd`), **B** → eine Bombe pro Druck
+  (`_bomb_held`-Flanke, geht immer, unabhängig von der Auswahl). Die Flug-Hinweiszeile
+  unten wurde auf Wunsch ENTFERNT (Steuerung steht im README); Waffenleiste sitzt auf der
+  46-px-Grundlinie der Speed-/Hoehen-Boxen. `_spawn`
   gibt das `Projectile` zurück. Spawnt in `world_root` (= `targets_root`, von Main gesetzt;
   `_fire_primary` guardet `world_root==null`). Mündung = `aircraft.global_transform * off`,
   Vorwärts = `-basis.z`. Fadenkreuz im Flug-HUD.

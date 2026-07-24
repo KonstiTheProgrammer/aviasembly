@@ -123,10 +123,11 @@ Bau Waffen an dein Flugzeug, ziel mit dem Fadenkreuz und feuere:
 - Unten in der Bildmitte sitzt die **Waffenwahl-Leiste** (eine Pille je Gruppe:
   Bordkanonen · Raketen · Lenkwaffen · Bomben, mit Restmunition). **1–4** wählt die
   Gruppe direkt, **V** schaltet durch.
-- **Leertaste / linke Maustaste** — feuert die **ausgewählte** Gruppe. **Heat-Seeker fliegen
-  erst geradeaus und kurven erst dann aufs Ziel, wenn eines in ihre Nähe kommt** — also
-  vorher grob zielen.
-- **Taste B** — Bombe abwerfen (geht immer, egal welche Gruppe gewählt ist)
+- **Leertaste / linke Maustaste** — feuert die **ausgewählte** Gruppe: Kanonen als
+  **Dauerfeuer** (halten), Raketen/Lenkwaffen/Bomben als **Einzelschuss pro Klick**
+  (jeder Klick löst den nächsten bereiten Mount aus). **Heat-Seeker fliegen erst geradeaus
+  und kurven erst dann aufs Ziel, wenn eines in ihre Nähe kommt** — also vorher grob zielen.
+- **Taste B** — eine Bombe pro Druck (geht immer, egal welche Gruppe gewählt ist)
 
 Jeder Abschuss gibt **Geld** (Ballon +120, Luftschiff +600) → so verdienst du im Survival.
 Abgeschossene Ballons werden nach kurzer Zeit durch neue ersetzt.

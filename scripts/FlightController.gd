@@ -183,6 +183,8 @@ const WGROUPS := [
 ]
 var weapon_groups: Array = []   # nur die Gruppen, die dieser Bau tatsaechlich traegt
 var weapon_sel := 0             # Index in weapon_groups
+var _fire_held := false         # Flanken-Erkennung: Raketen/Bomben feuern EINZELN pro Klick
+var _bomb_held := false
 var world_root: Node3D         # wohin Geschosse/Effekte gespawnt werden (von Main gesetzt)
 
 
@@ -677,6 +679,8 @@ func _physics_process(delta: float) -> void:
 	# Feuern: Leertaste ODER linke Maustaste (nur im Flug aktiv, da _physics_process
 	# nur bei set_active(true) läuft -> im Hangar bleibt Linksklick fürs Bauen).
 	var firing := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	var fire_click := firing and not _fire_held   # steigende Flanke = genau EIN Abschuss
+	_fire_held = firing
 	var gun_sel := not weapon_groups.is_empty() and String(weapon_groups[weapon_sel]["id"]) == "gun"
 	for w in weapons:
 		if w["type"] != "minigun":
@@ -689,10 +693,23 @@ func _physics_process(delta: float) -> void:
 		var b = w.get("barrels")
 		if b != null and is_instance_valid(b):
 			b.rotate_z(float(w["spin"]) * MINIGUN_MAX_RPS * delta)
-	if firing:
-		_fire_selected()
-	if Input.is_physical_key_pressed(KEY_B):
-		_drop_bomb()
+	# Kanonen: Dauerfeuer solange gehalten. Raketen/Lenkwaffen/Bomben: EIN Schuss
+	# pro Klick (der naechste bereite Mount) — kein Salven-Dump der ganzen Gruppe mehr.
+	if not weapon_groups.is_empty():
+		var g: Dictionary = weapon_groups[weapon_sel]
+		var gid := String(g["id"])
+		if gid == "gun":
+			if firing:
+				_fire_primary(g["types"])
+		elif fire_click:
+			if gid == "bomb":
+				_drop_bomb(true)
+			else:
+				_fire_primary(g["types"], true)
+	var bomb_down := Input.is_physical_key_pressed(KEY_B)
+	if bomb_down and not _bomb_held:
+		_drop_bomb(true)   # B: ebenfalls eine Bombe pro Druck
+	_bomb_held = bomb_down
 
 	_emit_hud()
 
@@ -713,18 +730,7 @@ func _rebuild_weapon_groups() -> void:
 	weapon_sel = 0
 
 
-# Leertaste/Linksklick feuert NUR die ausgewaehlte Waffengruppe.
-func _fire_selected() -> void:
-	if weapon_groups.is_empty():
-		return
-	var g: Dictionary = weapon_groups[weapon_sel]
-	if String(g["id"]) == "bomb":
-		_drop_bomb()
-	else:
-		_fire_primary(g["types"])
-
-
-func _fire_primary(types: Array = []) -> void:
+func _fire_primary(types: Array = [], single := false) -> void:
 	if world_root == null:
 		return
 	var fwd := -aircraft.global_transform.basis.z.normalized()
@@ -799,9 +805,11 @@ func _fire_primary(types: Array = []) -> void:
 				w["ammo"] -= 1
 				if int(w["ammo"]) == 0:
 					aircraft.queue_detach(pidx)
+			if single:
+				return   # ein Klick = eine Rakete/Lenkwaffe (naechster Mount beim naechsten Klick)
 
 
-func _drop_bomb() -> void:
+func _drop_bomb(single := false) -> void:
 	var av := aircraft.linear_velocity
 	for w in weapons:
 		if w["type"] != "bomb" or w["cd"] > 0.0 or int(w["ammo"]) == 0:
@@ -816,6 +824,8 @@ func _drop_bomb() -> void:
 			w["ammo"] -= 1
 			if int(w["ammo"]) == 0:
 				aircraft.queue_detach(pidx)   # Bombe verschwindet vom Modell -> Aero neu
+		if single:
+			return   # ein Druck = eine Bombe
 
 
 func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float,

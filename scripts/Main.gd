@@ -2049,12 +2049,7 @@ func _build_flight_ui() -> void:
 	flight_hud = FlightHud.new()
 	flight_root.add_child(flight_hud)
 
-	# Hinweisleiste unten
-	var hint := _lbl("Maus: Zielen  ·  M: Karte  ·  N: Tastatur-Modus  ·  J: Arcade  ·  Schub: Shift/Strg (>100 % = Nachbrenner)  ·  Nase: W/S  ·  Rollen: A/D (halten = Barrel Roll)  ·  Gieren: Q/E
-Leertaste/Linksklick: feuern (gelber Pipper = Treffpunkt)  ·  1–4/V: Waffe wählen  ·  B: Bombe  ·  G: Fahrwerk  ·  F: Klappen  ·  H: G-Schutz  ·  T: Assist  ·  C halten: Umsehen  ·  Enter: neu", 16, Color(0.90, 0.93, 0.97))
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rect(hint, 0, 1, 1, 1, 10, -56, -10, -8)
-	flight_root.add_child(hint)
+	# (Hinweisleiste unten auf Wunsch entfernt — Steuerung steht im README.)
 
 
 # ===========================================================================
