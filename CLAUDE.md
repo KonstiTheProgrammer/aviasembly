@@ -415,6 +415,14 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - **Verifikation ohne Sicht:** Blender-Renders via `render_viewport_to_path` → mit Read
   ansehen; in Godot AABB/Orientierung per `GLTFDocument.append_from_file` headless prüfen;
   Hangar-Screenshot via `get_viewport().get_texture().get_image().save_png()` (echtes Fenster).
+- **MODELLBIBLIOTHEK `blender_lib/`** (traegt `.gdignore`): eine .blend je Kategorie
+  (motoren/fahrwerke/cockpits/ruempfe/fluegel_leitwerk/waffen — Quelle models/*.glb,
+  via `tools/build_blender_lib.py`) + **`gebaeude.blend`**: ALLE prozeduralen
+  Landmarks-Bauwerke (Stadt/Bergdorf/Leuchtturm/Windrad/Bruecke + Einzelhaeuser
+  Haus_A..F, je eigene Collection). Pipeline dafuer ist ZWEISTUFIG, weil die Quelle
+  GDScript ist: `tools/_export_buildings.gd` (Godot headless, GLTFDocument.append_from_scene
+  -> transientes glb) -> `tools/build_gebaeude_blend.py` (Blender: Collections, Viewport-
+  Farben aus glTF-Materialien, speichern; env `GEBAEUDE_PREVIEW=<png>` rendert Uebersicht).
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
