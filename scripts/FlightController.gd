@@ -264,6 +264,10 @@ func build_from_design(d: Array) -> void:
 		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)), item.get("taper", 1.0), item.get("taper_front", 1.0), item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 		if id == "engine_radial":   # Heck offen (Rumpf dockt an) oder freistehende Gondel?
 			PartCatalog.set_engine_half(vis, PartCatalog.rear_docked(id, xf, psc, dock_items))
+		elif id == "cockpit_radial":   # Anschlussrahmen nur an OFFENEN Enden zeigen
+			PartCatalog.set_cockpit_frames(vis,
+				not PartCatalog.cockpit_side_docked(id, xf, psc, dock_items, false),
+				not PartCatalog.cockpit_side_docked(id, xf, psc, dock_items, true))
 		# Skalierung in die Basis einrechnen (NICHT vis.scale setzen): bei gespiegelten
 		# Teilen ist die Basis improper (det<0); vis.scale würde die Spiegelung zerstören
 		# -> Flügel klappt auf die andere Seite -> "halbes Flugzeug".

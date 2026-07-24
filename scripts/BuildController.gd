@@ -2672,6 +2672,16 @@ func _sync_engine_variants() -> void:
 		items.append({"id": String(pp.get_meta("part_id")), "xform": pp.transform,
 			"pscale": pp.get_meta("pscale", Vector3.ONE)})
 	for i in parts.size():
+		if items[i]["id"] == "cockpit_radial":
+			# Anschlussrahmen pro Seite: verschwindet, sobald dort ein Rumpf/Motor sitzt.
+			var cvis: Node = parts[i].get_node_or_null("Visual")
+			if cvis != null:
+				var cothers: Array = items.duplicate()
+				cothers.remove_at(i)
+				PartCatalog.set_cockpit_frames(cvis,
+					not PartCatalog.cockpit_side_docked("cockpit_radial", items[i]["xform"], items[i]["pscale"], cothers, false),
+					not PartCatalog.cockpit_side_docked("cockpit_radial", items[i]["xform"], items[i]["pscale"], cothers, true))
+			continue
 		if items[i]["id"] != "engine_radial":
 			continue
 		var vis: Node = parts[i].get_node_or_null("Visual")

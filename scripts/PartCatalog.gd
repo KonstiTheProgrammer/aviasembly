@@ -1006,6 +1006,44 @@ static func engine_cut_z(p: Dictionary) -> float:
 # Sitzt HINTER dem Motor (in +Z, seiner Heckrichtung) ein Rumpfteil? Testpunkt = knapp hinter
 # der Schnittebene auf der Schubachse; trifft er die Box eines Rumpfteils, ist angedockt.
 # others = [{id, xform, pscale}] aller ANDEREN Teile (im selben Bezugssystem wie eng_xf).
+# Cockpit-Anschlussrahmen (glb-Knoten FrameF vorne/-Z, FrameB hinten/+Z) einzeln schalten.
+static func set_cockpit_frames(vis: Node, show_front: bool, show_back: bool) -> void:
+	var f := vis.find_child("FrameF", true, false)
+	if f is Node3D:
+		(f as Node3D).visible = show_front
+	var b := vis.find_child("FrameB", true, false)
+	if b is Node3D:
+		(b as Node3D).visible = show_back
+
+
+# Sitzt an einem ENDE des Radial-Cockpits (back=false: vorne/-Z, back=true: hinten/+Z) ein
+# Rumpfteil ODER ein Triebwerk? Testpunkt knapp jenseits der Stirnflaeche auf der Laengsachse
+# (gleiches Prinzip wie rear_docked). Dann verschwindet dort der Anschlussrahmen.
+static func cockpit_side_docked(cp_id: String, cp_xf: Transform3D, cp_psc: Vector3,
+		others: Array, back: bool) -> bool:
+	var p := get_part(cp_id)
+	if p.is_empty():
+		return false
+	var co := col_offset(p)
+	var s := 1.0 if back else -1.0
+	var probe: Vector3 = cp_xf * Vector3(co.x * cp_psc.x, co.y * cp_psc.y,
+		(co.z + s * col_size(p).z * 0.5) * cp_psc.z + s * 0.06)
+	for o in others:
+		var op := get_part(o.get("id", ""))
+		if op.is_empty():
+			continue
+		if not is_fuselage_part(op) and op.get("category", "") != CAT_PROP:
+			continue   # nur Rumpf/Antrieb deckt den Anschluss ab (Fluegel etc. nicht)
+		var opsc: Vector3 = o.get("pscale", Vector3.ONE)
+		var oxf: Transform3D = o.get("xform", Transform3D())
+		var lp: Vector3 = oxf.affine_inverse() * probe
+		var c: Vector3 = col_offset(op) * opsc
+		var hf: Vector3 = col_size(op) * opsc * 0.5
+		if absf(lp.x - c.x) <= hf.x and absf(lp.y - c.y) <= hf.y and absf(lp.z - c.z) <= hf.z:
+			return true
+	return false
+
+
 static func rear_docked(eng_id: String, eng_xf: Transform3D, eng_psc: Vector3, others: Array) -> bool:
 	var ep := get_part(eng_id)
 	if ep.is_empty():
@@ -1043,6 +1081,8 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			_fix_reto_prop(root)
 		elif pid == "engine_radial":
 			set_engine_half(root, false)   # Standard: freistehende Gondel; Andocken schaltet um
+		elif pid == "cockpit_radial":
+			set_cockpit_frames(root, true, true)   # Rahmen sichtbar; Andocken blendet je Seite aus
 		return root
 	var shape: String = p.get("shape", "box")
 	var col: Color = p.get("color", Color.WHITE)

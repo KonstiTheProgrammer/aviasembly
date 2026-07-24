@@ -454,7 +454,19 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Querschnitt = `RADIAL_PROFILE` (24 Punkte, aus dem flachen 'Fuselage'-Blatt der Datei) ->
   andockende Segmente werden zu `fuselage_radial` (Shape `radial_tube`, palette-versteckt).
   Regressions-Harness: `tools/_dock_test.gd` (fährt den echten BuildController: beide
-  Richtungen, Treffer auf Cowl-Seite/Heckkonus, Löschen -> zurück auf Full).
+  Richtungen, Treffer auf Cowl-Seite/Heckkonus, Löschen -> zurück auf Full; Abschnitt 6:
+  Cockpit-Rahmen).
+  **COCKPIT-ANSCHLUSSRAHMEN (AUTO, pro Seite):** `cockpit_radial.glb` traegt ZWEI eingebaute
+  Rahmen-Instanzen **`FrameF`/`FrameB`** (im Regenerator per 180-Grad-Z-Drehung ans
+  Gegenende gestellt, Blender-y ±0.665 — bewusst NUR -bc-zentriert, die sx/sz-
+  Profilkorrektur gilt dem roten Rumpf, der Rahmen ist schon masshaltig).
+  `PartCatalog.set_cockpit_frames(vis, front, back)` schaltet die Sichtbarkeit;
+  `PartCatalog.cockpit_side_docked` prueft je Ende einen Testpunkt 0.06 jenseits der
+  Stirnflaeche (zaehlt Rumpfteile UND Antriebe/CAT_PROP — Sternmotor vor dem Cockpit
+  verdeckt den Rahmen genauso wie ein Rumpf). Gerufen aus `_sync_engine_variants`
+  (Editor, in `_notify_changed`) und `FlightController.build_from_design`. Das SEPARATE
+  Palette-Teil `cockpit_radial_frame` (Metallrahmen als manueller Adapter) bleibt davon
+  unberuehrt.
   **FALLEN (beide hier reingelaufen):** (1) Die Nase liegt in Engine.blend bei **−Y** -> 180° um Z
   statt der üblichen +90°. (2) Das Prop-Blatt nutzt eine **prozedurale** Wave-Texture+Color-Ramp —
   glTF exportiert das NICHT (Blatt käme flach weiß); das Skript mittelt die Color-Ramp zu einem

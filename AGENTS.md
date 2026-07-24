@@ -406,6 +406,12 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   `fuselage_radial`). Der ehemals fest eingebaute genietete Ring ist das eigenständige
   Paletten-Bauteil `cockpit_radial_frame.glb` (1.200×1.129×0.085). Beide werden reproduzierbar
   von `tools/build_engine_radial.py` aus `Engine.blend` exportiert.
+  **AUTO-Rahmen dazu:** `cockpit_radial.glb` trägt zusätzlich zwei eingebaute Rahmen-
+  Instanzen `FrameF`/`FrameB` (±Y-Enden). `PartCatalog.set_cockpit_frames` /
+  `cockpit_side_docked` (Testpunkt 0.06 jenseits der Stirnfläche; Rumpfteile UND Antriebe
+  zählen) blenden sie PRO SEITE aus, sobald dort etwas andockt — gerufen aus
+  `BuildController._sync_engine_variants` und `FlightController.build_from_design`.
+  Das manuelle Paletten-Teil bleibt unberührt. Regression: `tools/_dock_test.gd` Abschnitt 6.
 - **MiG-21 (Hybrid-Ikone, Referenz-Qualitätspfad):** `mig21_front` (edler Vorderrumpf:
   Einlauf-Lippe, grüner Matt-Radom-Schockkonus, Pitot, Kanzel + Fairing, Panel-Linien) +
   `mig21_rear` (Heck aus einem Guss: Boattail, dunkler Düsenring+Innenkonus, Ventralflosse,

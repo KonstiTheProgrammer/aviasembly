@@ -286,6 +286,7 @@ def seal_profile_cap(o, profile, width, height, material_name):
 
 cockpit = None
 cockpit_frame = None
+auto_frames = []   # Rahmen-Instanzen IM Cockpit-glb (FrameF/FrameB), pro Seite abschaltbar
 if cp_shell is not None:
     # Rahmen als echte Geometrie-Kopie isolieren, aus dem Cockpit selbst entfernen.
     cockpit_frame = cp_shell.copy()
@@ -330,6 +331,30 @@ if cp_shell is not None:
     seal_profile_cap(cockpit, norm, TARGET_W, target_h, "Cockpit_RedPaint")
     print("COCKPIT-Profil korrigiert: sx=%.5f sz=%.5f -> %.3f x %.3f"
           % (sx, sz, TARGET_W, target_h))
+
+    # --- AUTO-Rahmen ins Cockpit-glb: an BEIDEN Anschlussenden eine Instanz ---------------
+    # Der Editor zeigt sie standardmaessig und blendet sie PRO SEITE aus, sobald dort ein
+    # Rumpf/Motor andockt (wie Motor Full/Half). Es wird nur die -bc-Zentrierung des
+    # Cockpits nachgezogen — die sx/sz-Profilkorrektur galt dem falsch bemessenen roten
+    # Rumpf, der Rahmen traegt bereits das masshaltige 1.200x1.129-Profil. Die zweite
+    # Instanz entsteht per 180-Grad-Drehung um Z (Position UND Schraubenseite ans
+    # Gegenende, keine Spiegelung -> Geometrie bleibt proper).
+    for tag in ("A", "B"):
+        c = cockpit_frame.copy()
+        c.data = cockpit_frame.data.copy()
+        cockpit_frame.users_collection[0].objects.link(c)
+        c.matrix_world = Matrix.Translation(-bc) @ c.matrix_world
+        if tag == "B":
+            c.matrix_world = Matrix.Rotation(math.pi, 4, 'Z') @ c.matrix_world
+        bake(c)
+        auto_frames.append(c)
+    ya = float(np.mean(wverts(auto_frames[0])[:, 1]))
+    front, back = (auto_frames[0], auto_frames[1]) if ya >= 0.0 else (auto_frames[1], auto_frames[0])
+    for o, nm in ((front, "FrameF"), (back, "FrameB")):   # Blender +Y = Godot -Z = VORNE
+        o.name = nm
+        o.data.name = nm
+    print("AUTO-RAHMEN: FrameF y-Mitte %+.3f / FrameB y-Mitte %+.3f (Blender, +Y=vorn)"
+          % (float(np.mean(wverts(front)[:, 1])), float(np.mean(wverts(back)[:, 1]))))
 
     # Rahmen ist ein selbstständiger Adapter: eigener Mittelpunkt, ursprüngliches
     # maßhaltiges 1.200-x-1.129-Profil, im Editor normal ansteck-/skalierbar.
@@ -429,6 +454,8 @@ if cockpit is not None:
     cockpit.data.name = "Cockpit"
     bpy.ops.object.select_all(action='DESELECT')
     cockpit.select_set(True)
+    for fr in auto_frames:   # FrameF/FrameB als Geschwister mit exportieren
+        fr.select_set(True)
     bpy.ops.export_scene.gltf(filepath=OUT_CP, export_format='GLB', use_selection=True, export_apply=True)
 
 if cockpit_frame is not None:

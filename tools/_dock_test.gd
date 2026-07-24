@@ -132,5 +132,34 @@ func _process(_d: float) -> bool:
 			% [rear, front, absf(rear - front)])
 	else:
 		print("  KEIN Snap")
+
+	print("=== 6) Cockpit-Anschlussrahmen: pro Seite automatisch ausblenden ===")
+	var cp6 := bc._place_id("cockpit_radial", Transform3D(Basis(), Vector3(20, 0, 0)))
+	bc._notify_changed()
+	print("  allein:       FrameF=%s FrameB=%s  (erwartet true/true)"
+		% [_shown(cp6, "FrameF"), _shown(cp6, "FrameB")])
+	var cpd6 := PartCatalog.get_part("cockpit_radial")
+	var fd6 := PartCatalog.get_part("fuselage_radial")
+	# Radial-Rumpf buendig HINTEN (+Z)
+	var fus6 := bc._place_id("fuselage_radial", Transform3D(Basis(),
+		Vector3(20, 0, PartCatalog.col_size(cpd6).z * 0.5 + PartCatalog.col_size(fd6).z * 0.5)))
+	bc._notify_changed()
+	print("  Rumpf hinten: FrameF=%s FrameB=%s  (erwartet true/false)"
+		% [_shown(cp6, "FrameF"), _shown(cp6, "FrameB")])
+	# Sternmotor buendig VORNE (-Z): seine Schnittebene auf der Cockpit-Vorderkante
+	var ep6 := PartCatalog.get_part("engine_radial")
+	var e6 := bc._place_id("engine_radial", Transform3D(Basis(),
+		Vector3(20, 0, -PartCatalog.col_size(cpd6).z * 0.5 - PartCatalog.engine_cut_z(ep6))))
+	bc._notify_changed()
+	print("  +Motor vorn:  FrameF=%s FrameB=%s  (erwartet false/false)"
+		% [_shown(cp6, "FrameF"), _shown(cp6, "FrameB")])
+	fus6.free()
+	bc._notify_changed()
+	print("  Rumpf weg:    FrameF=%s FrameB=%s  (erwartet false/true)"
+		% [_shown(cp6, "FrameF"), _shown(cp6, "FrameB")])
+	e6.free()
+	bc._notify_changed()
+	print("  Motor weg:    FrameF=%s FrameB=%s  (erwartet true/true)"
+		% [_shown(cp6, "FrameF"), _shown(cp6, "FrameB")])
 	quit()
 	return true
