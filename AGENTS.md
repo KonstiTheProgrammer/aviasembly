@@ -110,7 +110,7 @@ scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 
                          _biome-Rauschen): WALD (Sage-Grün + Tannen/Laub), WUESTE (Sand + Palmen),
                          HEIDE (Ocker/Rosé, karg); Fels+Schnee kommen aus Höhe/Hang (Schnee
                          >124 m). _face_color schaltet die Palette je Biom. KEIN Domain-Warp im
-                         Ridge (zu teuer pro Vertex -> Spawn-Build ~384 ms). WAHRZEICHEN/POIs (Stufe 2, scripts/Landmarks.gd, statisch -> Spiel+Render-Tool teilen): Stadt mit Kirche+Turm + Leuchtturm (rot-weiß), platziert auf eigenen Flachzonen in Main._setup_world. INLAND-SEEN: lakes-Array an setup(); height_at gräbt ein Becken (Boden über SEA_Y), eigene Wasser-Quads je See. FLÜSSE (Stufe 3): kuratierte Splines [{pts:[Vector3(x,surf_y,z)...], w, valley, depth}] an setup(); _river_carve gräbt entlang des nächsten Segments ein Tal+Bett (robust: Ufer immer >Wasser -> kein schwebendes Wasser; AABB-Early-Out -> nur Fluss-Chunks zahlen), Wasser = feste Ribbon-Meshes. MASSIVE: erzwungene Berge {pos,r,peak} (max-Anhebung) -> garantieren Berg fürs Bergdorf/Flussquelle seed-unabhängig. Flatzone mit y>0 = Hochplateau (Bergdorf). Landmarks.build_village/build_bridge.
+                         Ridge (zu teuer pro Vertex -> Spawn-Build ~384 ms). WAHRZEICHEN/POIs (Stufe 2, scripts/Landmarks.gd, statisch -> Spiel+Render-Tool teilen): Stadt mit Kirche+Turm + Leuchtturm (rot-weiß), platziert auf eigenen Flachzonen in Main._setup_world. Westlich der Stadt steht die **Luftschiffwerft** (`Landmarks.build_airship_factory`): große stählerne Bogenhalle, halb fertiger Zeppelin, Werkstatttrakt, Verwaltung, Kesselhaus mit Doppelschornstein, Gastanks, Werftgleise und Ankermast; auf der Karte als „Luftschiffwerft“ markiert. INLAND-SEEN: lakes-Array an setup(); height_at gräbt ein Becken (Boden über SEA_Y), eigene Wasser-Quads je See. FLÜSSE (Stufe 3): kuratierte Splines [{pts:[Vector3(x,surf_y,z)...], w, valley, depth}] an setup(); _river_carve gräbt entlang des nächsten Segments ein Tal+Bett (robust: Ufer immer >Wasser -> kein schwebendes Wasser; AABB-Early-Out -> nur Fluss-Chunks zahlen), Wasser = feste Ribbon-Meshes. MASSIVE: erzwungene Berge {pos,r,peak} (max-Anhebung) -> garantieren Berg fürs Bergdorf/Flussquelle seed-unabhängig. Flatzone mit y>0 = Hochplateau (Bergdorf). Landmarks.build_village/build_bridge/build_airship_factory.
                          Streaming um den Spieler auf WORKER-THREAD (Mesh+Trimesh-Shape im
                          Thread, ~7.5 ms/Chunk riss sonst den 120-fps-Frame -> Zucken beim
                          Nachladen; Main hängt nur fertige Daten ein, 1/Frame; update_center
@@ -418,8 +418,8 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - **MODELLBIBLIOTHEK `blender_lib/`** (traegt `.gdignore`): eine .blend je Kategorie
   (motoren/fahrwerke/cockpits/ruempfe/fluegel_leitwerk/waffen — Quelle models/*.glb,
   via `tools/build_blender_lib.py`) + **`gebaeude.blend`**: ALLE prozeduralen
-  Landmarks-Bauwerke (Stadt/Bergdorf/Leuchtturm/Windrad/Bruecke + Einzelhaeuser
-  Haus_A..L, je eigene Collection). Die Häuser sind bewusst flugtaugliche Ein-Mesh-
+  Landmarks-Bauwerke (Stadt/Bergdorf/Leuchtturm/Windrad/Bruecke/Luftschiff_Fabrik +
+  Einzelhaeuser Haus_A..L, je eigene Collection). Die Häuser sind bewusst flugtaugliche Ein-Mesh-
   Low-Poly-Modelle mit Vertex-Colors: sechs Silhouetten (Sattel/Walm/Stadthaus/Flachdach/
   Chalet/Scheune), wenige kontrastreiche Fenster/Türen, Fundament, Balkon und Kamin.
   Dadurch mehr Fernwirkung/Variation bei weniger Nodes (Stadt 87, Bergdorf 41 Meshes).

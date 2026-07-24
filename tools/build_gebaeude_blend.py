@@ -1,7 +1,8 @@
 # Landmarks-Gebaeude -> blender_lib/gebaeude.blend
 # Quelle: blender_lib/_gebaeude_export.glb (erzeugt von tools/_export_buildings.gd —
 # exportiert die ECHTE prozedurale Godot-Geometrie, daher immer synchron zum Spiel).
-# Je Bauwerk eine Collection: Stadt / Bergdorf / Leuchtturm / Windrad / Bruecke / Haus_A..L.
+# Je Bauwerk eine Collection: Stadt / Bergdorf / Luftschiff_Fabrik / Leuchtturm /
+# Windrad / Bruecke / Haus_A..L.
 # Usage: [Godot-Export laufen lassen, dann] blender --background --python tools/build_gebaeude_blend.py
 import bpy
 import os

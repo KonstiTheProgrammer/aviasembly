@@ -66,6 +66,20 @@ static func _glow(parent: Node3D, pos: Vector3, col: Color) -> void:
 	parent.add_child(mi)
 
 
+static func _cylinder(parent: Node3D, pos: Vector3, bottom_radius: float, top_radius: float,
+		height: float, segments: int, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.bottom_radius = bottom_radius
+	cyl.top_radius = top_radius
+	cyl.height = height
+	cyl.radial_segments = segments
+	mi.mesh = cyl
+	mi.position = pos
+	mi.material_override = mat
+	parent.add_child(mi)
+
+
 static func _building_mat() -> StandardMaterial3D:
 	if _building_vertex_mat == null:
 		_building_vertex_mat = StandardMaterial3D.new()
@@ -335,6 +349,135 @@ static func build_town(parent: Node3D, center: Vector3) -> void:
 	_box(node, Vector3(0, 11.0, -15.0), Vector3(8, 22, 8), cwall)   # Turm
 	_roof(node, Vector3(0, 25.0, -15.0), 8.0, 9.0, croof)           # Spitzdach
 	_glow(node, Vector3(0, 30.0, -15.0), Color(0.95, 0.85, 0.4))    # Knauf
+
+
+# Luftschiff-Werft: 100-m-Zeppelinhalle mit gewölbtem Stahldach, offenem Portal,
+# Werkstätten, Kesselhaus, Tanks, Gleisen, Ankermast und einem Zeppelin-Rohbau.
+# Die großen, kontrastreichen Formen sind für 200–800 m Sichtweite optimiert.
+static func build_airship_factory(parent: Node3D, center: Vector3, yaw := 0.0) -> void:
+	var node := Node3D.new()
+	node.name = "Luftschiff_Fabrik"
+	node.position = center
+	node.rotation.y = yaw
+	parent.add_child(node)
+
+	var steel := Color(0.39, 0.46, 0.50)
+	var steel_light := Color(0.52, 0.59, 0.61)
+	var steel_dark := Color(0.16, 0.20, 0.23)
+	var portal := Color(0.025, 0.035, 0.045)
+	var profile := [
+		Vector2(-22.0, 0.0), Vector2(-22.0, 9.5), Vector2(-20.5, 15.0),
+		Vector2(-16.5, 20.0), Vector2(-10.0, 24.0), Vector2(0.0, 26.0),
+		Vector2(10.0, 24.0), Vector2(16.5, 20.0), Vector2(20.5, 15.0),
+		Vector2(22.0, 9.5), Vector2(22.0, 0.0),
+	]
+	var front_z := -49.0
+	var rear_z := 49.0
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Gewölbte Außenhaut; alternierende Paneelwerte geben der Halle Fernstruktur.
+	for i in range(profile.size() - 1):
+		var p0: Vector2 = profile[i]
+		var p1: Vector2 = profile[i + 1]
+		var col := steel_light if i % 3 == 1 else (steel if i % 3 == 0 else _shade(steel, 0.86))
+		_quad(st, Vector3(p0.x,p0.y,front_z), Vector3(p0.x,p0.y,rear_z),
+			Vector3(p1.x,p1.y,rear_z), Vector3(p1.x,p1.y,front_z), col)
+	# Geschlossene Rückwand als Fächer, vorne eine tiefdunkle offene Hallenöffnung.
+	var rear_center := Vector3(0, 11.5, rear_z)
+	var front_center := Vector3(0, 11.5, front_z - 0.03)
+	for i in range(profile.size() - 1):
+		var p0: Vector2 = profile[i]
+		var p1: Vector2 = profile[i + 1]
+		_tri(st, rear_center, Vector3(p0.x,p0.y,rear_z), Vector3(p1.x,p1.y,rear_z),
+			_shade(steel, 0.78))
+		_tri(st, front_center, Vector3(p1.x,p1.y,front_z - 0.03),
+			Vector3(p0.x,p0.y,front_z - 0.03), portal)
+	st.generate_normals()
+	var hall := MeshInstance3D.new()
+	hall.name = "Zeppelinhalle"
+	hall.mesh = st.commit()
+	hall.material_override = _building_mat()
+	node.add_child(hall)
+
+	var steel_mat := _mat(steel, 0.52)
+	var dark_mat := _mat(steel_dark, 0.48)
+	var glass_mat := _mat(Color(0.08, 0.17, 0.22), 0.32)
+	var brick_mat := _mat(Color(0.43, 0.20, 0.14), 0.94)
+	var roof_mat := _mat(Color(0.24, 0.29, 0.32), 0.64)
+	var concrete := _mat(Color(0.48, 0.49, 0.46), 0.94)
+	var brass := _mat(Color(0.65, 0.50, 0.20), 0.48)
+	var timber := _mat(Color(0.27, 0.20, 0.14), 0.92)
+
+	# Zwei zurückgeschobene Torflügel und markante Portalpfosten.
+	for sx in [-1.0, 1.0]:
+		_box(node, Vector3(sx * 17.8, 10.5, front_z - 0.55),
+			Vector3(7.8, 21.0, 0.85), steel_mat)
+		_box(node, Vector3(sx * 22.35, 10.0, front_z - 0.15),
+			Vector3(0.70, 20.0, 1.0), dark_mat)
+	_box(node, Vector3(0, 0.18, 0), Vector3(46.0, 0.36, 101.0), concrete)
+
+	# Transversale Außenrippen: wenige kräftige Linien statt vieler Detailstreben.
+	for z in [-36.0, -12.0, 12.0, 36.0]:
+		for sx in [-1.0, 1.0]:
+			_box(node, Vector3(sx * 22.18, 8.0, z), Vector3(0.42, 16.0, 0.65), dark_mat)
+		_box(node, Vector3(0, 25.45, z), Vector3(9.0, 0.48, 0.65), dark_mat)
+	# Große Seitenfenster als zusammenhängende Industrie-Bänder.
+	for sx in [-1.0, 1.0]:
+		for z in [-29.0, -10.0, 9.0, 28.0]:
+			_box(node, Vector3(sx * 22.23, 8.2, z), Vector3(0.18, 3.0, 10.5), glass_mat)
+
+	# Werkstattflügel und Verwaltungsbau.
+	_box(node, Vector3(32.0, 4.0, 12.0), Vector3(17.0, 8.0, 42.0),
+		_mat(Color(0.50, 0.43, 0.34), 0.90))
+	_gable_roof(node, Vector3(32.0, 8.0, 12.0), 19.0, 44.0, 4.4,
+		roof_mat.albedo_color, Color(0.50, 0.43, 0.34))
+	for z in [-1.0, 12.0, 25.0]:
+		_box(node, Vector3(23.45, 4.3, z), Vector3(0.16, 2.2, 5.8), glass_mat)
+	_box(node, Vector3(31.0, 5.0, -29.0), Vector3(19.0, 10.0, 20.0),
+		_mat(Color(0.57, 0.59, 0.56), 0.88))
+	_box(node, Vector3(31.0, 10.35, -29.0), Vector3(20.0, 0.7, 21.0), roof_mat)
+	for x in [25.0, 31.0, 37.0]:
+		_box(node, Vector3(x, 5.7, -39.2), Vector3(3.0, 2.2, 0.18), glass_mat)
+
+	# Kesselhaus: zwei gestufte Backsteinschlote, weithin sichtbare Vertikalen.
+	_box(node, Vector3(32.0, 3.5, 39.0), Vector3(18.0, 7.0, 15.0), brick_mat)
+	for x in [28.0, 36.0]:
+		_cylinder(node, Vector3(x, 18.0, 42.0), 1.65, 1.20, 29.0, 10, brick_mat)
+		_cylinder(node, Vector3(x, 32.8, 42.0), 1.48, 1.48, 0.7, 10, brass)
+
+	# Drei Gastanks, auf der freien Hallenseite als eigene industrielle Silhouette.
+	for i in 3:
+		var tz := 22.0 + float(i) * 15.0
+		_cylinder(node, Vector3(-34.0, 4.0, tz), 5.0, 5.0, 8.0, 12, steel_mat)
+		_cylinder(node, Vector3(-34.0, 8.25, tz), 4.7, 0.0, 1.5, 12, steel_mat)
+
+	# Werftgleise führen vom dunklen Tor zum Ankermast.
+	for sx in [-1.0, 1.0]:
+		_box(node, Vector3(sx * 7.2, 0.10, -77.0), Vector3(0.32, 0.18, 56.0), dark_mat)
+	for z in range(-102, -50, 6):
+		_box(node, Vector3(0, 0.07, float(z)), Vector3(18.0, 0.12, 0.36), timber)
+
+	# Ankermast mit Leuchtknauf.
+	_cylinder(node, Vector3(0, 17.0, -107.0), 3.1, 0.65, 34.0, 8, dark_mat)
+	_box(node, Vector3(0, 25.0, -107.0), Vector3(13.0, 0.55, 0.55), steel_mat)
+	_glow(node, Vector3(0, 35.0, -107.0), Color(1.0, 0.52, 0.18))
+
+	# Halbfertiger Zeppelin neben der Halle: sehr leichtes 12x6-Low-Poly-Ellipsoid.
+	var envelope := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 1.0
+	sph.height = 2.0
+	sph.radial_segments = 12
+	sph.rings = 6
+	envelope.mesh = sph
+	envelope.position = Vector3(-37.0, 12.0, -18.0)
+	envelope.scale = Vector3(7.2, 7.2, 23.0)
+	envelope.material_override = _mat(Color(0.66, 0.70, 0.68), 0.56)
+	envelope.name = "Zeppelin_Rohbau"
+	node.add_child(envelope)
+	_box(node, Vector3(-37.0, 3.7, -20.0), Vector3(5.2, 2.0, 9.0), dark_mat)
+	_box(node, Vector3(-37.0, 12.0, 5.8), Vector3(0.55, 13.0, 6.0), steel_mat)
+	_box(node, Vector3(-37.0, 12.0, 5.8), Vector3(13.0, 0.55, 6.0), steel_mat)
 
 
 # Leuchtturm: konischer rot-weiß gebänderter Turm + Laternenhaus + Leuchtfeuer.

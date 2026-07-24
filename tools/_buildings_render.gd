@@ -13,6 +13,7 @@ var shots := [
 	["stadt_250m", Vector3(205, 205, 250), Vector3(0, 7, 0)],
 	["stadt_500m", Vector3(-360, 410, 430), Vector3(0, 5, 0)],
 	["bergdorf_220m", Vector3(545, 190, 185), Vector3(420, 7, 0)],
+	["luftschiffwerft_260m", Vector3(890, 205, 235), Vector3(760, 9, 0)],
 ]
 
 
@@ -74,8 +75,10 @@ func _setup() -> void:
 
 	_ground(world, Vector3.ZERO, Vector2(330, 330), Color(0.29, 0.43, 0.22))
 	_ground(world, Vector3(420, 0, 0), Vector2(190, 190), Color(0.33, 0.41, 0.24))
+	_ground(world, Vector3(760, 0, 0), Vector2(240, 290), Color(0.30, 0.34, 0.28))
 	Landmarks.build_town(world, Vector3.ZERO)
 	Landmarks.build_village(world, Vector3(420, 0, 0))
+	Landmarks.build_airship_factory(world, Vector3(760, 0, 0))
 
 	cam = Camera3D.new()
 	cam.fov = 58.0

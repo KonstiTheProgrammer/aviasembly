@@ -124,6 +124,7 @@ func _setup() -> void:
 	# --- Terrain + POIs (Stufe 2/3) — Spiegel von Main._setup_world ---
 	terrain = TerrainWorld.new()
 	var town_pos := Vector3(1400, 0, 750)
+	var factory_pos := town_pos + Vector3(-225, 0, 95)
 	var lake_pos := Vector3(1400, 0, 1030)
 	var lh_pos := Vector3(-950, 0, -1250)
 	var village_pos := Vector3(2550, 120, 1650)
@@ -179,6 +180,7 @@ func _setup() -> void:
 	big_water.material_override = bmat
 	w.add_child(big_water)
 	Landmarks.build_town(w, town_pos)
+	Landmarks.build_airship_factory(w, factory_pos, 0.12)
 	Landmarks.build_lighthouse(w, lh_pos)
 	Landmarks.build_village(w, village_pos)
 	Landmarks.build_bridge(w, Vector3(1560, 22, 1130), 120.0, 1.0)

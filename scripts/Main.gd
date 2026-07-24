@@ -339,6 +339,7 @@ func _setup_world() -> void:
 			"r_blend": 2300.0 if is_main else 1200.0})
 	# --- WAHRZEICHEN/POIs: Stadt mit See + Leuchtturm + BERGDORF am FLUSS (Stufe 3) ---
 	var town_pos := Vector3(1400, 0, 750)
+	var factory_pos := town_pos + Vector3(-225, 0, 95)
 	var lake_pos := Vector3(1400, 0, 1030)
 	var lh_pos := Vector3(-950, 0, -1250)
 	var village_pos := Vector3(2550, 120, 1650)   # Bergdorf-Plateau (Schelf am Massiv)
@@ -393,6 +394,7 @@ func _setup_world() -> void:
 	# height_at ist pure Noise-Mathematik und laeuft schon jetzt parallel im Chunk-Worker).
 	_map_pois = [
 		{"name": "Stadt", "pos": town_pos, "color": Color(0.95, 0.85, 0.35)},
+		{"name": "Luftschiffwerft", "pos": factory_pos, "color": Color(0.58, 0.76, 0.82)},
 		{"name": "Leuchtturm", "pos": lh_pos, "color": Color(0.95, 0.45, 0.40)},
 		{"name": "Bergdorf", "pos": village_pos, "color": Color(0.80, 0.70, 0.55)},
 		{"name": "Vulkan", "pos": Vector3(11800, 0, -5600), "color": Color(0.85, 0.35, 0.25)},
@@ -409,6 +411,7 @@ func _setup_world() -> void:
 		_build_airfield(af)
 	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
 	_build_town(town_pos)
+	Landmarks.build_airship_factory(fly_world, factory_pos, 0.12)
 	_build_lighthouse(lh_pos)
 	_build_windfarm(Vector3(-3900, 0, -700))
 	# Ozean-Leben: Segelschiffe weit draussen (garantiert Wasser, d > 16 km) + Wrack
