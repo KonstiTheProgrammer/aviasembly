@@ -8,6 +8,7 @@ enum Mode { BUILD, FLY }
 const SAVE_PATH := "user://aircraft_design.json"   # Autoload: zuletzt gebautes/geladenes
 const SLOT_DIR := "user://hangar"                  # benannte eigene Speicher-Slots
 const F_BOLD := preload("res://fonts/TitilliumWeb-Bold.ttf")   # fetter Schnitt für Überschriften
+const F_SEMI := preload("res://fonts/TitilliumWeb-SemiBold.ttf")  # Standard-UI-Schnitt (crisp)
 
 # Blueprint-Gitter-Shader (anti-aliased, zum Horizont ausgeblendet)
 const _BLUEPRINT_GRID_SHADER := "
@@ -377,7 +378,7 @@ func _setup_world() -> void:
 	]
 	_map_thread = Thread.new()
 	_map_thread.start(func() -> void:
-		var img := WorldMap.generate_image(terrain)
+		var img := WorldMap.generate_image(terrain, 512)
 		call_deferred("_on_map_image_ready", img))
 	for af in airfields:
 		_build_airfield(af)
@@ -2004,9 +2005,10 @@ func _build_flight_ui() -> void:
 	flight_root.add_child(flight_hud)
 
 	# Hinweisleiste unten
-	var hint := _lbl("Maus: Zielen (Standard) · M: Tastatur-Modus · J: Arcade · Schub: Shift/Strg (>100 % = Nachbrenner) · Nase: W/S · Rollen: A/D (halten = Barrel Roll) · Gieren: Q/E · C halten: Umsehen · LEERTASTE/LINKSKLICK (gelber Pipper = echter Treffpunkt) · B · G: Fahrwerk · F: Klappen · H: G-Schutz · T: Assist · Enter: neu", 14, Color(0.92, 0.92, 0.92))
+	var hint := _lbl("Maus: Zielen  ·  M: Karte  ·  N: Tastatur-Modus  ·  J: Arcade  ·  Schub: Shift/Strg (>100 % = Nachbrenner)  ·  Nase: W/S  ·  Rollen: A/D (halten = Barrel Roll)  ·  Gieren: Q/E
+Leertaste/Linksklick: feuern (gelber Pipper = Treffpunkt)  ·  B: Bombe  ·  G: Fahrwerk  ·  F: Klappen  ·  H: G-Schutz  ·  T: Assist  ·  C halten: Umsehen  ·  Enter: neu", 16, Color(0.90, 0.93, 0.97))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rect(hint, 0, 1, 1, 1, 10, -34, -10, -8)
+	_rect(hint, 0, 1, 1, 1, 10, -56, -10, -8)
 	flight_root.add_child(hint)
 
 
@@ -3056,6 +3058,7 @@ func _default_design() -> Array:
 func _lbl(text: String, size: int = 14, color: Color = Color(1, 1, 1)) -> Label:
 	var l := Label.new()
 	l.text = text
+	l.add_theme_font_override("font", F_SEMI)   # crisp: Projekt-Font statt weicher Default-Font
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))

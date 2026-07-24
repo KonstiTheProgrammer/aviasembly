@@ -33,7 +33,7 @@ const DIM := Color(0.75, 0.9, 1.0)
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_font = get_theme_default_font()
+	_font = preload("res://fonts/TitilliumWeb-SemiBold.ttf")   # crisp statt Default-Font
 	if _font == null:
 		_font = ThemeDB.fallback_font
 	set_process(true)
