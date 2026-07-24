@@ -183,8 +183,15 @@ func height_at(x: float, z: float) -> float:
 	var rdg := clampf(_ridge.get_noise_2d(x, z) * 0.5 + 0.5, 0.0, 1.0)
 	var peaks := pow(rdg, 1.6) * lerpf(0.0, 175.0, relief) * relief
 	var h := rolling + peaks
-	# ERZWUNGENE BERGE (Massive): garantieren einen Berg an gewünschter Stelle
-	# (für Bergdorf/Flussquelle), seed-unabhängig. Nur anheben (max).
+	# MESA-TERRASSEN in der Wüste: gestufte Tafelberge/Canyon-Kanten (Low-Poly-Ikone).
+	# Weiche Quantisierung: flache Tops, steile Flanken; nur im Wüsten-Biom & ab 8 m.
+	if h > 8.0 and dist_k > 0.25 and _biome.get_noise_2d(x, z) < -0.32:
+		var step_h := 16.0
+		var q := floorf(h / step_h) * step_h
+		var f := (h - q) / step_h
+		h = lerpf(h, q + smoothstep(0.55, 1.0, f) * step_h, 0.75)
+	# ERZWUNGENE FORMEN (Massive): garantieren Berg/Insel/Vulkan an gewünschter Stelle,
+	# seed-unabhängig. Nur anheben (max) -> stören das übrige Gelände nie.
 	for ms in massifs:
 		var mp: Vector3 = ms["pos"]
 		var md := Vector2(x - mp.x, z - mp.z).length()
@@ -192,9 +199,27 @@ func height_at(x: float, z: float) -> float:
 		if cone > 0.0:
 			# craggy: breite Ridge-Form + hochfrequente Grat-Details -> Bergform statt Kuppel
 			var crag := clampf(_ridge.get_noise_2d(x * 2.4, z * 2.4) * 0.5 + 0.5, 0.0, 1.0)
-			var top := float(ms["peak"]) * smoothstep(0.0, 1.0, cone) * (0.68 + 0.32 * rdg)
-			top += smoothstep(0.0, 1.0, cone) * crag * 30.0
-			h = maxf(h, top)
+			var s := smoothstep(0.0, 1.0, cone)
+			var typ := String(ms.get("type", "berg"))
+			if typ == "berg":
+				var top := float(ms["peak"]) * s * (0.68 + 0.32 * rdg)
+				top += s * crag * 30.0
+				h = maxf(h, top)
+			else:
+				# INSEL/VULKAN: Rand fällt UNTER den Meeresspiegel -> echte Küste rundum
+				# + flacher Unterwasser-Schelf (türkiser Ring), egal wo die Basis liegt.
+				var top := lerpf(SEA_Y - 9.0, float(ms["peak"]), s) + s * crag * 22.0
+				if typ == "vulkan":
+					# Krater: Kegelspitze zur Schüssel eindrücken (Boden bleibt hoch/trocken)
+					var cr := float(ms.get("crater_r", float(ms["r"]) * 0.16))
+					var bowl := 1.0 - smoothstep(cr * 0.35, cr, md)
+					top -= bowl * float(ms.get("crater_depth", float(ms["peak"]) * 0.45))
+				h = maxf(h, top)
+	# STRAND-SCHELF: Hänge nahe der Wasserlinie abflachen -> breite Sandstrände und
+	# breite türkise Untiefen (die Küste "leuchtet"). Blendet bis ±10 m sanft aus.
+	var shelf_k := 1.0 - smoothstep(2.5, 10.0, absf(h - SEA_Y))
+	if shelf_k > 0.001:
+		h = lerpf(h, SEA_Y + (h - SEA_Y) * 0.45, shelf_k)
 	# Flugplätze/Plateaus einebnen: im Innenradius exakt auf Zielhöhe y (default 0),
 	# außen weich zum Gelände überblenden. (Bergdorf nutzt y>0 -> Hochplateau.)
 	for af in airfields:
@@ -400,8 +425,12 @@ func _process(_delta: float) -> void:
 
 # Startbereich SOFORT bauen (synchron, Main-Thread), damit das Flugzeug beim
 # Spawn nicht durch noch fehlende Kollision fällt.
-func build_now_around(world_pos: Vector3, radius: float) -> void:
-	update_center(world_pos)
+## recenter=false: NUR bauen, ohne update_center (das erasen ferner Chunks + Wasser-Verschieben
+## entfaellt) — fuer Render-Tools, die mehrere weit auseinanderliegende Gebiete brauchen.
+## Im Spiel (Spawn) bleibt der Default true.
+func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> void:
+	if recenter:
+		update_center(world_pos)
 	var r := int(ceil(radius / CHUNK)) + 1
 	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
 	for cy in range(cc.y - r, cc.y + r + 1):
@@ -558,6 +587,13 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	if cen.y < SEA_Y + 1.6:
 		return Color(0.93, 0.85, 0.62)        # heller, warmer Sandstrand/Ufer
+	# VULKAN-Flanken: dunkler Basalt statt Schnee/Fels (sonst weisser Marshmallow-Kegel);
+	# zum Gipfel leicht roetlich verwitterte Schlacke. Unterer Gruenguertel bleibt normal.
+	for ms in massifs:
+		if String(ms.get("type", "")) == "vulkan" and cen.y > 26.0 \
+				and Vector2(cen.x - ms["pos"].x, cen.z - ms["pos"].z).length() < float(ms["r"]) * 1.05:
+			var vt := clampf((cen.y - 26.0) / maxf(float(ms["peak"]) - 26.0, 1.0), 0.0, 1.0)
+			return Color(0.24, 0.21, 0.20).lerp(Color(0.38, 0.25, 0.20), vt)
 	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die GIPFEL weiß,
 	# breite FELS-Flanken darunter (sonst wird der Berg ein weißer Klumpen).
 	if cen.y > 188.0:

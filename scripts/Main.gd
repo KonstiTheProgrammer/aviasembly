@@ -338,8 +338,19 @@ func _setup_world() -> void:
 	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
 	flat_zones.append({"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0})
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
-	# Erzwungenes Bergmassiv (steil): garantiert den Berg fürs Bergdorf + Flussquelle.
-	var massifs := [{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0}]
+	# Erzwungene Formen: Bergmassiv (Bergdorf/Flussquelle) + VULKANINSEL + ARCHIPEL
+	# draußen im Ozean als Ausflugsziele (Insel-Typ fällt am Rand unter den Meeresspiegel
+	# -> echte Küsten mit Türkis-Schelf, egal welcher Seed).
+	var massifs := [
+		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
+		{"pos": Vector3(5400, 0, -2600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
+		{"pos": Vector3(4300, 0, -1400), "r": 420.0, "peak": 26.0, "type": "insel"},
+		{"pos": Vector3(6400, 0, -1300), "r": 520.0, "peak": 40.0, "type": "insel"},
+		{"pos": Vector3(4600, 0, -3950), "r": 500.0, "peak": 34.0, "type": "insel"},
+		{"pos": Vector3(-3400, 0, 4600), "r": 700.0, "peak": 55.0, "type": "insel"},
+		{"pos": Vector3(-4400, 0, 3800), "r": 430.0, "peak": 24.0, "type": "insel"},
+		{"pos": Vector3(1200, 0, -5200), "r": 600.0, "peak": 45.0, "type": "insel"},
+	]
 	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
 	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
 	var rivers := [{

@@ -25,6 +25,7 @@ func _process(_d: float) -> bool:
 			["pan1", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],     # Spawn -> Stadt/See/Berge
 			["pan2", Vector3(3550, 360, 600), Vector3(2500, 90, 1450)],    # Blick aufs Bergmassiv
 			["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],          # über dem Flugfeld
+			["vulkan", Vector3(5400, 780, -1750), Vector3(5400, 120, -2600)],  # nah von Norden auf die Vulkaninsel
 		]
 		return false
 	if frame == 6:
@@ -132,7 +133,13 @@ func _setup() -> void:
 		{"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0},
 	]
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0}]
-	var massifs := [{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0}]
+	var massifs := [
+		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
+		{"pos": Vector3(5400, 0, -2600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
+		{"pos": Vector3(4300, 0, -1400), "r": 420.0, "peak": 26.0, "type": "insel"},
+		{"pos": Vector3(6400, 0, -1300), "r": 520.0, "peak": 40.0, "type": "insel"},
+		{"pos": Vector3(4600, 0, -3950), "r": 500.0, "peak": 34.0, "type": "insel"},
+	]
 	var rivers := [{
 		"w": 13.0, "valley": 55.0, "depth": 4.0,
 		"pts": [
@@ -143,13 +150,26 @@ func _setup() -> void:
 	}]
 	terrain.setup(20259, flat_zones, lakes, rivers, massifs)
 	w.add_child(terrain)
+	# Tool-eigene Riesen-Wasserflaeche: _water folgt sonst nur dem letzten update_center
+	# und deckt weit auseinanderliegende Shot-Gebiete (Vulkan!) nicht ab.
+	var big_water := MeshInstance3D.new()
+	var bwm := PlaneMesh.new()
+	bwm.size = Vector2(26000, 26000)
+	big_water.mesh = bwm
+	big_water.position = Vector3(0, TerrainWorld.SEA_Y + 0.13, 0)
+	var bmat := ShaderMaterial.new()
+	bmat.shader = load("res://shaders/water.gdshader")
+	big_water.material_override = bmat
+	w.add_child(big_water)
 	Landmarks.build_town(w, town_pos)
 	Landmarks.build_lighthouse(w, lh_pos)
 	Landmarks.build_village(w, village_pos)
 	Landmarks.build_bridge(w, Vector3(1560, 22, 1130), 120.0, 1.0)
-	terrain.build_now_around(town_pos, 700.0)
-	terrain.build_now_around(Vector3(1950, 0, 1400), 800.0)   # Flusstal
-	terrain.build_now_around(village_pos, 800.0)
+	terrain.build_now_around(town_pos, 700.0, false)
+	terrain.build_now_around(Vector3(1950, 0, 1400), 800.0, false)   # Flusstal
+	terrain.build_now_around(village_pos, 800.0, false)
+	terrain.build_now_around(Vector3(5400, 0, -2600), 1400.0, false)   # Vulkaninsel
+	terrain.build_now_around(Vector3(4300, 0, -1400), 600.0, false)    # Archipel
 	# Scan: finde ein Wüsten- und ein Hochgebirgs-Zentrum (Noise ist sofort abfragbar)
 	var desert_c := Vector3(4200, 0, 0)
 	var mtn_c := Vector3(0, 0, 4200)
@@ -171,9 +191,9 @@ func _setup() -> void:
 		for dz in range(-700, 701, 100):
 			peak = maxf(peak, terrain.height_at(mtn_c.x + dx, mtn_c.z + dz))
 	print("DESERT @ ", desert_c, "  MTN @ ", mtn_c, "  peak=", peak, "  relief=", best_relief)
-	terrain.build_now_around(Vector3.ZERO, 600.0)
-	terrain.build_now_around(desert_c, 850.0)
-	terrain.build_now_around(mtn_c, 950.0)
+	terrain.build_now_around(Vector3.ZERO, 600.0, false)
+	terrain.build_now_around(desert_c, 850.0, false)
+	terrain.build_now_around(mtn_c, 950.0, false)
 	_desert_c = desert_c
 	_mtn_c = mtn_c
 	_peak = peak
