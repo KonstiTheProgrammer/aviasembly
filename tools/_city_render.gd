@@ -7,6 +7,7 @@ var cam: Camera3D
 var i := 0
 var t0 := 0
 var ziele := [
+	["stadt_nah", Vector3(4300, 0, 2500), 240.0, 120.0],
 	["stadt", Vector3(4300, 0, 2500), 620.0, 330.0],
 	["industrie", Vector3(3500, 0, -1500), 430.0, 200.0],
 	["dorf", Vector3(-2300, 0, 1900), 400.0, 190.0],

@@ -434,6 +434,18 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Parkhaus, Speicher, Werkstatt) · Industrie (Fabrik mit Sheddach, Kraftwerk mit
   Kuehlturm, Getreidesilo, Hafenkran, Funkturm, Wasserturm, Tanklager) · Flugplatz/Spezial
   (Hangar, Tower, Radarstation, Bunker, Stadion, Burg, Lotsenhaus).
+  **ZWEI DETAILSTUFEN AUS EINEM CODE:** jedes Haus wird zweimal gebaut — `Bau(name)` gibt
+  die Fernsilhouette, `Bau(name, hd=True)` dieselbe Form mit Nahdetails. Die HD-Stufe
+  entsteht automatisch (Fenster als Glas + Rahmenleisten + Sprossenkreuz + Fensterbank statt
+  einem Quad, Daecher mit Traufbrettern/Firstziegel/Ziegelreihen, Rundungen doppelt so fein,
+  Fassadenbaender mit Geschossgesimsen und Pfeilern) plus per `HD_EXTRAS` ein handgesetzter
+  Detailsatz je Gebaeude (Strebepfeiler an der Kirche, Zinnen und Wehrgang auf der Burg,
+  Balkongelaender an Wohnturm und Plattenbau, Dachtraeger im Stadion, Binder im Hangar,
+  Rohre am Kraftwerk, Gitter am Kran ...). Ergebnis: **LOD 94 Tris im Schnitt, HD 576**
+  (Kirche 1340). Weil beide aus DEMSELBEN Aufbau kommen, sind die Silhouetten
+  deckungsgleich -> beim Umschalten springt die Form nicht. Export: `world_buildings.glb`
+  (fern) + `world_buildings_hd.glb` (nah, Knoten heissen dort `<Typ>_HD`, weil Blender
+  keine zwei gleichnamigen Objekte erlaubt — CityBuilder schneidet das Suffix ab).
   PERFORMANCE: EIN Multi-Material-Mesh je Haus (MultiMesh-tauglich), verdeckte Flaechen
   (Bodenplatten/Dachunterseiten) entstehen gar nicht, Fenster/Tueren/Fachwerkbalken sind
   flache Quads statt Boxen, bei Hochhaeusern durchgehende Fassaden-BAENDER (`_baender`:
@@ -449,7 +461,9 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 - **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser gehen als EIN glb
   (`models/world_buildings.glb`, aus `build_haeuser_blend.py` mitexportiert) ins Spiel;
   `CityBuilder` zieht daraus die Meshes und setzt sie **je Typ und Viertel als ein
-  MultiMeshInstance3D** (ein Draw-Call pro Typ, wie die Baeume). Keine Kollision — genau
+  MultiMeshInstance3D** (ein Draw-Call pro Typ, wie die Baeume) — und zwar ZWEIMAL: die
+  Nahstufe aus `world_buildings_hd.glb` mit `visibility_range_end = LOD_DIST (900 m)`, die
+  Fernstufe mit `visibility_range_begin = LOD_DIST`. Beide teilen dieselben Transforms. Keine Kollision — genau
   wie die Landmarks-Bauten. 12 Viertel / 180 Gebaeude: Grossstadt (Skyline + Blockrand,
   70), Industriehafen, Landdorf, Burgberg (eigenes Massiv + Flachzone y=78), Militaerposten
   an der FLAK-ZONE und Hangar/Tower/Radar an ALLEN 7 Flugplaetzen. Layouts sind

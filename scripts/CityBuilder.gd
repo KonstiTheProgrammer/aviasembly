@@ -16,25 +16,39 @@ class_name CityBuilder
 extends RefCounted
 
 const LIB := "res://models/world_buildings.glb"
+const LIB_HD := "res://models/world_buildings_hd.glb"
+## Ab dieser Entfernung schaltet ein Viertel von der Nah- auf die Fernstufe.
+const LOD_DIST := 900.0
 
-static var _meshes: Dictionary = {}     # "Haus_Kirche" -> ArrayMesh
+static var _meshes: Dictionary = {}     # "Haus_Kirche" -> ArrayMesh (Fernstufe)
+static var _meshes_hd: Dictionary = {}  # dieselbe Form mit Nahdetails
 static var _loaded := false
+
+
+static func _sammeln(pfad: String, ziel: Dictionary) -> void:
+	var ps: PackedScene = load(pfad)
+	if ps == null:
+		push_warning("CityBuilder: %s fehlt (importiert?)" % pfad)
+		return
+	var root: Node = ps.instantiate()
+	for c in root.get_children():
+		var mi := c as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		# Die HD-Knoten heissen "<Typ>_HD" (Blender laesst zwei Objekte nicht gleich heissen)
+		var nm := String(c.name)
+		if nm.ends_with("_HD"):
+			nm = nm.substr(0, nm.length() - 3)
+		ziel[nm] = mi.mesh
+	root.free()
 
 
 static func _load_lib() -> void:
 	if _loaded:
 		return
 	_loaded = true
-	var ps: PackedScene = load(LIB)
-	if ps == null:
-		push_warning("CityBuilder: %s fehlt" % LIB)
-		return
-	var root: Node = ps.instantiate()
-	for c in root.get_children():
-		var mi := c as MeshInstance3D
-		if mi != null and mi.mesh != null:
-			_meshes[String(c.name)] = mi.mesh
-	root.free()
+	_sammeln(LIB, _meshes)
+	_sammeln(LIB_HD, _meshes_hd)
 
 
 static func has_lib() -> bool:
@@ -64,6 +78,10 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 		(nach_typ[t] as Array).append(e)
 	for t in nach_typ.keys():
 		var liste: Array = nach_typ[t]
+		# Transforms EINMAL rechnen und an beide Detailstufen geben (identische Silhouette
+		# -> beim Umschalten springt nichts).
+		var xf: Array = []
+		xf.resize(liste.size())
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = _meshes[t]
@@ -80,10 +98,26 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 			p.y = terrain.height_at(wx, wz) if terrain != null else center.y
 			var sc: float = float(e.get("scale", 1.0))
 			var b := Basis(Vector3.UP, float(e.get("yaw", 0.0)) + dreh).scaled(Vector3(sc, sc, sc))
-			mm.set_instance_transform(i, Transform3D(b, p))
+			xf[i] = Transform3D(b, p)
+			mm.set_instance_transform(i, xf[i])
+		# NAHSTUFE: dieselben Transforms mit dem Detail-Mesh
+		if _meshes_hd.has(t):
+			var mh := MultiMesh.new()
+			mh.transform_format = MultiMesh.TRANSFORM_3D
+			mh.mesh = _meshes_hd[t]
+			mh.instance_count = liste.size()
+			for i in xf.size():
+				mh.set_instance_transform(i, xf[i])
+			var mih := MultiMeshInstance3D.new()
+			mih.name = String(t) + "_HD"
+			mih.multimesh = mh
+			mih.visibility_range_end = LOD_DIST      # nur in der Naehe zeichnen
+			node.add_child(mih)
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = String(t)
 		mmi.multimesh = mm
+		if _meshes_hd.has(t):
+			mmi.visibility_range_begin = LOD_DIST    # uebernimmt ab der Umschaltweite
 		# KEIN custom_aabb: MultiMesh leitet seine Bounds aus den Instanzen ab. Eine von Hand
 		# gesetzte Box um den Node-Ursprung hat frueher das ganze Viertel weggecullt
 		# (Instanzen lagen in WELT-Koordinaten, die Box aber beim Ursprung).
