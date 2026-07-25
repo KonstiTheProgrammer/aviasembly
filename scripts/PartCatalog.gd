@@ -423,8 +423,9 @@ static func _build() -> void:
 	# --- Antrieb -----------------------------------------------------------
 	_add({
 		"id": "prop_engine", "name": "Propellermotor", "category": CAT_PROP,
-		"mass": 160.0, "color": C_ENGINE, "shape": "prop", "thrust": 6500.0,
-		"size": Vector3(1.1, 1.1, 1.7), "metal": 0.7, "rough": 0.35,
+		"mass": 160.0, "color": Color(0.92, 0.94, 0.95), "shape": "prop", "thrust": 6500.0,
+		"size": Vector3(1.1, 1.1, 1.7), "metal": 0.08, "rough": 0.45,
+		"desc": "Kompakter Propellermotor mit weiß lackierter Verkleidung, Kühllamellen, Wartungsdeckel, Auspuffstutzen und Holzpropeller. Am Rumpf wird er automatisch zur bündig abgeschnittenen Bughaube.",
 	})
 	_add({
 		"id": "prop_engine_big", "name": "Großer Propeller", "category": CAT_PROP,
@@ -442,9 +443,10 @@ static func _build() -> void:
 	# Querschnitt (Breite/Höhe) passt sich per Auto-Fit an den Rumpf an -> geht perfekt über.
 	_add({
 		"id": "prop_engine_nose", "name": "Propeller-Bugmotor", "category": CAT_PROP,
-		"mass": 160.0, "color": C_ENGINE, "shape": "prop", "thrust": 6500.0,
-		"size": Vector3(1.07, 1.07, 1.08), "col_size": Vector3(1.07, 1.07, 1.08), "metal": 0.7, "rough": 0.35,
-		"desc": "Propellermotor (gleiches Blender-Modell, hinten flach durchgeschnitten) als bündige Bughaube.",
+		"mass": 160.0, "color": Color(0.92, 0.94, 0.95), "shape": "prop", "thrust": 6500.0,
+		"size": Vector3(1.07, 1.07, 1.08), "col_size": Vector3(1.07, 1.07, 1.08),
+		"metal": 0.08, "rough": 0.45,
+		"desc": "Weiß lackierter Propellermotor mit echter planer Schnittfläche hinten; sitzt ohne Überschneidung bündig am Rumpf.",
 	})
 	# Reto-Motor (aus reto_test.blend): Koerper 'Rumpf' + drehender 'RotorBlade' am "Prop"-Pivot.
 	# Sein Heck-Querschnitt kommt aus dem Profil-Blatt der Datei (RETO_PROFILE): normale

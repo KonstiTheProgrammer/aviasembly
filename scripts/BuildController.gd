@@ -468,6 +468,12 @@ func _on_left_release() -> void:
 				# anderes Modell (z.B. Prop-Motor -> bündige Cowl) inkl. übernommener Farbe.
 				_place_id(snap.get("id", carry_id), snap["xform"],
 					snap.get("scale", _carry_scale), snap.get("color", _carry_color))
+				# Umgekehrte Baurichtung: Wird der Rumpf AN den bereits stehenden normalen
+				# Propellermotor gesetzt, bekommt auch dieser die kurze, plan geschnittene
+				# Bughauben-Variante. Das Snap-Dictionary hält das Ziel nur für diesen Drop.
+				var cut_target: Node3D = snap.get("cut_target") as Node3D
+				if cut_target != null:
+					_convert_prop_to_nose(cut_target)
 				placed = true
 			elif _carry_existing:
 				_place_id(carry_id, _carry_orig, _carry_scale, _carry_color)  # ungültig -> zurück
@@ -2051,6 +2057,24 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 				afit["scale"] = Vector3.ONE
 			return afit
 
+	# UMGEDREHTES ANDOCKEN AM NORMALEN PROPELLERMOTOR: Steht der Motor bereits im Raum
+	# und der Spieler zieht ein Rumpfteil daran, rechnen wir mit der kurzen, planen
+	# Bughauben-Box. Beim Loslassen wird das Zielteil dauerhaft auf prop_engine_nose
+	# umgestellt. Vorderkante/Propeller bleiben dabei an derselben Stelle; nur das Heck
+	# wird bis zur Rumpf-Anschlussfläche gekürzt.
+	if _is_fuselage(p) and _reto_tgt == "prop_engine":
+		var nose_def := PartCatalog.get_part("prop_engine_nose")
+		var tb := part.global_transform.basis.orthonormalized()
+		var tsc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+		var nco: Vector3 = PartCatalog.col_offset(nose_def)
+		var rear_surface: Vector3 = part.global_position + tb * Vector3(
+			nco.x * tsc.x, nco.y * tsc.y,
+			(nco.z + PartCatalog.col_size(nose_def).z * 0.5) * tsc.z)
+		var reverse_fit := _fuselage_fit(p, part, tb.z, rear_surface, nose_def)
+		if not reverse_fit.is_empty():
+			reverse_fit["cut_target"] = part
+			return reverse_fit
+
 	# AUTO-FIT Rumpf-an-Rumpf: neues Rumpfteil koaxial & bündig ans getroffene Ende setzen
 	# und Breite/Höhe an den Querschnitt des Zielteils anpassen ("in der Mitte", gleiche Größe).
 	if _is_fuselage(p) and _is_fuselage(PartCatalog.get_part(part.get_meta("part_id"))):
@@ -2065,9 +2089,10 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 		var nfit := _fuselage_fit(nose_def, part, n, surface)
 		if not nfit.is_empty():
 			# Das Modell ist hinten FLACH durchgeschnitten -> setzt direkt bündig an (kein Versenken,
-			# keine Geometrie im Rumpf). Querschnitt kommt per Auto-Fit auf die Rumpfgröße.
+			# keine Geometrie im Rumpf). Querschnitt kommt per Auto-Fit auf die Rumpfgröße;
+			# die serienmäßige weiße Motorlackierung bleibt unabhängig von der Rumpffarbe.
 			nfit["id"] = "prop_engine_nose"
-			nfit["color"] = part.get_meta("color", Color(0, 0, 0, 0))   # Rumpffarbe -> Übergang
+			nfit["color"] = Color(0, 0, 0, 0)
 			return nfit
 
 	if p.get("orient_normal", false):
@@ -2129,14 +2154,34 @@ func _is_fuselage(p: Dictionary) -> bool:
 
 # Freistehender Propellermotor (Form "prop") -> bekommt am Rumpf die bündige Cowl-Variante.
 func _is_prop_engine(p: Dictionary) -> bool:
-	return p.get("shape", "") == "prop"
+	return p.get("id", "") == "prop_engine"
+
+
+# Bereits platzierten normalen Propellermotor auf die echte Cut-Variante umstellen.
+# Metadaten wie Wurzel, Farbe, Schubumkehr und Spiegelverknüpfung bleiben erhalten.
+func _convert_prop_to_nose(part: Node3D) -> void:
+	if not is_instance_valid(part) or String(part.get_meta("part_id", "")) != "prop_engine":
+		return
+	part.set_meta("part_id", "prop_engine_nose")
+	_rebuild_visual(part)
+	_apply_part_scale(part, part.get_meta("pscale", Vector3.ONE))
+	var mirror: Node3D = null
+	if part.has_meta("mirror"):
+		mirror = part.get_meta("mirror") as Node3D
+	if is_instance_valid(mirror) and String(mirror.get_meta("part_id", "")) == "prop_engine":
+		mirror.set_meta("part_id", "prop_engine_nose")
+		_rebuild_visual(mirror)
+		_apply_part_scale(mirror, mirror.get_meta("pscale", Vector3.ONE))
 
 
 # Auto-Fit: neues Rumpfteil koaxial & bündig an die getroffene Fläche des Zielteils setzen
 # und seine Breite/Höhe (die beiden Querschnitt-Achsen) an das Zielteil anpassen.
 # Liefert {valid, xform, scale} — scale = die übernommene pscale.
-func _fuselage_fit(pd: Dictionary, target: Node3D, n: Vector3, hit_pos := Vector3.INF) -> Dictionary:
-	var tdef := PartCatalog.get_part(target.get_meta("part_id"))
+func _fuselage_fit(pd: Dictionary, target: Node3D, n: Vector3,
+		hit_pos := Vector3.INF, target_def_override: Dictionary = {}) -> Dictionary:
+	var tdef: Dictionary = target_def_override
+	if tdef.is_empty():
+		tdef = PartCatalog.get_part(target.get_meta("part_id"))
 	if tdef.is_empty():
 		return {}
 	var tb := target.global_transform.basis.orthonormalized()
