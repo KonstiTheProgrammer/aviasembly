@@ -63,7 +63,7 @@ static func _build() -> void:
 		"size": Vector3(1.7, 1.9, 2.7),
 		"col_size": Vector3(1.7, 1.6, 2.7),
 		"metal": 0.40, "rough": 0.48,
-		"desc": "Superfortress-Bug als Blender-Modell: lange facettierte Glasnase mit einzelnen dunkelblauen Scheiben, bündigen grauen Rahmen, Metallkinn, kleiner Bombenschützen-Frontscheibe und zurücklaufenden Pilotenfenstern. Hinten ebene Andockfläche für einen dicken Bomberrumpf.",
+		"desc": "Superfortress-Bug als Blender-Modell: gerade zylindrische Rumpfschale, facettierte Glasnase mit glänzend-transparentem Bubble-Glas, bündigen grauen Rahmen, Metallkinn und exakt zentrierter Bombenschützen-Frontscheibe. Hinten ebene Andockfläche für einen dicken Bomberrumpf.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
@@ -1619,7 +1619,34 @@ static func _attach_model(root: Node3D, id: String, col_override: Color) -> void
 	root.add_child(inst)
 	if col_override.a > 0.0:                 # nur bei Lackierung umfärben
 		_recolor_model(inst, col_override)
+	if id == "cockpit_b29":
+		_apply_bubble_glass(inst)
 	_tone_model_accents(inst)               # zu grelle Chrom-Akzente (Federbein-Kolben) dämpfen
+
+
+# glTF importiert Alpha-Blending als Depth-Prepass und konvertiert den Blender-
+# Farbfaktor. Für die B-29 soll das Glas im Spiel EXAKT wie die prozedurale
+# Bubble-Kanzel aussehen, daher werden deren Godot-Materialwerte explizit gesetzt.
+static func _apply_bubble_glass(node: Node) -> void:
+	for ch in node.get_children():
+		_apply_bubble_glass(ch)
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh == null:
+			return
+		for i in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(i)
+			if m is StandardMaterial3D and (m as StandardMaterial3D).resource_name == "glass":
+				var bubble: StandardMaterial3D = m.duplicate()
+				bubble.albedo_color = Color(0.13, 0.24, 0.40, 0.62)
+				bubble.metallic = 0.35
+				bubble.metallic_specular = 0.6
+				bubble.roughness = 0.06
+				bubble.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				bubble.rim_enabled = true
+				bubble.rim = 0.6
+				bubble.rim_tint = 0.35
+				mi.set_surface_override_material(i, bubble)
 
 
 # Dämpft im glTF gebackene, spiegelglatte Chrom-Akzente (z. B. das polierte

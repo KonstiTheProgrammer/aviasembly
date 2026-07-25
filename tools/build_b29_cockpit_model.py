@@ -36,8 +36,9 @@ def material(name, color, metallic=0.0, roughness=0.45):
 BODY = material("cockpit_body", (0.29, 0.34, 0.42, 1.0), 0.40, 0.48)
 BODY_DARK = material("body_detail", (0.27, 0.30, 0.35, 1.0), 0.48, 0.46)
 FRAME = material("frame", (0.31, 0.36, 0.43, 1.0), 0.52, 0.42)
-GLASS = material("glass", (0.012, 0.045, 0.115, 1.0), 0.04, 0.34)
-GLASS_DARK = material("glass_dark", (0.006, 0.022, 0.065, 1.0), 0.02, 0.38)
+# Exakt die Materialwerte der prozeduralen Bubble-Kanzel (_glass_mat in PartCatalog):
+# blau getönt, stark glänzend und mit 62 % Alpha.
+GLASS = material("glass", (0.13, 0.24, 0.40, 0.62), 0.35, 0.06)
 INTERIOR = material("interior", (0.055, 0.065, 0.075, 1.0), 0.18, 0.76)
 SEAT = material("seat", (0.16, 0.18, 0.17, 1.0), 0.05, 0.82)
 LEATHER = material("leather", (0.19, 0.11, 0.065, 1.0), 0.02, 0.72)
@@ -129,13 +130,13 @@ def sphere(name, radius, loc, scale, mat):
     return obj
 
 
-def torus_y(name, y, major, minor, mat, z_scale=1.0):
+def torus_y(name, y, major, minor, mat, z_scale=1.0, z=0.0):
     bpy.ops.mesh.primitive_torus_add(
         major_segments=64,
         minor_segments=10,
         major_radius=major,
         minor_radius=minor,
-        location=(0.0, y, 0.0),
+        location=(0.0, y, z),
         rotation=(math.pi * 0.5, 0.0, 0.0),
     )
     obj = bpy.context.object
@@ -186,9 +187,9 @@ def curve_tube(name, points, mat, radius=0.018, cyclic=False, resolution=2):
 def fuselage_shell():
     """Langer, fast zylindrischer Metallrumpf wie auf der Referenz."""
     stations = [
-        (-1.40, 0.82, 0.72, -0.04),
-        (-1.05, 0.84, 0.74, -0.03),
-        (-0.72, 0.85, 0.75, -0.01),
+        (-1.40, 0.84, 0.74, 0.04),
+        (-1.05, 0.84, 0.74, 0.04),
+        (-0.72, 0.84, 0.74, 0.04),
         (-0.46, 0.84, 0.74, 0.04),
     ]
     # Gleiche Ringteilung wie die Nasenhaut: dadurch treffen sich beide Polygone
@@ -293,8 +294,9 @@ def faceted_glass_nose():
     # Kleine, klar gefasste Bombenschützen-Frontscheibe.
     front_y = NOSE_STATIONS[0][0] + 0.014
     cylinder("Bombenschuetze_Frontglas", 0.135, 0.018, (0.0, front_y, -0.05),
-             (0.0, 1.0, 0.0), GLASS_DARK, 24)
-    torus_y("Bombenschuetze_Frontring", front_y + 0.012, 0.151, 0.018, FRAME, 0.92)
+             (0.0, 1.0, 0.0), GLASS, 24)
+    torus_y("Bombenschuetze_Frontring", front_y + 0.012, 0.151, 0.018,
+            FRAME, 0.92, -0.05)
 
 
 def cockpit_interior():
@@ -417,7 +419,7 @@ def consolidate_objects():
         names = {slot.material.name for slot in obj.material_slots if slot.material}
         if names and names <= {"cockpit_body", "body_detail"}:
             groups["B29_Rumpf_komplett"].append(obj)
-        elif names and names <= {"glass", "glass_dark"}:
+        elif names and names <= {"glass"}:
             groups["B29_Glasdetails"].append(obj)
         elif names and names <= {"frame"}:
             groups["B29_Rahmendetails"].append(obj)

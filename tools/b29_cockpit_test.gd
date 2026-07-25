@@ -40,6 +40,13 @@ func _count_meshes(node: Node) -> int:
 	return count
 
 
+func _mesh_center(node: Node) -> Vector3:
+	var mi := node as MeshInstance3D
+	if mi == null or mi.mesh == null:
+		return Vector3(INF, INF, INF)
+	return mi.transform * mi.get_aabb().get_center()
+
+
 func _process(_delta: float) -> bool:
 	frame += 1
 	if frame < 2:
@@ -64,11 +71,29 @@ func _process(_delta: float) -> bool:
 		"Export besteht nur aus fünf überschneidungsfreien Mesh-Baugruppen")
 	_check(visual.find_child("Astrodome", true, false) == null,
 		"kein falscher Astrodome sitzt auf dem Cockpitteil")
+	var front_glass := visual.find_child("B29_Glasdetails", true, false)
+	var front_frame := visual.find_child("B29_Rahmendetails", true, false)
+	_check(front_glass != null and front_frame != null,
+		"Frontscheibe und Frontring sind getrennt prüfbar")
+	if front_glass != null and front_frame != null:
+		var glass_center := _mesh_center(front_glass)
+		var frame_center := _mesh_center(front_frame)
+		_check(Vector2(glass_center.x, glass_center.y).distance_to(
+			Vector2(frame_center.x, frame_center.y)) < 0.001,
+			"Frontscheibe und Frontring besitzen exakt denselben Mittelpunkt")
 	var paint := _find_material(visual, "cockpit_body")
 	var glass := _find_material(visual, "glass")
 	_check(paint != null, "cockpit_body ist als Lackmaterial erhalten")
 	_check(glass != null, "Glas besitzt ein getrenntes Material")
 	if glass != null:
+		print("GLAS_IMPORT transparency=", glass.transparency,
+			" color=", glass.albedo_color, " roughness=", glass.roughness)
+		_check(glass.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA,
+			"Glas verwendet wie die Bubble-Kanzel Alpha-Transparenz")
+		_check(absf(glass.albedo_color.a - 0.62) < 0.02,
+			"Glas verwendet die Bubble-Deckkraft von 62 Prozent")
+		_check(glass.roughness < 0.10,
+			"Glas ist so glänzend wie die Bubble-Kanzel")
 		_check(glass.albedo_color.b > glass.albedo_color.r * 2.0,
 			"Glasnase ist dunkelblau getönt")
 

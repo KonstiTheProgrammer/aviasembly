@@ -414,20 +414,26 @@ gestreckt und nach unten versetzt -> gemessen exakt 40.0 % eingebettet
 (`tools/_bean_check.gd`). Und **`cockpit_b29`** („B-29-Kanzel"): ein eigenes
 Blender/glTF-Bauteil (`models/cockpit_b29.glb`, Quelle
 `tools/build_b29_cockpit_model.py`) mit der charakteristischen rundum verglasten
-Superfortress-Nase statt eines Dach-Canopys. Die Fenster sind bewusst einzelne flache,
-dunkelblaue Facetten: Jedes Feld hat eine etwas größere Metallfläche als Träger und eine
+Superfortress-Nase statt eines Dach-Canopys. Das `glass`-Material übernimmt exakt die
+Werte der prozeduralen Bubble-Kanzel (`Color(0.13,0.24,0.40)`, Metallic 0.35,
+Roughness 0.06, Alpha 0.62). Die Fenster sind bewusst einzelne flache, transparente
+Facetten: Jedes Feld hat eine etwas größere Metallfläche als Träger und eine
 parametrisch eingerückte Scheibe, sodass der bündige Rahmen direkt in der Außenhaut liegt
 und nicht wie ein Drahtkäfig vor der Nase schwebt. In der finalen Geometrie sind Rahmen,
 Scheiben und Metallkinn sogar ohne überlappende Flächen in **einem** `B29_Nasenhaut`-Mesh
 mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten oder
 Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Eine zusätzliche
 hintere Station der Nasenhaut reicht bis zur exakt gleichen Endkante des verkürzten
-Rumpfmeshes. Beide Anschlussringe haben dieselbe 10er-Teilung und dieselben Koordinaten;
+Rumpfmeshes. Die gesamte hintere Rumpfschale verwendet an jeder Station exakt denselben
+elliptischen Querschnitt und dieselbe Z-Mitte — sie ist ein gerader Zylinder, keine
+gebogene oder bauchige Röhre. Beide Anschlussringe haben dieselbe 10er-Teilung und dieselben Koordinaten;
 so entstehen auch zwischen unterschiedlich triangulierten Polygonringen keine Spalte.
 Beide teilen dort die Kontur, aber keine Fläche. Die außen herausragenden
 Kinn-/Fahrwerksblöcke und Nieten wurden entfernt; Steuerhörner und Bombenschützenplatz
 liegen weiter innen und verwenden keine hellen Außenrahmen-Materialien. Der Cockpitboden
-ist schmaler und höher, damit auch seine Ecken innerhalb der elliptischen Außenhaut liegen. Der Export fasst
+ist schmaler und höher, damit auch seine Ecken innerhalb der elliptischen Außenhaut
+liegen. Frontscheibe und Frontring sitzen beide bei Z=-0.05 und sind dadurch exakt
+konzentrisch. Der Export fasst
 die übrigen Konstruktionsobjekte zu `B29_Rumpf_komplett`, `B29_Glasdetails`,
 `B29_Rahmendetails` und `B29_Innenraum` zusammen (insgesamt fünf Meshes). Die nach hinten ansteigende Metall-
 Kinnlinie, kleine runde Bombenschützen-Frontscheibe und zurücklaufende Pilotenfenster
