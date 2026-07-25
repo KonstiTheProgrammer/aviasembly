@@ -239,15 +239,26 @@ func _process(delta: float) -> void:
 			for w in wheels:
 				var wn = w["node"]
 				if is_instance_valid(wn):
-					# Um die ECHTE Radachse (lokales X in Weltkoordinaten) drehen und das
-					# Vorzeichen aus der Fahrtrichtung bestimmen -> gespiegelte (Symmetrie)
-					# UND normale Räder rollen beide korrekt VORWÄRTS (nicht rückwärts).
-					var ax: Vector3 = wn.global_transform.basis.x.normalized()
-					var roll: Vector3 = ax.cross(Vector3.UP)   # Richtung des Reifen-Scheitels bei +Drehung
-					var sgn: float = signf(roll.dot(fwd))
+					# ABSOLUT aus der RUHELAGE rechnen, nicht per global_rotate aufsummieren.
+					# global_rotate liest die GLOBALE Transform — sobald der Blob das Eltern-
+					# Visual beim Einfahren auf 0 skaliert, schrieb es diese Null in die lokale
+					# Basis des Rades zurueck (gemessen: det 1.0 -> 0.0). Das war eine
+					# Einbahnstrasse: ausgefahren stand der Blob wieder auf 1.0 und
+					# visible=true, aber der Reifen selbst blieb eine Null-Matrix und war
+					# UNSICHTBAR. Schon beim reinen Rollen verzerrte es den Reifen
+					# (Skalierung driftete auf 1.04/0.96), weil die Eltern-Skalierung
+					# mit in die Drehung einging.
+					# Die Achsrichtung kommt aus dem gemerkten Koerpersystem-Vektor, damit
+					# auch das Vorzeichen nie von einer entarteten Transform abhaengt.
+					var axw: Vector3 = (global_transform.basis * w["ax"]).normalized()
+					var sgn: float = signf(axw.cross(Vector3.UP).dot(fwd))
 					if sgn == 0.0:
 						sgn = 1.0
-					wn.global_rotate(ax, sgn * _wheel_spin / w["r"] * delta)
+					w["winkel"] = wrapf(float(w["winkel"])
+						+ sgn * _wheel_spin / float(w["r"]) * delta, 0.0, TAU)
+					var ruhe: Transform3D = w["rest"]
+					wn.transform = Transform3D(
+						ruhe.basis * Basis(Vector3.RIGHT, float(w["winkel"])), ruhe.origin)
 	# Bewegliche Flächen animieren (Scharnier dreht um lokale X-Achse). dn = Welt-"unten"-Vorzeichen.
 	# Klappe: Landestellung + gegensinniger Roll-Anteil (Flaperon). Ruder folgen Pitch/Yaw/Roll.
 	# _flap_vis wird in _integrate_forces (physikgetaktet) langsam gerampt -> hier nur lesen.
@@ -343,18 +354,17 @@ func _process(delta: float) -> void:
 			var leg_fold := smoothstep(0.12, 0.9, a)
 			var door_open := smoothstep(0.0, 0.16, a) - smoothstep(0.84, 1.0, a)
 			# BLOB-EFFEKT: in der zweiten Haelfte des Einfahrens quillt der Reifen kurz auf,
-			# quetscht flach und verschwindet dann ganz — beim Ausfahren rueckwaerts mit einem
-			# kleinen elastischen Nachfedern. Das laeuft ZUSAETZLICH zur jeweiligen Mechanik
-			# (Blender-Animation, klappendes Bein oder Fallback) und gilt damit fuer JEDEN
-			# einziehbaren Reifen, auch fuer die ohne gebackene glb-Animation.
+			# quetscht flach und verschwindet dann ganz — beim Ausfahren rueckwaerts. Das
+			# laeuft ZUSAETZLICH zur jeweiligen Mechanik (Blender-Animation, klappendes Bein
+			# oder Fallback) und gilt damit fuer JEDEN einziehbaren Reifen, auch fuer die
+			# ohne gebackene glb-Animation.
+			# KEIN elastisches Nachfedern am Ende des Ausfahrens mehr (frueher a<0.10:
+			# +12 % Breite): der Reifen sass schon in Endstellung und zuckte dann nochmal —
+			# das las sich als Fehler, nicht als Federung. Jetzt laeuft er sauber aus.
 			var k := smoothstep(0.52, 1.0, a)          # 0 = voll da, 1 = weg
 			var bulge := sin(PI * k)                   # 0 .. 1 .. 0 (das Aufquellen)
 			var s_hoch := 1.0 - k
 			var s_breit := (1.0 - k) * (1.0 + 0.45 * bulge)
-			if a < 0.10:                               # Nachfedern beim Ausfahren
-				var pop := sin(a / 0.10 * PI) * 0.12
-				s_breit *= 1.0 + pop
-				s_hoch *= 1.0 - pop * 0.7
 			var blob := Vector3(s_breit, s_hoch, s_breit)
 			var blob_weg: bool = k > 0.995
 			for g in gear_items:
@@ -531,10 +541,18 @@ func recompute_aero() -> void:
 			gi.append({"vis": gvis, "cs": pi["cs"], "retract": pi["retract"], "base": pi["xform"],
 				"leg": gleg, "door": gdoor, "leg_rest": glr, "door_rest": gdr,
 				"anim": ganim, "anim_len": ganim_len})
-			# Rad-Node ("Wheel", Origin = Achse) fürs sichtbare Rollen am Boden
+			# Rad-Node ("Wheel", Origin = Achse) fürs sichtbare Rollen am Boden.
+			# RUHELAGE und Achsrichtung im Körpersystem werden hier EINMAL gemerkt: das
+			# Rollen rechnet daraus absolut, statt Drehungen auf die aktuelle Transform
+			# aufzusummieren (siehe Kommentar im Roll-Block).
 			var wn = pi.get("wheel")
 			if wn != null and is_instance_valid(wn):
-				whl.append({"node": wn, "r": maxf(float(pi.get("wheel_r", 0.3)), 0.05)})
+				var axb := Vector3.RIGHT
+				var gb: Basis = global_transform.basis
+				if absf(gb.determinant()) > 0.0001:
+					axb = (gb.inverse() * wn.global_transform.basis.x).normalized()
+				whl.append({"node": wn, "r": maxf(float(pi.get("wheel_r", 0.3)), 0.05),
+					"rest": wn.transform, "ax": axb, "winkel": 0.0})
 	wing_area = wa
 	eff_ar = (ars / wa) if wa > 0.0 else 4.0
 	lift_scale = (lifts / wa) if wa > 0.0 else 1.0
