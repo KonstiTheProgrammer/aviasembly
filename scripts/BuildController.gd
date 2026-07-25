@@ -2177,8 +2177,17 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 		if ghost_rot != 0:
 			ori = Basis(Vector3.UP, deg_to_rad(90.0 * ghost_rot))
 		var he: Vector3 = PartCatalog.col_size(p) * 0.5
-		var support := absf(n.x) * he.x + absf(n.y) * he.y + absf(n.z) * he.z
-		var origin := surface + n * support
+		# Stuetzweite in der GEDREHTEN Teilbasis messen (bei R-Drehung tauschen x/z),
+		# und danach col_offset ZURUECKRECHNEN: Die Box, nicht der Ursprung, soll die
+		# getroffene Flaeche beruehren.
+		# FRUEHER wurde col_offset hier ignoriert und der Ursprung stumpf um die halbe
+		# Boxgroesse versetzt. Bei jedem Teil, dessen Box NICHT um den Ursprung zentriert
+		# ist, hing es dadurch genau um col_offset in der Luft — gemessen an einer
+		# Fluegelunterseite: wheel_jet 0.50 m, wheel_retract 0.52 m, wheel_spitfire 0.66 m
+		# (Reifen ohne Offset wie wheel/wheel_light sassen immer schon bundig).
+		var support := absf(n.dot(ori.x)) * he.x + absf(n.dot(ori.y)) * he.y \
+			+ absf(n.dot(ori.z)) * he.z
+		var origin := surface + n * support - ori * PartCatalog.col_offset(p)
 		origin = _snap_tangential(origin, n, 0.25)
 		return {"valid": true, "xform": Transform3D(ori, origin)}
 
