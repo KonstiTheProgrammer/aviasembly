@@ -144,6 +144,24 @@ def cross_section_error(y, x, z):
     return (abs(x / rx) ** exponent) + (abs((z - zc) / rz) ** exponent) - 1.0
 
 
+def side_surface_x(y, z, side, outset=0.0):
+    """Projiziert ein Seitendetail exakt auf die örtliche Außenhaut."""
+    rx, rz, zc = station_values(y)
+    exponent = 2.0 / SQUIRCLE_POWER
+    ratio = min(abs((z - zc) / rz), 1.0)
+    x_abs = rx * max(0.0, 1.0 - ratio**exponent) ** (1.0 / exponent)
+    return side * (x_abs + outset)
+
+
+def roof_surface_z(y, x=0.0):
+    """Liefert die Dachhöhe des Superellipse-Querschnitts."""
+    rx, rz, zc = station_values(y)
+    exponent = 2.0 / SQUIRCLE_POWER
+    ratio = min(abs(x / rx), 1.0)
+    z_abs = rz * max(0.0, 1.0 - ratio**exponent) ** (1.0 / exponent)
+    return zc + z_abs
+
+
 def front_surface_y(x, z):
     """Findet die vorderste Außenhautposition für einen X/Z-Punkt."""
     low = HULL_STATIONS[-2][0]
@@ -399,12 +417,12 @@ def build_windows(materials):
     faces = []
 
     for pane in range(6):
-        bl = window_vertex(WINDOW_X[pane], WINDOW_BOTTOM_Z[pane], 0.006)
+        bl = window_vertex(WINDOW_X[pane], WINDOW_BOTTOM_Z[pane], 0.0025)
         br = window_vertex(
-            WINDOW_X[pane + 1], WINDOW_BOTTOM_Z[pane + 1], 0.006
+            WINDOW_X[pane + 1], WINDOW_BOTTOM_Z[pane + 1], 0.0025
         )
-        tr = window_vertex(WINDOW_X[pane + 1], WINDOW_TOP_Z[pane + 1], 0.006)
-        tl = window_vertex(WINDOW_X[pane], WINDOW_TOP_Z[pane], 0.006)
+        tr = window_vertex(WINDOW_X[pane + 1], WINDOW_TOP_Z[pane + 1], 0.0025)
+        tl = window_vertex(WINDOW_X[pane], WINDOW_TOP_Z[pane], 0.0025)
 
         inset_u = 0.050
         inset_v = 0.055
@@ -462,7 +480,7 @@ def cylinder(name, radius, depth, loc, axis, mat, vertices=12):
     return obj
 
 
-def ring_strip(name, y_front, y_rear, mat, lift=1.004):
+def ring_strip(name, y_front, y_rear, mat, lift=1.0015):
     verts = []
     faces = []
     for y in (y_front, y_rear):
@@ -487,38 +505,68 @@ def ring_strip(name, y_front, y_rear, mat, lift=1.004):
     return obj
 
 
+def side_patch(name, side, y_min, y_max, z_min, z_max, mat, z_steps=1):
+    """Dünner Nahtstreifen, dessen vier Ecken auf der Seitenhaut liegen."""
+    verts = []
+    faces = []
+    for step in range(z_steps + 1):
+        z = z_min + (z_max - z_min) * step / z_steps
+        for y in (y_min, y_max):
+            verts.append((side_surface_x(y, z, side, 0.0015), y, z))
+    for step in range(z_steps):
+        base = step * 2
+        if side > 0.0:
+            faces.append(((base, base + 1, base + 3, base + 2), 0))
+        else:
+            faces.append(((base, base + 2, base + 3, base + 1), 0))
+    return mesh_object_multi(name, verts, faces, (mat,))
+
+
 def side_outline(prefix, side, center_y, center_z, width_y, height_z, mat):
-    x = side * 1.106
-    thickness = 0.012
+    """Projizierter Tür-/Deckelrahmen ohne schwebende Kastenfragmente."""
     line = 0.018
+    y_min = center_y - width_y * 0.5
+    y_max = center_y + width_y * 0.5
+    z_min = center_z - height_z * 0.5
+    z_max = center_z + height_z * 0.5
     return [
-        box(
+        side_patch(
             prefix + "_oben",
-            (thickness, width_y, line),
-            (x, center_y, center_z + height_z * 0.5),
+            side,
+            y_min,
+            y_max,
+            z_max - line,
+            z_max,
             mat,
-            bevel=0.004,
         ),
-        box(
+        side_patch(
             prefix + "_unten",
-            (thickness, width_y, line),
-            (x, center_y, center_z - height_z * 0.5),
+            side,
+            y_min,
+            y_max,
+            z_min,
+            z_min + line,
             mat,
-            bevel=0.004,
         ),
-        box(
+        side_patch(
             prefix + "_vorn",
-            (thickness, line, height_z),
-            (x, center_y + width_y * 0.5, center_z),
+            side,
+            y_max - line,
+            y_max,
+            z_min + line,
+            z_max - line,
             mat,
-            bevel=0.004,
+            4,
         ),
-        box(
+        side_patch(
             prefix + "_hinten",
-            (thickness, line, height_z),
-            (x, center_y - width_y * 0.5, center_z),
+            side,
+            y_min,
+            y_min + line,
+            z_min + line,
+            z_max - line,
             mat,
-            bevel=0.004,
+            4,
         ),
     ]
 
@@ -574,7 +622,12 @@ def build_details(materials):
             box(
                 "Crew_Tuergriff_" + suffix,
                 (0.018, 0.078, 0.024),
-                (side * 1.116, -0.73, -0.04),
+                (
+                    side_surface_x(-0.73, -0.04, side)
+                    + side * (0.009 - 0.004),
+                    -0.73,
+                    -0.04,
+                ),
                 materials["frame"],
                 bevel=0.005,
             )
@@ -594,21 +647,29 @@ def build_details(materials):
         )
 
     # Flacher Dachkasten und kleiner Antennenzapfen aus der Nahaufnahme.
+    roof_box_size = (0.30, 0.25, 0.10)
+    roof_box_bottom = min(
+        roof_surface_z(y, x)
+        for y in (-0.145, 0.105)
+        for x in (-0.15, 0.15)
+    ) - 0.003
     details.append(
         box(
             "Dachkasten",
-            (0.30, 0.25, 0.10),
-            (0.0, -0.02, 1.210),
+            roof_box_size,
+            (0.0, -0.02, roof_box_bottom + roof_box_size[2] * 0.5),
             materials["frame"],
             bevel=0.025,
         )
     )
+    antenna_depth = 0.105
+    antenna_bottom = roof_surface_z(-0.43) - 0.008
     details.append(
         cylinder(
             "Dachantenne",
             0.026,
-            0.105,
-            (0.0, -0.43, 1.250),
+            antenna_depth,
+            (0.0, -0.43, antenna_bottom + antenna_depth * 0.5),
             (0.0, 0.0, 1.0),
             materials["detail"],
             12,
@@ -617,12 +678,16 @@ def build_details(materials):
 
     # Zwei kurze, unaufdringliche Messsonden geben dem Cockpit Maßstab.
     for side in (-1.0, 1.0):
+        pitot_x = side * 0.86
+        pitot_z = -0.13
+        pitot_depth = 0.18
+        pitot_surface = front_surface_y(pitot_x, pitot_z)
         details.append(
             cylinder(
                 "Pitot_" + ("R" if side > 0.0 else "L"),
                 0.009,
-                0.18,
-                (side * 0.86, 0.57, -0.13),
+                pitot_depth,
+                (pitot_x, pitot_surface + pitot_depth * 0.5 - 0.012, pitot_z),
                 (0.0, 1.0, 0.0),
                 materials["frame"],
                 10,
