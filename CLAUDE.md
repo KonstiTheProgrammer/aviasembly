@@ -444,6 +444,15 @@ Der Katalog bildet die echte Rückseite mit `col_size=(1.68,1.48,2.67)`,
 `BuildController._compute_snap_for` es unabhängig vom genauen Treffpunkt mittig auf
 die Rückfläche. `_taper_neighbor` verwendet `dock_size` statt der größeren
 Gesamt-Bounding-Box, damit Auto-Taper die zuvor passende Verbindung nicht wieder aufbläht.
+
+Eigenständiges Konzeptmodell **modernes Transportflugzeug-Cockpit**:
+`blender_lib/transport_cockpit.blend`, Export `models/cockpit_transport.glb`,
+reproduzierbar über `tools/build_transport_cockpit_model.py`. Kurzer kantiger Bug mit
+acht bündig in die Außenhaut eingelassenen dunklen Scheiben, Seitentürrahmen, Pitotrohren
+und Dachantennen. Die ebene Rückseite liegt in Blender bei Y=-1.40; der gerade
+Anschlussquerschnitt ist 2.20 × 1.86 m. Das GLB enthält genau zwei Meshgruppen
+(`Transport_Cockpit_Hull`, `Transport_Cockpit_Details`). Das Modell ist bewusst noch
+nicht im Teilekatalog registriert, damit es als separates Blender-File iteriert werden kann.
 Beide teilen dort die Kontur, aber keine Fläche. Die außen herausragenden
 Kinn-/Fahrwerksblöcke und Nieten wurden entfernt; Steuerhörner und Bombenschützenplatz
 liegen weiter innen und verwenden keine hellen Außenrahmen-Materialien. Der Cockpitboden
