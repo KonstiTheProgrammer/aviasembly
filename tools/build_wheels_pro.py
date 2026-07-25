@@ -412,6 +412,18 @@ def main():
         R, W, ctr, zt = alte_masse(ALT + name + ".glb")
         leeren()
         bein, rad = baue_rad(spec, R, W, zt)
+        # PIVOT DER KLAPPBEWEGUNG: AircraftBody dreht das Bein um DESSEN URSPRUNG
+        #   leg.transform = Transform3D(Basis(achse, 88 Grad * fold) * lr.basis, lr.origin)
+        # Lag der Ursprung wie gebaut auf der Radnabe, kreiselte das Rad um sich selbst und
+        # das Beinende schwenkte aus dem Rumpf. Der Ursprung gehoert dorthin, wo das Bein am
+        # Flugzeug ansetzt — also an die Beinoberkante zt. Netz entsprechend nach unten
+        # schieben, damit das Modell an derselben Stelle STEHT, und das Rad als Kind um
+        # -zt zurueckversetzen, damit es weiter auf der gemessenen Nabenhoehe sitzt.
+        for v in bein.data.vertices:
+            v.co.z -= zt
+        bein.location = (0.0, 0.0, zt)
+        rad.location = (0.0, 0.0, -zt)
+        bpy.context.view_layer.update()
         for ob, glatt in ((rad, True), (bein, False)):
             bpy.ops.object.select_all(action='DESELECT')
             ob.select_set(True)

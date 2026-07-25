@@ -63,7 +63,7 @@ static func _build() -> void:
 		"size": Vector3(1.7, 1.9, 2.7),
 		"col_size": Vector3(1.7, 1.6, 2.7),
 		"metal": 0.40, "rough": 0.48,
-		"desc": "Superfortress-Bug als Blender-Modell: gerade zylindrische Rumpfschale und facettierte Glasnase sind an zwölf gemeinsamen Vertices zu einer Außenhaut verschweißt. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Bombenschützen-Scheibe hinter einer kurzen 12-Eck-Ringlippe. Hinten ebene Andockfläche.",
+		"desc": "Superfortress-Bug als Blender-Modell: verlängerte facettierte Glasfront mit zusätzlicher hinterer Fensterreihe und nur 0,30 m kurzem geradem Metallabschluss. Glasnase und Abschluss sind an zwölf gemeinsamen Vertices zu einer Außenhaut verschweißt. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Bombenschützen-Scheibe hinter einer kurzen 12-Eck-Ringlippe. Hinten ebene Andockfläche.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
@@ -515,13 +515,13 @@ static func _build() -> void:
 	})
 	_add({
 		"id": "wheel_heavy", "name": "Schweres Fahrwerk", "category": CAT_GEAR,
-		"mass": 85.0, "color": C_GEAR, "shape": "wheel", "force_proc": true, "wheel_style": "vintage", "gear_capacity": 1750.0,
+		"mass": 85.0, "color": C_GEAR, "shape": "wheel", "wheel_style": "vintage", "gear_capacity": 1750.0,
 		"size": Vector3(0.78, 1.4, 1.05), "metal": 0.15, "rough": 0.75,
 		"desc": "Robust, ~1750 kg Traglast — für schwere Jets.",
 	})
 	_add({
 		"id": "wheel_retract", "name": "Einziehfahrwerk (G)", "category": CAT_GEAR,
-		"mass": 60.0, "color": Color(0.16, 0.16, 0.2), "shape": "wheel", "force_proc": true, "gear_capacity": 1050.0,
+		"mass": 60.0, "color": Color(0.16, 0.16, 0.2), "shape": "wheel", "gear_capacity": 1050.0,
 		"size": Vector3(0.4, 1.1, 0.65), "col_size": Vector3(0.36, 1.05, 0.62),
 		"col_offset": Vector3(0, -0.52, 0), "metal": 0.5, "rough": 0.45, "retract": true,
 		"desc": "Im Flug mit G einfahren (Bein klappt hoch, Klappe schwenkt) -> weniger Widerstand. ~1050 kg.",
@@ -552,7 +552,7 @@ static func _build() -> void:
 	})
 	_add({
 		"id": "wheel_jet", "name": "Jet-Fahrwerk (Einzug)", "category": CAT_GEAR,
-		"mass": 55.0, "color": Color(0.17, 0.18, 0.21), "shape": "wheel", "force_proc": true, "gear_capacity": 1250.0,
+		"mass": 55.0, "color": Color(0.17, 0.18, 0.21), "shape": "wheel", "gear_capacity": 1250.0,
 		"size": Vector3(0.32, 1.05, 0.6), "col_size": Vector3(0.3, 1.0, 0.55),
 		"col_offset": Vector3(0, -0.5, 0), "metal": 0.6, "rough": 0.4, "retract": true,
 		"desc": "Modernes Kampfjet-Fahrwerk: schlanker Öldämpfer-Beinholm, kleines Low-Profile-Rad mit Bremsscheibe. Einziehbar (G). ~1250 kg.",
