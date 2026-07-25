@@ -73,13 +73,14 @@ static func _build() -> void:
 		"id": "cockpit_transport", "name": "Modernes Transport-Cockpit", "category": CAT_BODY,
 		"mass": 300.0, "color": Color(0.36, 0.41, 0.48),
 		"shape": "transport_nose", "root": true,
-		"size": Vector3(2.20, 1.94, 2.95),
-		# Außenhaut ohne Antennen: X=2.20, Y=1.86; Godot-Rückfläche lokal Z=+1.40.
-		"col_size": Vector3(2.20, 1.86, 2.95),
-		"col_offset": Vector3(0.0, 0.07, -0.075),
-		"dock_size": Vector2(2.20, 1.86),
+		"size": Vector3(2.20, 2.20, 2.95),
+		# Höherer, fast quadratischer Frachtrumpf: Außenhaut X=2.20, Y=2.12;
+		# Godot-Rückfläche bleibt exakt bei lokal Z=+1.40.
+		"col_size": Vector3(2.20, 2.12, 2.95),
+		"col_offset": Vector3(0.0, 0.09, -0.075),
+		"dock_size": Vector2(2.20, 2.12),
 		"metal": 0.28, "rough": 0.50,
-		"desc": "Kantiger Bug für einen modernen Militärtransporter: sechs dunkle Scheiben, Seitentürfugen, Pitotrohre und Dachantennen. Der gerade hintere Kragen zieht ein Rumpfsegment automatisch mittig auf den exakten 2,20 × 1,86-m-Querschnitt.",
+		"desc": "Kantiger Bug für einen modernen Militärtransporter: sechs dunkle Scheiben, Seitentürfugen, Pitotrohre und Dachantennen. Der gerade hintere Kragen zieht ein Rumpfsegment automatisch mittig auf den exakten 2,20 × 2,12-m-Querschnitt.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
@@ -149,10 +150,10 @@ static func _build() -> void:
 	_add({
 		"id": "fuselage_transport", "name": "Transport-Rumpfsegment", "category": CAT_BODY,
 		"mass": 165.0, "color": Color(0.36, 0.41, 0.48), "shape": "transport_tube",
-		"size": Vector3(2.20, 1.86, 2.40),
-		"col_size": Vector3(2.20, 1.86, 2.40),
-		"col_offset": Vector3(0.0, 0.07, 0.0),
-		"dock_size": Vector2(2.20, 1.86),
+		"size": Vector3(2.20, 2.12, 2.40),
+		"col_size": Vector3(2.20, 2.12, 2.40),
+		"col_offset": Vector3(0.0, 0.09, 0.0),
+		"dock_size": Vector2(2.20, 2.12),
 		"metal": 0.28, "rough": 0.50, "biends": true,
 		"desc": "Automatisches Rumpfsegment mit exakt demselben abgeflachten Zwölfeck-Querschnitt wie das moderne Transport-Cockpit.",
 	})
@@ -1064,15 +1065,52 @@ static func set_gear_length(vis: Node3D, p: Dictionary, f: float) -> void:
 		pivot.set_meta("rad_ruhe", rad_xf.origin)
 		pivot.set_meta("bein_len", maxf(lang, 0.05))
 		bein = pivot
-	var lm := bein.get_node_or_null("LegMesh") as Node3D
+	var lm := bein.get_node_or_null("LegMesh") as MeshInstance3D
 	var lr := bein.get_node_or_null("Wheel") as Node3D
 	var ext: float = gear_ext(p, f)
-	var blen: float = float(bein.get_meta("bein_len", 1.0))
 	if lm != null:
-		lm.scale = Vector3(1.0, (blen + ext) / blen, 1.0)
+		# NUR DAS ROHR strecken. Eine Skalierung des ganzen Knotens hat auch Gabel,
+		# Achse und Anschlusskopf mitgezogen — das sah aus wie ein aufgeblasenes
+		# Gestell statt wie ein ausgefahrenes Federbein. Darum wird das Netz selbst
+		# verformt (siehe _leg_stretched), immer aus dem ORIGINAL heraus.
+		if not bein.has_meta("bein_mesh0"):
+			bein.set_meta("bein_mesh0", lm.mesh)
+		lm.scale = Vector3.ONE
+		lm.mesh = _leg_stretched(bein.get_meta("bein_mesh0"), ext, col_size(p).z * 0.5)
 	if lr != null:
 		var ruhe: Vector3 = bein.get_meta("rad_ruhe", lr.position)
 		lr.position = Vector3(ruhe.x, ruhe.y - ext, ruhe.z)
+
+
+# Beinnetz teleskopieren: unten (Gabel/Achse) und oben (Anschlusskopf) bleiben starr,
+# nur das gerade Rohr dazwischen wird laenger. Das Netz liegt im Bein-System mit dem
+# Drehpunkt bei y=0 und der Achse bei y=-L.
+static func _leg_stretched(orig: Mesh, ext: float, radius: float) -> Mesh:
+	if orig == null or ext <= 0.0001:
+		return orig
+	var ab: AABB = orig.get_aabb()
+	var unten: float = ab.position.y
+	var laenge: float = maxf(-unten, 0.05)
+	# Starrer Fuss = so hoch wie die Gabel reicht (etwa ein Reifenradius ueber der Achse).
+	var split: float = unten + clampf(radius * 1.15, laenge * 0.20, laenge * 0.60)
+	var oben: float = -laenge * 0.12          # Anschlusskopf bleibt unveraendert
+	var zone: float = maxf(oben - split, 0.02)
+	var faktor: float = (zone + ext) / zone
+	var neu := ArrayMesh.new()
+	for si in orig.get_surface_count():
+		var arr: Array = orig.surface_get_arrays(si)
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		for i in vs.size():
+			var v: Vector3 = vs[i]
+			if v.y <= split:
+				v.y -= ext                    # Gabel + Achse wandern starr mit
+			elif v.y < oben:
+				v.y = oben - (oben - v.y) * faktor    # Rohr dehnt sich
+			vs[i] = v
+		arr[Mesh.ARRAY_VERTEX] = vs
+		neu.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		neu.surface_set_material(si, orig.surface_get_material(si))
+	return neu
 
 
 static func has_model(id: String) -> bool:
@@ -1226,7 +1264,7 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			# Superellipse (Exponent 0.70), mit einzeln formbaren Enden.
 			var transport_tube := _prism_mesh(_transport_cross_section(), ef, eb)
 			root.add_child(_mi(transport_tube, make_material(col, metal, rough, true),
-				Vector3(0.0, 0.07, 0.0), Vector3.ZERO, size))
+				Vector3(0.0, 0.09, 0.0), Vector3.ZERO, size))
 
 		"jet_hull":
 			# Gelofteter Rumpf-Abschnitt (Loft durch Querschnitt-Stationen). Stoßbündig an

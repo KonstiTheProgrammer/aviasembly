@@ -30,22 +30,22 @@ SQUIRCLE_POWER = 0.70
 # Die letzten beiden Stationen sind identisch und bilden den exakt geraden
 # Rumpfkragen. Gesamtlänge 2,95 m; Heckebene bei Y=-1,40.
 HULL_STATIONS = (
-    (1.55, 0.13, 0.17, -0.22),
-    (1.38, 0.31, 0.32, -0.20),
-    (1.12, 0.57, 0.51, -0.14),
-    (0.84, 0.80, 0.68, -0.06),
-    (0.50, 0.98, 0.83, 0.03),
-    (0.12, 1.08, 0.91, 0.07),
-    (-0.50, 1.10, 0.93, 0.07),
-    (-1.40, 1.10, 0.93, 0.07),
+    (1.55, 0.13, 0.18, -0.20),
+    (1.38, 0.31, 0.35, -0.15),
+    (1.12, 0.57, 0.59, -0.05),
+    (0.84, 0.80, 0.82, 0.03),
+    (0.50, 0.98, 0.98, 0.08),
+    (0.12, 1.08, 1.04, 0.09),
+    (-0.50, 1.10, 1.06, 0.09),
+    (-1.40, 1.10, 1.06, 0.09),
 )
 
 # Sieben Begrenzungslinien ergeben sechs symmetrische Scheiben. Die Z-Werte
 # bilden die charakteristische geschwungene Fensterkrone und die tiefere
 # Unterkante der seitlichen Scheiben.
 WINDOW_X = (-1.035, -0.74, -0.40, 0.0, 0.40, 0.74, 1.035)
-WINDOW_TOP_Z = (0.45, 0.61, 0.69, 0.72, 0.69, 0.61, 0.45)
-WINDOW_BOTTOM_Z = (0.13, 0.23, 0.27, 0.28, 0.27, 0.23, 0.13)
+WINDOW_TOP_Z = (0.52, 0.68, 0.76, 0.79, 0.76, 0.68, 0.52)
+WINDOW_BOTTOM_Z = (0.19, 0.29, 0.33, 0.34, 0.33, 0.29, 0.19)
 
 
 def material(name, color, metallic=0.0, roughness=0.45):
@@ -598,7 +598,7 @@ def build_details(materials):
         box(
             "Dachkasten",
             (0.30, 0.25, 0.10),
-            (0.0, -0.02, 1.035),
+            (0.0, -0.02, 1.210),
             materials["frame"],
             bevel=0.025,
         )
@@ -608,7 +608,7 @@ def build_details(materials):
             "Dachantenne",
             0.026,
             0.105,
-            (0.0, -0.43, 1.055),
+            (0.0, -0.43, 1.250),
             (0.0, 0.0, 1.0),
             materials["detail"],
             12,
@@ -659,8 +659,8 @@ def validate_model(hull, details):
     size = maximum - minimum
     if not math.isclose(size.x, 2.20, abs_tol=0.0001):
         raise RuntimeError(f"Rumpfbreite muss 2,20 m sein, erhalten: {size.x}")
-    if not math.isclose(size.z, 1.86, abs_tol=0.0001):
-        raise RuntimeError(f"Rumpfhöhe muss 1,86 m sein, erhalten: {size.z}")
+    if not math.isclose(size.z, 2.12, abs_tol=0.0001):
+        raise RuntimeError(f"Rumpfhöhe muss 2,12 m sein, erhalten: {size.z}")
     if not math.isclose(size.y, 2.95, abs_tol=0.0001):
         raise RuntimeError(f"Buglänge muss 2,95 m sein, erhalten: {size.y}")
     if not math.isclose(minimum.y, -1.40, abs_tol=0.0001):
@@ -755,30 +755,30 @@ def build():
     camera = setup_preview(materials)
     render_view(
         camera,
-        (3.75, 4.65, 2.25),
-        (0.0, 0.30, 0.05),
+        (4.35, 5.35, 2.65),
+        (0.0, 0.25, 0.08),
         PREVIEW_OUT,
-        67,
+        65,
     )
     render_view(
         camera,
-        (0.0, 5.25, 0.45),
-        (0.0, 0.30, 0.02),
+        (0.0, 6.15, 0.58),
+        (0.0, 0.25, 0.08),
         FRONT_OUT,
-        72,
+        68,
     )
     render_view(
         camera,
-        (5.20, 0.05, 0.55),
-        (0.0, 0.10, 0.02),
+        (6.30, 0.05, 0.72),
+        (0.0, 0.10, 0.07),
         SIDE_OUT,
-        72,
+        65,
     )
     # Beim Öffnen erscheint wieder die aussagekräftige Dreiviertelansicht.
-    camera.location = (3.75, 4.65, 2.25)
-    camera.data.lens = 67
+    camera.location = (4.35, 5.35, 2.65)
+    camera.data.lens = 65
     camera.rotation_euler = (
-        Vector((0.0, 0.30, 0.05)) - camera.location
+        Vector((0.0, 0.25, 0.08)) - camera.location
     ).to_track_quat("-Z", "Y").to_euler()
     bpy.context.scene.camera = camera
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_OUT))

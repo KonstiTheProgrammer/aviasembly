@@ -92,8 +92,8 @@ func _process(_delta: float) -> bool:
 		var bounds: AABB = hull.transform * hull.get_aabb()
 		_check(bounds.size.x > 2.19 and bounds.size.x < 2.23,
 			"Rumpfbreite liegt bei ungefähr 2,20 m")
-		_check(bounds.size.y > 1.84 and bounds.size.y < 1.88,
-			"Rumpfhöhe liegt bei ungefähr 1,86 m")
+		_check(bounds.size.y > 2.10 and bounds.size.y < 2.14,
+			"erhöhter Frachtrumpf liegt bei ungefähr 2,12 m")
 		_check(bounds.size.z > 2.94 and bounds.size.z < 2.96,
 			"kurzer Bug ist ungefähr 2,95 m lang")
 		_check(absf(bounds.end.z - 1.40) < 0.001,
