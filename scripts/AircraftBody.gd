@@ -334,11 +334,29 @@ func _process(delta: float) -> void:
 	# Einziehfahrwerk animieren
 	if not _collapsed:
 		var target := 0.0 if gear_down else 1.0
-		if absf(_gear_anim - target) > 0.001:
-			_gear_anim = move_toward(_gear_anim, target, delta * 1.35)
+		# KEIN Early-Out mehr, wenn die Endstellung erreicht ist: sonst bleibt der letzte
+		# Zwischenschritt stehen — der Reifen hing bei ~30 % Groesse SICHTBAR fest statt ganz
+		# zu verschwinden. Die paar Transform-Schreibvorgaenge pro Frame kosten nichts.
+		_gear_anim = move_toward(_gear_anim, target, delta * 1.35)
+		if true:
 			var a := _gear_anim
 			var leg_fold := smoothstep(0.12, 0.9, a)
 			var door_open := smoothstep(0.0, 0.16, a) - smoothstep(0.84, 1.0, a)
+			# BLOB-EFFEKT: in der zweiten Haelfte des Einfahrens quillt der Reifen kurz auf,
+			# quetscht flach und verschwindet dann ganz — beim Ausfahren rueckwaerts mit einem
+			# kleinen elastischen Nachfedern. Das laeuft ZUSAETZLICH zur jeweiligen Mechanik
+			# (Blender-Animation, klappendes Bein oder Fallback) und gilt damit fuer JEDEN
+			# einziehbaren Reifen, auch fuer die ohne gebackene glb-Animation.
+			var k := smoothstep(0.52, 1.0, a)          # 0 = voll da, 1 = weg
+			var bulge := sin(PI * k)                   # 0 .. 1 .. 0 (das Aufquellen)
+			var s_hoch := 1.0 - k
+			var s_breit := (1.0 - k) * (1.0 + 0.45 * bulge)
+			if a < 0.10:                               # Nachfedern beim Ausfahren
+				var pop := sin(a / 0.10 * PI) * 0.12
+				s_breit *= 1.0 + pop
+				s_hoch *= 1.0 - pop * 0.7
+			var blob := Vector3(s_breit, s_hoch, s_breit)
+			var blob_weg: bool = k > 0.995
 			for g in gear_items:
 				if not g["retract"]:
 					continue
@@ -363,11 +381,23 @@ func _process(delta: float) -> void:
 					if door != null and is_instance_valid(door):
 						var dr: Transform3D = g["door_rest"]
 						door.transform = Transform3D(Basis(Vector3.FORWARD, deg_to_rad(92.0 * door_open)) * dr.basis, dr.origin)
-				else:
-					# Fallback: altes Einteiler-Modell um Box-Mitte klappen
-					var vis = g["vis"]
-					if is_instance_valid(vis):
-						vis.transform = g["base"] * Transform3D(Basis(Vector3.RIGHT, deg_to_rad(88.0 * a)), Vector3(0, 0.55 * a, 0))
+				# (Kein eigener Fallback-Zweig mehr: der Blob-Block unten baut Klappe UND
+				# Blob in EINER Transform — sonst wuerde er die Klappe gleich ueberschreiben.)
+				# Blob auf das VISUAL legen — ABSOLUT aus der RUHELAGE gerechnet, nie aus der
+				# aktuellen Transform: sonst multipliziert sich die Skalierung jeden Frame auf.
+				# Und nie orthonormalisieren, das wuerde die Teil-Skalierung (pscale) des
+				# Spielers wegwerfen. `scaled()` haengt die Blob-Faktoren rechts an, dadurch
+				# bleibt bei gespiegelten Teilen die improper Basis (det<0) erhalten.
+				var bvis = g["vis"]
+				if is_instance_valid(bvis):
+					var ruhe: Transform3D = g["base"]
+					var dreh := Basis()
+					if gap == null and (leg == null or not is_instance_valid(leg)):
+						dreh = Basis(Vector3.RIGHT, deg_to_rad(88.0 * a))   # Fallback-Klappe
+					bvis.transform = Transform3D((ruhe.basis * dreh).scaled(blob),
+						ruhe.origin + ruhe.basis.y.normalized() * (0.55 * a if gap == null
+							and (leg == null or not is_instance_valid(leg)) else 0.0))
+					bvis.visible = not blob_weg
 				var cs = g["cs"]
 				if is_instance_valid(cs):
 					cs.disabled = a > 0.5

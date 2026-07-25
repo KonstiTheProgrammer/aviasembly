@@ -181,6 +181,23 @@ Landung: `HARD_LAND=3`/`BREAK_LAND=7` m/s. Reifenreibung `friction=0.05`.
 `PartCatalog.WING_STRESS=3600` N/m² (Flügel-Belastbarkeit).
 Spawn: Startbahn `(0, spawn_height, 40)`, `spawn_height = 0.3 − tiefster Punkt`.
 
+### Fahrwerk: BLOB-Einfahranimation (fuer JEDEN einziehbaren Reifen)
+Zusaetzlich zur jeweiligen Mechanik (gebackene glb-Animation „retract", klappendes Bein oder
+Fallback-Klappe) legt `_process` einen **Blob** auf das Reifen-VISUAL: ab `_gear_anim` 0.52
+quillt der Reifen kurz auf (`bulge = sin(PI*k)`, +45 % in der Breite), quetscht flach und
+verschwindet bei 1.0 ganz (Skalierung 0, `visible=false`); beim Ausfahren laeuft das
+rueckwaerts, unter a<0.10 mit elastischem Nachfedern. Damit haben auch `wheel_retract` und
+`wheel_jet` eine Animation, obwohl ihre glbs KEINE tragen (nur biplane_spoke/disc und
+spitfire haben eine gebackene). Gemessen mit `tools/_blob_check.gd`:
+1.00 -> 1.02/0.96 -> 0.30/0.29 -> 0.00 + unsichtbar.
+FALLEN: (1) Der Blob wird IMMER aus `g["base"]` (Ruhelage) gerechnet, nie aus der aktuellen
+Transform — sonst multipliziert sich die Skalierung jeden Frame auf; und nie
+`orthonormalized()`, das wuerfe die Teil-Skalierung (`pscale`) des Spielers weg.
+`Basis.scaled()` haengt die Faktoren rechts an, dadurch behalten gespiegelte Teile ihre
+improper Basis (det<0). (2) Der fruehere Early-Out `if absf(_gear_anim - target) > 0.001`
+liess den LETZTEN Schritt ausfallen — der Reifen hing bei ~30 % Groesse sichtbar fest statt
+zu verschwinden. Deshalb laeuft der Block jetzt jeden Frame.
+
 ### Schadensmodell
 - **Fahrwerk-Überlast:** Σ Traglast (`gear_capacity`) < Masse → Kollaps beim Bauen
   angezeigt; im Flug knickt's weg (Kollision aus, Bauchlandung, mehr Widerstand).
