@@ -423,12 +423,13 @@ parametrisch eingerückte Scheibe, sodass der bündige Rahmen direkt in der Auß
 und nicht wie ein Drahtkäfig vor der Nase schwebt. In der finalen Geometrie sind Rahmen,
 Scheiben und Metallkinn sogar ohne überlappende Flächen in **einem** `B29_Nasenhaut`-Mesh
 mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten oder
-Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Die
-Nasenhaut besitzt jetzt noch eine zusätzliche hintere Fensterreihe bis Y=-1.10.
-Der zuvor lange Metallzylinder wurde entfernt; nur ein kurzer gerader 0.30-m-Abschluss
-von Y=-1.40 bis -1.10 bleibt als ebene Andockhülse. Die untere Silhouette läuft
-vor dieser Hülse ohne Ausschlag über Z=-0.63 → -0.67 → -0.70 weich aus; die
-Oberkante bleibt dabei nahezu waagerecht. Beim Blender-Build werden
+Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr. Die
+Außenproportion folgt dem kompakten B-29-Bug: Die rundliche Glasnase endet bereits
+bei Y=-0.34 und geht dort in einen 1.06 m langen, geraden Metallrumpf bis Y=-1.40
+über. Die Scheiben reichen vorn rund um das Bombenschützenfenster; nach hinten
+steigt die Metall-Kinnlinie stufenweise an, sodass die letzten beiden Reihen nur
+die obere Druckkabinenhälfte verglasen. Die untere Silhouette wächst über mehrere
+Querschnitte ohne harten Ausschlag auf den konstanten Rumpfradius. Beim Blender-Build werden
 `B29_Nasenhaut` und `B29_Rumpf_komplett`
 anschließend gejoint und die zwölf identischen Vertex-Paare per
 `bmesh.ops.remove_doubles(dist=0.00001)` verschweißt; Normalen werden neu berechnet.

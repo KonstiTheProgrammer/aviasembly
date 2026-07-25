@@ -218,14 +218,18 @@ def curve_tube(name, points, mat, radius=0.018, cyclic=False, resolution=2):
 
 
 def fuselage_shell():
-    """Kurzer gerader Metallabschluss hinter der verlängerten Glasfront."""
+    """Gerader Metallrumpf hinter der kompakten B-29-Glasnase."""
     stations = [
         (-1.40, 0.84, 0.74, 0.04),
-        (-1.10, 0.84, 0.74, 0.04),
+        (-1.05, 0.84, 0.74, 0.04),
+        (-0.70, 0.84, 0.74, 0.04),
+        (-0.34, 0.84, 0.74, 0.04),
     ]
-    short_end_length = stations[-1][0] - stations[0][0]
-    if not math.isclose(short_end_length, 0.30, abs_tol=0.0001):
-        raise RuntimeError("B-29-Metallabschluss muss exakt 0,30 m kurz sein")
+    body_length = stations[-1][0] - stations[0][0]
+    if not math.isclose(body_length, 1.06, abs_tol=0.0001):
+        raise RuntimeError("Gerader B-29-Metallrumpf muss exakt 1,06 m lang sein")
+    if any(station[1:] != stations[0][1:] for station in stations[1:]):
+        raise RuntimeError("B-29-Metallrumpf muss über die ganze Länge gerade bleiben")
     # Gleiche Ringteilung wie die Nasenhaut: dadurch treffen sich beide Polygone
     # an der gemeinsamen Endkante exakt und lassen keine dreieckigen Spalten.
     segs = NOSE_SEGMENTS
@@ -253,16 +257,12 @@ def fuselage_shell():
 # Axiale Querschnitte der facettierten Glasnase: y, Breite, Höhe, Mittelpunkt-Z.
 NOSE_STATIONS = (
     (1.24, 0.20, 0.18, -0.05),
-    (1.08, 0.36, 0.31, -0.02),
-    (0.84, 0.54, 0.46, 0.02),
-    (0.54, 0.69, 0.59, 0.05),
-    (0.20, 0.79, 0.68, 0.07),
-    (-0.12, 0.81, 0.70, 0.07),
-    # Der Unterbogen läuft hier weich von -0.63 über -0.67 auf -0.70 aus.
-    # Oberkante bleibt nahezu waagerecht; dadurch verschwindet der frühere
-    # harte Ausschlag vor dem kurzen Metallabschluss.
-    (-0.46, 0.84, 0.725, 0.055),
-    (-1.10, 0.84, 0.74, 0.04),
+    (1.08, 0.39, 0.34, -0.03),
+    (0.82, 0.60, 0.50, 0.01),
+    (0.49, 0.75, 0.63, 0.04),
+    (0.13, 0.83, 0.71, 0.05),
+    (-0.18, 0.84, 0.74, 0.04),
+    (-0.34, 0.84, 0.74, 0.04),
 )
 def nose_point(row, segment_f, axial_f=0.0, lift=1.0):
     """Punkt auf einem linear geführten, bewusst kantigen Nasen-Panel."""
@@ -278,28 +278,31 @@ def nose_point(row, segment_f, axial_f=0.0, lift=1.0):
 
 
 def is_glass_cell(row, segment):
-    """Die Metall-Kinnlinie steigt nach hinten wie im Referenzbild an."""
+    """Rundumglas vorn, nach hinten nur die obere Druckkabinen-Hälfte."""
     angle = math.tau * (segment + 0.5) / NOSE_SEGMENTS
     lower = math.sin(angle)
-    thresholds = (-1.1, -0.78, -0.55, -0.25, 0.00, 0.22, 0.22)
+    thresholds = (-1.1, -0.70, -0.38, -0.12, 0.04, 0.10)
     return lower > thresholds[row]
 
 
 def faceted_glass_nose():
     """Eine zusammenhängende Nasenhaut aus Metall, Rahmen und bündigen Scheiben."""
-    rear_bottoms = [station[3] - station[2] for station in NOSE_STATIONS[-3:]]
+    nose_length = NOSE_STATIONS[0][0] - NOSE_STATIONS[-1][0]
+    if nose_length > 1.60:
+        raise RuntimeError("B-29-Glasnase ist wieder zu langgezogen")
+    rear_bottoms = [station[3] - station[2] for station in NOSE_STATIONS[-4:]]
     rear_steps = [
         abs(rear_bottoms[i + 1] - rear_bottoms[i])
         for i in range(len(rear_bottoms) - 1)
     ]
-    if max(rear_steps) > 0.041:
-        raise RuntimeError("Unterer Übergang zum kurzen B-29-Ende ist nicht weich genug")
+    if max(rear_steps) > 0.09:
+        raise RuntimeError("Unterer Übergang zum geraden B-29-Rumpf ist nicht weich genug")
     rear_row = len(NOSE_STATIONS) - 2
     rear_glass_cells = sum(
         1 for segment in range(NOSE_SEGMENTS) if is_glass_cell(rear_row, segment)
     )
     if rear_glass_cells != 6:
-        raise RuntimeError("Zusätzliche hintere Glasreihe muss aus sechs Scheiben bestehen")
+        raise RuntimeError("Hinterste B-29-Fensterreihe muss aus sechs Scheiben bestehen")
     verts = []
     faces = []
 

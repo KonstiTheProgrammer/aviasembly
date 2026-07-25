@@ -63,7 +63,7 @@ static func _build() -> void:
 		"size": Vector3(1.7, 1.9, 2.7),
 		"col_size": Vector3(1.7, 1.6, 2.7),
 		"metal": 0.40, "rough": 0.48,
-		"desc": "Superfortress-Bug als Blender-Modell: verlängerte facettierte Glasfront mit zusätzlicher hinterer Fensterreihe, weich auslaufender Unterkontur und nur 0,30 m kurzem geradem Metallabschluss. Innen: Pilot und Copilot nebeneinander, getrennte Instrumententafeln, große Steuerhörner, Gashebel, Bombenschütze mit Norden-Visier, Navigator-Kartentisch, Flugingenieur-Seitenpanel und Drucktunnel. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Frontscheibe. Hinten ebene Andockfläche.",
+		"desc": "Superfortress-Bug als Blender-Modell: kompakte rundliche Glasnase mit echter B-29-Fensterstaffelung, weichem Metallkinn und langem geradem Rumpfübergang. Innen: Pilot und Copilot nebeneinander, getrennte Instrumententafeln, große Steuerhörner, Gashebel, Bombenschütze mit Norden-Visier, Navigator-Kartentisch, Flugingenieur-Seitenpanel und Drucktunnel. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Frontscheibe. Hinten ebene Andockfläche.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
