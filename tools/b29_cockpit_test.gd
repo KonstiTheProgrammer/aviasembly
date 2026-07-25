@@ -46,11 +46,15 @@ func _process(_delta: float) -> bool:
 
 	var visual := PartCatalog.build_visual(part)
 	_check(visual.find_child("B29_Glasnase", true, false) != null,
-		"dunkel verglaste Kugelnase ist vorhanden")
-	_check(visual.find_child("Fenster_Querspant_00", true, false) != null,
-		"Fenster-Querspanten sind vorhanden")
-	_check(visual.find_child("Fenster_Laengsrippe_07", true, false) != null,
-		"acht Längssprossen sind vorhanden")
+		"dunkel verglaste Facettennase ist vorhanden")
+	_check(visual.find_child("Fenster_Facettenrahmen", true, false) != null,
+		"bündige Facettenrahmen sind vorhanden")
+	_check(visual.find_child("B29_Metallkinn", true, false) != null,
+		"ansteigende Metall-Kinnlinie ist vorhanden")
+	_check(visual.find_child("Pilotenfenster_00_00", true, false) != null,
+		"zurücklaufende facettierte Pilotenfenster sind vorhanden")
+	_check(visual.find_child("Astrodome", true, false) == null,
+		"kein falscher Astrodome sitzt auf dem Cockpitteil")
 	_check(visual.find_child("Bombenschuetze_Frontglas", true, false) != null,
 		"runde Bombenschützen-Frontscheibe ist vorhanden")
 	_check(visual.find_child("Pilotensitz_Flaeche", true, false) != null,
@@ -62,8 +66,6 @@ func _process(_delta: float) -> bool:
 	_check(paint != null, "cockpit_body ist als Lackmaterial erhalten")
 	_check(glass != null, "Glas besitzt ein getrenntes Material")
 	if glass != null:
-		_check(glass.transparency != BaseMaterial3D.TRANSPARENCY_DISABLED,
-			"Glasnase ist transparent")
 		_check(glass.albedo_color.b > glass.albedo_color.r * 2.0,
 			"Glasnase ist dunkelblau getönt")
 

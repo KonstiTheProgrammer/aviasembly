@@ -414,9 +414,13 @@ gestreckt und nach unten versetzt -> gemessen exakt 40.0 % eingebettet
 (`tools/_bean_check.gd`). Und **`cockpit_b29`** („B-29-Kanzel"): ein eigenes
 Blender/glTF-Bauteil (`models/cockpit_b29.glb`, Quelle
 `tools/build_b29_cockpit_model.py`) mit der charakteristischen rundum verglasten
-Superfortress-Kugelnase statt eines Dach-Canopys. Dunkelblaues Glas, drei dünne
-Querspanten, acht Längssprossen, runde Bombenschützen-Frontscheibe, zurücklaufende
-Pilotenfenster, Astrodome und Antenne bilden die Referenz-Silhouette. Innen sind zwei
+Superfortress-Nase statt eines Dach-Canopys. Die Fenster sind bewusst einzelne flache,
+dunkelblaue Facetten: Jedes Feld hat eine etwas größere Metallfläche als Träger und eine
+parametrisch eingerückte Scheibe, sodass der bündige Rahmen direkt in der Außenhaut liegt
+und nicht wie ein Drahtkäfig vor der Nase schwebt. Die nach hinten ansteigende Metall-
+Kinnlinie, kleine runde Bombenschützen-Frontscheibe und zurücklaufende Pilotenfenster
+bilden die Referenz-Silhouette; Astrodome und Antenne gehören zu späteren Rumpfsegmenten
+und sitzen bewusst nicht auf diesem Cockpitteil. Innen sind zwei
 Sitze mit Steuerhörnern, Instrumentenbrett und Rundinstrumenten sowie
 Bombenschützenplatz, Tisch und Visier modelliert. `cockpit_body` bleibt lackierbar,
 `glass` unangetastet. Das prozedurale `shape "b29_nose"` bleibt nur als Fallback, falls

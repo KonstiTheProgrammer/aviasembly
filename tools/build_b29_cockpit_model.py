@@ -33,11 +33,11 @@ def material(name, color, metallic=0.0, roughness=0.45):
     return mat
 
 
-BODY = material("cockpit_body", (0.52, 0.57, 0.65, 1.0), 0.52, 0.40)
+BODY = material("cockpit_body", (0.29, 0.34, 0.42, 1.0), 0.40, 0.48)
 BODY_DARK = material("body_detail", (0.27, 0.30, 0.35, 1.0), 0.48, 0.46)
-FRAME = material("frame", (0.40, 0.45, 0.52, 1.0), 0.68, 0.34)
-GLASS = material("glass", (0.025, 0.075, 0.16, 0.84), 0.10, 0.18)
-GLASS_DARK = material("glass_dark", (0.015, 0.045, 0.11, 0.88), 0.08, 0.20)
+FRAME = material("frame", (0.31, 0.36, 0.43, 1.0), 0.52, 0.42)
+GLASS = material("glass", (0.012, 0.045, 0.115, 1.0), 0.04, 0.34)
+GLASS_DARK = material("glass_dark", (0.006, 0.022, 0.065, 1.0), 0.02, 0.38)
 INTERIOR = material("interior", (0.055, 0.065, 0.075, 1.0), 0.18, 0.76)
 SEAT = material("seat", (0.16, 0.18, 0.17, 1.0), 0.05, 0.82)
 LEATHER = material("leather", (0.19, 0.11, 0.065, 1.0), 0.02, 0.72)
@@ -169,20 +169,20 @@ def curve_tube(name, points, mat, radius=0.018, cyclic=False, resolution=2):
 
 
 def fuselage_shell():
-    """Elliptischer Metallrumpf mit flacher Rückseite und offenem Glasanschluss."""
+    """Langer, fast zylindrischer Metallrumpf wie auf der Referenz."""
     stations = [
-        (-1.35, 0.84, 0.78),
-        (-1.05, 0.85, 0.79),
-        (-0.58, 0.85, 0.79),
-        (-0.12, 0.83, 0.78),
-        (0.08, 0.80, 0.76),
+        (-1.40, 0.82, 0.72, -0.04),
+        (-1.05, 0.84, 0.74, -0.03),
+        (-0.62, 0.85, 0.75, -0.02),
+        (-0.25, 0.84, 0.74, 0.00),
+        (0.04, 0.80, 0.70, 0.03),
     ]
-    segs = 48
+    segs = 24
     verts = []
-    for y, rx, rz in stations:
+    for y, rx, rz, zc in stations:
         for i in range(segs):
             angle = math.tau * i / segs
-            verts.append((math.cos(angle) * rx, y, math.sin(angle) * rz))
+            verts.append((math.cos(angle) * rx, y, zc + math.sin(angle) * rz))
     faces = []
     for row in range(len(stations) - 1):
         for i in range(segs):
@@ -196,120 +196,131 @@ def fuselage_shell():
     verts.append((0.0, stations[0][0], 0.0))
     for i in range(segs):
         faces.append((rear_center, (i + 1) % segs, i))
-    return mesh_object("B29_Rumpfschale", verts, faces, BODY)
+    return mesh_object("B29_Rumpfschale", verts, faces, BODY, False)
 
 
-GLASS_BASE_Y = 0.06
-GLASS_LENGTH = 1.23
-GLASS_RX = 0.805
-GLASS_RZ = 0.755
+# Axiale Querschnitte der facettierten Glasnase: y, Breite, Höhe, Mittelpunkt-Z.
+NOSE_STATIONS = (
+    (1.24, 0.20, 0.18, -0.05),
+    (1.08, 0.36, 0.31, -0.02),
+    (0.84, 0.54, 0.46, 0.02),
+    (0.54, 0.69, 0.59, 0.05),
+    (0.20, 0.79, 0.68, 0.07),
+    (-0.12, 0.81, 0.70, 0.07),
+)
+NOSE_SEGMENTS = 10
 
 
-def glass_point(theta, angle, lift=0.0):
-    radial = math.sin(theta)
-    return Vector(
-        (
-            math.cos(angle) * GLASS_RX * radial * (1.0 + lift),
-            GLASS_BASE_Y + GLASS_LENGTH * math.cos(theta),
-            math.sin(angle) * GLASS_RZ * radial * (1.0 + lift),
-        )
-    )
+def nose_point(row, segment_f, axial_f=0.0, lift=1.0):
+    """Punkt auf einem linear geführten, bewusst kantigen Nasen-Panel."""
+    row2 = min(row + 1, len(NOSE_STATIONS) - 1)
+    a = NOSE_STATIONS[row]
+    b = NOSE_STATIONS[row2]
+    y = a[0] + (b[0] - a[0]) * axial_f
+    rx = (a[1] + (b[1] - a[1]) * axial_f) * lift
+    rz = (a[2] + (b[2] - a[2]) * axial_f) * lift
+    zc = a[3] + (b[3] - a[3]) * axial_f
+    angle = math.tau * segment_f / NOSE_SEGMENTS
+    return (math.cos(angle) * rx, y, zc + math.sin(angle) * rz)
 
 
-def glass_hemisphere():
-    """Vordere Ellipsoid-Halbschale; die hintere Ringfläche bleibt offen."""
-    us = 48
-    vs = 18
-    verts = []
-    for iv in range(vs + 1):
-        theta = (math.pi * 0.5) * iv / vs
-        for iu in range(us):
-            angle = math.tau * iu / us
-            verts.append(tuple(glass_point(theta, angle)))
-    faces = []
-    for iv in range(vs):
-        for iu in range(us):
-            a = iv * us + iu
-            b = iv * us + (iu + 1) % us
-            c = (iv + 1) * us + iu
-            d = (iv + 1) * us + (iu + 1) % us
-            faces.append((a, c, b))
-            faces.append((b, c, d))
-    return mesh_object("B29_Glasnase", verts, faces, GLASS)
+def is_glass_cell(row, segment):
+    """Die Metall-Kinnlinie steigt nach hinten wie im Referenzbild an."""
+    angle = math.tau * (segment + 0.5) / NOSE_SEGMENTS
+    lower = math.sin(angle)
+    thresholds = (-1.1, -0.78, -0.55, -0.25, 0.00)
+    return lower > thresholds[row]
 
 
-def canopy_frames():
-    """B-29-typisches Sprossennetz: Querspanten und Längsrippen."""
-    # Drei dünne Querspanten definieren große, klar lesbare Fensterscheiben.
-    for idx, fraction in enumerate((0.31, 0.58, 0.82)):
-        theta = math.pi * 0.5 * fraction
-        points = [
-            glass_point(theta, math.tau * i / 64, 0.012)
-            for i in range(64)
-        ]
-        curve_tube("Fenster_Querspant_%02d" % idx, points, FRAME, 0.013, True)
+def faceted_glass_nose():
+    """Einzelne flache Scheiben mit bündigen Metallstegen statt einer Drahtkugel."""
+    frame_verts = []
+    frame_faces = []
+    glass_verts = []
+    glass_faces = []
+    chin_verts = []
+    chin_faces = []
 
-    # Acht schlanke Längsstege laufen erst außerhalb der kleinen Frontscheibe an.
-    angles = (
-        0.0,
-        math.radians(45),
-        math.radians(90),
-        math.radians(135),
-        math.pi,
-        math.radians(225),
-        math.radians(270),
-        math.radians(315),
-    )
-    for idx, angle in enumerate(angles):
-        points = [
-            glass_point(math.pi * 0.5 * (0.16 + 0.84 * i / 18), angle, 0.010)
-            for i in range(19)
-        ]
-        curve_tube("Fenster_Laengsrippe_%02d" % idx, points, FRAME, 0.012)
-
-    # Massiver Anschlussring zum Metallrumpf.
-    base_points = [
-        Vector(
-            (
-                math.cos(math.tau * i / 72) * GLASS_RX * 1.014,
-                GLASS_BASE_Y,
-                math.sin(math.tau * i / 72) * GLASS_RZ * 1.014,
+    for row in range(len(NOSE_STATIONS) - 1):
+        for segment in range(NOSE_SEGMENTS):
+            corners = (
+                nose_point(row, segment, 0.0),
+                nose_point(row, segment + 1, 0.0),
+                nose_point(row, segment + 1, 1.0),
+                nose_point(row, segment, 1.0),
             )
-        )
-        for i in range(72)
-    ]
-    curve_tube("Glasnase_Anschlussring", base_points, FRAME, 0.022, True)
+            if not is_glass_cell(row, segment):
+                base = len(chin_verts)
+                chin_verts.extend(corners)
+                chin_faces.append((base, base + 1, base + 2, base + 3))
+                continue
 
-    # Runde Frontscheibe des Bombenschützenplatzes.
-    front_y = GLASS_BASE_Y + GLASS_LENGTH + 0.008
-    cylinder("Bombenschuetze_Frontglas", 0.135, 0.018, (0.0, front_y, 0.0),
-             (0.0, 1.0, 0.0), GLASS_DARK, 40)
-    torus_y("Bombenschuetze_Frontring", front_y + 0.012, 0.150, 0.016, FRAME)
+            # Das volle Feld ist der flach aufliegende Rahmen.
+            base = len(frame_verts)
+            frame_verts.extend(corners)
+            frame_faces.append((base, base + 1, base + 2, base + 3))
+
+            # Parametrisch eingerückte Scheibe lässt einen gleichmäßigen Metallrand frei.
+            inset = 0.085
+            pane = (
+                nose_point(row, segment + inset, inset, 1.008),
+                nose_point(row, segment + 1.0 - inset, inset, 1.008),
+                nose_point(row, segment + 1.0 - inset, 1.0 - inset, 1.008),
+                nose_point(row, segment + inset, 1.0 - inset, 1.008),
+            )
+            pbase = len(glass_verts)
+            glass_verts.extend(pane)
+            glass_faces.append((pbase, pbase + 1, pbase + 2, pbase + 3))
+
+    mesh_object("Fenster_Facettenrahmen", frame_verts, frame_faces, FRAME, False)
+    mesh_object("B29_Glasnase", glass_verts, glass_faces, GLASS, False)
+    mesh_object("B29_Metallkinn", chin_verts, chin_faces, BODY, False)
+
+    # Kleine, klar gefasste Bombenschützen-Frontscheibe.
+    front_y = NOSE_STATIONS[0][0] + 0.014
+    cylinder("Bombenschuetze_Frontglas", 0.135, 0.018, (0.0, front_y, -0.05),
+             (0.0, 1.0, 0.0), GLASS_DARK, 24)
+    torus_y("Bombenschuetze_Frontring", front_y + 0.012, 0.151, 0.018, FRAME, 0.92)
 
 
 def greenhouse_extension():
-    """Die obere Pilotenverglasung reicht wie auf der Referenz in den Rumpf zurück."""
-    # Vier dunkle Dach-/Seitenscheiben je Seite, als leicht gewölbte Platten.
-    for side in (-1.0, 1.0):
-        for idx in range(3):
-            y0 = 0.02 - idx * 0.22
-            x0 = side * (0.25 + idx * 0.10)
-            box(
-                "Pilotenfenster_%s_%d" % ("L" if side < 0 else "R", idx),
-                (0.30, 0.25, 0.025),
-                (x0, y0 - 0.10, 0.63 - idx * 0.035),
-                GLASS_DARK,
-                rotation=(math.radians(-7), 0.0, side * math.radians(12)),
-                bevel=0.018,
+    """Flache Pilotenfenster laufen vom Bug in die obere Rumpfschale zurück."""
+    y_rows = (-0.10, -0.36, -0.63, -0.89)
+    angle_edges = tuple(math.radians(a) for a in (28, 58, 88, 118, 148))
+    rx = 0.825
+    rz = 0.725
+
+    def point(y, angle, lift=1.0):
+        return (math.cos(angle) * rx * lift, y,
+                0.03 + math.sin(angle) * rz * lift)
+
+    for iy in range(len(y_rows) - 1):
+        for ia in range(len(angle_edges) - 1):
+            a0 = angle_edges[ia]
+            a1 = angle_edges[ia + 1]
+            y0 = y_rows[iy]
+            y1 = y_rows[iy + 1]
+            frame_corners = (
+                point(y0, a0, 1.004), point(y0, a1, 1.004),
+                point(y1, a1, 1.004), point(y1, a0, 1.004),
             )
-    # Mittlere Dachscheiben und helle Trennstege.
-    for idx in range(3):
-        y = -0.08 - idx * 0.22
-        box("Pilotenfenster_Dach_%d" % idx, (0.34, 0.24, 0.025),
-            (0.0, y, 0.742 - idx * 0.015), GLASS_DARK,
-            rotation=(math.radians(-4), 0.0, 0.0), bevel=0.016)
-        box("Pilotenfenster_Steg_%d" % idx, (0.025, 0.255, 0.035),
-            (0.0, y, 0.765 - idx * 0.015), FRAME, bevel=0.008)
+            mesh_object(
+                "Pilotenfenster_Rahmen_%02d_%02d" % (iy, ia),
+                frame_corners, [(0, 1, 2, 3)], FRAME, False,
+            )
+            inset = 0.10
+            pa0 = a0 + (a1 - a0) * inset
+            pa1 = a1 - (a1 - a0) * inset
+            py0 = y0 + (y1 - y0) * inset
+            py1 = y1 - (y1 - y0) * inset
+            pane = (
+                point(py0, pa0, 1.010), point(py0, pa1, 1.010),
+                point(py1, pa1, 1.010), point(py1, pa0, 1.010),
+            )
+            mesh_object(
+                "Pilotenfenster_%02d_%02d" % (iy, ia),
+                pane, [(0, 1, 2, 3)], GLASS_DARK, False,
+            )
 
 
 def cockpit_interior():
@@ -397,11 +408,7 @@ def exterior_details():
             12,
         )
 
-    # Kleiner Astrodome, Antenne und die charakteristische Kinn-/Fahrwerksaufnahme.
-    sphere("Astrodome", 1.0, (0.0, -0.47, 0.735), (0.22, 0.28, 0.16), GLASS)
-    torus_z("Astrodome_Rahmen", (0.0, -0.47, 0.735), 0.215, 0.018, FRAME, 1.25)
-    cylinder("Funkantenne", 0.012, 0.34, (0.0, -0.92, 0.82),
-             (0.0, 0.0, 1.0), BODY_DARK, 12)
+    # Charakteristische Kinn-/Fahrwerksaufnahme unterhalb der Glasnase.
     box("Kinnverkleidung", (0.34, 0.52, 0.18), (0.0, -0.04, -0.685),
         BODY, bevel=0.045)
     box("Bugfahrwerk_Aufnahme", (0.18, 0.24, 0.08), (0.0, -0.12, -0.79),
@@ -426,8 +433,7 @@ def build():
     clear()
     fuselage_shell()
     cockpit_interior()
-    glass_hemisphere()
-    canopy_frames()
+    faceted_glass_nose()
     greenhouse_extension()
     exterior_details()
     apply_modifiers()

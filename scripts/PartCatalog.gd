@@ -59,11 +59,11 @@ static func _build() -> void:
 	})
 	_add({
 		"id": "cockpit_b29", "name": "B-29-Kanzel (Glasnase)", "category": CAT_BODY,
-		"mass": 240.0, "color": Color(0.74, 0.75, 0.78), "shape": "b29_nose", "root": true,
+		"mass": 240.0, "color": Color(0.38, 0.43, 0.52), "shape": "b29_nose", "root": true,
 		"size": Vector3(1.7, 1.9, 2.7),
 		"col_size": Vector3(1.7, 1.6, 2.7),
-		"metal": 0.52, "rough": 0.38,
-		"desc": "Superfortress-Bug als Blender-Modell: rundum verglaste Kugelnase mit dunklen Einzelscheiben, silbernen Sprossen, Pilotenfenstern, Astrodome und sichtbarem Innenausbau. Hinten ebene Andockfläche für einen dicken Bomberrumpf.",
+		"metal": 0.40, "rough": 0.48,
+		"desc": "Superfortress-Bug als Blender-Modell: lange facettierte Glasnase mit einzelnen dunkelblauen Scheiben, bündigen grauen Rahmen, Metallkinn, kleiner Bombenschützen-Frontscheibe und zurücklaufenden Pilotenfenstern. Hinten ebene Andockfläche für einen dicken Bomberrumpf.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
