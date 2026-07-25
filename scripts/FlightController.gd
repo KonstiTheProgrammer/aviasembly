@@ -286,6 +286,7 @@ func build_from_design(d: Array) -> void:
 		else:
 			vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
+		PartCatalog.set_gear_length(vis, p, float(item.get("glen", 1.0)))
 		var prop := vis.find_child("Prop", true, false)
 		var wheel_node: Node3D = vis.find_child("Wheel", true, false)   # dreht beim Rollen
 		# Bewegliche Fläche: Hauptflügel = "FlapHinge" (Rolle "flap"), Steuerflügel = "CtrlHinge"
@@ -314,7 +315,11 @@ func build_from_design(d: Array) -> void:
 			cs.shape = sph
 			# Kugel-Unterkante = Box-Unterkante (gleiche Spawn-Höhe wie vorher)
 			var scenter := PartCatalog.col_offset(p) * psc
-			scenter.y = (PartCatalog.col_offset(p).y - PartCatalog.col_size(p).y * 0.5) * psc.y + wheel_r
+			# Ausgefahrenes Bein: der Radaufstandspunkt wandert um genau diesen Betrag mit
+			# nach unten, sonst schwebt das Flugzeug oder sinkt ein.
+			var gext: float = PartCatalog.gear_ext(p, float(item.get("glen", 1.0)))
+			scenter.y = (PartCatalog.col_offset(p).y - PartCatalog.col_size(p).y * 0.5
+				- gext) * psc.y + wheel_r
 			var sc_local: Vector3 = xf * scenter
 			cs.transform = Transform3D(Basis(), sc_local)   # Kugel: Orientierung egal
 			body.add_child(cs)

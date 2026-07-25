@@ -779,6 +779,12 @@ func _build_handles() -> void:
 			_build_move_handles()
 		else:
 			_build_rotate_handles()
+	# Fahrwerk: IMMER zusaetzlich der Bein-Griff (egal in welchem Gizmo-Modus) — beim
+	# Reifen ist die Beinlaenge die haeufigste Anpassung, die soll nicht in einem
+	# Untermodus versteckt sein.
+	if String(PartCatalog.get_part(selected_part.get_meta("part_id")).get(
+			"category", "")) == PartCatalog.CAT_GEAR:
+		_build_leg_handle()
 	_update_handles()
 
 
@@ -840,6 +846,32 @@ func _ends_key(sgn: float, axis: int) -> String:
 
 # Enden-Modus: 4 Vierecke — vorne (-Z) & hinten (+Z), je eines für X (Breite, seitlich)
 # und Y (Höhe, oben). Nach außen ziehen macht dieses Ende in DIESER Achse dicker.
+# Ein Wuerfel unter dem Reifen: nach unten ziehen = Bein ausfahren (mehr Bodenfreiheit).
+func _build_leg_handle() -> void:
+	var h := StaticBody3D.new()
+	h.add_to_group("handle")
+	h.collision_layer = HANDLE_LAYER
+	h.collision_mask = 0
+	h.set_meta("kind", "leg")
+	h.set_meta("axis", 1)
+	h.set_meta("sign", -1.0)
+	var col := Color(1.0, 0.85, 0.25)
+	h.set_meta("base_col", col)
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = Vector3(0.5, 0.5, 0.5)
+	cs.shape = bs
+	h.add_child(cs)
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.4, 0.4, 0.4)
+	mi.mesh = bm
+	mi.material_override = _gizmo_mat(col)
+	h.add_child(mi)
+	selected_part.add_child(h)
+	_handles.append(h)
+
+
 func _build_ends_handles() -> void:
 	for s in [-1.0, 1.0]:
 		for ax in [0, 1]:
@@ -1002,6 +1034,10 @@ func _update_handles() -> void:
 				h.position = off + Vector3(float(halves[0]) * et + 0.4, 0.0, es * float(halves[2]))
 			else:
 				h.position = off + Vector3(0.0, float(halves[1]) * et + 0.4, es * float(halves[2]))
+		elif kind == "leg":
+			# sitzt unter dem Reifen und wandert beim Ausfahren mit
+			var ext: float = PartCatalog.gear_ext(p, selected_part.get_meta("gear_len", 1.0))
+			h.position = off + Vector3(0.0, -(float(halves[1]) + ext * psc.y + 0.4), 0.0)
 		else:  # scale: am Teil (lokal), an der Flächenmitte
 			var s: float = h.get_meta("sign")
 			h.position = off + _axis_vec(i) * (s * (float(halves[i]) + 0.45))
@@ -1076,6 +1112,15 @@ func _begin_handle_drag(handle: Node3D) -> void:
 		_rot_u = _rot_u.normalized()
 		_rot_v = _rot_axis_w.cross(_rot_u).normalized()
 		_rot_a0 = _ring_angle()
+		return
+	if _drag_kind == "leg":
+		# entlang der LOKALEN Y-Achse ziehen (nach unten = laenger)
+		var gp := PartCatalog.get_part(selected_part.get_meta("part_id"))
+		_drag_half = maxf(PartCatalog.gear_leg_len(gp), 0.15)
+		_drag_taper0 = selected_part.get_meta("gear_len", 1.0)
+		_drag_axis_w = (selected_part.global_transform.basis * Vector3.UP).normalized()
+		_drag_origin0 = handle.global_position
+		_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
 		return
 	if _drag_kind == "ends":
 		# Enden-Drag wie ein Scale-Würfel: X-Würfel entlang +X, Y-Würfel entlang +Y ziehen.
@@ -1183,6 +1228,18 @@ func _update_transform_drag() -> void:
 			dreh = roundf(dreh / (PI * 0.25)) * (PI * 0.25)
 		var nb := (Basis(_rot_axis_w, dreh) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
+	elif _drag_handle != null and _drag_kind == "leg":
+		# Mausweg entlang -Y in Beinlaengen umrechnen; die Spanne ist FEST (kein Stelzen).
+		var lt := _ray_axis_t(_drag_origin0, _drag_axis_w)
+		var neu: float = clampf(float(_drag_taper0) - (lt - _drag_t0) / _drag_half,
+			PartCatalog.GEAR_LEN_MIN, PartCatalog.GEAR_LEN_MAX)
+		selected_part.set_meta("gear_len", neu)
+		var lsc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+		_rebuild_visual(selected_part)
+		_apply_part_scale(selected_part, lsc)   # Pickbox auf das neue Bein ziehen
+		_sync_mirror(selected_part, lsc)        # gespiegeltes Rad faehrt mit aus
+		_update_handles()
+		_notify_changed()
 	elif _drag_handle != null and _drag_kind == "ends":
 		# Enden-Würfel ziehen: außen = dieses Ende in X/Y dicker, innen = dünner.
 		var te := _ray_axis_t(_drag_origin0, _drag_axis_w)
@@ -1571,6 +1628,8 @@ func _rebuild_visual(part: Node) -> void:
 	nv.name = "Visual"
 	nv.scale = part.get_meta("pscale", Vector3.ONE)
 	part.add_child(nv)
+	PartCatalog.set_gear_length(nv, PartCatalog.get_part(part.get_meta("part_id")),
+		part.get_meta("gear_len", 1.0))
 
 
 # --- Verjüngung (Taper): Enden des Rumpfes breiter/schmaler ----------------
@@ -2586,6 +2645,7 @@ func get_design() -> Array:
 				"tuser_b": child.has_meta("taper_user"),        # Enden von Hand geformt?
 				"tuser_f": child.has_meta("taper_front_user"),  # (Auto-Taper respektiert das)
 				"fill": child.get_meta("fill", 0.0),   # Flügel-Mittelspalt-Füllung (für Flug + Speichern)
+				"glen": child.get_meta("gear_len", 1.0),   # ausgefahrenes Fahrwerksbein
 				"thrust_reverse": child.get_meta("thrust_reverse", false),   # Prop-Schub umkehren
 			})
 	return out
@@ -2601,6 +2661,14 @@ func load_design(arr: Array) -> void:
 				item.get("taper", -1.0), item.get("taper_front", -1.0),
 				item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 			np.set_meta("thrust_reverse", bool(item.get("thrust_reverse", false)))
+			# Ausgefahrenes Fahrwerksbein wiederherstellen (Visual neu bauen, damit die
+			# Beinlaenge sofort steht — _add_part kennt das Meta beim Bauen noch nicht).
+			var glen := float(item.get("glen", 1.0))
+			if glen > 1.0001:
+				np.set_meta("gear_len", clampf(glen, PartCatalog.GEAR_LEN_MIN,
+					PartCatalog.GEAR_LEN_MAX))
+				_rebuild_visual(np)
+				_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
 			# Manuell-geformt-Flags wiederherstellen. ALT-Saves (ohne tuser_*) kennzeichnen
 			# jedes vom Teil-Default abweichende Ende als manuell — die Auto-Anpassung darf
 			# bestehende Designs beim Laden nicht umformen.
@@ -2946,6 +3014,14 @@ func _part_box(part: Node3D) -> Array:
 	if String(part.get_meta("part_id", "")) == "engine_radial" \
 			and not part.get_meta("engine_half", false):
 		return PartCatalog.engine_solo_box(p)
+	if String(p.get("category", "")) == PartCatalog.CAT_GEAR:
+		# Ausgefahrenes Bein: die Box waechst NACH UNTEN, die Oberkante (Anschlussflaeche)
+		# bleibt wo sie ist — sonst haenge das Fahrwerk beim Andocken tiefer als gedacht.
+		var ext: float = PartCatalog.gear_ext(p, part.get_meta("gear_len", 1.0))
+		if ext > 0.0:
+			var cs2: Vector3 = PartCatalog.col_size(p)
+			var co2: Vector3 = PartCatalog.col_offset(p)
+			return [Vector3(cs2.x, cs2.y + ext, cs2.z), Vector3(co2.x, co2.y - ext * 0.5, co2.z)]
 	return [PartCatalog.col_size(p), PartCatalog.col_offset(p)]
 
 

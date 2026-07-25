@@ -1007,6 +1007,74 @@ const MODEL_DIR := "res://models/"
 const PAINT_MATS := ["body", "cockpit_body", "tankmetal", "engine"]
 
 
+# --- AUSFAHRBARES FAHRWERKSBEIN ------------------------------------------------------
+# Der Spieler kann das Bein eines Reifens verlaengern (mehr Bodenfreiheit, z. B. fuer
+# grosse Propeller). Bewusst mit FESTER Spanne statt frei skalierbar: 1.0 = Originallaenge
+# des Modells, GEAR_LEN_MAX = das laengste, was noch wie ein Fahrwerk aussieht.
+const GEAR_LEN_MIN := 1.0
+const GEAR_LEN_MAX := 2.4
+
+
+# Laenge des reinen BEINS in Teil-Einheiten: Gesamthoehe minus Reifendurchmesser
+# (col_size.z ist bei jedem Fahrwerk der Durchmesser).
+static func gear_leg_len(p: Dictionary) -> float:
+	return maxf(col_size(p).y - col_size(p).z, 0.15)
+
+
+# Zusaetzliche Beinlaenge bei Faktor f (Teil-Einheiten, ohne pscale).
+static func gear_ext(p: Dictionary, f: float) -> float:
+	return (clampf(f, GEAR_LEN_MIN, GEAR_LEN_MAX) - 1.0) * gear_leg_len(p)
+
+
+# Visual auf die gewuenschte Beinlaenge bringen.
+# STRUKTUR: das glb traegt "Leg" (Beinnetz, Drehpunkt oben am Anschluss) mit "Wheel" als
+# KIND. Wuerde man "Leg" einfach in Y strecken, wuerde der Reifen mitskaliert — und weil
+# er sich beim Rollen um X dreht, wuerde er dabei GESCHERT. Darum wird einmalig umgebaut:
+#     Leg (Node3D — reiner Drehpunkt, hier klappt AircraftBody das Fahrwerk ein)
+#       +- LegMesh (das Beinnetz, wird in Y gestreckt)
+#       +- Wheel   (unskaliert, nur nach unten versetzt)
+# Die Knotennamen "Leg" und "Wheel" bleiben damit erhalten (Vertrag mit AircraftBody).
+static func set_gear_length(vis: Node3D, p: Dictionary, f: float) -> void:
+	if vis == null:
+		return
+	var bein := vis.find_child("Leg", true, false) as Node3D
+	var rad := vis.find_child("Wheel", true, false) as Node3D
+	if bein == null or rad == null:
+		return
+	if bein is MeshInstance3D:
+		# einmaliger Umbau in Drehpunkt + Netz + Rad
+		var eltern: Node = bein.get_parent()
+		if eltern == null:
+			return
+		var xf: Transform3D = bein.transform
+		var rad_xf: Transform3D = rad.transform
+		var lang: float = absf((bein as MeshInstance3D).get_aabb().position.y)
+		eltern.remove_child(bein)
+		if rad.get_parent() == bein:
+			bein.remove_child(rad)
+		var pivot := Node3D.new()
+		pivot.name = "Leg"
+		pivot.transform = xf
+		eltern.add_child(pivot)
+		bein.name = "LegMesh"
+		bein.transform = Transform3D()
+		pivot.add_child(bein)
+		pivot.add_child(rad)
+		rad.transform = rad_xf
+		pivot.set_meta("rad_ruhe", rad_xf.origin)
+		pivot.set_meta("bein_len", maxf(lang, 0.05))
+		bein = pivot
+	var lm := bein.get_node_or_null("LegMesh") as Node3D
+	var lr := bein.get_node_or_null("Wheel") as Node3D
+	var ext: float = gear_ext(p, f)
+	var blen: float = float(bein.get_meta("bein_len", 1.0))
+	if lm != null:
+		lm.scale = Vector3(1.0, (blen + ext) / blen, 1.0)
+	if lr != null:
+		var ruhe: Vector3 = bein.get_meta("rad_ruhe", lr.position)
+		lr.position = Vector3(ruhe.x, ruhe.y - ext, ruhe.z)
+
+
 static func has_model(id: String) -> bool:
 	return id != "" and ResourceLoader.exists(MODEL_DIR + id + ".glb")
 
