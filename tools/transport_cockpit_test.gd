@@ -80,7 +80,8 @@ func _process(_delta: float) -> bool:
 			"Transport-Cockpitglas ist blickdicht")
 		_check(glass.albedo_color.get_luminance() < 0.08,
 			"Glas ist passend zum Spielstil fast schwarz")
-		_check(glass.roughness <= 0.56, "Glas bleibt dunkel mit weicher Reflexion")
+		_check(glass.roughness >= 0.68 and glass.roughness <= 0.76,
+			"Glas bleibt matt und zeigt keine harten Spiegelkeile")
 
 	if hull != null and hull.mesh != null:
 		var bounds: AABB = hull.transform * hull.get_aabb()
