@@ -1366,6 +1366,7 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 			# vorhandenen Spiegel mitziehen (folgt auch bei ausgeschalteter Symmetrie)
 			m.transform = _mirror_xform(part.transform)
 			_apply_part_scale(m, sc)
+		_sync_mirror_gear(part, m, sc)
 		# Mittelspalt-Füllung beider Hälften an die neue Position anpassen
 		_update_wing_fill(part)
 		_update_wing_fill(m)
@@ -1383,6 +1384,21 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 		part.remove_meta("mirror")
 		m.free()
 		_update_wing_fill(part)
+
+
+# Ausgefahrenes Fahrwerksbein auf den Spiegel uebertragen. Ohne das blieb das
+# gespiegelte Rad auf Originallaenge stehen — das Flugzeug stand schief.
+func _sync_mirror_gear(part: Node3D, m: Node3D, sc: Vector3) -> void:
+	if m == null or not is_instance_valid(m):
+		return
+	if String(PartCatalog.get_part(part.get_meta("part_id")).get("category", "")) 			!= PartCatalog.CAT_GEAR:
+		return
+	var gl: float = part.get_meta("gear_len", 1.0)
+	if absf(float(m.get_meta("gear_len", 1.0)) - gl) < 0.0001:
+		return
+	m.set_meta("gear_len", gl)
+	_rebuild_visual(m)
+	_apply_part_scale(m, sc)
 
 
 # Parameter t entlang der Achse (lo + t*ld), am nächsten zum Maus-Strahl.
