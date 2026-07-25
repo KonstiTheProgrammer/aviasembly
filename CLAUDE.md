@@ -310,7 +310,7 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links; **lange halten → Fass-Roll**) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
-`N` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `M` **Karte** (Vollbild-Inselkarte, Mausrad = Zoomstufen 1/2.5/6; Corner-Minimap läuft immer mit) · `H` **G-Schutz** (Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
+`V` (HALTEN) **Zielzoom** · `N` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `M` **Karte** (Vollbild-Inselkarte, Mausrad = Zoomstufen 1/2.5/6; Corner-Minimap läuft immer mit) · `H` **G-Schutz** (Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
 **Maus-Flug (GROSSKREIS-INSTRUCTOR, STANDARD; `N` = Tastatur-Modus):** Maus zeigt eine
 WELTRICHTUNG (`look_yaw/pitch`, ROH — kein Glättungs-Lag); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
 `mouse_fly=true` als Default; `set_active(true)` ruft `_reset_mouse_state()` (Aim an der
@@ -365,6 +365,15 @@ war der Engpass. Headless-Harness: `tools/mousefly_test.gd` (Konvergenz/Pendeln)
   Falle:** `state.transform.basis = …` schreibt NICHT zurück → ganzen `state.transform`
   neu zuweisen. FlightController setzt `aircraft.arcade`/`aircraft.aim_world` (roh) je Frame;
   `_toggle_arcade` (J) schaltet ggf. den Maus-Flug mit ein. HUD zeigt „ARCADE 🎮".
+- **ZIELZOOM (`V` halten, War-Thunder-Art):** OPTISCH KORREKT umgesetzt — `FOV_ZOOM=22`
+  verengt das vertikale FOV UND `ZOOM_DIST=2.2` setzt die Kamera im gleichen Verhaeltnis
+  zurueck. NUR das FOV zu verengen brächte nichts: es vergroessert das eigene Flugzeug
+  genauso mit. Erst der groessere Abstand laesst die eigene Zelle gleich gross erscheinen,
+  waehrend ferne Ziele um FOV_BASE/FOV_ZOOM (~2.9x) wachsen. `zoom_t` wird GEPOLLT
+  (`Input.is_physical_key_pressed(KEY_V)` im Kamera-Update), damit HALTEN zaehlt — ueber
+  `_unhandled_input` gaebe es nur den Tastendruck. Die Maus-Empfindlichkeit skaliert mit
+  (`ZOOM_SENS=0.42`), sonst ist Zielen unmoeglich; das HUD zeigt den Faktor als Badge.
+  Gemessen/belegt mit `tools/_zoom_check.gd` (zwei Bilder derselben Szene).
 - **Kamera-Framing:** look_at-Punkt `+UP·CAM_LOOK_ABOVE` (6.5) → Flieger sitzt **tief im
   unteren Bildbereich** (~0.78), nicht mittig.
 - **Fass-Roll (`barrel_roll`, A/D lange halten ≥ `BARREL_HOLD`):** FlightController trackt die
@@ -601,7 +610,7 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   (jede Waffe hat **eigenen Cooldown** `cd`, pro Frame heruntergezählt).
   **WAFFENGRUPPEN (SimplePlanes-Stil):** `WGROUPS` = Bordkanonen/Raketen/Lenkwaffen/Bomben;
   `_rebuild_weapon_groups()` beim Bau sammelt die vorhandenen, `weapon_sel` = Auswahl
-  (**1–4** direkt, **V** zyklisch — nur im Flug; der Hangar behält 1–4 als Ansichten, weil
+  (**1–4** direkt, **X** zyklisch — V ist jetzt der Zielzoom; nur im Flug, der Hangar behält 1–4 als Ansichten, weil
   dort `set_process_unhandled_input(false)`). **Leertaste / Linksklick** feuert NUR die
   gewählte Gruppe — **Kanonen als Dauerfeuer solange gehalten, Raketen/Lenkwaffen/Bomben
   als EINZELSCHUSS pro Klick** (Flanken-Erkennung `_fire_held`; `_fire_primary(types,

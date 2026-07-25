@@ -2220,6 +2220,9 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.aoa = d.get("aoa", 0.0)
 		# Modus-Badge im PFD: nur aktive Sondermodi (lenken stark um -> sichtbar machen)
 		var modes: Array = []
+		var zf: float = d.get("zoom", 0.0)
+		if zf > 1.02:
+			modes.append("ZOOM %.1f×" % zf)
 		if mf:
 			modes.append("ARCADE" if arc else "MAUS-FLUG")
 		if not bool(d.get("g_protect", true)):

@@ -27,6 +27,14 @@ const CAM_SHAKE_ROLL := 0.1     # Shake-Rollausschlag (rad)
 const FOV_BASE := 64.0          # Grund-FOV der Verfolgerkamera
 const FOV_MAX := 74.0           # bei Highspeed weitet sich das Bild -> spürbares Speed-Gefühl
 const FOV_SPEED := 170.0        # Speed (m/s), bei der FOV_MAX erreicht ist
+# ZIELZOOM (V halten, wie in War Thunder): OPTISCH KORREKT — das FOV wird verengt UND die
+# Kamera im gleichen Verhaeltnis zurueckgesetzt. Nur das FOV zu verengen wuerde das eigene
+# Flugzeug genauso mitvergroessern und nichts bringen; erst der groessere Abstand laesst es
+# gleich gross erscheinen, waehrend ferne Ziele um FOV_BASE/FOV_ZOOM wachsen.
+const FOV_ZOOM := 22.0          # verengtes vertikales FOV bei vollem Zoom (~2.9x)
+const ZOOM_RATE := 5.0          # Uebergangsgeschwindigkeit (1/s)
+const ZOOM_DIST := 2.2          # Kamera-Abstand x diesem Faktor bei vollem Zoom
+const ZOOM_SENS := 0.42         # Maus-Empfindlichkeit bei vollem Zoom (ruhiger zielen)
 const BARREL_HOLD := 0.32       # A/D so lange halten -> Fass-Roll (War-Thunder-Stil)
 # Landeklappen-Stufen (Taste F): Aus -> Start -> Landung. Wert = Klappenstellung 0..1.
 const FLAP_STAGES := [0.0, 0.5, 1.0]
@@ -119,6 +127,7 @@ var camera: Camera3D
 var _cam_vfov := FOV_BASE        # geglätteter VERTIKALER FOV (16:9-Bezug; Ultrawide via ViewUtil)
 var cam_zoom := 1.0              # geglätteter Mausrad-Zoom im Flug (Abstand-Multiplikator)
 var cam_zoom_target := 1.0       # Ziel-Zoom: Mausrad setzt das, cam_zoom folgt weich nach
+var zoom_t := 0.0                # 0 = normal, 1 = voll gezoomt (V gehalten)
 var aircraft: AircraftBody
 var design: Array = []
 var throttle := 0.0
@@ -874,8 +883,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mouse_fly:
 			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
 			# Nach rechts schauen -> rechts; nach hinten schauen -> Flieger dreht ganz herum.
-			look_yaw = wrapf(look_yaw + event.relative.x * AIM_LOOK_SENS_BASE * sens_mult, -PI, PI)
-			look_pitch = clampf(look_pitch - event.relative.y * AIM_LOOK_SENS_BASE * sens_mult, -AIM_PITCH_CLAMP, AIM_PITCH_CLAMP)
+			# Beim Zoomen entspricht ein Mausweg einem VIEL groesseren Winkel am Ziel ->
+			# Empfindlichkeit mitskalieren, sonst ist praezises Zielen unmoeglich.
+			var zs := AIM_LOOK_SENS_BASE * sens_mult * lerpf(1.0, ZOOM_SENS, zoom_t)
+			look_yaw = wrapf(look_yaw + event.relative.x * zs, -PI, PI)
+			look_pitch = clampf(look_pitch - event.relative.y * zs, -AIM_PITCH_CLAMP, AIM_PITCH_CLAMP)
 		else:
 			# Umschauen: Kamera frei um das Flugzeug schwenken
 			look_yaw = clampf(look_yaw - event.relative.x * LOOK_SENS, -PI, PI)
@@ -895,8 +907,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			var wi: int = event.keycode - KEY_1
 			if wi < weapon_groups.size():
 				weapon_sel = wi
-		elif event.keycode == KEY_V:
-			# V = Waffengruppe durchschalten
+		elif event.keycode == KEY_X:
+			# X = Waffengruppe durchschalten (war V; V ist jetzt der Zielzoom)
 			if weapon_groups.size() > 1:
 				weapon_sel = (weapon_sel + 1) % weapon_groups.size()
 		elif event.keycode == KEY_H:
@@ -1008,7 +1020,12 @@ func _process(delta: float) -> void:
 	aircraft.shake_request = 0.0
 	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
 	# FOV-Speed-Zoom: weitet sich mit dem Tempo (sanft nachgeführt) -> Speed-Gefühl
+	# V gehalten -> Zielzoom. Gepollt (nicht ueber _unhandled_input), damit HALTEN zaehlt.
+	zoom_t = move_toward(zoom_t, 1.0 if Input.is_physical_key_pressed(KEY_V) else 0.0,
+		delta * ZOOM_RATE)
 	var fov_target := lerpf(FOV_BASE, FOV_MAX, clampf(aircraft.airspeed / FOV_SPEED, 0.0, 1.0))
+	if zoom_t > 0.0:
+		fov_target = lerpf(fov_target, FOV_ZOOM, zoom_t)
 	# Glättung im vertikalen FOV halten, dann ultrawide-bewusst anwenden (kein Fischauge auf 32:9).
 	_cam_vfov = lerpf(_cam_vfov, fov_target, clampf(delta * 2.5, 0.0, 1.0))
 	ViewUtil.apply_vfov(camera, _cam_vfov)
@@ -1098,7 +1115,7 @@ func _cam_offset(t: Transform3D) -> Vector3:
 	var rightax: Vector3 = off.cross(Vector3.UP)
 	if rightax.length() > 0.01:
 		off = Basis(rightax.normalized(), look_pitch) * off
-	return off * cam_zoom
+	return off * cam_zoom * lerpf(1.0, ZOOM_DIST, zoom_t)
 
 
 func _snap_camera() -> void:
@@ -1276,6 +1293,7 @@ func _emit_hud() -> void:
 		"lock_vis": lock_visible,
 		"lock_active": lock_active,
 		"mouse_fly": mouse_fly,
+		"zoom": (FOV_BASE / maxf(lerpf(FOV_BASE, FOV_ZOOM, zoom_t), 1.0)) if zoom_t > 0.02 else 0.0,
 		"arcade": arcade,
 		"aim": aim_screen,
 		"nose": nose_screen,

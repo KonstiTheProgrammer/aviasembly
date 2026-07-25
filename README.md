@@ -44,7 +44,8 @@ das Flugzeug längsstabil.
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
 | **M** | **KARTE** öffnen/schließen (Insel-Übersicht mit Flugplätzen, POIs, eigener Position) |
 | **N** | **Maus-/Tastatur-Flug** umschalten (Maus-Flug ist **Standard** — siehe unten) |
-| **1–4 / V** | **Waffengruppe** wählen / durchschalten (Leiste unten Mitte) |
+| **V halten** | **Zielzoom** (~2,8×, wie in War Thunder): FOV verengt sich und die Kamera geht im gleichen Verhältnis zurück, dadurch werden ferne Ziele größer statt nur das eigene Flugzeug; die Maus wird dabei ruhiger gestellt |
+| **1–4 / X** | **Waffengruppe** wählen / durchschalten (Leiste unten Mitte) |
 | **J** | **Arcade-Lenkung** an/aus (super-smooth, schnappt sofort aufs Ziel; aktiviert Maus-Flug) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
@@ -111,7 +112,7 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
   geradeaus) · **Raketenwerfer** (3er-Salve) · **Zielsuchrakete** (Heat-Seeker) ·
   **Schwere Lenkrakete** (große Reichweite, viel Schaden) · Bombe (Freifall, **Taste B**) —
   gefeuert wird per **Leertaste** oder **linker Maustaste** — und zwar die unten in der
-  Mitte **ausgewählte Waffengruppe** (Auswahl: **1–4** direkt, **V** durchschalten)
+  Mitte **ausgewählte Waffengruppe** (Auswahl: **1–4** direkt, **X** durchschalten)
 
 *Mit `tools/build_jet.gd` gibt's einen vorgebauten zweimotorigen Delta-Canard-Jet
 (zwei eckige Triebwerke) im Speicherstand.*
@@ -123,7 +124,7 @@ Bau Waffen an dein Flugzeug, ziel mit dem Fadenkreuz und feuere:
 
 - Unten in der Bildmitte sitzt die **Waffenwahl-Leiste** (eine Pille je Gruppe:
   Bordkanonen · Raketen · Lenkwaffen · Bomben, mit Restmunition). **1–4** wählt die
-  Gruppe direkt, **V** schaltet durch.
+  Gruppe direkt, **X** schaltet durch.
 - **Leertaste / linke Maustaste** — feuert die **ausgewählte** Gruppe: Kanonen als
   **Dauerfeuer** (halten), Raketen/Lenkwaffen/Bomben als **Einzelschuss pro Klick**
   (jeder Klick löst den nächsten bereiten Mount aus). **Heat-Seeker fliegen erst geradeaus
