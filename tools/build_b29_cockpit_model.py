@@ -216,13 +216,14 @@ def curve_tube(name, points, mat, radius=0.018, cyclic=False, resolution=2):
 
 
 def fuselage_shell():
-    """Langer, fast zylindrischer Metallrumpf wie auf der Referenz."""
+    """Kurzer gerader Metallabschluss hinter der verlängerten Glasfront."""
     stations = [
         (-1.40, 0.84, 0.74, 0.04),
-        (-1.05, 0.84, 0.74, 0.04),
-        (-0.72, 0.84, 0.74, 0.04),
-        (-0.46, 0.84, 0.74, 0.04),
+        (-1.10, 0.84, 0.74, 0.04),
     ]
+    short_end_length = stations[-1][0] - stations[0][0]
+    if not math.isclose(short_end_length, 0.30, abs_tol=0.0001):
+        raise RuntimeError("B-29-Metallabschluss muss exakt 0,30 m kurz sein")
     # Gleiche Ringteilung wie die Nasenhaut: dadurch treffen sich beide Polygone
     # an der gemeinsamen Endkante exakt und lassen keine dreieckigen Spalten.
     segs = NOSE_SEGMENTS
@@ -256,6 +257,7 @@ NOSE_STATIONS = (
     (0.20, 0.79, 0.68, 0.07),
     (-0.12, 0.81, 0.70, 0.07),
     (-0.46, 0.84, 0.74, 0.04),
+    (-1.10, 0.84, 0.74, 0.04),
 )
 def nose_point(row, segment_f, axial_f=0.0, lift=1.0):
     """Punkt auf einem linear geführten, bewusst kantigen Nasen-Panel."""
@@ -274,12 +276,18 @@ def is_glass_cell(row, segment):
     """Die Metall-Kinnlinie steigt nach hinten wie im Referenzbild an."""
     angle = math.tau * (segment + 0.5) / NOSE_SEGMENTS
     lower = math.sin(angle)
-    thresholds = (-1.1, -0.78, -0.55, -0.25, 0.00, 0.22)
+    thresholds = (-1.1, -0.78, -0.55, -0.25, 0.00, 0.22, 0.22)
     return lower > thresholds[row]
 
 
 def faceted_glass_nose():
     """Eine zusammenhängende Nasenhaut aus Metall, Rahmen und bündigen Scheiben."""
+    rear_row = len(NOSE_STATIONS) - 2
+    rear_glass_cells = sum(
+        1 for segment in range(NOSE_SEGMENTS) if is_glass_cell(rear_row, segment)
+    )
+    if rear_glass_cells != 6:
+        raise RuntimeError("Zusätzliche hintere Glasreihe muss aus sechs Scheiben bestehen")
     verts = []
     faces = []
 

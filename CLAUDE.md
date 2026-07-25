@@ -423,9 +423,11 @@ parametrisch eingerückte Scheibe, sodass der bündige Rahmen direkt in der Auß
 und nicht wie ein Drahtkäfig vor der Nase schwebt. In der finalen Geometrie sind Rahmen,
 Scheiben und Metallkinn sogar ohne überlappende Flächen in **einem** `B29_Nasenhaut`-Mesh
 mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten oder
-Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Eine zusätzliche
-hintere Station der Nasenhaut reicht bis zur exakt gleichen Endkante des verkürzten
-Rumpfmeshes. Beim Blender-Build werden `B29_Nasenhaut` und `B29_Rumpf_komplett`
+Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Die
+Nasenhaut besitzt jetzt noch eine zusätzliche hintere Fensterreihe bis Y=-1.10.
+Der zuvor lange Metallzylinder wurde entfernt; nur ein kurzer gerader 0.30-m-Abschluss
+von Y=-1.40 bis -1.10 bleibt als ebene Andockhülse. Beim Blender-Build werden
+`B29_Nasenhaut` und `B29_Rumpf_komplett`
 anschließend gejoint und die zwölf identischen Vertex-Paare per
 `bmesh.ops.remove_doubles(dist=0.00001)` verschweißt; Normalen werden neu berechnet.
 Der Export enthält nur noch **ein** `B29_Rumpf_mit_Nase`-Mesh für die gesamte Außenhaut
