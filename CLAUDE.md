@@ -400,7 +400,16 @@ Rueckseite + ein VOLLER Glas-Ellipsoid (dasselbe `_bean_mesh`, um -90 Grad um X 
 dessen hintere Haelfte im Rohr steckt -> keine Naht, gleiches Prinzip wie bei der
 aufgesetzten Bohne. Dazu Sprossenringe, Astrodome und zwei Sitze mit Brett hinter dem Glas
 (`TRANSPARENCY_ALPHA`, `CULL_DISABLED`, Alpha 0.34 — mit dunklem Glas sah man den Innenraum
-nicht). OFFEN: die Laengssprossen sind noch eine Kugelkette statt durchgehender Rohre.
+nicht). Das SPROSSENGITTER (3 Querspanten + 6 Laengssprossen) besteht aus durchgehenden
+Rundrohren via **`_rohr(pfad, r, seiten)`** — ein Mantel ueber alle Stuetzpunkte, mit
+Frenet-artigem Rahmen aus der Pfadtangente. Vorher waren es Kugelketten und TorusMesh-Ringe:
+jedes Glied ein eigener Koerper, das sah perlig/segmentiert aus und war der Hauptgrund,
+warum das Teil billig wirkte. Die Kontur folgt dem Ellipsoid: `r(t)=sqrt(1-(1-t)^2)`.
+Innen: zwei Sitze mit Lehne, zwei STEUERHOERNER (die B-29 hatte Hoerner, keine Knueppel),
+geneigtes Brett mit fuenf Rundinstrumenten, Bombenschuetzenplatz vorn in der Glasnase.
+Dazu **`b29_wing`** („B-29-Tragflaeche"): langer Streckungsfluegel (Spannweite 7.2,
+Wurzel 2.0 / Spitze 1.1, leichte Pfeilung, `stress_mult` 1.9 fuer den kraeftigen Hauptholm)
+— traegt viel, dreht traege, wie das Original.
 Und **`jet_cockpit`** („Delta-Jet-Cockpit", jetzt in der Palette
 statt versteckt): `_jet_hull` lofted seither MIT Stirndeckeln — ohne sie war das Segment ein
 offenes Rohr, mitten im Rumpf unauffaellig, als vorderstes Teil aber sichtbar aufgerissen

@@ -385,6 +385,10 @@ static func _build() -> void:
 
 	# --- Tragflächen -------------------------------------------------------
 	_wing("wing_straight", "Gerade Tragfläche", CAT_WING, 70.0, C_WING, 4.4, 1.7, 1.7, 0.0, 1.05)
+	# B-29: LANGER Streckungsfluegel (Original 43 m Spannweite, Streckung ~11.5) — traegt
+	# viel, dreht aber traege. Kraeftiger Hauptholm -> hoher stress-Multiplikator.
+	_wing("b29_wing", "B-29-Tragfläche (Langstrecke)", CAT_WING, 165.0, C_WING,
+		7.2, 2.0, 1.1, 0.28, 1.22, "", 1.9)
 	_wing("wing_tapered", "Trapezflügel", CAT_WING, 62.0, C_WING, 4.6, 1.9, 1.0, 0.4, 1.0)
 	# Jet-Jäger-Flügel: EXTREM belastbar (×4 WING_STRESS) — für hohe G im Luftkampf gebaut.
 	_wing("wing_swept", "Pfeilflügel", CAT_WING, 66.0, C_WING, 4.6, 1.7, 1.0, 1.5, 0.95, "", 4.0)
@@ -1180,45 +1184,74 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			root.add_child(_mi(_bean_mesh(30, 16), b29_glas, Vector3(0.0, 0.0, zg),
 				Vector3(-PI * 0.5, 0.0, 0.0),
 				Vector3(size.x * 0.99, kuppel * 2.0, size.y * 0.99)))
-			# Sprossen: drei Ringe entlang der Kuppel + vier Laengsstaebe
+			# SPROSSENGITTER als durchgehende Rundrohre (vorher Kugelketten/Tori -> perlig).
+			# Die Kontur des Ellipsoids: r(t) = sqrt(1-(1-t)^2), t = 0 an der Spitze.
 			var b29_rahmen := make_material(Color(0.24, 0.26, 0.30), 0.65, 0.35)
-			for t29 in [0.30, 0.58, 0.84]:
+			var kontur := func(t: float) -> float:
+				return sqrt(maxf(1.0 - pow(1.0 - t, 2.0), 0.015))
+			for t29 in [0.26, 0.54, 0.82]:                       # Querspanten
 				var zz: float = zg - kuppel * (1.0 - t29)
-				var rr: float = sqrt(maxf(1.0 - pow(1.0 - t29, 2.0), 0.02))
-				var rg := TorusMesh.new()
-				rg.inner_radius = 0.45
-				rg.outer_radius = 0.5
-				rg.rings = 6
-				rg.ring_segments = 30
-				root.add_child(_mi(rg, b29_rahmen, Vector3(0.0, 0.0, zz),
-					Vector3(PI * 0.5, 0.0, 0.0),
-					Vector3(size.x * rr * 1.02, 0.075, size.y * rr * 1.02)))
-			for k29 in 4:
-				var a29: float = PI * 0.25 + float(k29) * PI * 0.5
-				var sm29 := SphereMesh.new()
-				sm29.radial_segments = 6
-				sm29.rings = 3
-				sm29.radius = 0.5
-				sm29.height = 1.0
-				# Laengsstab als schlanke Kette kleiner Kugeln entlang der Kuppelkontur
-				for j29 in 16:
-					var tt: float = 0.06 + 0.90 * float(j29) / 15.0
-					var rr2: float = sqrt(maxf(1.0 - pow(1.0 - tt, 2.0), 0.02))
-					root.add_child(_mi(sm29, b29_rahmen, Vector3(
-						cos(a29) * R * rr2 * 1.01, sin(a29) * size.y * 0.5 * rr2 * 1.01,
-						zg - kuppel * (1.0 - tt)), Vector3.ZERO, Vector3(0.075, 0.075, 0.075)))
-			# Astrodome hinter der Verglasung (kleine Bohne) + zwei Sitze und Brett innen
+				var rr: float = kontur.call(t29)
+				var kreis: Array = []
+				for j in 25:
+					var a: float = TAU * float(j) / 24.0
+					kreis.append(Vector3(cos(a) * R * rr * 1.008,
+						sin(a) * size.y * 0.5 * rr * 1.008, zz))
+				root.add_child(_mi(_rohr(kreis, 0.026, 6), b29_rahmen))
+			for k29 in 6:                                        # Laengssprossen
+				var a29: float = float(k29) * PI / 3.0 + PI / 6.0
+				var bahn: Array = []
+				for j29 in 13:
+					var tt: float = 0.03 + 0.94 * float(j29) / 12.0
+					var rr2: float = kontur.call(tt)
+					bahn.append(Vector3(cos(a29) * R * rr2 * 1.008,
+						sin(a29) * size.y * 0.5 * rr2 * 1.008, zg - kuppel * (1.0 - tt)))
+				root.add_child(_mi(_rohr(bahn, 0.024, 6), b29_rahmen))
+			# Astrodome hinter der Verglasung (kleine Bohne)
 			root.add_child(_mi(_bean_mesh(20, 10), b29_glas,
 				Vector3(0.0, size.y * 0.5 - 0.06, Lz * 0.10), Vector3.ZERO,
 				Vector3(size.x * 0.30, 0.30, size.z * 0.20)))
-			var b29_dunkel := make_material(Color(0.10, 0.11, 0.13), 0.2, 0.7)
+			# INNENAUSBAU: zwei Sitze mit Lehne, zwei STEUERHOERNER (die B-29 hatte Hoerner,
+			# keine Knueppel), Instrumentenbrett mit Rundinstrumenten, Bombenschuetzenplatz
+			# vorn in der Glaskanzel.
+			var b29_dunkel := make_material(Color(0.11, 0.12, 0.14), 0.2, 0.7)
+			var b29_metall := make_material(Color(0.52, 0.54, 0.58), 0.75, 0.32)
+			var b29_glas2 := make_material(Color(0.70, 0.74, 0.78), 0.1, 0.25)
 			for sx29 in [-1.0, 1.0]:
-				root.add_child(_mi(BoxMesh.new(), b29_dunkel,
-					Vector3(sx29 * R * 0.34, -size.y * 0.10, zg + Lz * 0.06),
-					Vector3.ZERO, Vector3(R * 0.40, size.y * 0.34, size.z * 0.20)))
+				var xs: float = sx29 * R * 0.36
+				var zs: float = zg + Lz * 0.10
+				root.add_child(_mi(BoxMesh.new(), b29_dunkel,      # Sitzflaeche
+					Vector3(xs, -size.y * 0.16, zs), Vector3.ZERO,
+					Vector3(R * 0.36, 0.09, size.z * 0.17)))
+				root.add_child(_mi(BoxMesh.new(), b29_dunkel,      # Lehne
+					Vector3(xs, -size.y * 0.02, zs + size.z * 0.08), Vector3(-0.14, 0.0, 0.0),
+					Vector3(R * 0.36, size.y * 0.30, 0.08)))
+				# Steuerhorn: Saeule + Querholm
+				root.add_child(_mi(_rohr([Vector3(xs, -size.y * 0.20, zs - size.z * 0.13),
+					Vector3(xs, -size.y * 0.02, zs - size.z * 0.15)], 0.026, 6), b29_metall))
+				var horn: Array = []
+				for j in 9:
+					var a: float = PI * float(j) / 8.0
+					horn.append(Vector3(xs + cos(a) * R * 0.15, -size.y * 0.02 + sin(a) * 0.05,
+						zs - size.z * 0.15))
+				root.add_child(_mi(_rohr(horn, 0.020, 6), b29_dunkel))
+			# Instrumentenbrett quer, leicht geneigt, mit Rundinstrumenten
+			var zb: float = zg - kuppel * 0.18
+			root.add_child(_mi(BoxMesh.new(), b29_dunkel, Vector3(0.0, -size.y * 0.04, zb),
+				Vector3(0.30, 0.0, 0.0), Vector3(size.x * 0.66, size.y * 0.20, 0.07)))
+			for j in 5:
+				var cm := CylinderMesh.new()
+				cm.top_radius = 0.055
+				cm.bottom_radius = 0.055
+				cm.height = 0.03
+				cm.radial_segments = 10
+				root.add_child(_mi(cm, b29_glas2,
+					Vector3(-size.x * 0.24 + float(j) * size.x * 0.12, -size.y * 0.015,
+						zb - 0.055), Vector3(PI * 0.5 + 0.30, 0.0, 0.0), Vector3.ONE))
+			# Bombenschuetze: flacher Sitz ganz vorn in der Glasnase
 			root.add_child(_mi(BoxMesh.new(), b29_dunkel,
-				Vector3(0.0, -size.y * 0.02, zg - kuppel * 0.30), Vector3(0.34, 0.0, 0.0),
-				Vector3(size.x * 0.62, size.y * 0.22, 0.08)))
+				Vector3(0.0, -size.y * 0.24, zg - kuppel * 0.62), Vector3.ZERO,
+				Vector3(R * 0.40, 0.08, size.z * 0.14)))
 
 		"bean":
 			# BOHNE: glatte, ovale Blister-Kanzel zum AUFSETZEN. `embed` sagt, welcher Anteil
@@ -1745,6 +1778,47 @@ static func _camber_y(f: float, m: float, p: float) -> float:
 # ---------------------------------------------------------------------------
 # Bohne: Ellipsoid-Blister in der Einheitsbox (|x|,|y|,|z| <= 0.5). Die obere Haelfte wird
 # etwas voller gezogen -> die typische leicht gedrueckte Bohnenform statt einer Halbkugel.
+# Durchgehendes Rundrohr entlang eines Pfades. Ersetzt die frueheren Kugelketten und
+# TorusMesh-Ringe: die sahen perlig bzw. segmentiert aus, weil jedes Glied ein eigener
+# Koerper war. Hier laeuft EIN Mantel ueber alle Stuetzpunkte.
+static func _rohr(pfad: Array, r: float, seiten := 6) -> ArrayMesh:
+	if pfad.size() < 2:
+		return ArrayMesh.new()
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var ringe: Array = []
+	for i in pfad.size():
+		var p: Vector3 = pfad[i]
+		var vor: Vector3 = pfad[maxi(i - 1, 0)]
+		var nach: Vector3 = pfad[mini(i + 1, pfad.size() - 1)]
+		var t: Vector3 = (nach - vor)
+		if t.length() < 0.0001:
+			t = Vector3.FORWARD
+		t = t.normalized()
+		var hilf: Vector3 = Vector3.UP if absf(t.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
+		var u: Vector3 = t.cross(hilf).normalized()
+		var v: Vector3 = t.cross(u).normalized()
+		var ring: Array = []
+		for j in seiten:
+			var a: float = TAU * float(j) / float(seiten)
+			ring.append(p + u * (cos(a) * r) + v * (sin(a) * r))
+		ringe.append(ring)
+	for i in ringe.size() - 1:
+		for j in seiten:
+			var j2: int = (j + 1) % seiten
+			var a0: Vector3 = ringe[i][j]
+			var a1: Vector3 = ringe[i][j2]
+			var b0: Vector3 = ringe[i + 1][j]
+			var b1: Vector3 = ringe[i + 1][j2]
+			var ctr0: Vector3 = pfad[i]
+			for tri in [[a0, b0, b1], [a0, b1, a1]]:
+				for pv in tri:
+					st.set_normal(((pv as Vector3) - ctr0).normalized())
+					st.add_vertex(pv)
+	st.generate_tangents()
+	return st.commit()
+
+
 static func _bean_mesh(us := 28, vs := 14) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
