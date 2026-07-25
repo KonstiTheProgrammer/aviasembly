@@ -2068,9 +2068,23 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 		var rear_surface := part.global_position + b29b * Vector3(
 			b29co.x * b29sc.x, b29co.y * b29sc.y,
 			(b29co.z + PartCatalog.col_size(b29def).z * 0.5) * b29sc.z)
-		var b29fit := _fuselage_fit(p, part, b29b.z, rear_surface)
+		# Nicht das generische Segment nehmen: dessen Querschnitt (shape "box") trifft das
+		# Zwoelfeck der Glasnase nicht, an der Naht blieb eine Kante stehen. fuselage_b29
+		# traegt genau dieselbe Kontur; scale=ONE laesst ihm exakt die Modellgroesse.
+		var b29seg := PartCatalog.get_part("fuselage_b29")
+		var b29fit := _fuselage_fit(b29seg, part, b29b.z, rear_surface)
 		if not b29fit.is_empty():
+			b29fit["id"] = "fuselage_b29"
+			b29fit["scale"] = Vector3.ONE
 			return b29fit
+
+	# B-29-Segment an B-29-Segment: die Kette fuehrt dieselbe Zwoelfeck-Kontur weiter.
+	if p.get("biends", false) and _reto_tgt == "fuselage_b29":
+		var kfit := _fuselage_fit(PartCatalog.get_part("fuselage_b29"), part, n, surface)
+		if not kfit.is_empty():
+			kfit["id"] = "fuselage_b29"
+			kfit["scale"] = Vector3.ONE
+			return kfit
 
 	# UMGEDREHTES ANDOCKEN AM NORMALEN PROPELLERMOTOR: Steht der Motor bereits im Raum
 	# und der Spieler zieht ein Rumpfteil daran, rechnen wir mit der kurzen, planen

@@ -2,7 +2,7 @@
 extends SceneTree
 var f := 0
 var i := 0
-var teile := ["wheel_light", "wheel", "wheel_heavy", "wheel_retract", "wheel_jet", "wheel_biplane_spoke", "wheel_biplane_disc", "wheel_spitfire"]
+var teile := ["fuselage_b29"]
 var root3: Node3D
 var cam: Camera3D
 var akt: Node3D

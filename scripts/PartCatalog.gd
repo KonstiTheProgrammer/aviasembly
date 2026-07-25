@@ -115,6 +115,22 @@ static func _build() -> void:
 		"size": Vector3(1.2, 1.129, 2.0), "biends": true,
 		"desc": "Rumpfsegment mit dem Querschnitt des Sternmotors — dockt nahtlos an dessen Schnittebene an. Beide Enden einzeln formbar.",
 	})
+	# Rumpfsegment fuer die B-29. Deren Kanzel ist NICHT rund: die hintere Andockflaeche ist
+	# ein ZWOELFECK auf einer Ellipse mit den Halbachsen 0.84 x 0.74, Mitte 0.04 ueber der
+	# Teilmitte (aus models/cockpit_b29.glb nachgemessen). Das generische Segment (shape
+	# "box") traf das nicht, an der Naht blieb eine Kante. Dieses Teil traegt dasselbe
+	# Zwoelfeck an BEIDEN Enden -> bundig an der Kanzel und beliebig weiterkettbar.
+	# Nicht in der Palette: entsteht automatisch beim Andocken (wie fuselage_radial).
+	_add({
+		"id": "fuselage_b29", "name": "B-29-Rumpfsegment", "category": CAT_BODY,
+		"mass": 150.0, "color": C_BODY, "shape": "box",
+		"size": Vector3(1.68, 1.48, 2.0),
+		"col_size": Vector3(1.68, 1.48, 2.0),
+		"col_offset": Vector3(0.0, 0.04, 0.0),
+		"dock_size": Vector2(1.68, 1.48),
+		"metal": 0.40, "rough": 0.48,
+		"desc": "Rumpfsegment im B-29-Querschnitt: zwoelfeckige Roehre mit Spantfugen, Laengsstringern und versenkten Bullaugen. Sitzt bundig an der Glasnase und laesst sich in Kette weiterbauen.",
+	})
 	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
 		"mass": 175.0, "color": C_BODY, "shape": "box",
@@ -714,6 +730,7 @@ const PALETTE_HIDDEN := {
 	"f4_nose": true, "f4_front": true, "f14_front": true, "f4_intake": true,
 	"jet_nose_point": true, "nose": true, "tailcone": true,
 	"prop_engine_nose": true, "fuselage_reto": true, "fuselage_radial": true,
+	"fuselage_b29": true,
 }
 
 # Soll dieses Teil in der Bau-Palette erscheinen? (Katalog/Presets bleiben unberührt.)
