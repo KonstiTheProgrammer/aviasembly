@@ -7,6 +7,7 @@ Beim glTF-Export mit Y-up wird Blender +Y zu Godot -Z (Flugrichtung).
 import math
 from pathlib import Path
 
+import bmesh
 import bpy
 from mathutils import Vector
 
@@ -469,6 +470,39 @@ def consolidate_objects():
         join_group(objects, name)
 
 
+def weld_nose_to_fuselage():
+    """Nasenhaut und Zylinder an ihrem identischen 10er-Ring wirklich verschweißen."""
+    nose = bpy.data.objects.get("B29_Nasenhaut")
+    fuselage = bpy.data.objects.get("B29_Rumpf_komplett")
+    if nose is None or fuselage is None:
+        raise RuntimeError("B-29-Nasenhaut oder Rumpfgruppe fehlt vor dem Verschweißen")
+    bpy.ops.object.select_all(action="DESELECT")
+    nose.select_set(True)
+    fuselage.select_set(True)
+    bpy.context.view_layer.objects.active = nose
+    bpy.ops.object.join()
+    joined = bpy.context.object
+    joined.name = "B29_Rumpf_mit_Nase"
+
+    # Die beiden Anschlussringe besitzen exakt dieselben zehn Koordinaten.
+    # remove_doubles macht daraus gemeinsame Vertices; anschließend ist die
+    # Außenhaut topologisch ein einziges geschlossenes Mesh.
+    bm = bmesh.new()
+    bm.from_mesh(joined.data)
+    before = len(bm.verts)
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=0.00001)
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    after = len(bm.verts)
+    bm.to_mesh(joined.data)
+    bm.free()
+    joined.data.update()
+    if before - after < NOSE_SEGMENTS:
+        raise RuntimeError(
+            "Mindestens %d verschweißte Nahtpunkte erwartet, erhalten: %d"
+            % (NOSE_SEGMENTS, before - after)
+        )
+
+
 def build():
     clear()
     fuselage_shell()
@@ -476,6 +510,7 @@ def build():
     faceted_glass_nose()
     apply_modifiers()
     consolidate_objects()
+    weld_nose_to_fuselage()
     bpy.ops.export_scene.gltf(filepath=str(OUT), export_format="GLB", export_yup=True)
     print("EXPORTED", OUT)
 

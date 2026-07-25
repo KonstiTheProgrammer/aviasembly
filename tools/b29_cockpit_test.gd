@@ -66,16 +66,17 @@ func _process(_delta: float) -> bool:
 	_check(PartCatalog.in_palette("b29_wing"), "passende B-29-Tragfläche ist in der Palette")
 
 	var visual := PartCatalog.build_visual(part)
-	_check(visual.find_child("B29_Nasenhaut", true, false) != null,
-		"Metall, bündige Rahmen und Scheiben bilden eine gemeinsame Nasenhaut")
+	_check(visual.find_child("B29_Rumpf_mit_Nase", true, false) != null,
+		"Nasenhaut und Rumpfzylinder sind ein einziges verschweißtes Mesh")
+	_check(visual.find_child("B29_Nasenhaut", true, false) == null \
+			and visual.find_child("B29_Rumpf_komplett", true, false) == null,
+		"keine getrennten Nasen- oder Rumpfobjekte bleiben übrig")
 	_check(visual.find_child("B29_Pilotenverglasung", true, false) == null,
 		"keine aufgesetzte Pilotenverglasung überlappt die Rumpfhaut")
-	_check(visual.find_child("B29_Rumpf_komplett", true, false) != null,
-		"Rumpfschale ist zu einer sauberen Baugruppe zusammengefasst")
 	_check(visual.find_child("B29_Innenraum", true, false) != null,
 		"Innenausbau ist zu einer sauberen Baugruppe zusammengefasst")
-	_check(_count_meshes(visual) == 5,
-		"Export besteht nur aus fünf überschneidungsfreien Mesh-Baugruppen")
+	_check(_count_meshes(visual) == 4,
+		"Export besteht nur aus vier Mesh-Baugruppen inklusive verschweißter Außenhaut")
 	_check(visual.find_child("Astrodome", true, false) == null,
 		"kein falscher Astrodome sitzt auf dem Cockpitteil")
 	var front_glass := visual.find_child("B29_Glasdetails", true, false)

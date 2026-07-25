@@ -425,7 +425,11 @@ Scheiben und Metallkinn sogar ohne überlappende Flächen in **einem** `B29_Nase
 mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten oder
 Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Eine zusätzliche
 hintere Station der Nasenhaut reicht bis zur exakt gleichen Endkante des verkürzten
-Rumpfmeshes. Die gesamte hintere Rumpfschale verwendet an jeder Station exakt denselben
+Rumpfmeshes. Beim Blender-Build werden `B29_Nasenhaut` und `B29_Rumpf_komplett`
+anschließend gejoint und die zehn identischen Vertex-Paare per
+`bmesh.ops.remove_doubles(dist=0.00001)` verschweißt; Normalen werden neu berechnet.
+Der Export enthält nur noch **ein** `B29_Rumpf_mit_Nase`-Mesh für die gesamte Außenhaut
+und insgesamt vier Mesh-Baugruppen. Die gesamte hintere Rumpfschale verwendet an jeder Station exakt denselben
 elliptischen Querschnitt und dieselbe Z-Mitte — sie ist ein gerader Zylinder, keine
 gebogene oder bauchige Röhre. Beide Anschlussringe haben dieselbe 10er-Teilung und dieselben Koordinaten;
 so entstehen auch zwischen unterschiedlich triangulierten Polygonringen keine Spalte.
