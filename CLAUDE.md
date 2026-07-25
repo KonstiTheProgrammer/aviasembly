@@ -479,47 +479,6 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   laesst `update_center(aircraft.pos)` den Chunk-Worker endlos bauen und verwerfen (Haenger).
   Die Flugplatzbauten sitzen NEBEN der Bahn (die laeuft im lokalen Z, 900 m) und werden mit
   `dreh = af.heading` mitgedreht.
-- **GENERISCHE KANZELN + PASSENDE RUMPFSEGMENTE** (`tools/build_cockpit_models.py`):
-  `cockpit_bubble/jet/frame/tandem` sind neu modelliert (~3000-4400 Tris statt ~2000).
-  Kern ist die **ABGEFLACHTE STIRNFLAECHE**: der Rumpf ist ein Loft ueber EIN definiertes
-  Superellipsen-Profil mit ebenen Deckeln vorn und hinten. Dasselbe Profil steht als
-  `<STIL>_PROFILE` in PartCatalog und traegt das neue Teil **`fuselage_<stil>`**
-  (shape `profile_tube`, Feld `profile`, `biends`) -> die Haut laeuft ohne Absatz weiter.
-  `BuildController._compute_snap_for` waehlt beim Andocken an `cockpit_<stil>` bzw.
-  `fuselage_<stil>` automatisch die passende Variante mit scale=ONE
-  (Regression `tools/_cockpit_dock_test.gd`: alle vier Spalt 0.00000).
-  DETAILS: die Kanzeloeffnung wird wirklich AUSGESCHNITTEN (Deckflaechen loeschen ->
-  Randschleife extrudieren -> Boden fuellen = echte Wanne), darin Sitz mit Lehne/
-  Kopfstuetze/Gurten, Instrumentenbrett mit Rundinstrumenten, Knueppel, Pedale,
-  Seitenkonsolen, Ueberrollbuegel; darueber eine Haube, deren Glas UND Spanten aus
-  DEMSELBEN Laengsprofil kommen (sonst schweben die Buegel neben der Scheibe).
-  **FORM STATT DETAILS (dritte Runde, nach Nutzer-Ablehnung):** Der Vergleich mit dem
-  Referenzteil `spitfire_cockpit` (Parallel-Sitzung, 63k Tris) hat gezeigt, WORAN es lag:
-  dessen Qualitaet kommt aus der VERJUENGTEN, geschwungenen Silhouette, duennen RUNDEN
-  Haubenbuegeln und einer voellig ruhigen Oberflaeche — nicht aus Details. Meine Fassungen
-  hatten es umgekehrt (konstantes Rohr + Panelringe + angeschraubte Kleinteile). Daher:
-  Panelnaehte, Haltegriff, Trittstufe und Antenne sind RAUS, Spanten sind Rundprofile
-  (r 0.011) statt Kaesten, Haube breiter und flacher.
-  **`vorn_skala`:** die vordere Haelfte verjuengt sich frei (Spitfire 0.70 x 0.76), das HECK
-  bleibt exakt auf Profil — dort dockt das Rumpfsegment an (Spalt weiterhin 0.00000).
-  Das ist die Entscheidung des Nutzers: Silhouette vorne, Andockflaeche nur hinten.
-  ERKENNTNIS: beidseitig ebene Enden erzwingen einen konstanten Querschnitt und damit die
-  Rohrform — die schoene Referenz kann sich verjuengen, weil sie ein Wurzelteil OHNE
-  hintere Andockflaeche ist.
-  **SPITFIRE-KANZEL `cockpit_spitfire`** (+ `fuselage_spitfire`): eigener fuenfter Stil,
-  bewusst NICHT `spitfire_cockpit` — das ist ein anderes Teil aus einer Parallel-Sitzung
-  und bleibt unberuehrt. Merkmale: schmaler/hoher Querschnitt (1.15 x 1.28), starker
-  Razorback (`deck` 0.115), DREITEILIGE Haube (`ws_getrennt`: zwei `haube()`-Aufrufe —
-  gewoelbte Schiebehaube plus davor ein facettierter Windschutz mit flacher
-  Panzerglasscheibe), linke HALBTUER als umlaufender Rahmen mit Griff, Rueckspiegel auf
-  dem Scheibenrahmen, Reflexvisier ueber dem Brett, SPATENGRIFF am Knueppel, Innenraum in
-  britischem Gruengrau. `hp_von(spec, **ueber)` erlaubt mehrere Haubenabschnitte mit
-  unterschiedlichem Charakter in EINEM Bauteil.
-  FALLEN: (1) von Hand gebaute Ringe waren nach INNEN gewickelt — `f.normal` war zudem
-  nach `faces.new()` noch (0,0,0), dadurch fand der Ausschnitt-Filter NULL Flaechen;
-  Abhilfe `bm.normal_update()` + `bmesh.ops.recalc_face_normals`. (2) Die Blender-
-  Workbench zeigt bei transparentem Glas Streifen, die es in Godot nicht gibt — Kanzeln
-  mit `tools/_cockpit_render.gd` IN DER ENGINE beurteilen, nicht in der Vorschau.
 - **Regenerieren:** Blender starten (`open -a Blender`, Port 9876 muss offen sein), dann
   das bpy-Bau+Export-Skript erneut laufen lassen; danach `Godot --headless --editor --import`.
   Neue/zusätzliche Teile bekommen automatisch ein Modell, sobald `models/<id>.glb` existiert.
