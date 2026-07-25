@@ -88,14 +88,14 @@ func _process(_delta: float) -> bool:
 	if glass != null:
 		print("GLAS_IMPORT transparency=", glass.transparency,
 			" color=", glass.albedo_color, " roughness=", glass.roughness)
-		_check(glass.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA,
-			"Glas verwendet wie die Bubble-Kanzel Alpha-Transparenz")
-		_check(absf(glass.albedo_color.a - 0.62) < 0.02,
-			"Glas verwendet die Bubble-Deckkraft von 62 Prozent")
-		_check(glass.roughness < 0.10,
-			"Glas ist so glänzend wie die Bubble-Kanzel")
-		_check(glass.albedo_color.b > glass.albedo_color.r * 2.0,
-			"Glasnase ist dunkelblau getönt")
+		_check(glass.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED,
+			"Glas ist vollständig blickdicht")
+		_check(glass.albedo_color.a > 0.99,
+			"Glas lässt den Innenraum nicht durchscheinen")
+		_check(glass.roughness <= 0.13,
+			"Glas behält einen klaren Bubble-Glanz")
+		_check(glass.albedo_color.get_luminance() < 0.035,
+			"Glas ist wie das Referenzobjekt fast schwarz")
 
 	var bc := BuildController.new()
 	root.add_child(bc)

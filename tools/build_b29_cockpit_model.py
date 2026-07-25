@@ -36,9 +36,9 @@ def material(name, color, metallic=0.0, roughness=0.45):
 BODY = material("cockpit_body", (0.29, 0.34, 0.42, 1.0), 0.40, 0.48)
 BODY_DARK = material("body_detail", (0.27, 0.30, 0.35, 1.0), 0.48, 0.46)
 FRAME = material("frame", (0.31, 0.36, 0.43, 1.0), 0.52, 0.42)
-# Exakt die Materialwerte der prozeduralen Bubble-Kanzel (_glass_mat in PartCatalog):
-# blau getönt, stark glänzend und mit 62 % Alpha.
-GLASS = material("glass", (0.13, 0.24, 0.40, 0.62), 0.35, 0.06)
+# Fast schwarzes, blickdichtes Jet-Glas wie im neuen Referenzobjekt. Die niedrige
+# Rauheit erhält den Bubble-Glanz, ohne dass der Innenraum durchscheint.
+GLASS = material("glass", (0.015, 0.025, 0.055, 1.0), 0.25, 0.12)
 INTERIOR = material("interior", (0.055, 0.065, 0.075, 1.0), 0.18, 0.76)
 SEAT = material("seat", (0.16, 0.18, 0.17, 1.0), 0.05, 0.82)
 LEATHER = material("leather", (0.19, 0.11, 0.065, 1.0), 0.02, 0.72)
@@ -162,6 +162,32 @@ def torus_z(name, loc, major, minor, mat, y_scale=1.0):
     obj.data.materials.append(mat)
     smooth(obj)
     return obj
+
+
+def ellipse_disc_y(name, y, zc, rx, rz, mat, segments=32):
+    """Flache elliptische Scheibe senkrecht zur Flugrichtung."""
+    verts = [(0.0, y, zc)]
+    for i in range(segments):
+        angle = math.tau * i / segments
+        verts.append((math.cos(angle) * rx, y, zc + math.sin(angle) * rz))
+    faces = []
+    for i in range(segments):
+        faces.append((0, 1 + i, 1 + (i + 1) % segments))
+    return mesh_object(name, verts, faces, mat, False)
+
+
+def ellipse_annulus_y(name, y, zc, outer, inner, mat, segments=32):
+    """Bündige Ringfläche ohne den hervorstehenden Querschnitt eines Torus."""
+    verts = []
+    for rx, rz in (outer, inner):
+        for i in range(segments):
+            angle = math.tau * i / segments
+            verts.append((math.cos(angle) * rx, y, zc + math.sin(angle) * rz))
+    faces = []
+    for i in range(segments):
+        j = (i + 1) % segments
+        faces.append((i, j, segments + j, segments + i))
+    return mesh_object(name, verts, faces, mat, False)
 
 
 def curve_tube(name, points, mat, radius=0.018, cyclic=False, resolution=2):
@@ -291,12 +317,16 @@ def faceted_glass_nose():
 
     mesh_object_multi("B29_Nasenhaut", verts, faces, (BODY, FRAME, GLASS))
 
-    # Kleine, klar gefasste Bombenschützen-Frontscheibe.
-    front_y = NOSE_STATIONS[0][0] + 0.014
-    cylinder("Bombenschuetze_Frontglas", 0.135, 0.018, (0.0, front_y, -0.05),
-             (0.0, 1.0, 0.0), GLASS, 24)
-    torus_y("Bombenschuetze_Frontring", front_y + 0.012, 0.151, 0.018,
-            FRAME, 0.92, -0.05)
+    # Bündige Bombenschützen-Frontscheibe: Ring und Glas liegen flach in der
+    # ersten Nasenstation, statt als dicker Torus vor der Kontur zu schweben.
+    front_y = NOSE_STATIONS[0][0] + 0.003
+    ellipse_disc_y(
+        "Bombenschuetze_Frontglas", front_y, -0.05, 0.130, 0.117, GLASS, 32
+    )
+    ellipse_annulus_y(
+        "Bombenschuetze_Frontring", front_y + 0.001, -0.05,
+        (0.190, 0.171), (0.136, 0.123), FRAME, 32
+    )
 
 
 def cockpit_interior():
