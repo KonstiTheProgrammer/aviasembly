@@ -60,8 +60,10 @@ static func _build() -> void:
 	_add({
 		"id": "cockpit_b29", "name": "B-29-Kanzel (Glasnase)", "category": CAT_BODY,
 		"mass": 240.0, "color": Color(0.74, 0.75, 0.78), "shape": "b29_nose", "root": true,
-		"size": Vector3(1.6, 1.6, 2.6),
-		"desc": "Superfortress-Bug: rundum verglaste Kugelnase auf fettem, rundem Rumpf — kein Dach-Canopy. Im Bohnen-Stil glatt gehalten, mit duennen Rundsprossen, Astrodome und zwei Sitzen. Hinten ebene Andockflaeche.",
+		"size": Vector3(1.7, 1.9, 2.7),
+		"col_size": Vector3(1.7, 1.6, 2.7),
+		"metal": 0.52, "rough": 0.38,
+		"desc": "Superfortress-Bug als Blender-Modell: rundum verglaste Kugelnase mit dunklen Einzelscheiben, silbernen Sprossen, Pilotenfenstern, Astrodome und sichtbarem Innenausbau. Hinten ebene Andockfläche für einen dicken Bomberrumpf.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
@@ -1815,7 +1817,7 @@ static func _rohr(pfad: Array, r: float, seiten := 6) -> ArrayMesh:
 				for pv in tri:
 					st.set_normal(((pv as Vector3) - ctr0).normalized())
 					st.add_vertex(pv)
-	st.generate_tangents()
+	# Die einfarbigen Rundrohre besitzen bewusst keine UVs und brauchen keine Tangenten.
 	return st.commit()
 
 
@@ -1838,7 +1840,7 @@ static func _bean_mesh(us := 28, vs := 14) -> ArrayMesh:
 				for v3 in tri:
 					st.set_normal((v3 as Vector3).normalized())
 					st.add_vertex(v3)
-	st.generate_tangents()
+	# Das einfarbige Glasmaterial nutzt keine Normalmap; ohne UVs sind Tangenten unnötig.
 	return st.commit()
 
 

@@ -411,19 +411,17 @@ Varianten (Bubble/Jet/Rahmen/Tandem) sind auf Wunsch ENTFERNT. Dazu **`canopy_be
 `shape "bean"` + Feld `embed`: `size.y` umfasst nur den SICHTBAREN Teil (der generische Snap
 legt die Unterkante der Box auf die Flaeche), die Geometrie wird um `size.y/(1-embed)`
 gestreckt und nach unten versetzt -> gemessen exakt 40.0 % eingebettet
-(`tools/_bean_check.gd`). Und **`cockpit_b29`** („B-29-Kanzel"): das Merkmal der Superfortress ist die RUNDUM
-VERGLASTE Kugelnase, kein Dach-Canopy. `shape "b29_nose"` = fettes rundes Rohr mit ebener
-Rueckseite + ein VOLLER Glas-Ellipsoid (dasselbe `_bean_mesh`, um -90 Grad um X gedreht),
-dessen hintere Haelfte im Rohr steckt -> keine Naht, gleiches Prinzip wie bei der
-aufgesetzten Bohne. Dazu Sprossenringe, Astrodome und zwei Sitze mit Brett hinter dem Glas
-(`TRANSPARENCY_ALPHA`, `CULL_DISABLED`, Alpha 0.34 — mit dunklem Glas sah man den Innenraum
-nicht). Das SPROSSENGITTER (3 Querspanten + 6 Laengssprossen) besteht aus durchgehenden
-Rundrohren via **`_rohr(pfad, r, seiten)`** — ein Mantel ueber alle Stuetzpunkte, mit
-Frenet-artigem Rahmen aus der Pfadtangente. Vorher waren es Kugelketten und TorusMesh-Ringe:
-jedes Glied ein eigener Koerper, das sah perlig/segmentiert aus und war der Hauptgrund,
-warum das Teil billig wirkte. Die Kontur folgt dem Ellipsoid: `r(t)=sqrt(1-(1-t)^2)`.
-Innen: zwei Sitze mit Lehne, zwei STEUERHOERNER (die B-29 hatte Hoerner, keine Knueppel),
-geneigtes Brett mit fuenf Rundinstrumenten, Bombenschuetzenplatz vorn in der Glasnase.
+(`tools/_bean_check.gd`). Und **`cockpit_b29`** („B-29-Kanzel"): ein eigenes
+Blender/glTF-Bauteil (`models/cockpit_b29.glb`, Quelle
+`tools/build_b29_cockpit_model.py`) mit der charakteristischen rundum verglasten
+Superfortress-Kugelnase statt eines Dach-Canopys. Dunkelblaues Glas, drei dünne
+Querspanten, acht Längssprossen, runde Bombenschützen-Frontscheibe, zurücklaufende
+Pilotenfenster, Astrodome und Antenne bilden die Referenz-Silhouette. Innen sind zwei
+Sitze mit Steuerhörnern, Instrumentenbrett und Rundinstrumenten sowie
+Bombenschützenplatz, Tisch und Visier modelliert. `cockpit_body` bleibt lackierbar,
+`glass` unangetastet. Das prozedurale `shape "b29_nose"` bleibt nur als Fallback, falls
+das glTF fehlt. `col_size` hält die hintere Andockfläche trotz vorstehender Glasnase
+spaltfrei an dicken Rumpfsegmenten.
 Dazu **`b29_wing`** („B-29-Tragflaeche"): langer Streckungsfluegel (Spannweite 7.2,
 Wurzel 2.0 / Spitze 1.1, leichte Pfeilung, `stress_mult` 1.9 fuer den kraeftigen Hauptholm)
 — traegt viel, dreht traege, wie das Original.

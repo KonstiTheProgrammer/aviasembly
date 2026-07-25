@@ -30,7 +30,7 @@ LIB = {
                   "wheel_biplane_spoke", "wheel_biplane_disc", "wheel_spitfire"],
     "cockpits": ["cockpit", "cockpit_bubble", "cockpit_jet", "cockpit_frame",
                  "cockpit_tandem", "cockpit_radial", "cockpit_radial_frame",
-                 "spitfire_cockpit", "mig21_cockpit"],
+                 "cockpit_b29", "spitfire_cockpit", "mig21_cockpit"],
     "ruempfe": ["nose", "tailcone", "fueltank", "jet_nose", "jet_nose_point", "red_star",
                 "mustang_body", "me262_body", "mig15_body", "f86_body",
                 "f22_body", "f22_head",
