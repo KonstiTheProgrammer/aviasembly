@@ -1173,7 +1173,15 @@ func _update_transform_drag() -> void:
 	elif _drag_handle != null and _drag_kind == "rotate":
 		# Ring ziehen -> um die WELT-Achse drehen (Winkel aus der Maus in der Ringebene)
 		var a := _ring_angle()
-		var nb := (Basis(_rot_axis_w, a - _rot_a0) * _rot_b0).orthonormalized()
+		var dreh := a - _rot_a0
+		if Input.is_key_pressed(KEY_SHIFT):
+			# SHIFT = 45-Grad-Raster. Gerastert wird die AENDERUNG gegenueber dem Griff-
+			# Anfang (nicht die absolute Lage): so springt ein schon schraeg stehendes Teil
+			# beim Anfassen nicht sofort weg, und aus der Grundstellung heraus landet man
+			# exakt auf 45/90/135 Grad. Gleiche Bedeutung wie beim Skalieren, wo SHIFT
+			# ebenfalls "regelmaessig" heisst.
+			dreh = roundf(dreh / (PI * 0.25)) * (PI * 0.25)
+		var nb := (Basis(_rot_axis_w, dreh) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
 	elif _drag_handle != null and _drag_kind == "ends":
 		# Enden-Würfel ziehen: außen = dieses Ende in X/Y dicker, innen = dünner.

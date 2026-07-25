@@ -2328,7 +2328,7 @@ func _build_toolbar() -> void:
 	hb.add_child(VSeparator.new())
 	# Werkzeug-Modi (Bewegen/Drehen/Skalieren)
 	_tb_tool_btns.clear()
-	var tools := [["Bewegen", "Bewegen-Gizmo (G)"], ["Drehen", "Drehen-Gizmo (R)"], ["Skalieren", "Skalieren-Gizmo (S)"]]
+	var tools := [["Bewegen", "Bewegen-Gizmo (G)"], ["Drehen", "Drehen-Gizmo (R) — SHIFT beim Ziehen = 45-Grad-Schritte"], ["Skalieren", "Skalieren-Gizmo (S)"]]
 	for ti in tools.size():
 		var gi := ti
 		var rb := _tb_radio(tools[ti][0], tools[ti][1], func() -> void: build_ctrl.set_gizmo_mode(gi))
