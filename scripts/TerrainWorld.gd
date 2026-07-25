@@ -32,10 +32,13 @@ var _forest: FastNoiseLite      # grobes Rauschen: wo stehen WÄLDER (Cluster)
 var _ridge: FastNoiseLite       # Ridged-Noise -> scharfe Bergketten
 var _relief: FastNoiseLite      # sehr grob: wie GEBIRGIG ist eine Region (Ebene<->Alpen)
 var _biome: FastNoiseLite       # sehr grob: welches BIOM (Wald/Wüste/Hochland/Heide)
-var _mesh_conifer: ArrayMesh    # Low-Poly-Tanne (einmal gebaut, via MultiMesh instanziert)
+var _flora: Dictionary = {}     # Art -> Mesh (aus models/world_trees.glb, sieben Arten)
+var _mesh_conifer: ArrayMesh    # Low-Poly-Tanne (Fallback, falls das glb fehlt)
 var _mesh_leaf: ArrayMesh       # Low-Poly-Laubbaum
 var _mesh_rock: ArrayMesh       # Low-Poly-Felsblock
 var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
+
+const ARTEN := ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch"]
 
 # Biom-Konstanten (aus _biome-Rauschen, -1..1)
 enum Biome { WALD, WUESTE, HOCHLAND, HEIDE }
@@ -96,6 +99,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mesh_leaf = _build_leaf_mesh()
 	_mesh_rock = _build_rock_mesh()
 	_mesh_palm = _build_palm_mesh()
+	_flora = _load_flora()
 	# Vertex-Farbe DIREKT als Albedo (StandardMaterial ignorierte die Farben trotz
 	# vertex_color_use_as_albedo bei material_override + SurfaceTool-Mesh).
 	# WICHTIG (war DIE Ursache der faden Map): die set_color-Werte sind sRGB, ALBEDO
@@ -429,7 +433,8 @@ func _process(_delta: float) -> void:
 		# inzwischen außer Reichweite? -> verwerfen (wird bei Bedarf neu geplant)
 		if _chunks.has(key) or _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
 			continue
-		_attach_chunk(key, item["mesh"], item["shape"], item.get("conifers", []), item.get("leafs", []), item.get("rocks", []), item.get("palms", []))
+		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
+			item.get("rocks", []))
 
 
 # Startbereich SOFORT bauen (synchron, Main-Thread), damit das Flugzeug beim
@@ -450,11 +455,11 @@ func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> vo
 			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > radius + CHUNK:
 				continue
 			var data := _make_chunk_data(key)
-			_attach_chunk(key, data["mesh"], data["shape"], data["conifers"], data["leafs"], data["rocks"], data["palms"])
+			_attach_chunk(key, data["mesh"], data["shape"], data["flora"], data["rocks"])
 
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
-		conifers: Array = [], leafs: Array = [], rocks: Array = [], palms: Array = []) -> void:
+		flora: Dictionary = {}, rocks: Array = []) -> void:
 	var node := Node3D.new()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -467,17 +472,16 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	cs.shape = shape
 	body.add_child(cs)
 	node.add_child(body)
-	# Flora: je Variante EIN MultiMesh (hunderte Bäume = 1 Draw-Call)
-	_attach_multi(node, _mesh_conifer, conifers)
-	_attach_multi(node, _mesh_leaf, leafs)
+	# Flora: je ART EIN MultiMesh (hunderte Bäume = 1 Draw-Call pro Art und Chunk)
+	for art in flora.keys():
+		_attach_multi(node, _flora.get(art, _mesh_conifer), flora[art])
 	_attach_multi(node, _mesh_rock, rocks)
-	_attach_multi(node, _mesh_palm, palms)
 	add_child(node)
 	_chunks[key] = node
 
 
-func _attach_multi(parent: Node3D, mesh: ArrayMesh, xfs: Array) -> void:
-	if xfs.is_empty():
+func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
+	if xfs.is_empty() or mesh == null:
 		return
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -526,11 +530,13 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(Vector3i(key.x, key.y, seed_value))
-	var conifers: Array = []
-	var leafs: Array = []
-	var palms: Array = []
+	# ARTENWAHL: nicht mehr nur Nadel/Laub, sondern sieben Arten nach Biom und HOEHE —
+	# Tiefland Laubwald mit Unterholz, Mittellage Nadelmischwald, ab 42 m Bergfichten mit
+	# einzelnen abgestorbenen Staemmen, Wueste Palmenoasen mit Trockenbewuchs. Dadurch
+	# wiederholt sich aus der Luft kein Muster.
+	var flora: Dictionary = {}      # Art -> Array[Transform3D]
 	var rocks: Array = []
-	for a in 130:
+	for a in 150:
 		var px := ox + rng.randf() * CHUNK
 		var pz := oz + rng.randf() * CHUNK
 		var h := height_at(px, pz)
@@ -542,28 +548,68 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 		if absf(hx - h) > 2.6 or absf(hz - h) > 2.6:
 			continue
 		var biome := biome_at(px, pz)
+		var art := ""
+		var lo := 1.1
+		var hi := 2.0
 		if biome == Biome.WUESTE:
-			# Wüste: spärliche Palmen-Oasen in tieferen Lagen
-			if h > 28.0 or rng.randf() > 0.07:
+			if h > 28.0:
 				continue
-			var ps := rng.randf_range(1.0, 1.7)
-			palms.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
-				Vector3(ps, ps * rng.randf_range(0.9, 1.2), ps)), Vector3(px, h - 0.1, pz)))
-			continue
-		var f := _forest.get_noise_2d(px, pz)
-		if f < 0.05:
-			continue   # kein Wald-Cluster hier
-		var dens := clampf((f - 0.05) * 3.2, 0.0, 0.95)
-		if biome == Biome.HEIDE:
-			dens *= 0.35   # offene Heide -> nur vereinzelte Bäume
-		if rng.randf() > dens:
-			continue
-		var sc := rng.randf_range(1.1, 2.0)
-		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)), Vector3(px, h - 0.15, pz))
-		if h > 30.0 or rng.randf() < 0.68:
-			conifers.append(xf)
+			var w := rng.randf()
+			if w < 0.05:
+				art = "Palme"
+				lo = 1.0
+				hi = 1.7
+			elif w < 0.085:
+				art = "Totholz"
+				lo = 0.9
+				hi = 1.5
+			elif w < 0.15:
+				art = "Busch"
+				lo = 0.8
+				hi = 1.8
+			else:
+				continue
 		else:
-			leafs.append(xf)
+			var f := _forest.get_noise_2d(px, pz)
+			if f < 0.05:
+				continue   # kein Wald-Cluster hier
+			var dens := clampf((f - 0.05) * 3.2, 0.0, 0.95)
+			if biome == Biome.HEIDE:
+				dens *= 0.35   # offene Heide -> nur vereinzelte Bäume
+			if rng.randf() > dens:
+				continue
+			var r := rng.randf()
+			if h > 42.0:
+				art = "Fichte" if r < 0.86 else "Totholz"
+			elif h > 24.0:
+				if r < 0.50:
+					art = "Fichte"
+				elif r < 0.82:
+					art = "Kiefer"
+				else:
+					art = "Birke"
+			else:
+				if r < 0.26:
+					art = "Eiche"
+				elif r < 0.50:
+					art = "Birke"
+				elif r < 0.70:
+					art = "Fichte"
+				elif r < 0.80:
+					art = "Kiefer"
+				else:
+					art = "Busch"
+			if biome == Biome.HEIDE and rng.randf() < 0.45:
+				art = "Busch"   # offene Heide ist vor allem Strauchwerk
+			if art == "Busch":
+				lo = 0.8
+				hi = 1.8
+		var sc := rng.randf_range(lo, hi)
+		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
+			Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)), Vector3(px, h - 0.15, pz))
+		if not flora.has(art):
+			flora[art] = []
+		flora[art].append(xf)
 	for a in 14:
 		var px := ox + rng.randf() * CHUNK
 		var pz := oz + rng.randf() * CHUNK
@@ -576,7 +622,7 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 		var rsc := Vector3(rng.randf_range(0.7, 2.4), rng.randf_range(0.5, 1.8), rng.randf_range(0.7, 2.4))
 		rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc), Vector3(px, h - 0.3, pz)))
 	return {"mesh": mesh, "shape": mesh.create_trimesh_shape(),
-		"conifers": conifers, "leafs": leafs, "palms": palms, "rocks": rocks}
+		"flora": flora, "rocks": rocks}
 
 
 # Ein Dreieck mit Flächenfarbe (aus Höhe + Steilheit am Schwerpunkt) einfügen.
@@ -641,6 +687,31 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 			var g1 := Color(0.40, 0.61, 0.28)  # frisches, sattes Wiesen-Grün
 			var g2 := Color(0.28, 0.49, 0.23)  # tieferes Grün
 			return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
+
+
+# Baumarten aus models/world_trees.glb (tools/build_baeume.py). Die Meshes tragen
+# VERTEX-FARBEN und werden wie das Terrain mit _mat gezeichnet (ALBEDO = COLOR).
+# Fehlt das glb, fallen alle Arten auf die alten prozeduralen Formen zurueck — das
+# Spiel laeuft dann weiter, nur mit weniger Vielfalt.
+func _load_flora() -> Dictionary:
+	var d: Dictionary = {}
+	var ps: Resource = load("res://models/world_trees.glb")
+	if ps != null and ps is PackedScene:
+		var sc: Node = (ps as PackedScene).instantiate()
+		for n in sc.find_children("*", "MeshInstance3D", true, false):
+			var mi := n as MeshInstance3D
+			if mi.mesh != null:
+				d[mi.name] = mi.mesh
+		sc.free()
+	for art in ARTEN:
+		if not d.has(art):
+			if art == "Palme":
+				d[art] = _mesh_palm
+			elif art in ["Birke", "Eiche", "Busch"]:
+				d[art] = _mesh_leaf
+			else:
+				d[art] = _mesh_conifer
+	return d
 
 
 # ---------------------------------------------------------------------------
