@@ -65,6 +65,8 @@ var _last_xform := Transform3D()
 var com_marker: MeshInstance3D
 var col_marker: MeshInstance3D
 var _float_markers: Array = []   # rote Marker über frei schwebenden (nicht verbundenen) Teilen
+var debug_boxes := false         # Debug-Ansicht: Drahtboxen um jedes Teil
+var _dbg_root: Node3D = null
 
 # Bearbeiten ist IMMER aktiv, wenn kein Palette-Teil/Abriss/Lackieren gewählt ist
 # (auswählen + Griffe ziehen: Länge/Breite/Höhe + Body ziehen = verschieben).
@@ -2790,6 +2792,7 @@ func _notify_changed() -> void:
 	if wind_tunnel:
 		_heatmap_dirty = true       # gedrosselt in _process neu rechnen (statt jeden Frame)
 	_update_float_markers()
+	_update_debug_boxes()   # Debug-Boxen folgen jeder Aenderung
 	design_changed.emit(stats)
 
 
@@ -3022,6 +3025,99 @@ func floating_count() -> int:
 
 
 # Rote Warn-Marker über frei schwebenden Teilen (nicht das Teil selbst einfärben).
+# DEBUG-BOXEN. Pro Teil werden ZWEI Drahtboxen gezeichnet, weil genau deren Differenz
+# Spalte erklaert:
+#   CYAN = Snap-/Kollisionsbox (col_size + col_offset, mit pscale) — MIT DIESER Box rechnet
+#          das Andocken, und auf sie zielt auch der Klick-Raycast.
+#   GELB = die echte Geometrie (AABB des "Visual"-Knotens) — das, was man sieht.
+# Sitzt ein Reifen mit Abstand am Fluegel, liegt die cyane Box bundig an und die gelbe endet
+# vorher: dann ist die Kollisionsbox des GETROFFENEN Teils dicker als sein Modell (ein
+# duenner Fluegel in einer kastenfoermigen Pickbox), nicht der Reifen falsch.
+func set_debug_boxes(on: bool) -> void:
+	debug_boxes = on
+	_update_debug_boxes()
+
+
+func _update_debug_boxes() -> void:
+	if _dbg_root != null and is_instance_valid(_dbg_root):
+		# Erst aushaengen, dann freigeben: queue_free() wirkt erst am Frame-Ende, der Name
+		# waere sonst noch belegt und ein sofortiges Wieder-Einschalten legte "DebugBoxen2" an.
+		var par := _dbg_root.get_parent()
+		if par != null:
+			par.remove_child(_dbg_root)
+		_dbg_root.queue_free()
+	_dbg_root = null
+	if not debug_boxes or design_root == null:
+		return
+	_dbg_root = Node3D.new()
+	_dbg_root.name = "DebugBoxen"
+	design_root.add_child(_dbg_root)
+	for kind in design_root.get_children():
+		var part := kind as Node3D
+		if part == null or not part.has_meta("part_id"):
+			continue
+		var psc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+		var b := _part_box(part)              # Sternmotor: je nach sichtbarer Variante
+		_dbg_root.add_child(_wire_box(part.transform, (b[1] as Vector3) * psc,
+			(b[0] as Vector3) * psc * 0.5, Color(0.15, 0.95, 1.0)))
+		var vis := part.get_node_or_null("Visual") as Node3D
+		if vis == null:
+			continue
+		var ab := _visual_local_aabb(part, vis)
+		if ab.size.length() > 0.0001:
+			_dbg_root.add_child(_wire_box(part.transform, ab.get_center(), ab.size * 0.5,
+				Color(1.0, 0.85, 0.1)))
+
+
+# AABB aller Meshes des Visuals, ausgedrueckt im LOKALEN System des Teils (damit die Box
+# mit derselben Teil-Transform gezeichnet werden kann wie die Kollisionsbox).
+func _visual_local_aabb(part: Node3D, vis: Node3D) -> AABB:
+	var inv := part.global_transform.affine_inverse()
+	var ab := AABB()
+	var erst := true
+	for n in vis.find_children("*", "VisualInstance3D", true, false):
+		var vi := n as VisualInstance3D
+		if not vi.visible:
+			continue                          # ausgeblendete Varianten (Full/Half, Rahmen)
+		var lokal := inv * vi.global_transform
+		var box: AABB = vi.get_aabb()
+		for sx in [0.0, 1.0]:
+			for sy in [0.0, 1.0]:
+				for sz in [0.0, 1.0]:
+					var p: Vector3 = lokal * (box.position
+						+ Vector3(sx * box.size.x, sy * box.size.y, sz * box.size.z))
+					if erst:
+						ab = AABB(p, Vector3.ZERO)
+						erst = false
+					else:
+						ab = ab.expand(p)
+	return ab
+
+
+func _wire_box(t: Transform3D, ctr: Vector3, half: Vector3, col: Color) -> MeshInstance3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = col
+	m.no_depth_test = true                    # durch das Modell hindurch sichtbar
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES, m)
+	var e: Array[Vector3] = []
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				e.append(ctr + Vector3(sx * half.x, sy * half.y, sz * half.z))
+	# Index = 4*ix + 2*iy + iz (0 = Minus-Seite) -> beide X-Flaechen plus die vier Holme
+	for k in [[0, 1], [1, 3], [3, 2], [2, 0], [4, 5], [5, 7], [7, 6], [6, 4],
+			[0, 4], [1, 5], [2, 6], [3, 7]]:
+		im.surface_add_vertex(e[k[0]])
+		im.surface_add_vertex(e[k[1]])
+	im.surface_end()
+	var mi := MeshInstance3D.new()
+	mi.mesh = im
+	mi.transform = t
+	return mi
+
+
 func _update_float_markers() -> void:
 	for m in _float_markers:
 		if is_instance_valid(m):

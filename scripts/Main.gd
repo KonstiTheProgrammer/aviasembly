@@ -2002,6 +2002,12 @@ func _on_reset_view() -> void:
 	build_ctrl.reset_camera()
 
 
+func _on_debug_boxes(on: bool) -> void:
+	build_ctrl.set_debug_boxes(on)
+	if on:
+		_toast("Debug: cyan = Snap-Box (Andocken rechnet damit), gelb = echte Geometrie")
+
+
 func _on_drag_view(on: bool) -> void:
 	build_ctrl.set_wind_tunnel(on)
 	if wind_legend != null:
@@ -2347,6 +2353,9 @@ func _build_toolbar() -> void:
 	# Analyse
 	drag_view_btn = _tb_toggle("Windkanal", "Windkanal-Widerstandsansicht (Heatmap)", build_ctrl.wind_tunnel, _on_drag_view)
 	hb.add_child(drag_view_btn)
+	hb.add_child(_tb_toggle("Debug",
+		"Debug: Boxen um jedes Teil — CYAN = Snap-/Kollisionsbox (damit rechnet das Andocken), GELB = echte Geometrie",
+		build_ctrl.debug_boxes, _on_debug_boxes))
 	hb.add_child(_tb_btn("Zentrieren", "Kamera auf das Flugzeug zentrieren (F)", _on_reset_view))
 	_sync_toolbar()
 

@@ -707,8 +707,15 @@ static func _wing(id: String, name: String, cat: String, mass: float, color: Col
 		"shape": "wing", "span": span, "root_chord": rc, "tip_chord": tc,
 		"sweep": sweep, "thickness": thick, "is_wing": true, "area": area,
 		"lift": lift, "control": control, "orient_normal": true, "stress_mult": stress,
-		"col_size": Vector3(span, thick + 0.1, maxc + absf(sweep)),
-		"col_offset": Vector3(span * 0.5, 0.0, sweep * 0.5),
+		# HOEHE DER BOX = das echte Profil, nicht thick+0.1 (=0.26). Die alte Box war
+		# symmetrisch um y=0, das GEWOELBTE Profil liegt aber hoeher: gemessen
+		# -0.074..+0.130 bei wing_straight. Dadurch lag die Boxunterseite 5.6 cm unter
+		# der sichtbaren Haut — und weil der Snap an die BOX legt, hing ein Reifen an der
+		# Fluegelunterseite genau um diesen Betrag in der Luft (gemeldeter Abstand).
+		# _wing_mesh ignoriert `thick` und baut das NACA-Profil aus der Sehne: nachgemessen
+		# ueber alle Fluegel exakt 0.12*rc hoch mit Mitte +0.0165*rc.
+		"col_size": Vector3(span, 0.12 * rc, maxc + absf(sweep)),
+		"col_offset": Vector3(span * 0.5, 0.0165 * rc, sweep * 0.5),
 		"metal": 0.15, "rough": 0.6,
 	})
 
