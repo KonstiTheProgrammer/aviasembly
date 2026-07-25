@@ -30,11 +30,11 @@ SQUIRCLE_POWER = 0.70
 # Die letzten beiden Stationen sind identisch und bilden den exakt geraden
 # Rumpfkragen. Gesamtlänge 2,95 m; Heckebene bei Y=-1,40.
 HULL_STATIONS = (
-    (1.55, 0.14, 0.18, -0.20),
-    (1.40, 0.36, 0.34, -0.18),
-    (1.16, 0.61, 0.53, -0.12),
-    (0.88, 0.83, 0.71, -0.03),
-    (0.54, 0.99, 0.84, 0.04),
+    (1.55, 0.13, 0.17, -0.22),
+    (1.38, 0.31, 0.32, -0.20),
+    (1.12, 0.57, 0.51, -0.14),
+    (0.84, 0.80, 0.68, -0.06),
+    (0.50, 0.98, 0.83, 0.03),
     (0.12, 1.08, 0.91, 0.07),
     (-0.50, 1.10, 0.93, 0.07),
     (-1.40, 1.10, 0.93, 0.07),
@@ -43,9 +43,9 @@ HULL_STATIONS = (
 # Sieben Begrenzungslinien ergeben sechs symmetrische Scheiben. Die Z-Werte
 # bilden die charakteristische geschwungene Fensterkrone und die tiefere
 # Unterkante der seitlichen Scheiben.
-WINDOW_X = (-0.97, -0.68, -0.36, 0.0, 0.36, 0.68, 0.97)
-WINDOW_TOP_Z = (0.49, 0.66, 0.74, 0.77, 0.74, 0.66, 0.49)
-WINDOW_BOTTOM_Z = (0.08, 0.18, 0.22, 0.23, 0.22, 0.18, 0.08)
+WINDOW_X = (-1.035, -0.74, -0.40, 0.0, 0.40, 0.74, 1.035)
+WINDOW_TOP_Z = (0.45, 0.61, 0.69, 0.72, 0.69, 0.61, 0.45)
+WINDOW_BOTTOM_Z = (0.13, 0.23, 0.27, 0.28, 0.27, 0.23, 0.13)
 
 
 def material(name, color, metallic=0.0, roughness=0.45):
@@ -184,8 +184,8 @@ def front_boundary_z(x, upper):
 
 def skin_material(center):
     """Materialindex der Metallhaut: 0 Körper, 1 dunkler Radombug."""
-    dark_limit = 0.26 + max(0.0, 0.92 - center.y) * 0.20
-    dark = center.y > 1.10 or (center.y > 0.70 and center.z < dark_limit)
+    dark_limit = 0.22 + max(0.0, 0.90 - center.y) * 0.16
+    dark = center.y > 1.04 or (center.y > 0.62 and center.z < dark_limit)
     return 1 if dark else 0
 
 
@@ -262,11 +262,12 @@ def build_hull(materials):
     ):
         z_min = front_boundary_z(x, False)
         z_max = front_boundary_z(x, True)
-        nose_row = -0.20 + 0.12 * abs(x / WINDOW_X[-1])
+        nose_row = -0.22 + 0.14 * abs(x / WINDOW_X[-1])
         z_rows = (
             z_min,
             (z_min + nose_row) * 0.5,
             nose_row,
+            nose_row * 0.35 + window_bottom * 0.65,
             window_bottom,
             window_top,
             (window_top + z_max) * 0.5,
@@ -278,13 +279,14 @@ def build_hull(materials):
             verts.append((x, front_surface_y(x, z), z))
         grid.append(column)
 
+    band_count = len(grid[0]) - 1
     for column in range(len(grid) - 1):
-        for row in range(6):
+        for row in range(band_count):
             a = grid[column][row]
             b = grid[column + 1][row]
             c = grid[column + 1][row + 1]
             d = grid[column][row + 1]
-            if row == 3:
+            if row == 4:
                 material_index = 2
             else:
                 center = (
@@ -293,7 +295,10 @@ def build_hull(materials):
                     + Vector(verts[c])
                     + Vector(verts[d])
                 ) * 0.25
-                material_index = skin_material(center)
+                if row < 4 and center.y > 0.58:
+                    material_index = 1
+                else:
+                    material_index = skin_material(center)
             # Blickrichtung der Frontflächen ist +Y.
             faces.append(((a, d, c, b), material_index))
 
@@ -302,7 +307,7 @@ def build_hull(materials):
     verts.append((-rx, 0.12, zc))
     right_extreme = len(verts)
     verts.append((rx, 0.12, zc))
-    for row in range(6):
+    for row in range(band_count):
         left_lower = grid[0][row]
         left_upper = grid[0][row + 1]
         left_center = (
