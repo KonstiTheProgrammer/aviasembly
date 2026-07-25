@@ -45,22 +45,16 @@ func _process(_delta: float) -> bool:
 	_check(PartCatalog.in_palette("b29_wing"), "passende B-29-Tragfläche ist in der Palette")
 
 	var visual := PartCatalog.build_visual(part)
-	_check(visual.find_child("B29_Glasnase", true, false) != null,
-		"dunkel verglaste Facettennase ist vorhanden")
-	_check(visual.find_child("Fenster_Facettenrahmen", true, false) != null,
-		"bündige Facettenrahmen sind vorhanden")
-	_check(visual.find_child("B29_Metallkinn", true, false) != null,
-		"ansteigende Metall-Kinnlinie ist vorhanden")
-	_check(visual.find_child("Pilotenfenster_00_00", true, false) != null,
-		"zurücklaufende facettierte Pilotenfenster sind vorhanden")
+	_check(visual.find_child("B29_Nasenhaut", true, false) != null,
+		"Metall, bündige Rahmen und Scheiben bilden eine gemeinsame Nasenhaut")
+	_check(visual.find_child("B29_Pilotenverglasung", true, false) != null,
+		"Pilotenfenster bilden eine gemeinsame Verglasungsgruppe")
+	_check(visual.find_child("B29_Rumpf_komplett", true, false) != null,
+		"Rumpf und Kinn sind zu einer sauberen Baugruppe zusammengefasst")
+	_check(visual.find_child("B29_Innenraum", true, false) != null,
+		"Innenausbau ist zu einer sauberen Baugruppe zusammengefasst")
 	_check(visual.find_child("Astrodome", true, false) == null,
 		"kein falscher Astrodome sitzt auf dem Cockpitteil")
-	_check(visual.find_child("Bombenschuetze_Frontglas", true, false) != null,
-		"runde Bombenschützen-Frontscheibe ist vorhanden")
-	_check(visual.find_child("Pilotensitz_Flaeche", true, false) != null,
-		"Pilotensitze sind im Innenraum")
-	_check(visual.find_child("Bombenvisier", true, false) != null,
-		"Bombenvisier ist im Innenraum")
 	var paint := _find_material(visual, "cockpit_body")
 	var glass := _find_material(visual, "glass")
 	_check(paint != null, "cockpit_body ist als Lackmaterial erhalten")

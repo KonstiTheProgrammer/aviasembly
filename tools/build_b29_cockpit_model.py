@@ -72,6 +72,21 @@ def mesh_object(name, verts, faces, mat, smooth_mesh=True):
     return obj
 
 
+def mesh_object_multi(name, verts, face_data, materials, smooth_mesh=False):
+    """Mesh mit Materialindex pro Fläche; vermeidet übereinanderliegende Teilplatten."""
+    mesh = bpy.data.meshes.new(name + "Mesh")
+    mesh.from_pydata(verts, [], [face for face, _material_index in face_data])
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    for mat in materials:
+        obj.data.materials.append(mat)
+    for polygon, (_face, material_index) in zip(obj.data.polygons, face_data):
+        polygon.material_index = material_index
+        polygon.use_smooth = smooth_mesh
+    return obj
+
+
 def box(name, size, loc, mat, rotation=(0.0, 0.0, 0.0), bevel=0.0, parent=None):
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc, rotation=rotation)
     obj = bpy.context.object
@@ -233,13 +248,9 @@ def is_glass_cell(row, segment):
 
 
 def faceted_glass_nose():
-    """Einzelne flache Scheiben mit bündigen Metallstegen statt einer Drahtkugel."""
-    frame_verts = []
-    frame_faces = []
-    glass_verts = []
-    glass_faces = []
-    chin_verts = []
-    chin_faces = []
+    """Eine zusammenhängende Nasenhaut aus Metall, Rahmen und bündigen Scheiben."""
+    verts = []
+    faces = []
 
     for row in range(len(NOSE_STATIONS) - 1):
         for segment in range(NOSE_SEGMENTS):
@@ -250,31 +261,32 @@ def faceted_glass_nose():
                 nose_point(row, segment, 1.0),
             )
             if not is_glass_cell(row, segment):
-                base = len(chin_verts)
-                chin_verts.extend(corners)
-                chin_faces.append((base, base + 1, base + 2, base + 3))
+                base = len(verts)
+                verts.extend(corners)
+                faces.append(((base, base + 1, base + 2, base + 3), 0))
                 continue
 
-            # Das volle Feld ist der flach aufliegende Rahmen.
-            base = len(frame_verts)
-            frame_verts.extend(corners)
-            frame_faces.append((base, base + 1, base + 2, base + 3))
-
-            # Parametrisch eingerückte Scheibe lässt einen gleichmäßigen Metallrand frei.
+            # Außen- und Innenkanten teilen sich eine Fläche: keine Überlappungen,
+            # keine schwebenden Rahmen und kein Flimmern zwischen Einzelteilen.
             inset = 0.085
             pane = (
-                nose_point(row, segment + inset, inset, 1.008),
-                nose_point(row, segment + 1.0 - inset, inset, 1.008),
-                nose_point(row, segment + 1.0 - inset, 1.0 - inset, 1.008),
-                nose_point(row, segment + inset, 1.0 - inset, 1.008),
+                nose_point(row, segment + inset, inset, 1.003),
+                nose_point(row, segment + 1.0 - inset, inset, 1.003),
+                nose_point(row, segment + 1.0 - inset, 1.0 - inset, 1.003),
+                nose_point(row, segment + inset, 1.0 - inset, 1.003),
             )
-            pbase = len(glass_verts)
-            glass_verts.extend(pane)
-            glass_faces.append((pbase, pbase + 1, pbase + 2, pbase + 3))
+            base = len(verts)
+            verts.extend(corners)
+            verts.extend(pane)
+            faces.extend((
+                ((base + 4, base + 5, base + 6, base + 7), 2),
+                ((base + 0, base + 1, base + 5, base + 4), 1),
+                ((base + 1, base + 2, base + 6, base + 5), 1),
+                ((base + 2, base + 3, base + 7, base + 6), 1),
+                ((base + 3, base + 0, base + 4, base + 7), 1),
+            ))
 
-    mesh_object("Fenster_Facettenrahmen", frame_verts, frame_faces, FRAME, False)
-    mesh_object("B29_Glasnase", glass_verts, glass_faces, GLASS, False)
-    mesh_object("B29_Metallkinn", chin_verts, chin_faces, BODY, False)
+    mesh_object_multi("B29_Nasenhaut", verts, faces, (BODY, FRAME, GLASS))
 
     # Kleine, klar gefasste Bombenschützen-Frontscheibe.
     front_y = NOSE_STATIONS[0][0] + 0.014
@@ -284,11 +296,13 @@ def faceted_glass_nose():
 
 
 def greenhouse_extension():
-    """Flache Pilotenfenster laufen vom Bug in die obere Rumpfschale zurück."""
+    """Eine gemeinsame Pilotenverglasung läuft in die obere Rumpfschale zurück."""
     y_rows = (-0.10, -0.36, -0.63, -0.89)
     angle_edges = tuple(math.radians(a) for a in (28, 58, 88, 118, 148))
     rx = 0.825
     rz = 0.725
+    verts = []
+    faces = []
 
     def point(y, angle, lift=1.0):
         return (math.cos(angle) * rx * lift, y,
@@ -304,23 +318,26 @@ def greenhouse_extension():
                 point(y0, a0, 1.004), point(y0, a1, 1.004),
                 point(y1, a1, 1.004), point(y1, a0, 1.004),
             )
-            mesh_object(
-                "Pilotenfenster_Rahmen_%02d_%02d" % (iy, ia),
-                frame_corners, [(0, 1, 2, 3)], FRAME, False,
-            )
             inset = 0.10
             pa0 = a0 + (a1 - a0) * inset
             pa1 = a1 - (a1 - a0) * inset
             py0 = y0 + (y1 - y0) * inset
             py1 = y1 - (y1 - y0) * inset
             pane = (
-                point(py0, pa0, 1.010), point(py0, pa1, 1.010),
-                point(py1, pa1, 1.010), point(py1, pa0, 1.010),
+                point(py0, pa0, 1.008), point(py0, pa1, 1.008),
+                point(py1, pa1, 1.008), point(py1, pa0, 1.008),
             )
-            mesh_object(
-                "Pilotenfenster_%02d_%02d" % (iy, ia),
-                pane, [(0, 1, 2, 3)], GLASS_DARK, False,
-            )
+            base = len(verts)
+            verts.extend(frame_corners)
+            verts.extend(pane)
+            faces.extend((
+                ((base + 4, base + 5, base + 6, base + 7), 1),
+                ((base + 0, base + 1, base + 5, base + 4), 0),
+                ((base + 1, base + 2, base + 6, base + 5), 0),
+                ((base + 2, base + 3, base + 7, base + 6), 0),
+                ((base + 3, base + 0, base + 4, base + 7), 0),
+            ))
+    mesh_object_multi("B29_Pilotenverglasung", verts, faces, (FRAME, GLASS_DARK))
 
 
 def cockpit_interior():
@@ -429,6 +446,56 @@ def apply_modifiers():
         obj.select_set(False)
 
 
+def convert_curves():
+    """Kurven vor dem Zusammenfassen in echte Meshes umwandeln."""
+    for obj in list(bpy.context.scene.objects):
+        if obj.type != "CURVE":
+            continue
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.convert(target="MESH")
+
+
+def join_group(objects, name):
+    if not objects:
+        return None
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in objects:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+    bpy.ops.object.join()
+    result = bpy.context.object
+    result.name = name
+    return result
+
+
+def consolidate_objects():
+    """Aus vielen Konstruktionshilfen werden wenige saubere Blender-Baugruppen."""
+    convert_curves()
+    reserved = {"B29_Nasenhaut", "B29_Pilotenverglasung"}
+    groups = {
+        "B29_Rumpf_komplett": [],
+        "B29_Glasdetails": [],
+        "B29_Rahmendetails": [],
+        "B29_Innenraum": [],
+    }
+    for obj in list(bpy.context.scene.objects):
+        if obj.type != "MESH" or obj.name in reserved:
+            continue
+        names = {slot.material.name for slot in obj.material_slots if slot.material}
+        if names and names <= {"cockpit_body", "body_detail"}:
+            groups["B29_Rumpf_komplett"].append(obj)
+        elif names and names <= {"glass", "glass_dark"}:
+            groups["B29_Glasdetails"].append(obj)
+        elif names and names <= {"frame"}:
+            groups["B29_Rahmendetails"].append(obj)
+        else:
+            groups["B29_Innenraum"].append(obj)
+    for name, objects in groups.items():
+        join_group(objects, name)
+
+
 def build():
     clear()
     fuselage_shell()
@@ -437,6 +504,7 @@ def build():
     greenhouse_extension()
     exterior_details()
     apply_modifiers()
+    consolidate_objects()
     bpy.ops.export_scene.gltf(filepath=str(OUT), export_format="GLB", export_yup=True)
     print("EXPORTED", OUT)
 

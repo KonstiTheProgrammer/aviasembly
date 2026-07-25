@@ -417,7 +417,12 @@ Blender/glTF-Bauteil (`models/cockpit_b29.glb`, Quelle
 Superfortress-Nase statt eines Dach-Canopys. Die Fenster sind bewusst einzelne flache,
 dunkelblaue Facetten: Jedes Feld hat eine etwas größere Metallfläche als Träger und eine
 parametrisch eingerückte Scheibe, sodass der bündige Rahmen direkt in der Außenhaut liegt
-und nicht wie ein Drahtkäfig vor der Nase schwebt. Die nach hinten ansteigende Metall-
+und nicht wie ein Drahtkäfig vor der Nase schwebt. In der finalen Geometrie sind Rahmen,
+Scheiben und Metallkinn sogar ohne überlappende Flächen in **einem** `B29_Nasenhaut`-Mesh
+mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten oder
+Z-Fighting. Auch die zurücklaufenden Pilotenfenster sind ein gemeinsames Mesh. Der Export
+fasst die übrigen Konstruktionsobjekte zu `B29_Rumpf_komplett`, `B29_Glasdetails`,
+`B29_Rahmendetails` und `B29_Innenraum` zusammen. Die nach hinten ansteigende Metall-
 Kinnlinie, kleine runde Bombenschützen-Frontscheibe und zurücklaufende Pilotenfenster
 bilden die Referenz-Silhouette; Astrodome und Antenne gehören zu späteren Rumpfsegmenten
 und sitzen bewusst nicht auf diesem Cockpitteil. Innen sind zwei
