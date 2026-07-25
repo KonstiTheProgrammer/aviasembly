@@ -493,6 +493,15 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Kopfstuetze/Gurten, Instrumentenbrett mit Rundinstrumenten, Knueppel, Pedale,
   Seitenkonsolen, Ueberrollbuegel; darueber eine Haube, deren Glas UND Spanten aus
   DEMSELBEN Laengsprofil kommen (sonst schweben die Buegel neben der Scheibe).
+  **SPITFIRE-KANZEL `cockpit_spitfire`** (+ `fuselage_spitfire`): eigener fuenfter Stil,
+  bewusst NICHT `spitfire_cockpit` — das ist ein anderes Teil aus einer Parallel-Sitzung
+  und bleibt unberuehrt. Merkmale: schmaler/hoher Querschnitt (1.15 x 1.28), starker
+  Razorback (`deck` 0.115), DREITEILIGE Haube (`ws_getrennt`: zwei `haube()`-Aufrufe —
+  gewoelbte Schiebehaube plus davor ein facettierter Windschutz mit flacher
+  Panzerglasscheibe), linke HALBTUER als umlaufender Rahmen mit Griff, Rueckspiegel auf
+  dem Scheibenrahmen, Reflexvisier ueber dem Brett, SPATENGRIFF am Knueppel, Innenraum in
+  britischem Gruengrau. `hp_von(spec, **ueber)` erlaubt mehrere Haubenabschnitte mit
+  unterschiedlichem Charakter in EINEM Bauteil.
   FALLEN: (1) von Hand gebaute Ringe waren nach INNEN gewickelt — `f.normal` war zudem
   nach `faces.new()` noch (0,0,0), dadurch fand der Ausschnitt-Filter NULL Flaechen;
   Abhilfe `bm.normal_update()` + `bmesh.ops.recalc_face_normals`. (2) Die Blender-

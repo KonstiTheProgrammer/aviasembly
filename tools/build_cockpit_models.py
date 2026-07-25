@@ -49,6 +49,7 @@ MATS = {
     "dash":         ((0.12, 0.13, 0.15), 0.20, 0.55, 1.0),
     "gauge":        ((0.74, 0.78, 0.82), 0.10, 0.25, 1.0),
     "metal":        ((0.55, 0.57, 0.61), 0.80, 0.30, 1.0),
+    "cp_gruen":     ((0.26, 0.31, 0.24), 0.05, 0.70, 1.0),   # britisches Innen-Gruengrau
 }
 MATN = list(MATS.keys())
 MI = {n: i for i, n in enumerate(MATN)}
@@ -264,24 +265,34 @@ def innenausbau(bm, y_sitz, sill, boden, b):
 
 
 # --- Haube -----------------------------------------------------------------------------------
-def hauben_hoehe(u, spec):
-    """u = 0 hinten .. 1 vorne INNERHALB der Haube."""
+def hauben_hoehe(u, hp):
+    """u = 0 hinten .. 1 vorne INNERHALB des Haubenabschnitts."""
     f = 1.0
-    if u > spec["ws_ab"]:
-        f = spec["ws_rest"] + (1.0 - spec["ws_rest"]) * weich((1.0 - u) / (1.0 - spec["ws_ab"]))
-    if u < spec["heck_ab"]:
-        f = min(f, spec["heck_rest"] + (1.0 - spec["heck_rest"]) * weich(u / spec["heck_ab"]))
+    if u > hp["ws_ab"]:
+        f = hp["ws_rest"] + (1.0 - hp["ws_rest"]) * weich((1.0 - u) / (1.0 - hp["ws_ab"]))
+    if u < hp["heck_ab"]:
+        f = min(f, hp["heck_rest"] + (1.0 - hp["heck_rest"]) * weich(u / hp["heck_ab"]))
     return f
 
 
-def haube(bm, spec, y0, y1, basis_z, breite, hoehe, mi_glas, mi_rahmen):
-    facetten = spec["facetten"]
+def hp_von(spec, **ueber):
+    """Haubenparameter aus dem Stil, einzeln ueberschreibbar."""
+    hp = dict(rundung=spec["rundung"], ws_ab=spec["ws_ab"], ws_rest=spec["ws_rest"],
+              heck_ab=spec["heck_ab"], heck_rest=spec["heck_rest"],
+              facetten=spec["facetten"], alle_ringe=spec["alle_ringe"],
+              spanten=spec["spanten"], holme=True)
+    hp.update(ueber)
+    return hp
+
+
+def haube(bm, hp, y0, y1, basis_z, breite, hoehe, mi_glas, mi_rahmen):
+    facetten = hp["facetten"]
     bogen = 6 if facetten else 14
-    segs = 5 if facetten else 20
-    rundung = spec["rundung"]
+    segs = 4 if facetten else 20
+    rundung = hp["rundung"]
 
     def p(u, i, auf=0.0):
-        f = hauben_hoehe(u, spec)
+        f = hauben_hoehe(u, hp)
         a = math.pi * i / bogen
         x = -math.cos(a) * (breite + auf) * (0.70 + 0.30 * f)
         z = basis_z + math.sin(a) ** rundung * (hoehe + auf) * f
@@ -294,11 +305,11 @@ def haube(bm, spec, y0, y1, basis_z, breite, hoehe, mi_glas, mi_rahmen):
                           ringe[k + 1][i + 1], ringe[k + 1][i]]).material_index = mi_glas
 
     us = [0.008, 0.992]
-    if spec["alle_ringe"]:
+    if hp["alle_ringe"]:
         us += [k / segs for k in range(1, segs)]
     else:
-        for k in range(spec["spanten"]):
-            us.append(0.16 + 0.68 * (k + 1) / (spec["spanten"] + 1))
+        for k in range(hp["spanten"]):
+            us.append(0.16 + 0.68 * (k + 1) / (hp["spanten"] + 1))
     dicke = 0.024
     for u in us:
         vor = None
@@ -324,11 +335,49 @@ def haube(bm, spec, y0, y1, basis_z, breite, hoehe, mi_glas, mi_rahmen):
                     except ValueError:
                         pass
             vor = q
-    for i_rand in (0, bogen):                       # Laengsholme auf dem Suellrand
-        a = p(0.0, i_rand)
-        b2 = p(1.0, i_rand)
-        bx(bm, ((a[0] + b2[0]) * 0.5, (a[1] + b2[1]) * 0.5, basis_z + 0.012),
-           (dicke * 1.5, abs(b2[1] - a[1]), dicke * 1.1), mi_rahmen)
+    if hp["holme"]:
+        for i_rand in (0, bogen):                   # Laengsholme auf dem Suellrand
+            a = p(0.0, i_rand)
+            b2 = p(1.0, i_rand)
+            bx(bm, ((a[0] + b2[0]) * 0.5, (a[1] + b2[1]) * 0.5, basis_z + 0.012),
+               (dicke * 1.5, abs(b2[1] - a[1]), dicke * 1.1), mi_rahmen)
+
+
+def spitfire_extras(bm, spec, breite, hoehe, laenge, y0, sill, boden):
+    """Die Merkmale, an denen man eine Spitfire erkennt."""
+    o0, o1 = spec["oeff"]
+    y_sitz = y0 + laenge * (o0 * 0.30 + o1 * 0.70) - 0.16
+
+    # HALBTUER links (-X): umlaufender Rahmen, leicht vorstehend
+    yd = y0 + laenge * (o0 + o1) * 0.5
+    tw, th = 0.62, 0.40
+    xw = -breite * 0.5 - 0.004
+    for dy, dz, sy2, sz2 in ((-tw * 0.5, 0.0, 0.035, th), (tw * 0.5, 0.0, 0.035, th),
+                             (0.0, -th * 0.5, tw, 0.035), (0.0, th * 0.5, tw, 0.035)):
+        bx(bm, (xw, yd + dy, sill - 0.30 + dz), (0.02, sy2, sz2), MI["frame"])
+    bx(bm, (xw - 0.012, yd + tw * 0.30, sill - 0.30), (0.03, 0.09, 0.05), MI["metal"])
+
+    # RUECKSPIEGEL auf dem Scheibenrahmen
+    y_ws = y0 + laenge * (o0 + (o1 - o0) * 0.70)
+    zt = sill + 0.05 + spec["h_hoehe"] * hoehe * 0.86
+    zyl(bm, (0.0, y_ws + 0.04, zt + 0.05), 0.012, 0.10, "z", MI["frame"], 6)
+    bx(bm, (0.0, y_ws + 0.04, zt + 0.115), (0.11, 0.05, 0.055), MI["frame"])
+    bx(bm, (0.0, y_ws + 0.062, zt + 0.115), (0.09, 0.012, 0.04), MI["gauge"])
+
+    # REFLEXVISIER ueber dem Instrumentenbrett
+    y_d = y_sitz + 0.44
+    bx(bm, (0.0, y_d - 0.02, sill + 0.02), (0.10, 0.14, 0.09), MI["dark"])
+    bx(bm, (0.0, y_d - 0.10, sill + 0.10), (0.09, 0.015, 0.10), MI["glass"])
+
+    # SPATENGRIFF am Knueppel (statt Pistolengriff)
+    zyl(bm, (0.0, y_sitz + 0.22, boden + 0.44), 0.062, 0.022, "y", MI["dark"], 12)
+    zyl(bm, (0.0, y_sitz + 0.235, boden + 0.44), 0.036, 0.020, "y", MI["cp_gruen"], 10)
+
+    # Bodenbrett + gruengraue Seitenverkleidung
+    bx(bm, (0.0, y_sitz + 0.10, boden + 0.015), (0.36 * breite, 0.72, 0.03), MI["cp_gruen"])
+    for sx in (-1, 1):
+        bx(bm, (sx * 0.30 * breite, y_sitz + 0.10, boden + 0.26), (0.02, 0.78, 0.34),
+           MI["cp_gruen"])
 
 
 # --- Stile ------------------------------------------------------------------------------------
@@ -351,6 +400,14 @@ STILE = {
         h_breite=0.42, h_hoehe=0.40, rundung=0.62,
         ws_ab=0.76, ws_rest=0.42, heck_ab=0.22, heck_rest=0.30,
         spanten=3, facetten=True, alle_ringe=True, tandem=False),
+    "cockpit_spitfire": dict(
+        # schmal und hoch (die Spitfire war eng und tief), starker Razorback
+        size=(1.15, 1.28, 2.5), exp=2.05, flach_unten=0.08, deck=0.115,
+        oeff=(0.26, 0.68), x_off=0.31, sill=0.28, boden=-0.15,
+        h_breite=0.38, h_hoehe=0.42, rundung=0.80,
+        ws_ab=0.74, ws_rest=0.34, heck_ab=0.30, heck_rest=0.18,
+        spanten=1, facetten=False, alle_ringe=False, tandem=False,
+        ws_getrennt=True, extras="spitfire"),
     "cockpit_tandem": dict(
         size=(1.225, 1.225, 3.1), exp=2.35, flach_unten=0.10, deck=0.080,
         oeff=(0.20, 0.84), x_off=0.32, sill=0.29, boden=-0.14,
@@ -399,6 +456,8 @@ def baue(pid, spec):
                  MI["frame"], MI["dark"])
         innenausbau(bm, y0 + laenge * (o0 * 0.30 + o1 * 0.70) - 0.16, sill_z, boden_z, breite)
 
+    if spec.get("extras") == "spitfire":
+        spitfire_extras(bm, spec, breite, hoehe, laenge, y0, sill_z, boden_z)
     for t in (0.14, 0.90):
         panelnaht(bm, profil, breite, hoehe, spec, t, MI["frame"])
     bx(bm, (breite * 0.40, y0 + laenge * (o0 + 0.03), sill_z - 0.22), (0.04, 0.16, 0.045),
@@ -417,10 +476,19 @@ def baue(pid, spec):
     hb, hh = spec["h_breite"] * breite, spec["h_hoehe"] * hoehe
     if spec["tandem"]:
         m = (o0 + o1) * 0.5
-        haube(bg, spec, y0 + laenge * o0, y0 + laenge * (m - 0.02), basis, hb, hh, 0, 1)
-        haube(bg, spec, y0 + laenge * (m + 0.02), y0 + laenge * o1, basis, hb, hh, 0, 1)
+        haube(bg, hp_von(spec), y0 + laenge * o0, y0 + laenge * (m - 0.02), basis, hb, hh, 0, 1)
+        haube(bg, hp_von(spec), y0 + laenge * (m + 0.02), y0 + laenge * o1, basis, hb, hh, 0, 1)
+    elif spec.get("ws_getrennt"):
+        # SPITFIRE: gewoelbte Schiebehaube und davor ein EIGENER, facettierter Windschutz
+        # mit flacher Panzerglas-Frontscheibe und abgewinkelten Seitenscheiben.
+        u_ws = o0 + (o1 - o0) * 0.70
+        haube(bg, hp_von(spec, ws_ab=0.90, ws_rest=0.86),
+              y0 + laenge * o0, y0 + laenge * u_ws, basis, hb, hh, 0, 1)
+        haube(bg, hp_von(spec, facetten=True, alle_ringe=True, heck_ab=0.02, heck_rest=0.98,
+                         ws_ab=0.10, ws_rest=0.32, rundung=0.45, holme=False),
+              y0 + laenge * u_ws, y0 + laenge * o1, basis, hb * 0.93, hh * 0.96, 0, 1)
     else:
-        haube(bg, spec, y0 + laenge * o0, y0 + laenge * o1, basis, hb, hh, 0, 1)
+        haube(bg, hp_von(spec), y0 + laenge * o0, y0 + laenge * o1, basis, hb, hh, 0, 1)
     bmesh.ops.recalc_face_normals(bg, faces=bg.faces[:])
     bg.normal_update()
     bg.to_mesh(gl.data)

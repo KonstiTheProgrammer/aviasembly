@@ -2055,7 +2055,7 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 	# eigenem Segment) andockt, uebernimmt DEREN Querschnitt — sonst klafft an der ebenen
 	# Stirnflaeche eine Kante. Gleiches Prinzip wie beim Sternmotor weiter oben.
 	if p.get("biends", false):
-		for stil in ["bubble", "jet", "frame", "tandem"]:
+		for stil in ["bubble", "jet", "frame", "tandem", "spitfire"]:
 			if _reto_tgt == "cockpit_" + stil or _reto_tgt == "fuselage_" + stil:
 				var sfit := _fuselage_fit(PartCatalog.get_part("fuselage_" + stil), part, n, surface)
 				if not sfit.is_empty():

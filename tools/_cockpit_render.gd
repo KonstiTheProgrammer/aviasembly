@@ -3,7 +3,7 @@
 extends SceneTree
 var f := 0
 var i := 0
-var teile := ["bubble", "jet", "frame", "tandem"]
+var teile := ["spitfire", "bubble", "jet", "frame", "tandem"]
 var root3: Node3D
 var cam: Camera3D
 var akt: Node3D

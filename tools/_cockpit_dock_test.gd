@@ -18,7 +18,7 @@ func _process(_d: float) -> bool:
 	root.add_child(bc)
 	bc.clear_design()
 	var x := 0.0
-	for stil_v in ["bubble", "jet", "frame", "tandem"]:
+	for stil_v in ["spitfire", "bubble", "jet", "frame", "tandem"]:
 		var stil := String(stil_v)
 		var cid := "cockpit_" + stil
 		var fid := "fuselage_" + stil

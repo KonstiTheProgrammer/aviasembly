@@ -123,6 +123,19 @@ static func _build() -> void:
 		"desc": "Rumpfsegment mit dem Querschnitt des Sternmotors — dockt nahtlos an dessen Schnittebene an. Beide Enden einzeln formbar.",
 	})
 	_add({
+		"id": "cockpit_spitfire", "name": "Spitfire-Kanzel", "category": CAT_BODY,
+		"mass": 195.0, "color": Color(0.42, 0.47, 0.40), "shape": "cockpit",
+		"size": Vector3(1.15, 1.28, 2.5),
+		"canopy": Vector3(0.38, 0.42, 0.70),
+		"desc": "Schmale, hohe Kanzel im Spitfire-Schnitt: dreiteilige Haube mit flacher Panzerglasscheibe, Razorback-Ruecken, linke Halbtuer, Rueckspiegel, Reflexvisier und Spatengriff. Ebene Stirnflaechen — das Rumpfsegment (Spitfire) setzt ohne Absatz an.",
+	})
+	_add({
+		"id": "fuselage_spitfire", "name": "Rumpfsegment (Spitfire)", "category": CAT_BODY,
+		"mass": 118.0, "color": C_BODY, "shape": "profile_tube", "profile": "spitfire",
+		"size": Vector3(1.150, 1.280, 2.0), "biends": true,
+		"desc": "Rumpfsegment im Querschnitt der Spitfire-Kanzel — schliesst ohne Absatz an deren ebene Stirnflaeche an. Beide Enden einzeln formbar.",
+	})
+	_add({
 		"id": "fuselage_bubble", "name": "Rumpfsegment (Bubble)", "category": CAT_BODY,
 		"mass": 125.0, "color": C_BODY, "shape": "profile_tube", "profile": "bubble",
 		"size": Vector3(1.300, 1.300, 2.0), "biends": true,
@@ -1926,6 +1939,20 @@ const TANDEM_PROFILE: Array = [
 ]
 
 
+const SPITFIRE_PROFILE: Array = [
+	Vector2(0.5000, 0.0000), Vector2(0.4906, 0.1015), Vector2(0.4628, 0.1959),
+	Vector2(0.4176, 0.2818), Vector2(0.3566, 0.3566), Vector2(0.2818, 0.4176),
+	Vector2(0.1959, 0.4628), Vector2(0.1015, 0.4906), Vector2(0.0000, 0.5000),
+	Vector2(-0.1015, 0.4906), Vector2(-0.1959, 0.4628), Vector2(-0.2818, 0.4176),
+	Vector2(-0.3566, 0.3566), Vector2(-0.4176, 0.2818), Vector2(-0.4628, 0.1959),
+	Vector2(-0.4906, 0.1015), Vector2(-0.5000, 0.0000), Vector2(-0.4906, -0.1015),
+	Vector2(-0.4628, -0.1959), Vector2(-0.4176, -0.2818), Vector2(-0.3566, -0.3566),
+	Vector2(-0.2818, -0.4176), Vector2(-0.1959, -0.4600), Vector2(-0.1015, -0.4600),
+	Vector2(-0.0000, -0.4600), Vector2(0.1015, -0.4600), Vector2(0.1959, -0.4600),
+	Vector2(0.2818, -0.4176), Vector2(0.3566, -0.3566), Vector2(0.4176, -0.2818),
+	Vector2(0.4628, -0.1959), Vector2(0.4906, -0.1015),
+]
+
 # Profil zu einem Namen aus dem Teil-Dict (Feld "profile").
 static func named_profile(nm: String) -> Array:
 	match nm:
@@ -1933,6 +1960,7 @@ static func named_profile(nm: String) -> Array:
 		"jet": return JET_PROFILE
 		"frame": return FRAME_PROFILE
 		"tandem": return TANDEM_PROFILE
+		"spitfire": return SPITFIRE_PROFILE
 	return RADIAL_PROFILE
 
 # Rumpf-Tubus mit BELIEBIGEM Profilquerschnitt (geschlossener CCW-Punktzug in [-0.5,0.5]²).
