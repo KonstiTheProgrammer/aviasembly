@@ -47,6 +47,13 @@ func _mesh_center(node: Node) -> Vector3:
 	return mi.transform * mi.get_aabb().get_center()
 
 
+func _mesh_parent_aabb(node: Node) -> AABB:
+	var mi := node as MeshInstance3D
+	if mi == null or mi.mesh == null:
+		return AABB()
+	return mi.transform * mi.get_aabb()
+
+
 func _process(_delta: float) -> bool:
 	frame += 1
 	if frame < 2:
@@ -81,6 +88,12 @@ func _process(_delta: float) -> bool:
 		_check(Vector2(glass_center.x, glass_center.y).distance_to(
 			Vector2(frame_center.x, frame_center.y)) < 0.001,
 			"Frontscheibe und Frontring besitzen exakt denselben Mittelpunkt")
+		var glass_box := _mesh_parent_aabb(front_glass)
+		var frame_box := _mesh_parent_aabb(front_frame)
+		_check(frame_box.size.z > 0.025 and frame_box.size.z < 0.040,
+			"Frontring bildet eine kurze integrierte Ringlippe")
+		_check(glass_box.position.z - frame_box.position.z > 0.002,
+			"runde Frontscheibe sitzt sichtbar hinter der vorderen Ringkante")
 	var paint := _find_material(visual, "cockpit_body")
 	var glass := _find_material(visual, "glass")
 	_check(paint != null, "cockpit_body ist als Lackmaterial erhalten")

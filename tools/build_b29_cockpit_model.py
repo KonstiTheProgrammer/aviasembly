@@ -173,21 +173,24 @@ def ellipse_disc_y(name, y, zc, rx, rz, mat, segments=32):
     faces = []
     for i in range(segments):
         faces.append((0, 1 + i, 1 + (i + 1) % segments))
-    return mesh_object(name, verts, faces, mat, False)
+    return mesh_object(name, verts, faces, mat, True)
 
 
-def ellipse_annulus_y(name, y, zc, outer, inner, mat, segments=32):
-    """Bündige Ringfläche ohne den hervorstehenden Querschnitt eines Torus."""
+def ellipse_beveled_ring_y(name, zc, rings, mat, segments=32):
+    """Kurze konische Ringlippe, die außen exakt aus der Nasenkontur wächst."""
     verts = []
-    for rx, rz in (outer, inner):
+    for y, rx, rz in rings:
         for i in range(segments):
             angle = math.tau * i / segments
             verts.append((math.cos(angle) * rx, y, zc + math.sin(angle) * rz))
     faces = []
-    for i in range(segments):
-        j = (i + 1) % segments
-        faces.append((i, j, segments + j, segments + i))
-    return mesh_object(name, verts, faces, mat, False)
+    for row in range(len(rings) - 1):
+        a = row * segments
+        b = (row + 1) * segments
+        for i in range(segments):
+            j = (i + 1) % segments
+            faces.append((a + i, a + j, b + j, b + i))
+    return mesh_object(name, verts, faces, mat, True)
 
 
 def curve_tube(name, points, mat, radius=0.018, cyclic=False, resolution=2):
@@ -317,15 +320,22 @@ def faceted_glass_nose():
 
     mesh_object_multi("B29_Nasenhaut", verts, faces, (BODY, FRAME, GLASS))
 
-    # Bündige Bombenschützen-Frontscheibe: Ring und Glas liegen flach in der
-    # ersten Nasenstation, statt als dicker Torus vor der Kontur zu schweben.
-    front_y = NOSE_STATIONS[0][0] + 0.003
+    # Bombenschützen-Frontscheibe mit kurzer, sauberer Ringlippe. Der Außenring
+    # teilt exakt die Kontur der ersten Nasenstation; die runde Scheibe sitzt
+    # leicht zurückgesetzt hinter der vorderen Kante.
+    front_y = NOSE_STATIONS[0][0]
     ellipse_disc_y(
-        "Bombenschuetze_Frontglas", front_y, -0.05, 0.130, 0.117, GLASS, 32
+        "Bombenschuetze_Frontglas", front_y + 0.026, -0.05,
+        0.126, 0.126, GLASS, 32
     )
-    ellipse_annulus_y(
-        "Bombenschuetze_Frontring", front_y + 0.001, -0.05,
-        (0.190, 0.171), (0.136, 0.123), FRAME, 32
+    ellipse_beveled_ring_y(
+        "Bombenschuetze_Frontring", -0.05,
+        (
+            (front_y, 0.200, 0.180),
+            (front_y + 0.015, 0.165, 0.155),
+            (front_y + 0.030, 0.138, 0.138),
+        ),
+        FRAME, NOSE_SEGMENTS
     )
 
 

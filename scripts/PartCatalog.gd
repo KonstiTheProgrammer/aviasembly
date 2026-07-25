@@ -63,7 +63,7 @@ static func _build() -> void:
 		"size": Vector3(1.7, 1.9, 2.7),
 		"col_size": Vector3(1.7, 1.6, 2.7),
 		"metal": 0.40, "rough": 0.48,
-		"desc": "Superfortress-Bug als Blender-Modell: gerade zylindrische Rumpfschale, facettierte Glasnase mit fast schwarzem blickdichtem Jet-Glas, bündigen grauen Rahmen, Metallkinn und flach eingelassener Bombenschützen-Frontscheibe. Hinten ebene Andockfläche für einen dicken Bomberrumpf.",
+		"desc": "Superfortress-Bug als Blender-Modell: gerade zylindrische Rumpfschale, facettierte Glasnase mit fast schwarzem blickdichtem Jet-Glas, bündigen grauen Rahmen, Metallkinn und runder Bombenschützen-Scheibe hinter einer kurzen integrierten Ringlippe. Hinten ebene Andockfläche für einen dicken Bomberrumpf.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,

@@ -434,9 +434,11 @@ Kinn-/Fahrwerksblöcke und Nieten wurden entfernt; Steuerhörner und Bombenschü
 liegen weiter innen und verwenden keine hellen Außenrahmen-Materialien. Der Cockpitboden
 ist schmaler und höher, damit auch seine Ecken innerhalb der elliptischen Außenhaut
 liegen. Frontscheibe und Frontring sitzen beide bei Z=-0.05 und sind dadurch exakt
-konzentrisch. Der frühere dicke Torus wurde durch eine flache elliptische Ringfläche
-direkt auf der ersten Nasenstation ersetzt; Glas und Ring liegen nur 0.001 auseinander
-und lesen als bündige Frontkappe statt als aufgesetztes Rohr. Der Export fasst
+konzentrisch. Der frühere dicke Torus bzw. die zu flache Ringplatte wurde durch eine
+kurze konische Ringlippe mit drei Querschnitten ersetzt: außen exakt die erste
+Nasenstation (0.20 × 0.18), mittig 0.165 × 0.155 und vorn ein runder 0.138er Rand.
+Die runde schwarze Scheibe (r=0.126) sitzt 0.004 hinter dieser Vorderkante. Damit wächst
+das Frontteil aus der Nase, ohne wie ein aufgesetztes Rohr oder eine Platte zu wirken. Der Export fasst
 die übrigen Konstruktionsobjekte zu `B29_Rumpf_komplett`, `B29_Glasdetails`,
 `B29_Rahmendetails` und `B29_Innenraum` zusammen (insgesamt fünf Meshes). Die nach hinten ansteigende Metall-
 Kinnlinie, kleine runde Bombenschützen-Frontscheibe und zurücklaufende Pilotenfenster
