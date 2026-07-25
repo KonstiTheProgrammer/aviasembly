@@ -2,7 +2,7 @@
 extends SceneTree
 var f := 0
 var i := 0
-var teile := ["canopy_bean", "jet_cockpit"]
+var teile := ["cockpit_b29"]
 var root3: Node3D
 var cam: Camera3D
 var akt: Node3D

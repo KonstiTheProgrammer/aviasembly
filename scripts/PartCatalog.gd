@@ -58,6 +58,12 @@ static func _build() -> void:
 		"desc": "Rotes-Baron-Cockpit mit Lederrand und Instrumenten. Die Rumpfschale passt ohne Überstand exakt auf das Sternmotor-Profil.",
 	})
 	_add({
+		"id": "cockpit_b29", "name": "B-29-Kanzel (Glasnase)", "category": CAT_BODY,
+		"mass": 240.0, "color": Color(0.74, 0.75, 0.78), "shape": "b29_nose", "root": true,
+		"size": Vector3(1.6, 1.6, 2.6),
+		"desc": "Superfortress-Bug: rundum verglaste Kugelnase auf fettem, rundem Rumpf — kein Dach-Canopy. Im Bohnen-Stil glatt gehalten, mit duennen Rundsprossen, Astrodome und zwei Sitzen. Hinten ebene Andockflaeche.",
+	})
+	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
 		"mass": 45.0, "color": C_COCKPIT, "shape": "bean", "embed": 0.40,
 		# size.y = nur der Teil, der OBEN herausschaut. Der generische Snap legt die UNTERKANTE
@@ -1149,6 +1155,70 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			var rtube := _profile_tube(RETO_PROFILE, ef, eb)
 			root.add_child(_mi(rtube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
+
+		"b29_nose":
+			# B-29-KANZEL: das Merkmal der Superfortress ist die RUNDUM VERGLASTE Kugelnase —
+			# kein Dach-Canopy, sondern ein glaeserner Bug auf einem fetten runden Rumpf.
+			# Im Bohnen-Stil gehalten: die Nase ist ein GLATTER Ellipsoid (dasselbe
+			# _bean_mesh) statt harter Facetten, die Sprossen sind duenne Rundstaebe.
+			var R: float = size.x * 0.5
+			var Lz: float = size.z
+			var kuppel: float = Lz * 0.46                      # Laenge der Glasnase
+			var zg: float = -Lz * 0.5 + kuppel                 # Uebergang Glas -> Blech
+			# Rumpfrohr mit ebener Rueckseite (dort dockt ein Rumpfsegment an)
+			root.add_child(_mi(_loft([
+				Vector4(zg - 0.02, R * 0.995, size.y * 0.5 * 0.995, 0.0),
+				Vector4(Lz * 0.16, R, size.y * 0.5, 0.0),
+				Vector4(Lz * 0.5, R * 0.985, size.y * 0.5 * 0.985, 0.0)], 32, false, true),
+				make_material(col, metal, rough)))
+			# Glasnase: voller Ellipsoid, die hintere Haelfte steckt im Rohr (unsichtbar) —
+			# dadurch gibt es keine Naht, genau wie bei der aufgesetzten Bohne.
+			var b29_glas := make_material(Color(0.55, 0.68, 0.76), 0.15, 0.06, true)
+			b29_glas.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			b29_glas.albedo_color.a = 0.34
+			b29_glas.cull_mode = BaseMaterial3D.CULL_DISABLED
+			root.add_child(_mi(_bean_mesh(30, 16), b29_glas, Vector3(0.0, 0.0, zg),
+				Vector3(-PI * 0.5, 0.0, 0.0),
+				Vector3(size.x * 0.99, kuppel * 2.0, size.y * 0.99)))
+			# Sprossen: drei Ringe entlang der Kuppel + vier Laengsstaebe
+			var b29_rahmen := make_material(Color(0.24, 0.26, 0.30), 0.65, 0.35)
+			for t29 in [0.30, 0.58, 0.84]:
+				var zz: float = zg - kuppel * (1.0 - t29)
+				var rr: float = sqrt(maxf(1.0 - pow(1.0 - t29, 2.0), 0.02))
+				var rg := TorusMesh.new()
+				rg.inner_radius = 0.45
+				rg.outer_radius = 0.5
+				rg.rings = 6
+				rg.ring_segments = 30
+				root.add_child(_mi(rg, b29_rahmen, Vector3(0.0, 0.0, zz),
+					Vector3(PI * 0.5, 0.0, 0.0),
+					Vector3(size.x * rr * 1.02, 0.075, size.y * rr * 1.02)))
+			for k29 in 4:
+				var a29: float = PI * 0.25 + float(k29) * PI * 0.5
+				var sm29 := SphereMesh.new()
+				sm29.radial_segments = 6
+				sm29.rings = 3
+				sm29.radius = 0.5
+				sm29.height = 1.0
+				# Laengsstab als schlanke Kette kleiner Kugeln entlang der Kuppelkontur
+				for j29 in 16:
+					var tt: float = 0.06 + 0.90 * float(j29) / 15.0
+					var rr2: float = sqrt(maxf(1.0 - pow(1.0 - tt, 2.0), 0.02))
+					root.add_child(_mi(sm29, b29_rahmen, Vector3(
+						cos(a29) * R * rr2 * 1.01, sin(a29) * size.y * 0.5 * rr2 * 1.01,
+						zg - kuppel * (1.0 - tt)), Vector3.ZERO, Vector3(0.075, 0.075, 0.075)))
+			# Astrodome hinter der Verglasung (kleine Bohne) + zwei Sitze und Brett innen
+			root.add_child(_mi(_bean_mesh(20, 10), b29_glas,
+				Vector3(0.0, size.y * 0.5 - 0.06, Lz * 0.10), Vector3.ZERO,
+				Vector3(size.x * 0.30, 0.30, size.z * 0.20)))
+			var b29_dunkel := make_material(Color(0.10, 0.11, 0.13), 0.2, 0.7)
+			for sx29 in [-1.0, 1.0]:
+				root.add_child(_mi(BoxMesh.new(), b29_dunkel,
+					Vector3(sx29 * R * 0.34, -size.y * 0.10, zg + Lz * 0.06),
+					Vector3.ZERO, Vector3(R * 0.40, size.y * 0.34, size.z * 0.20)))
+			root.add_child(_mi(BoxMesh.new(), b29_dunkel,
+				Vector3(0.0, -size.y * 0.02, zg - kuppel * 0.30), Vector3(0.34, 0.0, 0.0),
+				Vector3(size.x * 0.62, size.y * 0.22, 0.08)))
 
 		"bean":
 			# BOHNE: glatte, ovale Blister-Kanzel zum AUFSETZEN. `embed` sagt, welcher Anteil

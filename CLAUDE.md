@@ -394,7 +394,14 @@ Varianten (Bubble/Jet/Rahmen/Tandem) sind auf Wunsch ENTFERNT. Dazu **`canopy_be
 `shape "bean"` + Feld `embed`: `size.y` umfasst nur den SICHTBAREN Teil (der generische Snap
 legt die Unterkante der Box auf die Flaeche), die Geometrie wird um `size.y/(1-embed)`
 gestreckt und nach unten versetzt -> gemessen exakt 40.0 % eingebettet
-(`tools/_bean_check.gd`). Und **`jet_cockpit`** („Delta-Jet-Cockpit", jetzt in der Palette
+(`tools/_bean_check.gd`). Und **`cockpit_b29`** („B-29-Kanzel"): das Merkmal der Superfortress ist die RUNDUM
+VERGLASTE Kugelnase, kein Dach-Canopy. `shape "b29_nose"` = fettes rundes Rohr mit ebener
+Rueckseite + ein VOLLER Glas-Ellipsoid (dasselbe `_bean_mesh`, um -90 Grad um X gedreht),
+dessen hintere Haelfte im Rohr steckt -> keine Naht, gleiches Prinzip wie bei der
+aufgesetzten Bohne. Dazu Sprossenringe, Astrodome und zwei Sitze mit Brett hinter dem Glas
+(`TRANSPARENCY_ALPHA`, `CULL_DISABLED`, Alpha 0.34 — mit dunklem Glas sah man den Innenraum
+nicht). OFFEN: die Laengssprossen sind noch eine Kugelkette statt durchgehender Rohre.
+Und **`jet_cockpit`** („Delta-Jet-Cockpit", jetzt in der Palette
 statt versteckt): `_jet_hull` lofted seither MIT Stirndeckeln — ohne sie war das Segment ein
 offenes Rohr, mitten im Rumpf unauffaellig, als vorderstes Teil aber sichtbar aufgerissen
 (genau das gemeldete „vorne kaputt"). Einlaufteile (`intake`) bleiben vorne offen. ·
