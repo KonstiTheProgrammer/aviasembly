@@ -63,7 +63,7 @@ static func _build() -> void:
 		"size": Vector3(1.7, 1.9, 2.7),
 		"col_size": Vector3(1.7, 1.6, 2.7),
 		"metal": 0.40, "rough": 0.48,
-		"desc": "Superfortress-Bug als Blender-Modell: verlängerte facettierte Glasfront mit zusätzlicher hinterer Fensterreihe und nur 0,30 m kurzem geradem Metallabschluss. Glasnase und Abschluss sind an zwölf gemeinsamen Vertices zu einer Außenhaut verschweißt. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Bombenschützen-Scheibe hinter einer kurzen 12-Eck-Ringlippe. Hinten ebene Andockfläche.",
+		"desc": "Superfortress-Bug als Blender-Modell: verlängerte facettierte Glasfront mit zusätzlicher hinterer Fensterreihe, weich auslaufender Unterkontur und nur 0,30 m kurzem geradem Metallabschluss. Glasnase und Abschluss sind an zwölf gemeinsamen Vertices zu einer Außenhaut verschweißt. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Bombenschützen-Scheibe hinter einer kurzen 12-Eck-Ringlippe. Hinten ebene Andockfläche.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,

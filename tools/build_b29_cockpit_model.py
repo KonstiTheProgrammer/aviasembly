@@ -256,7 +256,10 @@ NOSE_STATIONS = (
     (0.54, 0.69, 0.59, 0.05),
     (0.20, 0.79, 0.68, 0.07),
     (-0.12, 0.81, 0.70, 0.07),
-    (-0.46, 0.84, 0.74, 0.04),
+    # Der Unterbogen läuft hier weich von -0.63 über -0.67 auf -0.70 aus.
+    # Oberkante bleibt nahezu waagerecht; dadurch verschwindet der frühere
+    # harte Ausschlag vor dem kurzen Metallabschluss.
+    (-0.46, 0.84, 0.725, 0.055),
     (-1.10, 0.84, 0.74, 0.04),
 )
 def nose_point(row, segment_f, axial_f=0.0, lift=1.0):
@@ -282,6 +285,13 @@ def is_glass_cell(row, segment):
 
 def faceted_glass_nose():
     """Eine zusammenhängende Nasenhaut aus Metall, Rahmen und bündigen Scheiben."""
+    rear_bottoms = [station[3] - station[2] for station in NOSE_STATIONS[-3:]]
+    rear_steps = [
+        abs(rear_bottoms[i + 1] - rear_bottoms[i])
+        for i in range(len(rear_bottoms) - 1)
+    ]
+    if max(rear_steps) > 0.041:
+        raise RuntimeError("Unterer Übergang zum kurzen B-29-Ende ist nicht weich genug")
     rear_row = len(NOSE_STATIONS) - 2
     rear_glass_cells = sum(
         1 for segment in range(NOSE_SEGMENTS) if is_glass_cell(rear_row, segment)

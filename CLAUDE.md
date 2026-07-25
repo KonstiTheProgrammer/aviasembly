@@ -426,7 +426,9 @@ mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten o
 Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Die
 Nasenhaut besitzt jetzt noch eine zusätzliche hintere Fensterreihe bis Y=-1.10.
 Der zuvor lange Metallzylinder wurde entfernt; nur ein kurzer gerader 0.30-m-Abschluss
-von Y=-1.40 bis -1.10 bleibt als ebene Andockhülse. Beim Blender-Build werden
+von Y=-1.40 bis -1.10 bleibt als ebene Andockhülse. Die untere Silhouette läuft
+vor dieser Hülse ohne Ausschlag über Z=-0.63 → -0.67 → -0.70 weich aus; die
+Oberkante bleibt dabei nahezu waagerecht. Beim Blender-Build werden
 `B29_Nasenhaut` und `B29_Rumpf_komplett`
 anschließend gejoint und die zwölf identischen Vertex-Paare per
 `bmesh.ops.remove_doubles(dist=0.00001)` verschweißt; Normalen werden neu berechnet.
