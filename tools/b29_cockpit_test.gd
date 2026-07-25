@@ -33,6 +33,13 @@ func _find_material(node: Node, wanted: String) -> StandardMaterial3D:
 	return null
 
 
+func _count_meshes(node: Node) -> int:
+	var count := 1 if node is MeshInstance3D else 0
+	for child in node.get_children():
+		count += _count_meshes(child)
+	return count
+
+
 func _process(_delta: float) -> bool:
 	frame += 1
 	if frame < 2:
@@ -47,12 +54,14 @@ func _process(_delta: float) -> bool:
 	var visual := PartCatalog.build_visual(part)
 	_check(visual.find_child("B29_Nasenhaut", true, false) != null,
 		"Metall, bündige Rahmen und Scheiben bilden eine gemeinsame Nasenhaut")
-	_check(visual.find_child("B29_Pilotenverglasung", true, false) != null,
-		"Pilotenfenster bilden eine gemeinsame Verglasungsgruppe")
+	_check(visual.find_child("B29_Pilotenverglasung", true, false) == null,
+		"keine aufgesetzte Pilotenverglasung überlappt die Rumpfhaut")
 	_check(visual.find_child("B29_Rumpf_komplett", true, false) != null,
-		"Rumpf und Kinn sind zu einer sauberen Baugruppe zusammengefasst")
+		"Rumpfschale ist zu einer sauberen Baugruppe zusammengefasst")
 	_check(visual.find_child("B29_Innenraum", true, false) != null,
 		"Innenausbau ist zu einer sauberen Baugruppe zusammengefasst")
+	_check(_count_meshes(visual) == 5,
+		"Export besteht nur aus fünf überschneidungsfreien Mesh-Baugruppen")
 	_check(visual.find_child("Astrodome", true, false) == null,
 		"kein falscher Astrodome sitzt auf dem Cockpitteil")
 	var paint := _find_material(visual, "cockpit_body")

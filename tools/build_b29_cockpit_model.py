@@ -188,11 +188,12 @@ def fuselage_shell():
     stations = [
         (-1.40, 0.82, 0.72, -0.04),
         (-1.05, 0.84, 0.74, -0.03),
-        (-0.62, 0.85, 0.75, -0.02),
-        (-0.25, 0.84, 0.74, 0.00),
-        (0.04, 0.80, 0.70, 0.03),
+        (-0.72, 0.85, 0.75, -0.01),
+        (-0.46, 0.84, 0.74, 0.04),
     ]
-    segs = 24
+    # Gleiche Ringteilung wie die Nasenhaut: dadurch treffen sich beide Polygone
+    # an der gemeinsamen Endkante exakt und lassen keine dreieckigen Spalten.
+    segs = 10
     verts = []
     for y, rx, rz, zc in stations:
         for i in range(segs):
@@ -222,6 +223,7 @@ NOSE_STATIONS = (
     (0.54, 0.69, 0.59, 0.05),
     (0.20, 0.79, 0.68, 0.07),
     (-0.12, 0.81, 0.70, 0.07),
+    (-0.46, 0.84, 0.74, 0.04),
 )
 NOSE_SEGMENTS = 10
 
@@ -243,7 +245,7 @@ def is_glass_cell(row, segment):
     """Die Metall-Kinnlinie steigt nach hinten wie im Referenzbild an."""
     angle = math.tau * (segment + 0.5) / NOSE_SEGMENTS
     lower = math.sin(angle)
-    thresholds = (-1.1, -0.78, -0.55, -0.25, 0.00)
+    thresholds = (-1.1, -0.78, -0.55, -0.25, 0.00, 0.22)
     return lower > thresholds[row]
 
 
@@ -295,54 +297,9 @@ def faceted_glass_nose():
     torus_y("Bombenschuetze_Frontring", front_y + 0.012, 0.151, 0.018, FRAME, 0.92)
 
 
-def greenhouse_extension():
-    """Eine gemeinsame Pilotenverglasung läuft in die obere Rumpfschale zurück."""
-    y_rows = (-0.10, -0.36, -0.63, -0.89)
-    angle_edges = tuple(math.radians(a) for a in (28, 58, 88, 118, 148))
-    rx = 0.825
-    rz = 0.725
-    verts = []
-    faces = []
-
-    def point(y, angle, lift=1.0):
-        return (math.cos(angle) * rx * lift, y,
-                0.03 + math.sin(angle) * rz * lift)
-
-    for iy in range(len(y_rows) - 1):
-        for ia in range(len(angle_edges) - 1):
-            a0 = angle_edges[ia]
-            a1 = angle_edges[ia + 1]
-            y0 = y_rows[iy]
-            y1 = y_rows[iy + 1]
-            frame_corners = (
-                point(y0, a0, 1.004), point(y0, a1, 1.004),
-                point(y1, a1, 1.004), point(y1, a0, 1.004),
-            )
-            inset = 0.10
-            pa0 = a0 + (a1 - a0) * inset
-            pa1 = a1 - (a1 - a0) * inset
-            py0 = y0 + (y1 - y0) * inset
-            py1 = y1 - (y1 - y0) * inset
-            pane = (
-                point(py0, pa0, 1.008), point(py0, pa1, 1.008),
-                point(py1, pa1, 1.008), point(py1, pa0, 1.008),
-            )
-            base = len(verts)
-            verts.extend(frame_corners)
-            verts.extend(pane)
-            faces.extend((
-                ((base + 4, base + 5, base + 6, base + 7), 1),
-                ((base + 0, base + 1, base + 5, base + 4), 0),
-                ((base + 1, base + 2, base + 6, base + 5), 0),
-                ((base + 2, base + 3, base + 7, base + 6), 0),
-                ((base + 3, base + 0, base + 4, base + 7), 0),
-            ))
-    mesh_object_multi("B29_Pilotenverglasung", verts, faces, (FRAME, GLASS_DARK))
-
-
 def cockpit_interior():
     """Lesbarer Innenausbau hinter dem dunklen Glas."""
-    box("Cockpitboden", (1.24, 1.35, 0.075), (0.0, -0.16, -0.43),
+    box("Cockpitboden", (1.05, 1.15, 0.060), (0.0, -0.16, -0.34),
         INTERIOR, bevel=0.025)
     box("Instrumentenbrett", (1.12, 0.075, 0.33), (0.0, 0.18, 0.02),
         INTERIOR, rotation=(math.radians(-8), 0.0, 0.0), bevel=0.025)
@@ -362,19 +319,19 @@ def cockpit_interior():
         curve_tube(
             "Steuerhorn_Saeule",
             [
-                Vector((x, -0.05, -0.34)),
-                Vector((x, 0.02, -0.12)),
-                Vector((x, 0.08, -0.02)),
+                Vector((x, -0.22, -0.34)),
+                Vector((x, -0.16, -0.18)),
+                Vector((x, -0.11, -0.10)),
             ],
-            FRAME,
+            INTERIOR,
             0.018,
         )
         curve_tube(
             "Steuerhorn_Griff",
             [
-                Vector((x - 0.11, 0.09, -0.01)),
-                Vector((x, 0.10, 0.035)),
-                Vector((x + 0.11, 0.09, -0.01)),
+                Vector((x - 0.09, -0.10, -0.10)),
+                Vector((x, -0.09, -0.065)),
+                Vector((x + 0.09, -0.10, -0.10)),
             ],
             RUBBER,
             0.024,
@@ -396,40 +353,14 @@ def cockpit_interior():
             )
 
     # Bombenschützenplatz vorn: Sitzkissen, Visier und kleiner Arbeitstisch.
-    box("Bombenschuetze_Sitz", (0.34, 0.34, 0.08), (0.0, 0.66, -0.45),
+    box("Bombenschuetze_Sitz", (0.30, 0.28, 0.07), (0.0, 0.58, -0.34),
         LEATHER, bevel=0.04)
-    box("Bombenschuetze_Tisch", (0.46, 0.30, 0.045), (0.0, 0.70, -0.20),
+    box("Bombenschuetze_Tisch", (0.40, 0.26, 0.040), (0.0, 0.62, -0.14),
         INTERIOR, rotation=(math.radians(8), 0.0, 0.0), bevel=0.018)
     cylinder("Bombenvisier", 0.055, 0.28, (0.0, 0.94, -0.12),
-             (0.0, 1.0, 0.0), FRAME, 24, 0.004)
+             (0.0, 1.0, 0.0), INTERIOR, 24, 0.004)
     cylinder("Bombenvisier_Okular", 0.075, 0.055, (0.0, 1.08, -0.12),
              (0.0, 1.0, 0.0), RUBBER, 24, 0.004)
-
-
-def exterior_details():
-    # Blechstoß und Nieten am hinteren Anschluss.
-    torus_y("Rumpf_Blechstoss", -0.70, 0.805, 0.008, BODY_DARK, 0.90)
-    for idx in range(24):
-        angle = math.tau * idx / 24
-        cylinder(
-            "Anschlussniete",
-            0.011,
-            0.012,
-            (
-                math.cos(angle) * 0.812,
-                -0.70,
-                math.sin(angle) * 0.718,
-            ),
-            (0.0, 1.0, 0.0),
-            FRAME,
-            12,
-        )
-
-    # Charakteristische Kinn-/Fahrwerksaufnahme unterhalb der Glasnase.
-    box("Kinnverkleidung", (0.34, 0.52, 0.18), (0.0, -0.04, -0.685),
-        BODY, bevel=0.045)
-    box("Bugfahrwerk_Aufnahme", (0.18, 0.24, 0.08), (0.0, -0.12, -0.79),
-        BODY_DARK, bevel=0.025)
 
 
 def apply_modifiers():
@@ -473,7 +404,7 @@ def join_group(objects, name):
 def consolidate_objects():
     """Aus vielen Konstruktionshilfen werden wenige saubere Blender-Baugruppen."""
     convert_curves()
-    reserved = {"B29_Nasenhaut", "B29_Pilotenverglasung"}
+    reserved = {"B29_Nasenhaut"}
     groups = {
         "B29_Rumpf_komplett": [],
         "B29_Glasdetails": [],
@@ -501,8 +432,6 @@ def build():
     fuselage_shell()
     cockpit_interior()
     faceted_glass_nose()
-    greenhouse_extension()
-    exterior_details()
     apply_modifiers()
     consolidate_objects()
     bpy.ops.export_scene.gltf(filepath=str(OUT), export_format="GLB", export_yup=True)

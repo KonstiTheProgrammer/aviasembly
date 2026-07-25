@@ -420,9 +420,16 @@ parametrisch eingerückte Scheibe, sodass der bündige Rahmen direkt in der Auß
 und nicht wie ein Drahtkäfig vor der Nase schwebt. In der finalen Geometrie sind Rahmen,
 Scheiben und Metallkinn sogar ohne überlappende Flächen in **einem** `B29_Nasenhaut`-Mesh
 mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten oder
-Z-Fighting. Auch die zurücklaufenden Pilotenfenster sind ein gemeinsames Mesh. Der Export
-fasst die übrigen Konstruktionsobjekte zu `B29_Rumpf_komplett`, `B29_Glasdetails`,
-`B29_Rahmendetails` und `B29_Innenraum` zusammen. Die nach hinten ansteigende Metall-
+Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Eine zusätzliche
+hintere Station der Nasenhaut reicht bis zur exakt gleichen Endkante des verkürzten
+Rumpfmeshes. Beide Anschlussringe haben dieselbe 10er-Teilung und dieselben Koordinaten;
+so entstehen auch zwischen unterschiedlich triangulierten Polygonringen keine Spalte.
+Beide teilen dort die Kontur, aber keine Fläche. Die außen herausragenden
+Kinn-/Fahrwerksblöcke und Nieten wurden entfernt; Steuerhörner und Bombenschützenplatz
+liegen weiter innen und verwenden keine hellen Außenrahmen-Materialien. Der Cockpitboden
+ist schmaler und höher, damit auch seine Ecken innerhalb der elliptischen Außenhaut liegen. Der Export fasst
+die übrigen Konstruktionsobjekte zu `B29_Rumpf_komplett`, `B29_Glasdetails`,
+`B29_Rahmendetails` und `B29_Innenraum` zusammen (insgesamt fünf Meshes). Die nach hinten ansteigende Metall-
 Kinnlinie, kleine runde Bombenschützen-Frontscheibe und zurücklaufende Pilotenfenster
 bilden die Referenz-Silhouette; Astrodome und Antenne gehören zu späteren Rumpfsegmenten
 und sitzen bewusst nicht auf diesem Cockpitteil. Innen sind zwei
