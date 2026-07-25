@@ -64,6 +64,11 @@ func _process(_delta: float) -> bool:
 	_check(hull != null, "integrierte Cockpit-Außenhaut ist vorhanden")
 	_check(details != null, "Details liegen in einer eigenen sauberen Meshgruppe")
 	_check(_count_meshes(model) == 2, "GLB enthält genau zwei Meshgruppen")
+	if hull != null and details != null:
+		_check(_find_material(hull, "glass") != null,
+			"Glas ersetzt echte Flächen direkt in der Cockpit-Außenhaut")
+		_check(_find_material(details, "glass") == null,
+			"kein aufgesetztes Glas-Detailmesh bleibt übrig")
 
 	var body := _find_material(model, "cockpit_body")
 	var frame_mat := _find_material(model, "frame")

@@ -173,50 +173,208 @@ def mesh_object_multi(name, verts, face_data, materials):
     return obj
 
 
+def front_boundary_z(x, upper):
+    """Z-Wert des vorderen Anschlussquerschnitts bei Y=0,12."""
+    rx, rz, zc = station_values(0.12)
+    exponent = 2.0 / SQUIRCLE_POWER
+    ratio = min(abs(x / rx), 1.0)
+    z_abs = rz * max(0.0, 1.0 - ratio**exponent) ** (1.0 / exponent)
+    return zc + z_abs * (1.0 if upper else -1.0)
+
+
+def skin_material(center):
+    """Materialindex der Metallhaut: 0 Körper, 1 dunkler Radombug."""
+    dark_limit = 0.26 + max(0.0, 0.92 - center.y) * 0.20
+    dark = center.y > 1.10 or (center.y > 0.70 and center.z < dark_limit)
+    return 1 if dark else 0
+
+
+def bridge_loops(front_loop, rear_loop, faces, material_index=0):
+    """Verbindet zwei gleich ausgerichtete Ringe mit beliebiger Eckenzahl."""
+    front_count = len(front_loop)
+    rear_count = len(rear_loop)
+    front_index = 0
+    rear_index = 0
+    epsilon = 0.000001
+    while front_index < front_count or rear_index < rear_count:
+        front_next = (
+            (front_index + 1) / front_count
+            if front_index < front_count
+            else float("inf")
+        )
+        rear_next = (
+            (rear_index + 1) / rear_count
+            if rear_index < rear_count
+            else float("inf")
+        )
+        front_now_vertex = front_loop[front_index % front_count]
+        rear_now_vertex = rear_loop[rear_index % rear_count]
+        if abs(front_next - rear_next) <= epsilon:
+            faces.append(
+                (
+                    (
+                        front_now_vertex,
+                        front_loop[(front_index + 1) % front_count],
+                        rear_loop[(rear_index + 1) % rear_count],
+                        rear_now_vertex,
+                    ),
+                    material_index,
+                )
+            )
+            front_index += 1
+            rear_index += 1
+        elif front_next < rear_next:
+            faces.append(
+                (
+                    (
+                        front_now_vertex,
+                        front_loop[(front_index + 1) % front_count],
+                        rear_now_vertex,
+                    ),
+                    material_index,
+                )
+            )
+            front_index += 1
+        else:
+            faces.append(
+                (
+                    (
+                        front_now_vertex,
+                        rear_loop[(rear_index + 1) % rear_count],
+                        rear_now_vertex,
+                    ),
+                    material_index,
+                )
+            )
+            rear_index += 1
+
+
 def build_hull(materials):
+    """Baut eine einzige Außenhaut, in der das Glas echte Hautflächen ersetzt."""
     verts = []
     faces = []
+    grid = []
 
-    # Gemeinsame Ring-Vertices sorgen für eine geschlossene, überlappungsfreie Haut.
-    for y, _rx, _rz, _zc in HULL_STATIONS:
-        for segment in range(SEGMENTS):
-            verts.append(section_point(y, segment))
+    # Die Front ist ein strukturiertes X/Z-Netz. Fensterunter- und -oberkante
+    # sind echte Netzzeilen; dadurch entstehen exakt sechs bündige Glasflächen.
+    for x, window_bottom, window_top in zip(
+        WINDOW_X, WINDOW_BOTTOM_Z, WINDOW_TOP_Z
+    ):
+        z_min = front_boundary_z(x, False)
+        z_max = front_boundary_z(x, True)
+        nose_row = -0.20 + 0.12 * abs(x / WINDOW_X[-1])
+        z_rows = (
+            z_min,
+            (z_min + nose_row) * 0.5,
+            nose_row,
+            window_bottom,
+            window_top,
+            (window_top + z_max) * 0.5,
+            z_max,
+        )
+        column = []
+        for z in z_rows:
+            column.append(len(verts))
+            verts.append((x, front_surface_y(x, z), z))
+        grid.append(column)
 
-    for row in range(len(HULL_STATIONS) - 1):
-        front_y = HULL_STATIONS[row][0]
-        rear_y = HULL_STATIONS[row + 1][0]
-        for segment in range(SEGMENTS):
-            nxt = (segment + 1) % SEGMENTS
-            a = row * SEGMENTS + segment
-            b = row * SEGMENTS + nxt
-            c = (row + 1) * SEGMENTS + nxt
-            d = (row + 1) * SEGMENTS + segment
-            center = (
-                Vector(verts[a]) + Vector(verts[b]) + Vector(verts[c]) + Vector(verts[d])
-            ) * 0.25
-            y_mid = (front_y + rear_y) * 0.5
-            # Dunkler, kurzer Radombug mit ansteigender Trennlinie unter den Fenstern.
-            dark_limit = 0.26 + max(0.0, 0.92 - y_mid) * 0.20
-            dark = y_mid > 1.10 or (y_mid > 0.70 and center.z < dark_limit)
-            faces.append(((a, b, c, d), 1 if dark else 0))
+    for column in range(len(grid) - 1):
+        for row in range(6):
+            a = grid[column][row]
+            b = grid[column + 1][row]
+            c = grid[column + 1][row + 1]
+            d = grid[column][row + 1]
+            if row == 3:
+                material_index = 2
+            else:
+                center = (
+                    Vector(verts[a])
+                    + Vector(verts[b])
+                    + Vector(verts[c])
+                    + Vector(verts[d])
+                ) * 0.25
+                material_index = skin_material(center)
+            # Blickrichtung der Frontflächen ist +Y.
+            faces.append(((a, d, c, b), material_index))
 
-    front_center = len(verts)
-    front = HULL_STATIONS[0]
-    verts.append((0.0, front[0], front[3]))
+    rx, _rz, zc = station_values(0.12)
+    left_extreme = len(verts)
+    verts.append((-rx, 0.12, zc))
+    right_extreme = len(verts)
+    verts.append((rx, 0.12, zc))
+    for row in range(6):
+        left_lower = grid[0][row]
+        left_upper = grid[0][row + 1]
+        left_center = (
+            Vector(verts[left_extreme])
+            + Vector(verts[left_lower])
+            + Vector(verts[left_upper])
+        ) / 3.0
+        faces.append(
+            (
+                (left_extreme, left_lower, left_upper),
+                skin_material(left_center),
+            )
+        )
+
+        right_lower = grid[-1][row]
+        right_upper = grid[-1][row + 1]
+        right_center = (
+            Vector(verts[right_extreme])
+            + Vector(verts[right_lower])
+            + Vector(verts[right_upper])
+        ) / 3.0
+        faces.append(
+            (
+                (right_extreme, right_upper, right_lower),
+                skin_material(right_center),
+            )
+        )
+
+    # Umlaufender 16-Eck-Rand der neuen Fronttopologie.
+    front_boundary = [right_extreme]
+    front_boundary.extend(grid[column][-1] for column in range(len(grid) - 1, -1, -1))
+    front_boundary.append(left_extreme)
+    front_boundary.extend(grid[column][0] for column in range(len(grid)))
+
+    # Kurzer Übergang auf den exakten 12-Eck-Rumpfkragen; dessen hintere
+    # 0,90 m bleiben vollständig gerade und passen zum Spiel-Rumpfsegment.
+    transition_ring = []
+    for segment in range(SEGMENTS):
+        transition_ring.append(len(verts))
+        verts.append(section_point(-0.50, segment))
+    bridge_loops(front_boundary, transition_ring, faces)
+
+    rear_ring = []
+    for segment in range(SEGMENTS):
+        rear_ring.append(len(verts))
+        verts.append(section_point(-1.40, segment))
+    for segment in range(SEGMENTS):
+        nxt = (segment + 1) % SEGMENTS
+        faces.append(
+            (
+                (
+                    transition_ring[segment],
+                    transition_ring[nxt],
+                    rear_ring[nxt],
+                    rear_ring[segment],
+                ),
+                0,
+            )
+        )
+
     rear_center = len(verts)
     rear = HULL_STATIONS[-1]
     verts.append((0.0, rear[0], rear[3]))
-    last_ring = (len(HULL_STATIONS) - 1) * SEGMENTS
     for segment in range(SEGMENTS):
         nxt = (segment + 1) % SEGMENTS
-        faces.append(((front_center, segment, nxt), 1))
-        faces.append(((rear_center, last_ring + nxt, last_ring + segment), 0))
+        faces.append(((rear_center, rear_ring[nxt], rear_ring[segment]), 0))
 
     return mesh_object_multi(
         "Transport_Cockpit_Hull",
         verts,
         faces,
-        (materials["body"], materials["detail"]),
+        (materials["body"], materials["detail"], materials["glass"]),
     )
 
 
@@ -230,82 +388,34 @@ def window_vertex(x, z, offset_y):
     return Vector((x, front_surface_y(x, z) + offset_y, z))
 
 
-def planar_window(bl, br, tr, tl):
-    """Legt eine Scheibe auf ihre eigene saubere Tangentialfacette."""
-    points = (bl, br, tr, tl)
-    center = sum(points, Vector()) * 0.25
-    right = ((br - bl) + (tr - tl)).normalized()
-    up = ((tl - bl) + (tr - br)).normalized()
-    normal = up.cross(right).normalized()
-    if normal.y < 0.0:
-        normal.negate()
-
-    # Nicht nur die vier Ecken prüfen: Die konvexe Bughaut wölbt sich zwischen
-    # ihnen weiter nach außen. Ein 9x9-Raster bestimmt den nötigen Versatz.
-    maximum_bulge = -1000.0
-    bl_xz = Vector((bl.x, bl.z))
-    br_xz = Vector((br.x, br.z))
-    tr_xz = Vector((tr.x, tr.z))
-    tl_xz = Vector((tl.x, tl.z))
-    for u_index in range(9):
-        u = u_index / 8.0
-        bottom = bl_xz.lerp(br_xz, u)
-        top = tl_xz.lerp(tr_xz, u)
-        for v_index in range(9):
-            xz = bottom.lerp(top, v_index / 8.0)
-            skin = Vector((xz.x, front_surface_y(xz.x, xz.y), xz.y))
-            maximum_bulge = max(maximum_bulge, (skin - center).dot(normal))
-    push = maximum_bulge + 0.006
-
-    plane_points = []
-    for point in points:
-        projected = point - normal * (point - center).dot(normal)
-        plane_points.append(projected + normal * push)
-    return (*plane_points, normal)
-
-
 def build_windows(materials):
+    """Baut nur noch die dünnen Rahmen; das Glas steckt bereits in der Haut."""
     verts = []
     faces = []
 
     for pane in range(6):
-        skin = (
-            window_vertex(WINDOW_X[pane], WINDOW_BOTTOM_Z[pane], 0.0),
-            window_vertex(WINDOW_X[pane + 1], WINDOW_BOTTOM_Z[pane + 1], 0.0),
-            window_vertex(WINDOW_X[pane + 1], WINDOW_TOP_Z[pane + 1], 0.0),
-            window_vertex(WINDOW_X[pane], WINDOW_TOP_Z[pane], 0.0),
+        bl = window_vertex(WINDOW_X[pane], WINDOW_BOTTOM_Z[pane], 0.006)
+        br = window_vertex(
+            WINDOW_X[pane + 1], WINDOW_BOTTOM_Z[pane + 1], 0.006
         )
-        bl, br, tr, tl, normal = planar_window(*skin)
+        tr = window_vertex(WINDOW_X[pane + 1], WINDOW_TOP_Z[pane + 1], 0.006)
+        tl = window_vertex(WINDOW_X[pane], WINDOW_TOP_Z[pane], 0.006)
 
-        inset_u = 0.055
-        inset_v = 0.060
+        inset_u = 0.050
+        inset_v = 0.055
         ibl = bilerp(bl, br, tr, tl, inset_u, inset_v)
         ibr = bilerp(bl, br, tr, tl, 1.0 - inset_u, inset_v)
         itr = bilerp(bl, br, tr, tl, 1.0 - inset_u, 1.0 - inset_v)
         itl = bilerp(bl, br, tr, tl, inset_u, 1.0 - inset_v)
 
-        frame_outer = [point + normal * 0.003 for point in (bl, br, tr, tl)]
-        frame_inner = [point + normal * 0.003 for point in (ibl, ibr, itr, itl)]
-        glass = [point - normal * 0.002 for point in (ibl, ibr, itr, itl)]
-        skin_outer = [point + normal * 0.002 for point in skin]
-
         base = len(verts)
-        verts.extend(frame_outer)
-        verts.extend(frame_inner)
-        verts.extend(glass)
-        verts.extend(skin_outer)
+        verts.extend((bl, br, tr, tl, ibl, ibr, itr, itl))
         faces.extend(
             (
                 ((base + 0, base + 4, base + 5, base + 1), 0),
                 ((base + 1, base + 5, base + 6, base + 2), 0),
                 ((base + 2, base + 6, base + 7, base + 3), 0),
                 ((base + 3, base + 7, base + 4, base + 0), 0),
-                ((base + 8, base + 11, base + 10, base + 9), 1),
-                # Facettierte Laibung zurück zur eigentlichen Außenhaut.
-                ((base + 0, base + 1, base + 13, base + 12), 0),
-                ((base + 1, base + 2, base + 14, base + 13), 0),
-                ((base + 2, base + 3, base + 15, base + 14), 0),
-                ((base + 3, base + 0, base + 12, base + 15), 0),
             )
         )
 
@@ -313,7 +423,7 @@ def build_windows(materials):
         "Windshield_Assembly",
         verts,
         faces,
-        (materials["frame"], materials["glass"]),
+        (materials["frame"],),
     )
 
 
@@ -365,20 +475,6 @@ def ring_strip(name, y_front, y_rear, mat, lift=1.004):
         )
     mesh = bpy.data.meshes.new(name + "Mesh")
     mesh.from_pydata(verts, [], faces)
-    mesh.update()
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(obj)
-    obj.data.materials.append(mat)
-    return obj
-
-
-def front_plate(name, x0, x1, z0, z1, mat, offset=0.034):
-    bl = window_vertex(x0, z0, offset)
-    br = window_vertex(x1, z0, offset)
-    tr = window_vertex(x1, z1, offset)
-    tl = window_vertex(x0, z1, offset)
-    mesh = bpy.data.meshes.new(name + "Mesh")
-    mesh.from_pydata((bl, tl, tr, br), [], ((0, 1, 2, 3),))
     mesh.update()
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(obj)
@@ -492,18 +588,6 @@ def build_details(materials):
             )
         )
 
-    # Dunkler, schmaler Sensor-/Lüftungsschlitz unter den mittleren Scheiben.
-    details.append(
-        front_plate(
-            "Frontschlitz",
-            -0.17,
-            0.17,
-            0.08,
-            0.135,
-            materials["detail"],
-        )
-    )
-
     # Flacher Dachkasten und kleiner Antennenzapfen aus der Nahaufnahme.
     details.append(
         box(
@@ -580,11 +664,19 @@ def validate_model(hull, details):
         raise RuntimeError("Hinterer Rumpfkragen ist nicht gerade")
     glass_faces = sum(
         1
-        for polygon in details.data.polygons
-        if details.data.materials[polygon.material_index].name == "glass"
+        for polygon in hull.data.polygons
+        if hull.data.materials[polygon.material_index].name == "glass"
     )
     if glass_faces != 6:
-        raise RuntimeError(f"Sechs Scheiben erwartet, erhalten: {glass_faces}")
+        raise RuntimeError(
+            f"Sechs bündige Glasflächen in der Außenhaut erwartet, erhalten: {glass_faces}"
+        )
+    if any(
+        material.name == "glass"
+        for material in details.data.materials
+        if material is not None
+    ):
+        raise RuntimeError("Glas darf nicht mehr als aufgesetztes Detailmesh existieren")
 
 
 def export_model(hull, details):
