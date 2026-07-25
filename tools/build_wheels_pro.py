@@ -199,8 +199,9 @@ def kappe_x(r, R, W):
     return W * 0.42
 
 
-def baue_rad(s):
-    R, W = s["R"], s["W"]
+def baue_rad(s, R, W, zt):
+    # R/W/zt kommen aus dem ALTEN Modell (siehe alte_masse): das Rad muss genau so
+    # gross sein und so hoch reichen wie vorher, sonst passt es in keinem Preset.
     segs = 40
     rad = neu("Wheel")
     bm = bmesh.new()
@@ -275,8 +276,9 @@ def baue_rad(s):
                    0.032, MI["strut"], breite=R * 0.52)
         box(bl, (0.0, 0.0, R * 1.12), (W + 0.09, R * 0.46, R * 0.16), MI["strut"])
         zyl_x(bl, -(W * 0.5 + 0.05), W * 0.5 + 0.05, R * 0.075, R * 0.075, 10, MI["strut"])
-        strebe(bl, (0.0, 0.0, R * 1.10), (0.0, 0.0, R * 2.05), R * 0.30, MI["strut"])
-        strebe(bl, (0.0, 0.0, R * 1.98), (0.0, 0.0, R * 2.60), R * 0.40, MI["strut"])
+        z1 = R * 1.10 + (zt - R * 1.10) * 0.72
+        strebe(bl, (0.0, 0.0, R * 1.10), (0.0, 0.0, z1), R * 0.30, MI["strut"])
+        strebe(bl, (0.0, 0.0, z1 - R * 0.06), (0.0, 0.0, zt), R * 0.40, MI["strut"])
     elif st == "achse":                    # Doppeldecker: Achsstummel + V-Verspannung
         # Die V spannt LAENGS auf (vor und hinter dem Rad), nicht quer: quer laufen die
         # Streben ueber die Reifenflanke und treffen in der Nabenmitte zusammen — genau
@@ -284,11 +286,11 @@ def baue_rad(s):
         xa = W * 0.5 + 0.055
         zyl_x(bl, -xa, xa, R * 0.062, R * 0.062, 10, MI["strut"])
         for sy in (-1, 1):
-            strebe(bl, (xa * 0.55, 0.0, 0.0), (xa * 0.30, sy * R * 0.62, R * 1.72),
+            strebe(bl, (xa * 0.55, 0.0, 0.0), (xa * 0.30, sy * R * 0.62, zt),
                    0.028, MI["strut"])
-        strebe(bl, (xa * 0.30, -R * 0.62, R * 1.72), (xa * 0.30, R * 0.62, R * 1.72),
+        strebe(bl, (xa * 0.30, -R * 0.62, zt), (xa * 0.30, R * 0.62, zt),
                0.030, MI["strut"])          # Querholm oben
-        strebe(bl, (xa * 0.42, 0.0, R * 0.86), (xa * 0.30, R * 0.30, R * 1.72),
+        strebe(bl, (xa * 0.42, 0.0, zt * 0.50), (xa * 0.30, R * 0.30, zt),
                0.020, MI["dark"])           # Spanndraht
     else:                                  # "einfach" / "oleo": Teleskopbein auf Gabel
         # Ein Rohr auf der Radmitte laeuft optisch DURCH die Felge — es sah aus, als
@@ -301,14 +303,19 @@ def baue_rad(s):
         box(bl, (0.0, 0.0, R * 1.10), (W + 0.08, R * 0.40, R * 0.16), MI["strut"])
         zyl_x(bl, -(xg + 0.03), xg + 0.03, R * 0.075, R * 0.075, 10, MI["strut"])
         # Kolbenrohr duenn, Zylinder darueber dick: so liest man den Federweg ab.
-        strebe(bl, (0.0, 0.0, R * 1.06), (0.0, 0.0, R * 1.72), R * 0.26, MI["strut"])
-        strebe(bl, (0.0, 0.0, R * 1.64), (0.0, 0.0, R * 2.34), R * 0.38, MI["strut"])
-        strebe(bl, (0.0, 0.0, R * 2.26), (0.0, 0.0, R * 2.60), R * 0.48, MI["strut"])
+        zo = R * 1.06
+        z1 = zo + (zt - zo) * 0.46          # Kolbenrohr
+        z2 = zo + (zt - zo) * 0.94          # Zylinder
+        strebe(bl, (0.0, 0.0, zo), (0.0, 0.0, z1), R * 0.26, MI["strut"])
+        strebe(bl, (0.0, 0.0, z1 - R * 0.06), (0.0, 0.0, z2), R * 0.38, MI["strut"])
+        strebe(bl, (0.0, 0.0, z2 - R * 0.06), (0.0, 0.0, zt), R * 0.48, MI["strut"])
         if st == "oleo":                   # Drehmomentschere VORNE am Federbein
             y0 = R * 0.15
-            strebe(bl, (0.0, y0, R * 1.14), (0.0, y0 + R * 0.24, R * 1.62),
+            zm = zo + (zt - zo) * 0.42
+            strebe(bl, (0.0, y0, zo + R * 0.10), (0.0, y0 + R * 0.24, zm),
                    0.030, MI["dark"], breite=R * 0.13)
-            strebe(bl, (0.0, y0 + R * 0.24, R * 1.62), (0.0, y0 + R * 0.02, R * 2.14),
+            strebe(bl, (0.0, y0 + R * 0.24, zm),
+                   (0.0, y0 + R * 0.02, zo + (zt - zo) * 0.80),
                    0.030, MI["dark"], breite=R * 0.13)
     bmesh.ops.recalc_face_normals(bl, faces=bl.faces[:])
     bl.normal_update()
@@ -319,16 +326,64 @@ def baue_rad(s):
     return bein, rad
 
 
+# Nur noch STIL je Rad — Groesse und Lage kommen aus dem jeweiligen Altmodell.
 SPEC = {
-    "wheel_light":         dict(R=0.26, W=0.10, felge="scheibe", strebe="einfach", bremse=False),
-    "wheel":               dict(R=0.36, W=0.17, felge="nabe", strebe="gabel", bremse=True, lug=5),
-    "wheel_heavy":         dict(R=0.50, W=0.26, felge="nabe", strebe="gabel", bremse=True, lug=8),
-    "wheel_retract":       dict(R=0.38, W=0.18, felge="nabe", strebe="oleo", bremse=True, lug=6),
-    "wheel_jet":           dict(R=0.34, W=0.16, felge="loecher", strebe="oleo", bremse=True),
-    "wheel_biplane_spoke": dict(R=0.40, W=0.09, felge="speichen", strebe="achse", bremse=False),
-    "wheel_biplane_disc":  dict(R=0.40, W=0.10, felge="scheibe", strebe="achse", bremse=False),
-    "wheel_spitfire":      dict(R=0.38, W=0.14, felge="schlitze", strebe="oleo", bremse=True),
+    "wheel_light":         dict(felge="scheibe", strebe="einfach", bremse=False),
+    "wheel":               dict(felge="nabe", strebe="gabel", bremse=True, lug=5),
+    "wheel_heavy":         dict(felge="nabe", strebe="gabel", bremse=True, lug=8),
+    "wheel_retract":       dict(felge="nabe", strebe="oleo", bremse=True, lug=6),
+    "wheel_jet":           dict(felge="loecher", strebe="oleo", bremse=True),
+    "wheel_biplane_spoke": dict(felge="speichen", strebe="achse", bremse=False),
+    "wheel_biplane_disc":  dict(felge="scheibe", strebe="achse", bremse=False),
+    "wheel_spitfire":      dict(felge="schlitze", strebe="oleo", bremse=True),
 }
+
+# Die Altmodelle liegen NICHT mehr in models/ (dort stehen die neuen), sondern als
+# Referenz aus dem Commit vor der Neumodellierung in diesem Ordner.
+ALT = ("C:/Users/Konst/AppData/Local/Temp/claude/C--Users-Konst-Projects/"
+       "ebc33638-34a7-47af-a252-ce329db69b78/scratchpad/alt/")
+
+
+def alte_masse(pfad):
+    '''Reifenradius, Reifenmitte und Beinoberkante des ALTEN Modells auslesen.
+
+    Zuerst hatte ich das neue Rad uniform in die alte GESAMT-Bounding-Box skaliert.
+    Die enthaelt aber auch das Bein: weil mein Bein laenger war, schrumpfte der Reifen
+    auf gut die halbe Groesse und sass zu tief — im Spiel steckte er dann im Rumpf.
+    Darum getrennt messen. Der Reifen ist das Netz mit der groessten Ausdehnung quer
+    zur Drehachse X.
+    '''
+    leeren()
+    bpy.ops.import_scene.gltf(filepath=pfad)
+    bpy.context.view_layer.update()
+    # NICHT einfach das groesste Netz nehmen: die Beine sind oft hoeher als der Reifen
+    # gross ist, dann wird das Bein fuer den Reifen gehalten (Radmitte landet zu hoch).
+    # Der Reifen ist eine RUNDE SCHEIBE: Y- und Z-Ausdehnung fast gleich, X viel kleiner.
+    reifen = None
+    bestes = -1.0
+    kasten = {}
+    for ob in bpy.data.objects:
+        if ob.type != 'MESH':
+            continue
+        lo, hi = bbox_welt([ob])
+        kasten[ob.name] = (lo, hi)
+        dy, dz, dx = hi.y - lo.y, hi.z - lo.z, hi.x - lo.x
+        rund = abs(dy - dz) <= 0.15 * max(dy, dz, 1e-6)
+        flach = max(dy, dz) > dx * 1.5
+        name_passt = "wheel" in ob.name.lower() or "reifen" in ob.name.lower()
+        wert = max(dy, dz) + (10.0 if name_passt else 0.0)
+        if (rund and flach or name_passt) and wert > bestes:
+            bestes = wert
+            reifen = ob.name
+    assert reifen is not None, "kein Reifennetz erkannt in " + pfad
+    lo, hi = kasten[reifen]
+    g_lo, g_hi = bbox_welt([o for o in bpy.data.objects if o.type == 'MESH'])
+    R = max(hi.y - lo.y, hi.z - lo.z) * 0.5
+    # Breite deckeln: wheel_heavy war offenbar ein ZWILLINGSRAD (X-Ausdehnung 0.49
+    # bei R 0.525). Als Einzelreifen nachgebaut waere das ein Fass.
+    W = min((hi.x - lo.x) * 0.90, R * 0.66)
+    ctr = (lo + hi) * 0.5
+    return R, W, ctr, g_hi.z - ctr.z
 
 
 def leeren():
@@ -353,19 +408,10 @@ def bbox_welt(objekte):
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bericht = []
-    for name, s in SPEC.items():
-        # 1) altes glb vermessen, damit das neue Rad genau dasselbe Volumen einnimmt
+    for name, spec in SPEC.items():
+        R, W, ctr, zt = alte_masse(ALT + name + ".glb")
         leeren()
-        alt_lo = alt_hi = None
-        try:
-            bpy.ops.import_scene.gltf(filepath=OUT + name + ".glb")
-            alt_lo, alt_hi = bbox_welt(list(bpy.data.objects))
-        except Exception as e:
-            print("  (kein Altmodell fuer %s: %s)" % (name, e))
-        leeren()
-
-        # 2) neues Rad bauen
-        bein, rad = baue_rad(s)
+        bein, rad = baue_rad(spec, R, W, zt)
         for ob, glatt in ((rad, True), (bein, False)):
             bpy.ops.object.select_all(action='DESELECT')
             ob.select_set(True)
@@ -374,37 +420,24 @@ def main():
                 bpy.ops.object.shade_auto_smooth(angle=math.radians(44))
             else:
                 bpy.ops.object.shade_flat()
-
-        # 3) in die alte Bounding-Box einpassen: uniform skalieren + Mittelpunkt treffen
         wurzel = bpy.data.objects.new(name, None)
         bpy.context.scene.collection.objects.link(wurzel)
         bein.parent = wurzel
+        wurzel.location = ctr             # Radmitte exakt dort wie im Altmodell
         bpy.context.view_layer.update()
-        if alt_lo is not None:
-            neu_lo, neu_hi = bbox_welt([rad, bein])
-            alt_gr = alt_hi - alt_lo
-            neu_gr = neu_hi - neu_lo
-            f = min(alt_gr[i] / max(neu_gr[i], 1e-6) for i in range(3))
-            wurzel.scale = (f, f, f)
-            bpy.context.view_layer.update()
-            neu_lo, neu_hi = bbox_welt([rad, bein])
-            wurzel.location = (alt_lo + alt_hi) * 0.5 - (neu_lo + neu_hi) * 0.5
-            bpy.context.view_layer.update()
-            print("  %s: Box alt %.3f x %.3f x %.3f -> Faktor %.3f"
-                  % (name, alt_gr.x, alt_gr.y, alt_gr.z, f))
-
         bpy.ops.object.select_all(action='DESELECT')
         for ob in (wurzel, bein, rad):
             ob.select_set(True)
         bpy.context.view_layer.objects.active = wurzel
         bpy.ops.export_scene.gltf(filepath=OUT + name + ".glb", export_format='GLB',
                                   use_selection=True, export_apply=True)
-        tris = sum(len(p.vertices) - 2 for p in rad.data.polygons) \
-            + sum(len(p.vertices) - 2 for p in bein.data.polygons)
-        bericht.append((name, tris))
+        tris = sum(len(p.vertices) - 2 for p in rad.data.polygons) + \
+            sum(len(p.vertices) - 2 for p in bein.data.polygons)
+        bericht.append((name, R, W, zt, ctr.z, tris))
     print("=== FERTIG ===")
-    for n, t in bericht:
-        print("  %-22s %5d Tris" % (n, t))
+    for n, R, W, zt, cz, t in bericht:
+        print("  %-22s R=%.3f W=%.3f Bein=%.3f Radmitte_z=%+.3f %5d Tris"
+              % (n, R, W, zt, cz, t))
 
 
 main()
