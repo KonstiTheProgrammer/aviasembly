@@ -445,14 +445,6 @@ Der Katalog bildet die echte Rückseite mit `col_size=(1.68,1.48,2.67)`,
 die Rückfläche. `_taper_neighbor` verwendet `dock_size` statt der größeren
 Gesamt-Bounding-Box, damit Auto-Taper die zuvor passende Verbindung nicht wieder aufbläht.
 
-Eigenständiges Konzeptmodell **modernes Transportflugzeug-Cockpit**:
-`blender_lib/transport_cockpit.blend`, Export `models/cockpit_transport.glb`,
-reproduzierbar über `tools/build_transport_cockpit_model.py`. Kurzer kantiger Bug mit
-acht bündig in die Außenhaut eingelassenen dunklen Scheiben, Seitentürrahmen, Pitotrohren
-und Dachantennen. Die ebene Rückseite liegt in Blender bei Y=-1.40; der gerade
-Anschlussquerschnitt ist 2.20 × 1.86 m. Das GLB enthält genau zwei Meshgruppen
-(`Transport_Cockpit_Hull`, `Transport_Cockpit_Details`). Das Modell ist bewusst noch
-nicht im Teilekatalog registriert, damit es als separates Blender-File iteriert werden kann.
 Beide teilen dort die Kontur, aber keine Fläche. Die außen herausragenden
 Kinn-/Fahrwerksblöcke und Nieten wurden entfernt; Steuerhörner und Bombenschützenplatz
 liegen weiter innen und verwenden keine hellen Außenrahmen-Materialien. Der Cockpitboden
@@ -479,6 +471,20 @@ Vorderraum ab. `cockpit_body` bleibt lackierbar,
 `glass` unangetastet. Das prozedurale `shape "b29_nose"` bleibt nur als Fallback, falls
 das glTF fehlt. `col_size` hält die hintere Andockfläche trotz vorstehender Glasnase
 spaltfrei an dicken Rumpfsegmenten.
+
+Eigenständiges Konzeptmodell **modernes Transportflugzeug-Cockpit**:
+`blender_lib/transport_cockpit.blend`, Export `models/cockpit_transport.glb`,
+reproduzierbar über `tools/build_transport_cockpit_model.py`. Kurzer kantiger Bug mit
+einem einzigen umlaufenden Band aus sechs bündig eingelassenen dunklen Scheiben,
+dezenten Seitentürfugen, feinen Pitotrohren und keilförmigen Dachantennen. Der
+Rumpfquerschnitt ist als leicht abgeflachte Superellipse gebaut, nicht kreisrund.
+Die ebene Rückseite liegt in Blender bei Y=-1.40; der gerade
+Anschlussquerschnitt ist 2.20 × 1.86 m. Das GLB enthält genau zwei Meshgruppen
+(`Transport_Cockpit_Hull`, `Transport_Cockpit_Details`). Das Modell ist bewusst noch
+nicht im Teilekatalog registriert, damit es als separates Blender-File iteriert werden kann.
+`tools/transport_cockpit_test.gd` prüft Godot-Import, Meshgruppen, Materialien,
+Außenmaße und die Andockebene.
+
 Dazu **`b29_wing`** („B-29-Tragflaeche"): langer Streckungsfluegel (Spannweite 7.2,
 Wurzel 2.0 / Spitze 1.1, leichte Pfeilung, `stress_mult` 1.9 fuer den kraeftigen Hauptholm)
 — traegt viel, dreht traege, wie das Original.
