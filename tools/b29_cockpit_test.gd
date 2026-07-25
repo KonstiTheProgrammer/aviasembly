@@ -94,7 +94,7 @@ func _process(_delta: float) -> bool:
 		_check(frame_box.size.z > 0.025 and frame_box.size.z < 0.040,
 			"Frontring bildet eine kurze integrierte Ringlippe")
 		_check(glass_box.position.z - frame_box.position.z > 0.002,
-			"runde Frontscheibe sitzt sichtbar hinter der vorderen Ringkante")
+			"zwölfeckige Frontscheibe sitzt sichtbar hinter der vorderen Ringkante")
 	var paint := _find_material(visual, "cockpit_body")
 	var glass := _find_material(visual, "glass")
 	_check(paint != null, "cockpit_body ist als Lackmaterial erhalten")

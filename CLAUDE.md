@@ -426,12 +426,12 @@ mit Materialindizes aufgebaut; dadurch gibt es keine gestapelten Einzelplatten o
 Z-Fighting. Die Pilotenfenster sind keine aufgesetzte zweite Schale mehr: Eine zusätzliche
 hintere Station der Nasenhaut reicht bis zur exakt gleichen Endkante des verkürzten
 Rumpfmeshes. Beim Blender-Build werden `B29_Nasenhaut` und `B29_Rumpf_komplett`
-anschließend gejoint und die zehn identischen Vertex-Paare per
+anschließend gejoint und die zwölf identischen Vertex-Paare per
 `bmesh.ops.remove_doubles(dist=0.00001)` verschweißt; Normalen werden neu berechnet.
 Der Export enthält nur noch **ein** `B29_Rumpf_mit_Nase`-Mesh für die gesamte Außenhaut
 und insgesamt vier Mesh-Baugruppen. Die gesamte hintere Rumpfschale verwendet an jeder Station exakt denselben
 elliptischen Querschnitt und dieselbe Z-Mitte — sie ist ein gerader Zylinder, keine
-gebogene oder bauchige Röhre. Beide Anschlussringe haben dieselbe 10er-Teilung und dieselben Koordinaten;
+gebogene oder bauchige Röhre. Beide Anschlussringe haben dieselbe 12er-Teilung und dieselben Koordinaten;
 so entstehen auch zwischen unterschiedlich triangulierten Polygonringen keine Spalte.
 Beide teilen dort die Kontur, aber keine Fläche. Die außen herausragenden
 Kinn-/Fahrwerksblöcke und Nieten wurden entfernt; Steuerhörner und Bombenschützenplatz
@@ -440,11 +440,12 @@ ist schmaler und höher, damit auch seine Ecken innerhalb der elliptischen Auße
 liegen. Frontscheibe und Frontring sitzen beide bei Z=-0.05 und sind dadurch exakt
 konzentrisch. Der frühere dicke Torus bzw. die zu flache Ringplatte wurde durch eine
 kurze konische Ringlippe mit drei Querschnitten ersetzt: außen exakt die erste
-Nasenstation (0.20 × 0.18), mittig 0.165 × 0.155 und vorn ein runder 0.138er Rand.
-Die runde schwarze Scheibe (r=0.126) sitzt 0.004 hinter dieser Vorderkante. Damit wächst
+Nasenstation (0.20 × 0.18), mittig 0.165 × 0.155 und vorn ein zwölfeckiger 0.138er Rand.
+Die zwölfeckige schwarze Scheibe (r=0.126) sitzt 0.004 hinter dieser Vorderkante. Damit wächst
 das Frontteil aus der Nase, ohne wie ein aufgesetztes Rohr oder eine Platte zu wirken. Der Export fasst
 die übrigen Konstruktionsobjekte zu `B29_Rumpf_komplett`, `B29_Glasdetails`,
-`B29_Rahmendetails` und `B29_Innenraum` zusammen (insgesamt fünf Meshes). Die nach hinten ansteigende Metall-
+`B29_Rahmendetails` und `B29_Innenraum` zusammen; nach dem Verschweißen bleiben insgesamt
+vier Meshes. Die nach hinten ansteigende Metall-
 Kinnlinie, kleine runde Bombenschützen-Frontscheibe und zurücklaufende Pilotenfenster
 bilden die Referenz-Silhouette; Astrodome und Antenne gehören zu späteren Rumpfsegmenten
 und sitzen bewusst nicht auf diesem Cockpitteil. Innen sind zwei

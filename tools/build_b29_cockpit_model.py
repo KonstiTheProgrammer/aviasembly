@@ -14,6 +14,7 @@ from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "models" / "cockpit_b29.glb"
+NOSE_SEGMENTS = 12
 
 
 def material(name, color, metallic=0.0, roughness=0.45):
@@ -224,7 +225,7 @@ def fuselage_shell():
     ]
     # Gleiche Ringteilung wie die Nasenhaut: dadurch treffen sich beide Polygone
     # an der gemeinsamen Endkante exakt und lassen keine dreieckigen Spalten.
-    segs = 10
+    segs = NOSE_SEGMENTS
     verts = []
     for y, rx, rz, zc in stations:
         for i in range(segs):
@@ -256,9 +257,6 @@ NOSE_STATIONS = (
     (-0.12, 0.81, 0.70, 0.07),
     (-0.46, 0.84, 0.74, 0.04),
 )
-NOSE_SEGMENTS = 10
-
-
 def nose_point(row, segment_f, axial_f=0.0, lift=1.0):
     """Punkt auf einem linear geführten, bewusst kantigen Nasen-Panel."""
     row2 = min(row + 1, len(NOSE_STATIONS) - 1)
@@ -321,14 +319,16 @@ def faceted_glass_nose():
 
     mesh_object_multi("B29_Nasenhaut", verts, faces, (BODY, FRAME, GLASS))
 
-    # Bombenschützen-Frontscheibe mit kurzer, sauberer Ringlippe. Der Außenring
-    # teilt exakt die Kontur der ersten Nasenstation; die runde Scheibe sitzt
-    # leicht zurückgesetzt hinter der vorderen Kante.
+    # Bombenschützen-Frontscheibe mit kurzer, sauberer Ringlippe. Außenring,
+    # Vorderkante und Scheibe sind echte Zwölfecke; die Scheibe sitzt leicht
+    # zurückgesetzt hinter der vorderen Kante.
     front_y = NOSE_STATIONS[0][0]
-    ellipse_disc_y(
+    front_glass = ellipse_disc_y(
         "Bombenschuetze_Frontglas", front_y + 0.026, -0.05,
-        0.126, 0.126, GLASS, 32
+        0.126, 0.126, GLASS, NOSE_SEGMENTS
     )
+    if len(front_glass.data.polygons) != NOSE_SEGMENTS:
+        raise RuntimeError("Bombenschützen-Frontglas ist kein echtes Zwölfeck")
     ellipse_beveled_ring_y(
         "Bombenschuetze_Frontring", -0.05,
         (
@@ -471,7 +471,7 @@ def consolidate_objects():
 
 
 def weld_nose_to_fuselage():
-    """Nasenhaut und Zylinder an ihrem identischen 10er-Ring wirklich verschweißen."""
+    """Nasenhaut und Zylinder an ihrem identischen 12er-Ring wirklich verschweißen."""
     nose = bpy.data.objects.get("B29_Nasenhaut")
     fuselage = bpy.data.objects.get("B29_Rumpf_komplett")
     if nose is None or fuselage is None:
@@ -484,7 +484,7 @@ def weld_nose_to_fuselage():
     joined = bpy.context.object
     joined.name = "B29_Rumpf_mit_Nase"
 
-    # Die beiden Anschlussringe besitzen exakt dieselben zehn Koordinaten.
+    # Die beiden Anschlussringe besitzen exakt dieselben zwölf Koordinaten.
     # remove_doubles macht daraus gemeinsame Vertices; anschließend ist die
     # Außenhaut topologisch ein einziges geschlossenes Mesh.
     bm = bmesh.new()
