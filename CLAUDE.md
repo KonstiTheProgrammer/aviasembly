@@ -452,9 +452,14 @@ die übrigen Konstruktionsobjekte zu `B29_Rumpf_komplett`, `B29_Glasdetails`,
 vier Meshes. Die nach hinten ansteigende Metall-
 Kinnlinie, kleine runde Bombenschützen-Frontscheibe und zurücklaufende Pilotenfenster
 bilden die Referenz-Silhouette; Astrodome und Antenne gehören zu späteren Rumpfsegmenten
-und sitzen bewusst nicht auf diesem Cockpitteil. Innen sind zwei
-Sitze mit Steuerhörnern, Instrumentenbrett und Rundinstrumenten sowie
-Bombenschützenplatz, Tisch und Visier modelliert. `cockpit_body` bleibt lackierbar,
+und sitzen bewusst nicht auf diesem Cockpitteil. Der Innenraum folgt jetzt dem
+echten B-29-Vorderdruckraum: Pilot und Copilot sitzen nebeneinander auf dem erhöhten
+Flugdeck mit getrennten Instrumententafeln, großen runden Steuerhörnern, Pedalen und
+zentralem Vierfach-Gashebel. Davor liegt der Bombenschütze tiefer in der Glasnase
+mit Klappsitz, Tisch und detailliertem Norden-Visier. Hinten links liegen
+Navigator-Kartentisch und Leselampe, hinten rechts das hohe Flugingenieur-Seitenpanel
+mit 16 Instrumenten; Dachkonsole und runder Drucktunnel-Anschluss schließen den
+Vorderraum ab. `cockpit_body` bleibt lackierbar,
 `glass` unangetastet. Das prozedurale `shape "b29_nose"` bleibt nur als Fallback, falls
 das glTF fehlt. `col_size` hält die hintere Andockfläche trotz vorstehender Glasnase
 spaltfrei an dicken Rumpfsegmenten.

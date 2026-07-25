@@ -46,6 +46,8 @@ SEAT = material("seat", (0.16, 0.18, 0.17, 1.0), 0.05, 0.82)
 LEATHER = material("leather", (0.19, 0.11, 0.065, 1.0), 0.02, 0.72)
 GAUGE = material("gauge", (0.18, 0.62, 0.78, 1.0), 0.08, 0.22)
 RUBBER = material("rubber", (0.018, 0.022, 0.028, 1.0), 0.0, 0.92)
+MAP = material("map", (0.58, 0.53, 0.36, 1.0), 0.0, 0.78)
+SWITCH = material("switch", (0.76, 0.19, 0.08, 1.0), 0.12, 0.42)
 
 
 def clear():
@@ -132,13 +134,13 @@ def sphere(name, radius, loc, scale, mat):
     return obj
 
 
-def torus_y(name, y, major, minor, mat, z_scale=1.0, z=0.0):
+def torus_y(name, y, major, minor, mat, z_scale=1.0, z=0.0, x=0.0):
     bpy.ops.mesh.primitive_torus_add(
-        major_segments=64,
-        minor_segments=10,
+        major_segments=32,
+        minor_segments=8,
         major_radius=major,
         minor_radius=minor,
-        location=(0.0, y, z),
+        location=(x, y, z),
         rotation=(math.pi * 0.5, 0.0, 0.0),
     )
     obj = bpy.context.object
@@ -359,69 +361,184 @@ def faceted_glass_nose():
 
 
 def cockpit_interior():
-    """Lesbarer Innenausbau hinter dem dunklen Glas."""
-    box("Cockpitboden", (1.05, 1.15, 0.060), (0.0, -0.16, -0.34),
+    """Stilisierter, räumlich korrekter B-29-Vorderdruckraum."""
+    # Gemeinsamer Flugdeckboden. Der Bombenschütze sitzt davor und etwas tiefer,
+    # Pilot und Copilot nebeneinander auf dem erhöhten Deck.
+    box("Cockpitboden", (1.14, 1.54, 0.060), (0.0, -0.30, -0.36),
         INTERIOR, bevel=0.025)
-    box("Instrumentenbrett", (1.12, 0.075, 0.33), (0.0, 0.18, 0.02),
-        INTERIOR, rotation=(math.radians(-8), 0.0, 0.0), bevel=0.025)
-    box("Mittelkonsole", (0.18, 0.62, 0.18), (0.0, -0.04, -0.32),
+    box("Bombenschuetze_Boden", (0.62, 0.52, 0.055), (0.0, 0.66, -0.39),
+        INTERIOR, rotation=(math.radians(4), 0.0, 0.0), bevel=0.025)
+
+    # Zwei getrennte Instrumententafeln statt eines generischen durchgehenden
+    # Bretts. Dazwischen sitzt der typische hohe Mittel-/Gashebelblock.
+    for side in (-1.0, 1.0):
+        x = side * 0.30
+        box(
+            "Instrumententafel_Pilot" if side < 0 else "Instrumententafel_Copilot",
+            (0.48, 0.075, 0.36),
+            (x, 0.12, -0.005),
+            INTERIOR,
+            rotation=(math.radians(-9), 0.0, 0.0),
+            bevel=0.025,
+        )
+        for row, z in enumerate((0.070, -0.035)):
+            for col, dx in enumerate((-0.15, -0.05, 0.05, 0.15)):
+                cylinder(
+                    "Cockpitinstrument_%s_%d_%d"
+                    % ("L" if side < 0 else "R", row, col),
+                    0.037,
+                    0.018,
+                    (x + dx, 0.164, z),
+                    (0.0, 1.0, 0.0),
+                    GAUGE,
+                    16,
+                    0.002,
+                )
+
+    box("Mittelkonsole", (0.17, 0.68, 0.19), (0.0, -0.12, -0.285),
         INTERIOR, bevel=0.025)
+    box("Gashebelquadrant", (0.15, 0.20, 0.095), (0.0, 0.035, -0.145),
+        INTERIOR, rotation=(math.radians(-10), 0.0, 0.0), bevel=0.018)
+    for lever, x in enumerate((-0.055, -0.018, 0.018, 0.055)):
+        curve_tube(
+            "Gashebel_%d" % lever,
+            [
+                Vector((x, 0.035, -0.115)),
+                Vector((x, 0.075, -0.035)),
+            ],
+            INTERIOR,
+            0.010,
+        )
+        sphere("Gashebelknauf_%d" % lever, 0.019, (x, 0.078, -0.026),
+               (1.0, 0.80, 1.0), SWITCH)
 
     for side in (-1.0, 1.0):
         x = side * 0.30
-        box("Pilotensitz_Flaeche", (0.31, 0.38, 0.10), (x, -0.28, -0.24),
+        role = "Pilot" if side < 0 else "Copilot"
+        box("%s_Sitzflaeche" % role, (0.31, 0.38, 0.10), (x, -0.34, -0.25),
             SEAT, bevel=0.035)
-        box("Pilotensitz_Lehne", (0.32, 0.12, 0.46), (x, -0.46, -0.04),
+        box("%s_Sitzlehne" % role, (0.32, 0.12, 0.46), (x, -0.54, -0.04),
             SEAT, rotation=(math.radians(-7), 0.0, 0.0), bevel=0.045)
-        box("Pilotensitz_Polster", (0.25, 0.055, 0.33), (x, -0.395, -0.025),
+        box("%s_Rueckenpolster" % role, (0.25, 0.055, 0.33), (x, -0.475, -0.025),
             LEATHER, rotation=(math.radians(-7), 0.0, 0.0), bevel=0.04)
+        box("%s_Kopfstuetze" % role, (0.24, 0.075, 0.12), (x, -0.51, 0.19),
+            LEATHER, bevel=0.035)
 
-        # Steuerhorn: Säule, Quergriff und zwei Griffenden.
+        # B-29-Steuersäule mit großem rundem Steuerhorn statt T-Griff.
         curve_tube(
-            "Steuerhorn_Saeule",
+            "%s_Steuersaeule" % role,
             [
-                Vector((x, -0.22, -0.34)),
-                Vector((x, -0.16, -0.18)),
-                Vector((x, -0.11, -0.10)),
+                Vector((x, -0.25, -0.35)),
+                Vector((x, -0.17, -0.21)),
+                Vector((x, -0.08, -0.085)),
             ],
             INTERIOR,
             0.018,
         )
-        curve_tube(
-            "Steuerhorn_Griff",
-            [
-                Vector((x - 0.09, -0.10, -0.10)),
-                Vector((x, -0.09, -0.065)),
-                Vector((x + 0.09, -0.10, -0.10)),
-            ],
-            RUBBER,
-            0.024,
-        )
-
-    # Instrumente mit hellblauen Gläsern.
-    for row, z in enumerate((0.055, -0.055)):
-        for col in range(5):
-            x = -0.42 + col * 0.21
-            cylinder(
-                "Rundinstrument_%d_%d" % (row, col),
-                0.045,
-                0.018,
-                (x, 0.222, z),
-                (0.0, 1.0, 0.0),
-                GAUGE,
-                20,
-                0.002,
+        torus_y("%s_Steuerhorn" % role, -0.045, 0.105, 0.013, RUBBER,
+                z_scale=0.78, z=-0.065, x=x)
+        cylinder("%s_Steuerhornnabe" % role, 0.026, 0.052,
+                 (x, -0.045, -0.065), (0.0, 1.0, 0.0), INTERIOR, 16)
+        for dx, dz in ((-0.080, 0.0), (0.080, 0.0), (0.0, 0.064), (0.0, -0.064)):
+            curve_tube(
+                "%s_Steuerhornspeiche" % role,
+                [Vector((x, -0.045, -0.065)),
+                 Vector((x + dx, -0.045, -0.065 + dz))],
+                INTERIOR,
+                0.009,
             )
 
-    # Bombenschützenplatz vorn: Sitzkissen, Visier und kleiner Arbeitstisch.
-    box("Bombenschuetze_Sitz", (0.30, 0.28, 0.07), (0.0, 0.58, -0.34),
+        # Je zwei Pedale unter der Instrumententafel.
+        for pedal in (-1.0, 1.0):
+            box(
+                "%s_Ruderpedal" % role,
+                (0.075, 0.035, 0.115),
+                (x + pedal * 0.060, 0.145, -0.295),
+                RUBBER,
+                rotation=(math.radians(-18), 0.0, 0.0),
+                bevel=0.012,
+            )
+
+    # Bombenschützenplatz ganz vorn und tiefer: Klappsitz, Arbeitstisch und
+    # detaillierter Norden-Bombensichtkopf direkt hinter der Rundscheibe.
+    box("Bombenschuetze_Sitz", (0.30, 0.28, 0.07), (0.0, 0.56, -0.35),
         LEATHER, bevel=0.04)
-    box("Bombenschuetze_Tisch", (0.40, 0.26, 0.040), (0.0, 0.62, -0.14),
+    box("Bombenschuetze_Lehne", (0.28, 0.075, 0.30), (0.0, 0.43, -0.19),
+        SEAT, rotation=(math.radians(-8), 0.0, 0.0), bevel=0.035)
+    box("Bombenschuetze_Tisch", (0.44, 0.26, 0.040), (0.0, 0.70, -0.15),
         INTERIOR, rotation=(math.radians(8), 0.0, 0.0), bevel=0.018)
-    cylinder("Bombenvisier", 0.055, 0.28, (0.0, 0.94, -0.12),
-             (0.0, 1.0, 0.0), INTERIOR, 24, 0.004)
-    cylinder("Bombenvisier_Okular", 0.075, 0.055, (0.0, 1.08, -0.12),
-             (0.0, 1.0, 0.0), RUBBER, 24, 0.004)
+    cylinder("Norden_Stativ", 0.028, 0.25, (0.0, 0.84, -0.235),
+             (0.0, 0.0, 1.0), INTERIOR, 16, 0.003)
+    box("Norden_Gyrogehaeuse", (0.16, 0.15, 0.12), (0.0, 0.87, -0.08),
+        INTERIOR, bevel=0.025)
+    cylinder("Norden_Optik", 0.045, 0.22, (0.0, 0.99, -0.065),
+             (0.0, 1.0, 0.0), INTERIOR, 20, 0.003)
+    cylinder("Norden_Okular", 0.058, 0.050, (0.0, 1.105, -0.065),
+             (0.0, 1.0, 0.0), RUBBER, 20, 0.003)
+    for side in (-1.0, 1.0):
+        curve_tube(
+            "Norden_Handgriff",
+            [
+                Vector((side * 0.065, 0.87, -0.08)),
+                Vector((side * 0.105, 0.92, -0.10)),
+            ],
+            RUBBER,
+            0.012,
+        )
+
+    # Navigator links hinter dem Piloten: Kartentisch, Kartenblatt und Leselampe.
+    box("Navigator_Kartentisch", (0.44, 0.48, 0.045), (-0.43, -0.83, -0.08),
+        INTERIOR, bevel=0.022)
+    box("Navigator_Karte", (0.34, 0.36, 0.009), (-0.43, -0.80, -0.052),
+        MAP, bevel=0.008)
+    cylinder("Navigator_Leselampe", 0.025, 0.22, (-0.60, -0.77, 0.05),
+             (0.0, 0.0, 1.0), INTERIOR, 12, 0.002)
+    sphere("Navigator_Lampenkopf", 0.040, (-0.60, -0.77, 0.17),
+           (1.0, 1.0, 0.75), GAUGE)
+
+    # Flugingenieur rechts hinter dem Copiloten, zur hohen Seitenwand gedreht.
+    box("Flugingenieur_Panel", (0.055, 0.58, 0.62), (0.62, -0.77, 0.025),
+        INTERIOR, bevel=0.025)
+    for row, z in enumerate((-0.14, -0.01, 0.12, 0.25)):
+        for col, y in enumerate((-0.96, -0.82, -0.68, -0.54)):
+            cylinder(
+                "Flugingenieur_Instrument_%d_%d" % (row, col),
+                0.030,
+                0.020,
+                (0.585, y, z),
+                (1.0, 0.0, 0.0),
+                GAUGE,
+                14,
+                0.002,
+            )
+    box("Flugingenieur_Sitz", (0.26, 0.26, 0.075), (0.35, -0.78, -0.29),
+        SEAT, bevel=0.035)
+
+    # Schmale Dachkonsole und der runde Zugang zum Drucktunnel über den
+    # Bombenschächten, zwei besonders charakteristische B-29-Merkmale.
+    box("Dachkonsole", (0.42, 0.44, 0.050), (0.0, -0.04, 0.57),
+        INTERIOR, rotation=(math.radians(4), 0.0, 0.0), bevel=0.018)
+    for i, x in enumerate((-0.12, -0.04, 0.04, 0.12)):
+        box("Dachschalter_%d" % i, (0.025, 0.055, 0.025), (x, -0.02, 0.535),
+            SWITCH, bevel=0.006)
+    torus_y("Drucktunnel_Rahmen", -1.31, 0.185, 0.028, INTERIOR,
+            z_scale=1.0, z=0.10)
+    ellipse_disc_y("Drucktunnel_Dunkel", -1.335, 0.10, 0.157, 0.157,
+                   RUBBER, 24)
+
+    required = {
+        "Instrumententafel_Pilot",
+        "Instrumententafel_Copilot",
+        "Pilot_Steuerhorn",
+        "Copilot_Steuerhorn",
+        "Norden_Gyrogehaeuse",
+        "Navigator_Kartentisch",
+        "Flugingenieur_Panel",
+        "Drucktunnel_Rahmen",
+    }
+    missing = sorted(name for name in required if bpy.data.objects.get(name) is None)
+    if missing:
+        raise RuntimeError("B-29-Cockpitstationen fehlen: " + ", ".join(missing))
 
 
 def apply_modifiers():

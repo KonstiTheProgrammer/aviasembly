@@ -97,8 +97,13 @@ func _process(_delta: float) -> bool:
 			"zwölfeckige Frontscheibe sitzt sichtbar hinter der vorderen Ringkante")
 	var paint := _find_material(visual, "cockpit_body")
 	var glass := _find_material(visual, "glass")
+	var map_material := _find_material(visual, "map")
+	var switch_material := _find_material(visual, "switch")
 	_check(paint != null, "cockpit_body ist als Lackmaterial erhalten")
 	_check(glass != null, "Glas besitzt ein getrenntes Material")
+	_check(map_material != null, "Navigator-Kartentisch ist im B-29-Innenraum enthalten")
+	_check(switch_material != null,
+		"Gashebel und Dachschalter sind im B-29-Innenraum enthalten")
 	if glass != null:
 		print("GLAS_IMPORT transparency=", glass.transparency,
 			" color=", glass.albedo_color, " roughness=", glass.roughness)
