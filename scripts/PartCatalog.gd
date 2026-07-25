@@ -61,9 +61,13 @@ static func _build() -> void:
 		"id": "cockpit_b29", "name": "B-29-Kanzel (Glasnase)", "category": CAT_BODY,
 		"mass": 240.0, "color": Color(0.38, 0.43, 0.52), "shape": "b29_nose", "root": true,
 		"size": Vector3(1.7, 1.9, 2.7),
-		"col_size": Vector3(1.7, 1.6, 2.7),
+		# Exakte Blender-Außenmaße: Rückseite liegt in Godot bei lokal Z=+1.40.
+		# dock_size ist der elliptische Querschnitt der ebenen Metall-Andockfläche.
+		"col_size": Vector3(1.68, 1.48, 2.67),
+		"col_offset": Vector3(0.0, 0.04, 0.065),
+		"dock_size": Vector2(1.68, 1.48),
 		"metal": 0.40, "rough": 0.48,
-		"desc": "Superfortress-Bug als Blender-Modell: kompakte rundliche Glasnase mit echter B-29-Fensterstaffelung, weichem Metallkinn und langem geradem Rumpfübergang. Innen: Pilot und Copilot nebeneinander, getrennte Instrumententafeln, große Steuerhörner, Gashebel, Bombenschütze mit Norden-Visier, Navigator-Kartentisch, Flugingenieur-Seitenpanel und Drucktunnel. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Frontscheibe. Hinten ebene Andockfläche.",
+		"desc": "Superfortress-Bug als Blender-Modell: kompakte rundliche Glasnase mit echter B-29-Fensterstaffelung, weichem Metallkinn und langem geradem Rumpfübergang. Innen: Pilot und Copilot nebeneinander, getrennte Instrumententafeln, große Steuerhörner, Gashebel, Bombenschütze mit Norden-Visier, Navigator-Kartentisch, Flugingenieur-Seitenpanel und Drucktunnel. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Frontscheibe. Der hintere Metallbereich zieht Rumpfsegmente automatisch mittig auf die exakte Andockgröße.",
 	})
 	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,

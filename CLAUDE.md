@@ -438,6 +438,12 @@ und insgesamt vier Mesh-Baugruppen. Die gesamte hintere Rumpfschale verwendet an
 elliptischen Querschnitt und dieselbe Z-Mitte — sie ist ein gerader Zylinder, keine
 gebogene oder bauchige Röhre. Beide Anschlussringe haben dieselbe 12er-Teilung und dieselben Koordinaten;
 so entstehen auch zwischen unterschiedlich triangulierten Polygonringen keine Spalte.
+Der Katalog bildet die echte Rückseite mit `col_size=(1.68,1.48,2.67)`,
+`col_offset=(0,0.04,0.065)` und `dock_size=(1.68,1.48)` ab. Beim Platzieren eines
+`biends`-Rumpfsegments auf dem geraden B-29-Metallkragen zieht
+`BuildController._compute_snap_for` es unabhängig vom genauen Treffpunkt mittig auf
+die Rückfläche. `_taper_neighbor` verwendet `dock_size` statt der größeren
+Gesamt-Bounding-Box, damit Auto-Taper die zuvor passende Verbindung nicht wieder aufbläht.
 Beide teilen dort die Kontur, aber keine Fläche. Die außen herausragenden
 Kinn-/Fahrwerksblöcke und Nieten wurden entfernt; Steuerhörner und Bombenschützenplatz
 liegen weiter innen und verwenden keine hellen Außenrahmen-Materialien. Der Cockpitboden

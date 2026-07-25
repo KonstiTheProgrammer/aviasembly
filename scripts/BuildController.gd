@@ -2057,6 +2057,21 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 				afit["scale"] = Vector3.ONE
 			return afit
 
+	# B-29-GLASNASE: Der gesamte gerade Metallkragen ist eine tolerante Andockzone.
+	# Ein Rumpfsegment landet unabhängig vom genauen Treffpunkt immer mittig auf der
+	# ebenen Rückseite und übernimmt dort exakt Breite und Höhe des Blender-Modells.
+	if p.get("biends", false) and _reto_tgt == "cockpit_b29":
+		var b29def := PartCatalog.get_part("cockpit_b29")
+		var b29b := part.global_transform.basis.orthonormalized()
+		var b29sc: Vector3 = part.get_meta("pscale", Vector3.ONE)
+		var b29co: Vector3 = PartCatalog.col_offset(b29def)
+		var rear_surface := part.global_position + b29b * Vector3(
+			b29co.x * b29sc.x, b29co.y * b29sc.y,
+			(b29co.z + PartCatalog.col_size(b29def).z * 0.5) * b29sc.z)
+		var b29fit := _fuselage_fit(p, part, b29b.z, rear_surface)
+		if not b29fit.is_empty():
+			return b29fit
+
 	# UMGEDREHTES ANDOCKEN AM NORMALEN PROPELLERMOTOR: Steht der Motor bereits im Raum
 	# und der Spieler zieht ein Rumpfteil daran, rechnen wir mit der kurzen, planen
 	# Bughauben-Box. Beim Loslassen wird das Zielteil dauerhaft auf prop_engine_nose
@@ -2842,8 +2857,11 @@ func _taper_neighbor(part: Node3D, p: Dictionary, psc: Vector3, parts: Array, i:
 		if absf(lp.x - c.x) > hf.x or absf(lp.y - c.y) > hf.y or absf(lp.z - c.z) > hf.z:
 			continue
 		var osz: Vector3 = op.get("size", Vector3.ONE)
-		var w: float = osz.x * opsc.x
-		var h: float = osz.y * opsc.y
+		# Manche Blender-Teile sind vorne rundlich/größer als ihre plane Rückseite.
+		# dock_size beschreibt dann den echten Endquerschnitt statt der Gesamt-Bounding-Box.
+		var dock: Vector2 = op.get("dock_size", Vector2(osz.x, osz.y))
+		var w: float = dock.x * opsc.x
+		var h: float = dock.y * opsc.y
 		if op.get("biends", false):
 			var facing_front: bool = lp.z < c.z          # beruehrtes Ende des Nachbarn
 			var k := "taper_front" if facing_front else "taper"

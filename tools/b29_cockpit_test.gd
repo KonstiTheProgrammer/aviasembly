@@ -123,21 +123,38 @@ func _process(_delta: float) -> bool:
 	bc._notify_changed()
 	_check(cockpit.get_meta("part_id", "") == "cockpit_b29",
 		"Kanzel kann als Wurzelteil platziert werden")
-	var half_z: float = PartCatalog.col_size(part).z * 0.5
+	var cockpit_box: Vector3 = PartCatalog.col_size(part)
+	var cockpit_offset: Vector3 = PartCatalog.col_offset(part)
+	var half_z: float = cockpit_box.z * 0.5
+	# Absichtlich seitlich auf den geraden Metallkragen zielen: Die B-29-Sonderregel
+	# muss trotzdem die ebene Rückseite als einzigen Rumpfanschluss wählen.
 	var hit := {
-		"position": cockpit.global_transform * Vector3(0, 0, half_z),
-		"normal": cockpit.global_transform.basis * Vector3(0, 0, 1),
+		"position": cockpit.global_transform * Vector3(
+			cockpit_box.x * 0.5, cockpit_offset.y, cockpit_offset.z + half_z * 0.55),
+		"normal": cockpit.global_transform.basis * Vector3(1, 0, 0),
 		"collider": cockpit.get_node_or_null("Pick"),
 	}
 	var snap := bc._compute_snap_for("fuselage", hit)
-	_check(snap.get("valid", false), "Rumpfsegment rastet an der ebenen Rückseite ein")
+	_check(snap.get("valid", false),
+		"ganzer B-29-Metallkragen führt das Rumpfsegment zur Rückseite")
 	var fus := bc._place_id("fuselage", snap.get("xform", Transform3D()),
 		snap.get("scale", Vector3.ONE))
+	bc._notify_changed()
 	var fus_part := PartCatalog.get_part("fuselage")
-	var cockpit_rear: float = cockpit.position.z + half_z
+	var cockpit_rear: float = cockpit.position.z + cockpit_offset.z + half_z
 	var fus_front: float = fus.position.z - PartCatalog.col_size(fus_part).z * 0.5
 	_check(absf(cockpit_rear - fus_front) < 0.001,
 		"Rumpf und B-29-Kanzel schließen ohne sichtbaren Spalt")
+	var fus_scale: Vector3 = fus.get_meta("pscale", Vector3.ONE)
+	var front_x: float = fus.get_meta("taper_front", 1.0)
+	var front_y_meta: float = fus.get_meta("taper_front_y", -1.0)
+	var front_y: float = front_y_meta if front_y_meta >= 0.0 else front_x
+	var dock_size: Vector2 = part.get("dock_size", Vector2.ZERO)
+	var fus_size: Vector3 = fus_part.get("size", Vector3.ONE)
+	_check(absf(fus_size.x * fus_scale.x * front_x - dock_size.x) < 0.001,
+		"Rumpfbreite bleibt nach Auto-Taper exakt am B-29-Anschluss")
+	_check(absf(fus_size.y * fus_scale.y * front_y - dock_size.y) < 0.001,
+		"Rumpfhöhe bleibt nach Auto-Taper exakt am B-29-Anschluss")
 
 	print("B29_COCKPIT_TEST ", "FAILED" if failed else "PASSED")
 	visual.free()
