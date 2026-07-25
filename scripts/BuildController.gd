@@ -2086,6 +2086,37 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 			kfit["scale"] = Vector3.ONE
 			return kfit
 
+	# MODERNES TRANSPORT-COCKPIT: Der gesamte gerade Heckkragen führt ein normales
+	# Rumpfsegment zur planen Rückseite. Dort wird es durch das verborgene
+	# fuselage_transport mit exakt derselben 12-seitigen Superellipse ersetzt.
+	if p.get("biends", false) and _reto_tgt == "cockpit_transport":
+		var transport_def := PartCatalog.get_part("cockpit_transport")
+		var transport_basis := part.global_transform.basis.orthonormalized()
+		var transport_scale: Vector3 = part.get_meta("pscale", Vector3.ONE)
+		var transport_offset: Vector3 = PartCatalog.col_offset(transport_def)
+		var transport_rear := part.global_position + transport_basis * Vector3(
+			transport_offset.x * transport_scale.x,
+			transport_offset.y * transport_scale.y,
+			(transport_offset.z + PartCatalog.col_size(transport_def).z * 0.5) \
+				* transport_scale.z)
+		var transport_seg := PartCatalog.get_part("fuselage_transport")
+		var transport_fit := _fuselage_fit(
+			transport_seg, part, transport_basis.z, transport_rear)
+		if not transport_fit.is_empty():
+			transport_fit["id"] = "fuselage_transport"
+			transport_fit["scale"] = Vector3.ONE
+			return transport_fit
+
+	# Transport-Segment an Transport-Segment: Querschnitt und flache Facetten bleiben
+	# über die ganze Rumpfkette erhalten.
+	if p.get("biends", false) and _reto_tgt == "fuselage_transport":
+		var transport_chain := _fuselage_fit(
+			PartCatalog.get_part("fuselage_transport"), part, n, surface)
+		if not transport_chain.is_empty():
+			transport_chain["id"] = "fuselage_transport"
+			transport_chain["scale"] = Vector3.ONE
+			return transport_chain
+
 	# UMGEDREHTES ANDOCKEN AM NORMALEN PROPELLERMOTOR: Steht der Motor bereits im Raum
 	# und der Spieler zieht ein Rumpfteil daran, rechnen wir mit der kurzen, planen
 	# Bughauben-Box. Beim Loslassen wird das Zielteil dauerhaft auf prop_engine_nose

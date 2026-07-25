@@ -41,6 +41,16 @@ func _process(_delta: float) -> bool:
 	if frame < 2:
 		return false
 
+	var part := PartCatalog.get_part("cockpit_transport")
+	_check(not part.is_empty(), "Transport-Cockpit ist im Teilekatalog")
+	_check(PartCatalog.in_palette("cockpit_transport"),
+		"Transport-Cockpit ist in der Baupalette sichtbar")
+	_check(PartCatalog.has_model("cockpit_transport"),
+		"Spielkatalog verwendet das neue Blender-GLB")
+	_check(part.get("root", false), "Transport-Cockpit kann als Wurzelteil starten")
+	_check(not PartCatalog.in_palette("fuselage_transport"),
+		"passendes Transport-Rumpfsegment entsteht nur automatisch")
+
 	var packed := load("res://models/cockpit_transport.glb") as PackedScene
 	_check(packed != null, "Transport-Cockpit-GLB lässt sich in Godot laden")
 	if packed == null:
@@ -83,7 +93,54 @@ func _process(_delta: float) -> bool:
 		_check(absf(bounds.end.z - 1.40) < 0.001,
 			"ebene hintere Andockfläche liegt exakt bei lokal Z=+1,40")
 
+	var bc := BuildController.new()
+	root.add_child(bc)
+	bc.clear_design()
+	var cockpit := bc._place_id("cockpit_transport", Transform3D())
+	bc._notify_changed()
+	_check(cockpit.get_meta("part_id", "") == "cockpit_transport",
+		"Transport-Cockpit lässt sich als erstes Bauteil platzieren")
+	var cockpit_box: Vector3 = PartCatalog.col_size(part)
+	var cockpit_offset: Vector3 = PartCatalog.col_offset(part)
+	var hit := {
+		# Absichtlich seitlich auf den geraden Kragen zielen: Der Spezial-Snap
+		# muss das Segment trotzdem zur mittigen Rückseite führen.
+		"position": cockpit.global_transform * Vector3(
+			cockpit_box.x * 0.5, cockpit_offset.y,
+			cockpit_offset.z + cockpit_box.z * 0.30),
+		"normal": cockpit.global_transform.basis * Vector3(1, 0, 0),
+		"collider": cockpit.get_node_or_null("Pick"),
+	}
+	var snap := bc._compute_snap_for("fuselage", hit)
+	_check(snap.get("valid", false), "Metallkragen nimmt Rumpfsegmente tolerant an")
+	_check(snap.get("id", "") == "fuselage_transport",
+		"Standardrumpf wird automatisch zum passenden Transport-Profil")
+	var segment_id: String = snap.get("id", "fuselage")
+	var segment := bc._place_id(segment_id, snap.get("xform", Transform3D()),
+		snap.get("scale", Vector3.ONE))
+	bc._notify_changed()
+	var segment_def := PartCatalog.get_part("fuselage_transport")
+	var cockpit_rear: float = cockpit.position.z + cockpit_offset.z + cockpit_box.z * 0.5
+	var segment_front: float = segment.position.z \
+		+ PartCatalog.col_offset(segment_def).z \
+		- PartCatalog.col_size(segment_def).z * 0.5
+	_check(absf(cockpit_rear - segment_front) < 0.001,
+		"Cockpit und Transport-Rumpf schließen ohne axialen Spalt")
+	_check(segment.get_meta("pscale", Vector3.ZERO).is_equal_approx(Vector3.ONE),
+		"Transport-Rumpf behält den exakten Cockpit-Querschnitt")
+	var segment_hit := {
+		"position": segment.global_transform * Vector3(
+			0, PartCatalog.col_offset(segment_def).y,
+			PartCatalog.col_size(segment_def).z * 0.5),
+		"normal": segment.global_transform.basis * Vector3(0, 0, 1),
+		"collider": segment.get_node_or_null("Pick"),
+	}
+	var chain_snap := bc._compute_snap_for("fuselage", segment_hit)
+	_check(chain_snap.get("id", "") == "fuselage_transport",
+		"weitere Rumpfsegmente führen das Transport-Profil als Kette fort")
+
 	print("TRANSPORT_COCKPIT_TEST ", "FAILED" if failed else "PASSED")
 	model.free()
+	bc.free()
 	quit(1 if failed else 0)
 	return true

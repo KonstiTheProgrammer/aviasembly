@@ -480,10 +480,14 @@ dezenten Seitentürfugen, feinen Pitotrohren und keilförmigen Dachantennen. Der
 Rumpfquerschnitt ist als leicht abgeflachte Superellipse gebaut, nicht kreisrund.
 Die ebene Rückseite liegt in Blender bei Y=-1.40; der gerade
 Anschlussquerschnitt ist 2.20 × 1.86 m. Das GLB enthält genau zwei Meshgruppen
-(`Transport_Cockpit_Hull`, `Transport_Cockpit_Details`). Das Modell ist bewusst noch
-nicht im Teilekatalog registriert, damit es als separates Blender-File iteriert werden kann.
+(`Transport_Cockpit_Hull`, `Transport_Cockpit_Details`). Es ist als
+`cockpit_transport` in der Rumpfpalette registriert und darf als Wurzelteil starten.
+Beim Ablegen eines normalen Rumpfsegments auf dem geraden Metallkragen ersetzt
+`BuildController` es automatisch durch das versteckte `fuselage_transport`. Dieses
+prozedurale Segment verwendet dieselbe 12-seitige Superellipse und denselben
+2.20 × 1.86-m-Querschnitt; weitere Segmente führen das Profil als Kette fort.
 `tools/transport_cockpit_test.gd` prüft Godot-Import, Meshgruppen, Materialien,
-Außenmaße und die Andockebene.
+Außenmaße, Palette, Spezial-Snap und die Andockebene.
 
 Dazu **`b29_wing`** („B-29-Tragflaeche"): langer Streckungsfluegel (Spannweite 7.2,
 Wurzel 2.0 / Spitze 1.1, leichte Pfeilung, `stress_mult` 1.9 fuer den kraeftigen Hauptholm)

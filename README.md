@@ -101,7 +101,8 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 
 ## 🧩 Bauteile
 
-- **Rumpf:** Cockpit (Basis), Rumpfsegmente, Nasen-/Heckkonus, Treibstofftank ·
+- **Rumpf:** Cockpit (Basis), modernes Transport-Cockpit, B-29-Glasnase,
+  Rumpfsegmente, Nasen-/Heckkonus, Treibstofftank ·
   Rotes-Baron-Cockpit mit separat ansteckbarem, genietetem Metallrahmen
 - **Tragflächen:** Gerade · Trapez · Pfeil · Delta · Stummel · Segler (lang) · Canard · Winglet
 - **Leitwerk & Steuerung:** Höhenleitwerk (Pitch), Seitenleitwerk (Yaw), Querruder (Roll), kleines Höhenruder

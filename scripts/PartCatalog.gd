@@ -70,6 +70,18 @@ static func _build() -> void:
 		"desc": "Superfortress-Bug als Blender-Modell: kompakte rundliche Glasnase mit echter B-29-Fensterstaffelung, weichem Metallkinn und langem geradem Rumpfübergang. Innen: Pilot und Copilot nebeneinander, getrennte Instrumententafeln, große Steuerhörner, Gashebel, Bombenschütze mit Norden-Visier, Navigator-Kartentisch, Flugingenieur-Seitenpanel und Drucktunnel. Fast schwarzes blickdichtes Jet-Glas, bündige graue Rahmen und zwölfeckige Frontscheibe. Der hintere Metallbereich zieht Rumpfsegmente automatisch mittig auf die exakte Andockgröße.",
 	})
 	_add({
+		"id": "cockpit_transport", "name": "Modernes Transport-Cockpit", "category": CAT_BODY,
+		"mass": 300.0, "color": Color(0.36, 0.41, 0.48),
+		"shape": "transport_nose", "root": true,
+		"size": Vector3(2.20, 1.94, 2.95),
+		# Außenhaut ohne Antennen: X=2.20, Y=1.86; Godot-Rückfläche lokal Z=+1.40.
+		"col_size": Vector3(2.20, 1.86, 2.95),
+		"col_offset": Vector3(0.0, 0.07, -0.075),
+		"dock_size": Vector2(2.20, 1.86),
+		"metal": 0.28, "rough": 0.50,
+		"desc": "Kantiger Bug für einen modernen Militärtransporter: sechs dunkle Scheiben, Seitentürfugen, Pitotrohre und Dachantennen. Der gerade hintere Kragen zieht ein Rumpfsegment automatisch mittig auf den exakten 2,20 × 1,86-m-Querschnitt.",
+	})
+	_add({
 		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
 		"mass": 45.0, "color": C_COCKPIT, "shape": "bean", "embed": 0.40,
 		# size.y = nur der Teil, der OBEN herausschaut. Der generische Snap legt die UNTERKANTE
@@ -130,6 +142,19 @@ static func _build() -> void:
 		"dock_size": Vector2(1.68, 1.48),
 		"metal": 0.40, "rough": 0.48,
 		"desc": "Rumpfsegment im B-29-Querschnitt: zwoelfeckige Roehre mit Spantfugen, Laengsstringern und versenkten Bullaugen. Sitzt bundig an der Glasnase und laesst sich in Kette weiterbauen.",
+	})
+	# Verborgenes Auto-Segment für das moderne Transport-Cockpit. Die 12-seitige
+	# Superellipse entspricht exakt der Blender-Rückfläche; ein runder Standardtubus
+	# würde an den abgeflachten Seiten und am Dach eine sichtbare Kante bilden.
+	_add({
+		"id": "fuselage_transport", "name": "Transport-Rumpfsegment", "category": CAT_BODY,
+		"mass": 165.0, "color": Color(0.36, 0.41, 0.48), "shape": "transport_tube",
+		"size": Vector3(2.20, 1.86, 2.40),
+		"col_size": Vector3(2.20, 1.86, 2.40),
+		"col_offset": Vector3(0.0, 0.07, 0.0),
+		"dock_size": Vector2(2.20, 1.86),
+		"metal": 0.28, "rough": 0.50, "biends": true,
+		"desc": "Automatisches Rumpfsegment mit exakt demselben abgeflachten Zwölfeck-Querschnitt wie das moderne Transport-Cockpit.",
 	})
 	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
@@ -730,7 +755,7 @@ const PALETTE_HIDDEN := {
 	"f4_nose": true, "f4_front": true, "f14_front": true, "f4_intake": true,
 	"jet_nose_point": true, "nose": true, "tailcone": true,
 	"prop_engine_nose": true, "fuselage_reto": true, "fuselage_radial": true,
-	"fuselage_b29": true,
+	"fuselage_b29": true, "fuselage_transport": true,
 }
 
 # Soll dieses Teil in der Bau-Palette erscheinen? (Katalog/Presets bleiben unberührt.)
@@ -748,6 +773,7 @@ static func part_cd(p: Dictionary) -> float:
 		"nose": return 0.12        # spitze Ogive — sehr windschlüpfrig
 		"wing": return 0.05        # Airfoil-Kante (kaum Stirnwiderstand)
 		"cockpit": return 0.28     # gerundete Kanzel
+		"transport_nose": return 0.25 # kurzer, aber sauber zugespitzter Transporter-Bug
 		"cyl": return 0.45         # liegender Zylinder (gerundet)
 		"jet": return 0.42
 		"prop": return 0.55
@@ -755,6 +781,7 @@ static func part_cd(p: Dictionary) -> float:
 		"reto_tube": return 0.45   # Profil-Tubus (wie Rumpf)
 		"radial_prop": return 0.55 # Sternmotor-Cowl (stumpfe Gondel-Stirn)
 		"radial_tube": return 0.45 # Profil-Tubus Sternmotor (wie Rumpf)
+		"transport_tube": return 0.45 # abgeflachter Frachtrumpf
 		"missile": return 0.12     # schlanker Flugkörper
 		"bomb": return 0.16        # tropfenförmig
 		"wheel": return 0.85       # stumpfer Reifen (Bluff-Körper)
@@ -776,6 +803,7 @@ static func _frontal_fill(shape: String) -> float:
 		"cannon": return 0.80      # Gehäuse füllt, Lauf dünn
 		"pod": return 0.85         # runder Pod
 		"cockpit": return 0.85
+		"transport_nose", "transport_tube": return 0.86
 		"cyl", "jet", "nose", "missile", "bomb": return 0.80   # runder Querschnitt (~π/4)
 		"box", "wing": return 1.0  # füllt die Box / Stirnfläche ist real
 		"prism": return 0.78       # gechinter Querschnitt füllt ~78 % der Box
@@ -1117,6 +1145,13 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			var tube := _box_tube(ef, eb, 24)
 			root.add_child(_mi(tube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
+
+		"transport_tube":
+			# Exakter Anschlussquerschnitt des Transport-Cockpits: dieselbe 12-seitige
+			# Superellipse (Exponent 0.70), mit einzeln formbaren Enden.
+			var transport_tube := _prism_mesh(_transport_cross_section(), ef, eb)
+			root.add_child(_mi(transport_tube, make_material(col, metal, rough, true),
+				Vector3(0.0, 0.07, 0.0), Vector3.ZERO, size))
 
 		"jet_hull":
 			# Gelofteter Rumpf-Abschnitt (Loft durch Querschnitt-Stationen). Stoßbündig an
@@ -1937,6 +1972,20 @@ static func _tire_profile() -> Array:
 		Vector2(-0.33, 0.50), Vector2(0.33, 0.50), Vector2(0.46, 0.47),
 		Vector2(0.5, 0.41), Vector2(0.5, 0.30),
 	]
+
+
+# Zwölfseitige, leicht abgeflachte Superellipse des modernen Transport-Cockpits.
+# Muss mit tools/build_transport_cockpit_model.py:squircle(power=0.70) identisch bleiben.
+static func _transport_cross_section() -> PackedVector2Array:
+	var points := PackedVector2Array()
+	for i in 12:
+		var angle: float = TAU * float(i) / 12.0
+		var cx: float = cos(angle)
+		var sy: float = sin(angle)
+		var x: float = (1.0 if cx >= 0.0 else -1.0) * pow(absf(cx), 0.70) * 0.5
+		var y: float = (1.0 if sy >= 0.0 else -1.0) * pow(absf(sy), 0.70) * 0.5
+		points.append(Vector2(x, y))
+	return points
 
 
 # Gechinter F-22-Rumpf-Querschnitt (normiert auf ±0.5, Flugrichtung -Z). Wird vom Kopf-Modell
