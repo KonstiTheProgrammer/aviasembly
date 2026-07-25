@@ -387,8 +387,17 @@ war der Engpass. Headless-Harness: `tools/mousefly_test.gd` (Konvergenz/Pendeln)
 schaltet Vollbild um, `Esc` verlässt Vollbild bzw. beendet (Main `_input`/`_toggle_fullscreen`).
 
 ## Bauteile (PartCatalog)
-Rumpf (Cockpit=Wurzel, Segmente, Nase/Heck, Tank) · **4 Kanzel-Varianten** (Bubble/Jet/
-Rahmen/Tandem, Blender-glTF `cockpit_<v>.glb`, lackierbarer `cockpit_body` + `glass`-Kanzel) ·
+Rumpf (Cockpit=Wurzel, Segmente, Nase/Heck, Tank) · **Kanzeln:** `cockpit` (Standard,
+offene Doppeldecker-Wanne) und `cockpit_radial` (Doppeldecker/Stern) — die vier generischen
+Varianten (Bubble/Jet/Rahmen/Tandem) sind auf Wunsch ENTFERNT. Dazu **`canopy_bean`**
+(„Bohnen-Kanzel"): glatter ovaler Blister zum AUFSETZEN, steckt zu 40 % im Rumpf. Das macht
+`shape "bean"` + Feld `embed`: `size.y` umfasst nur den SICHTBAREN Teil (der generische Snap
+legt die Unterkante der Box auf die Flaeche), die Geometrie wird um `size.y/(1-embed)`
+gestreckt und nach unten versetzt -> gemessen exakt 40.0 % eingebettet
+(`tools/_bean_check.gd`). Und **`jet_cockpit`** („Delta-Jet-Cockpit", jetzt in der Palette
+statt versteckt): `_jet_hull` lofted seither MIT Stirndeckeln — ohne sie war das Segment ein
+offenes Rohr, mitten im Rumpf unauffaellig, als vorderstes Teil aber sichtbar aufgerissen
+(genau das gemeldete „vorne kaputt"). Einlaufteile (`intake`) bleiben vorne offen. ·
 8 Tragflächen (gerade, Trapez,
 Pfeil, Delta, Stummel, Segler, Canard, Winglet) · Leitwerk/Steuerung (Höhen-, Seiten-
 leitwerk, Querruder) · 5 Triebwerke (Propeller, groß, Jet, **Eckiges Düsentriebwerk**

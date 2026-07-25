@@ -47,34 +47,6 @@ static func _build() -> void:
 		"desc": "Offenes Doppeldecker-Cockpit mit echter Einkerbung, Lederrand und Sitz. Hier startet jeder Bau.",
 	})
 	# Cockpit-/Kanzel-Varianten: voll runder Zylinder-Körper + Glaskuppel obendrauf.
-	_add({
-		"id": "cockpit_bubble", "name": "Bubble-Kanzel", "category": CAT_BODY,
-		"mass": 165.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.3, 1.3, 2.4),
-		"canopy": Vector3(0.50, 0.50, 0.66),
-		"desc": "Runde Jäger-Bubble-Kanzel mit Rundumsicht.",
-	})
-	_add({
-		"id": "cockpit_jet", "name": "Jet-Kanzel", "category": CAT_BODY,
-		"mass": 150.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.1, 1.1, 2.6),
-		"canopy": Vector3(0.42, 0.30, 0.92),
-		"desc": "Flache, schnittige Tropfen-Kanzel für Jets.",
-	})
-	_add({
-		"id": "cockpit_frame", "name": "Rahmen-Kanzel", "category": CAT_BODY,
-		"mass": 185.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.35, 1.35, 2.25),
-		"canopy": Vector3(0.46, 0.44, 0.66), "canopy_style": "frame",
-		"desc": "Klassische Mehrscheiben-Kanzel mit Streben.",
-	})
-	_add({
-		"id": "cockpit_tandem", "name": "Tandem-Kanzel", "category": CAT_BODY,
-		"mass": 220.0, "color": C_COCKPIT, "shape": "cockpit",
-		"size": Vector3(1.225, 1.225, 3.1),
-		"canopy": Vector3(0.44, 0.40, 1.0), "canopy_style": "tandem",
-		"desc": "Zweisitzer mit zwei Kanzeln hintereinander.",
-	})
 	# Offenes Doppeldecker-Cockpit aus Engine.blend (rote Schale, Lederrand, Instrumente).
 	# Die rote Schale endet exakt im 1.200-x-1.129-Sternmotorprofil. Der ehemals fest
 	# eingebackene genietete Anschlussrahmen ist darunter als eigenes Bauteil verfügbar.
@@ -84,6 +56,15 @@ static func _build() -> void:
 		"size": Vector3(1.2, 1.129, 1.216),
 		"canopy": Vector3(0.42, 0.36, 0.62),
 		"desc": "Rotes-Baron-Cockpit mit Lederrand und Instrumenten. Die Rumpfschale passt ohne Überstand exakt auf das Sternmotor-Profil.",
+	})
+	_add({
+		"id": "canopy_bean", "name": "Bohnen-Kanzel (aufsetzbar)", "category": CAT_BODY,
+		"mass": 45.0, "color": C_COCKPIT, "shape": "bean", "embed": 0.40,
+		# size.y = nur der Teil, der OBEN herausschaut. Der generische Snap legt die UNTERKANTE
+		# dieser Box auf die getroffene Flaeche; die Geometrie ragt bewusst darunter hinaus,
+		# dadurch steckt die Bohne zu 40 Prozent im Rumpf statt aufgeklebt zu wirken.
+		"size": Vector3(1.02, 0.42, 1.85),
+		"desc": "Glatte ovale Blister-Kanzel zum AUFSETZEN auf einen Rumpf — sie steckt zu 40 Prozent darin, sitzt also eingebettet statt aufgeklebt. Passt auf jedes Rumpfsegment.",
 	})
 	_add({
 		"id": "cockpit_radial_frame", "name": "Cockpit-Metallrahmen", "category": CAT_BODY,
@@ -200,7 +181,7 @@ static func _build() -> void:
 		"desc": "Generisches Jet-Rumpfsegment (gelofteter Tubus). Beide Enden offen & gleicher Querschnitt -> stoßbündig. Mit »Hinten«-Taper wird daraus ein Heckkonus (Düse).",
 	})
 	_add({
-		"id": "jet_cockpit", "name": "Jet-Cockpit-Segment", "category": CAT_BODY,
+		"id": "jet_cockpit", "name": "Delta-Jet-Cockpit", "category": CAT_BODY,
 		"mass": 150.0, "color": Color(0.80, 0.81, 0.84), "shape": "jet_hull",
 		"size": Vector3(1.34, 1.5, 1.6), "col_size": Vector3(1.25, 1.2, 1.78),
 		"metal": 0.55, "rough": 0.4,
@@ -208,7 +189,7 @@ static func _build() -> void:
 			Vector4(-0.8, 0.65, 0.55, 0.0), Vector4(0.0, 0.66, 0.555, 0.0),
 			Vector4(0.8, 0.65, 0.55, 0.0)],
 		"canopy": [-0.05, 1.25, 0.30, 0.27, 0.42],
-		"desc": "Rumpfsegment mit schwarz verglaster Bubble-Kanzel. Gleicher Querschnitt wie das generische Rumpfsegment -> stoßbündig an Nase & Rumpf.",
+		"desc": "Cockpitsektion des Delta-Canard-Kampfjets: gelofteter Rumpf mit ebenen Stirnflaechen und flacher Tropfenkanzel — stoesst buendig an Jet-Nase und Jet-Rumpfsegment.",
 	})
 	_add({
 		"id": "red_star", "name": "Roter Stern (Markierung)", "category": CAT_BODY,
@@ -710,7 +691,7 @@ const PALETTE_HIDDEN := {
 	"fuselage_long": true, "fuselage_wide": true, "fuselage_taper": true,
 	"f22_body": true, "f22_head": true, "f22_fuselage": true,
 	"mustang_body": true, "me262_body": true,
-	"jet_nose": true, "jet_body": true, "jet_cockpit": true,
+	"jet_nose": true, "jet_body": true,
 	"mig15_hull": true, "mig15_body": true, "f86_body": true,
 	"mig21_nose": true, "mig21_front": true, "mig21_cockpit": true,
 	"mig21_body": true, "mig21_tail": true, "mig21_rear": true,
@@ -1168,6 +1149,27 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			var rtube := _profile_tube(RETO_PROFILE, ef, eb)
 			root.add_child(_mi(rtube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
+
+		"bean":
+			# BOHNE: glatte, ovale Blister-Kanzel zum AUFSETZEN. `embed` sagt, welcher Anteil
+			# der Gesamthoehe UNTER der Montageflaeche liegt. Der generische Snap legt die
+			# UNTERKANTE der col_size-Box auf die getroffene Flaeche — also umfasst size.y nur
+			# den sichtbaren Teil, und die Geometrie wird bewusst darunter hinausgezogen.
+			var emb: float = clampf(p.get("embed", 0.4), 0.0, 0.85)
+			var ganz: float = size.y / maxf(1.0 - emb, 0.05)
+			var bmitte: float = size.y * 0.5 - ganz * 0.5
+			var glas := make_material(Color(0.09, 0.11, 0.15), 0.45, 0.10, true)
+			root.add_child(_mi(_bean_mesh(28, 14), glas, Vector3(0.0, bmitte, 0.0),
+				Vector3.ZERO, Vector3(size.x, ganz, size.z)))
+			# Schmaler Rahmenring genau auf der Einbettungslinie -> saubere Fuge zum Rumpf
+			var bring := TorusMesh.new()
+			bring.inner_radius = 0.44
+			bring.outer_radius = 0.5
+			bring.rings = 6
+			bring.ring_segments = 28
+			root.add_child(_mi(bring, make_material(Color(0.20, 0.22, 0.26), 0.6, 0.35),
+				Vector3(0.0, -size.y * 0.5 + 0.015, 0.0), Vector3.ZERO,
+				Vector3(size.x * 1.005, 0.05, size.z * 1.005)))
 
 		"radial_tube":
 			# Wie "reto_tube", aber mit dem Querschnitt des Sternmotors (abgerundetes Quadrat) —
@@ -1671,6 +1673,31 @@ static func _camber_y(f: float, m: float, p: float) -> float:
 # Enden mit radius>0 werden flach gedeckelt. Outward gewickelt, glatte Normalen.
 # Als EINHEITSform gedacht (r<=0.5, z in [-0.5,0.5]) und per Node-Skalierung gezogen.
 # ---------------------------------------------------------------------------
+# Bohne: Ellipsoid-Blister in der Einheitsbox (|x|,|y|,|z| <= 0.5). Die obere Haelfte wird
+# etwas voller gezogen -> die typische leicht gedrueckte Bohnenform statt einer Halbkugel.
+static func _bean_mesh(us := 28, vs := 14) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var pkt := func(iu: int, iv: int) -> Vector3:
+		var a: float = TAU * float(iu) / float(us)
+		var b: float = PI * float(iv) / float(vs) - PI * 0.5
+		var y: float = sin(b)
+		var w: float = cos(b) * (1.0 + 0.14 * maxf(y, 0.0))
+		return Vector3(cos(a) * w * 0.5, y * 0.5, sin(a) * w * 0.5)
+	for iv in vs:
+		for iu in us:
+			var p00: Vector3 = pkt.call(iu, iv)
+			var p10: Vector3 = pkt.call(iu + 1, iv)
+			var p01: Vector3 = pkt.call(iu, iv + 1)
+			var p11: Vector3 = pkt.call(iu + 1, iv + 1)
+			for tri in [[p00, p11, p01], [p00, p10, p11]]:
+				for v3 in tri:
+					st.set_normal((v3 as Vector3).normalized())
+					st.add_vertex(v3)
+	st.generate_tangents()
+	return st.commit()
+
+
 static func _revolve(profile: Array, segs := 24) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1943,7 +1970,11 @@ static func _jet_hull(root: Node3D, p: Dictionary, col: Color, metal: float, rou
 		var sy: float = lerp(ef.y, eb.y, t)
 		stations.append(Vector4(s.x, s.y * sx, s.z * sy, s.w * sy))
 	var body_mat := make_material(col, metal, rough)
-	root.add_child(_mi(_loft(stations, 36), body_mat))
+	# Ohne Stirndeckel ist so ein Segment ein OFFENES ROHR: mitten im Rumpf faellt das
+	# nicht auf, als vorderstes Teil sieht man hinein — genau das gemeldete "vorne
+	# kaputt" am Delta-Jet. Einlauf-Teile bleiben vorne offen, sonst waere der Schacht zu.
+	var _offen_vorn: bool = p.get("intake", false)
+	root.add_child(_mi(_loft(stations, 36, not _offen_vorn, true), body_mat))
 	var first: Vector4 = stations[0]
 	var last: Vector4 = stations[stations.size() - 1]
 	if p.get("intake", false):
