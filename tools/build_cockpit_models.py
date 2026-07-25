@@ -152,6 +152,18 @@ def deck_hub(t, hoehe, spec):
     return hoehe * spec["deck"] * hinten * vorne
 
 
+def vorn_skala(t, spec):
+    """Verjuengung der vorderen Haelfte. Am HECK (t=0) exakt 1.0 — dort dockt das
+    Rumpfsegment an und die Stirnflaeche MUSS dem Profil entsprechen. Nach vorne laeuft
+    der Querschnitt frei zusammen; genau das gibt die geschwungene Silhouette, die einem
+    konstanten Rohr fehlt."""
+    vx, vz = spec.get("vorn", (1.0, 1.0))
+    if t <= 0.50:
+        return (1.0, 1.0)
+    u = weich((t - 0.50) / 0.50)
+    return (1.0 + (vx - 1.0) * u, 1.0 + (vz - 1.0) * u)
+
+
 def ring_punkte(profil, breite, hoehe, hub):
     """Querschnitt einer Station: nur die OBERE Haelfte wird angehoben, Bauch bleibt."""
     out = []
@@ -170,7 +182,8 @@ def rumpf(bm, profil, breite, hoehe, laenge, spec, mi):
     for k in range(SEGS + 1):
         t = k / SEGS
         y = y0 + (y1 - y0) * t
-        pts = ring_punkte(profil, breite, hoehe, deck_hub(t, hoehe, spec))
+        fx, fz = vorn_skala(t, spec)
+        pts = ring_punkte(profil, breite * fx, hoehe * fz, deck_hub(t, hoehe, spec) * fz)
         ringe.append([bm.verts.new((x, y, z)) for x, z in pts])
     for k in range(SEGS):
         for i in range(n):
@@ -210,7 +223,7 @@ def oeffnung(bm, y_von, y_bis, z_min, x_max, boden, mi_lippe, mi_innen):
     ext = bmesh.ops.extrude_edge_only(bm, edges=rand)          # 1) Suellrand-Lippe
     for v in [v for v in ext["geom"] if isinstance(v, bmesh.types.BMVert)]:
         v.co.x *= 1.035
-        v.co.z += 0.045
+        v.co.z += 0.022
     for f in ext["geom"]:
         if isinstance(f, bmesh.types.BMFace):
             f.material_index = mi_lippe
@@ -310,37 +323,36 @@ def haube(bm, hp, y0, y1, basis_z, breite, hoehe, mi_glas, mi_rahmen):
     else:
         for k in range(hp["spanten"]):
             us.append(0.16 + 0.68 * (k + 1) / (hp["spanten"] + 1))
-    dicke = 0.024
+    # SPANTEN ALS RUNDSTAEBE: die Referenz hat duenne, runde Buegel — Kastenprofile
+    # wirkten grob und liessen die Haube wie einen Rippenkaefig aussehen.
+    r_stab = 0.011
     for u in us:
-        vor = None
-        for i in range(bogen + 1):
-            q = p(u, i, auf=0.006)
-            if vor is not None:
-                mx, mz = (vor[0] + q[0]) * 0.5, (vor[2] + q[2]) * 0.5
-                lg = math.dist((vor[0], vor[2]), (q[0], q[2])) + dicke * 0.4
-                w = math.atan2(q[2] - vor[2], q[0] - vor[0])
-                ca, sa = math.cos(w), math.sin(w)
-                v = []
-                for dl in (-0.5, 0.5):
-                    for dq in (-0.5, 0.5):
-                        for dy in (-0.5, 0.5):
-                            lx, lz = dl * lg, dq * dicke
-                            v.append(bm.verts.new((mx + lx * ca - lz * sa,
-                                                   q[1] + dy * dicke * 1.4,
-                                                   mz + lx * sa + lz * ca)))
-                for fc in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1),
-                           (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
-                    try:
-                        bm.faces.new([v[i2] for i2 in fc]).material_index = mi_rahmen
-                    except ValueError:
-                        pass
-            vor = q
+        bahn = [p(u, i, auf=r_stab * 0.6) for i in range(bogen + 1)]
+        ringe = []
+        for k, q in enumerate(bahn):
+            vor = bahn[max(k - 1, 0)]
+            nach = bahn[min(k + 1, len(bahn) - 1)]
+            tx, tz = nach[0] - vor[0], nach[2] - vor[2]
+            lg = math.hypot(tx, tz) or 1.0
+            tx, tz = tx / lg, tz / lg
+            # Querschnitt: senkrecht zur Bahn in der Bogenebene, plus Y als zweite Achse
+            ring = []
+            for j in range(6):
+                a = 2.0 * math.pi * j / 6
+                cq, sq = math.cos(a) * r_stab, math.sin(a) * r_stab
+                ring.append(bm.verts.new((q[0] - tz * cq, q[1] + sq, q[2] + tx * cq)))
+            ringe.append(ring)
+        for k in range(len(ringe) - 1):
+            for j in range(6):
+                j2 = (j + 1) % 6
+                bm.faces.new([ringe[k][j], ringe[k][j2],
+                              ringe[k + 1][j2], ringe[k + 1][j]]).material_index = mi_rahmen
     if hp["holme"]:
-        for i_rand in (0, bogen):                   # Laengsholme auf dem Suellrand
+        for i_rand in (0, bogen):                   # Laengsholme: schlanke Rundprofile
             a = p(0.0, i_rand)
             b2 = p(1.0, i_rand)
-            bx(bm, ((a[0] + b2[0]) * 0.5, (a[1] + b2[1]) * 0.5, basis_z + 0.012),
-               (dicke * 1.5, abs(b2[1] - a[1]), dicke * 1.1), mi_rahmen)
+            zyl(bm, ((a[0] + b2[0]) * 0.5, (a[1] + b2[1]) * 0.5, basis_z + 0.010),
+                r_stab * 0.9, abs(b2[1] - a[1]), "y", mi_rahmen, 6)
 
 
 def spitfire_extras(bm, spec, breite, hoehe, laenge, y0, sill, boden):
@@ -352,9 +364,9 @@ def spitfire_extras(bm, spec, breite, hoehe, laenge, y0, sill, boden):
     yd = y0 + laenge * (o0 + o1) * 0.5
     tw, th = 0.62, 0.40
     xw = -breite * 0.5 - 0.004
-    for dy, dz, sy2, sz2 in ((-tw * 0.5, 0.0, 0.035, th), (tw * 0.5, 0.0, 0.035, th),
-                             (0.0, -th * 0.5, tw, 0.035), (0.0, th * 0.5, tw, 0.035)):
-        bx(bm, (xw, yd + dy, sill - 0.30 + dz), (0.02, sy2, sz2), MI["frame"])
+    for dy, dz, sy2, sz2 in ((-tw * 0.5, 0.0, 0.022, th), (tw * 0.5, 0.0, 0.022, th),
+                             (0.0, -th * 0.5, tw, 0.022), (0.0, th * 0.5, tw, 0.022)):
+        bx(bm, (xw, yd + dy, sill - 0.30 + dz), (0.012, sy2, sz2), MI["frame"])
     bx(bm, (xw - 0.012, yd + tw * 0.30, sill - 0.30), (0.03, 0.09, 0.05), MI["metal"])
 
     # RUECKSPIEGEL auf dem Scheibenrahmen
@@ -383,35 +395,35 @@ def spitfire_extras(bm, spec, breite, hoehe, laenge, y0, sill, boden):
 # --- Stile ------------------------------------------------------------------------------------
 STILE = {
     "cockpit_bubble": dict(
-        size=(1.3, 1.3, 2.4), exp=2.15, flach_unten=0.10, deck=0.085,
+        size=(1.3, 1.3, 2.4), exp=2.15, flach_unten=0.10, deck=0.085, vorn=(0.74, 0.80),
         oeff=(0.30, 0.72), x_off=0.34, sill=0.30, boden=-0.14,
-        h_breite=0.40, h_hoehe=0.44, rundung=0.78,
+        h_breite=0.48, h_hoehe=0.38, rundung=0.62,
         ws_ab=0.74, ws_rest=0.30, heck_ab=0.26, heck_rest=0.16,
         spanten=1, facetten=False, alle_ringe=False, tandem=False),
     "cockpit_jet": dict(
-        size=(1.1, 1.1, 2.6), exp=2.7, flach_unten=0.06, deck=0.070,
+        size=(1.1, 1.1, 2.6), exp=2.7, flach_unten=0.06, deck=0.070, vorn=(0.78, 0.82),
         oeff=(0.34, 0.80), x_off=0.30, sill=0.28, boden=-0.12,
-        h_breite=0.36, h_hoehe=0.34, rundung=1.15,
+        h_breite=0.44, h_hoehe=0.30, rundung=0.75,
         ws_ab=0.62, ws_rest=0.22, heck_ab=0.30, heck_rest=0.10,
         spanten=1, facetten=False, alle_ringe=False, tandem=False),
     "cockpit_frame": dict(
-        size=(1.35, 1.35, 2.25), exp=3.1, flach_unten=0.12, deck=0.075,
+        size=(1.35, 1.35, 2.25), exp=3.1, flach_unten=0.12, deck=0.075, vorn=(0.80, 0.84),
         oeff=(0.30, 0.70), x_off=0.35, sill=0.27, boden=-0.16,
-        h_breite=0.42, h_hoehe=0.40, rundung=0.62,
+        h_breite=0.48, h_hoehe=0.34, rundung=0.55,
         ws_ab=0.76, ws_rest=0.42, heck_ab=0.22, heck_rest=0.30,
         spanten=3, facetten=True, alle_ringe=True, tandem=False),
     "cockpit_spitfire": dict(
         # schmal und hoch (die Spitfire war eng und tief), starker Razorback
-        size=(1.15, 1.28, 2.5), exp=2.05, flach_unten=0.08, deck=0.115,
+        size=(1.15, 1.28, 2.5), exp=2.05, flach_unten=0.08, deck=0.115, vorn=(0.70, 0.76),
         oeff=(0.26, 0.68), x_off=0.31, sill=0.28, boden=-0.15,
-        h_breite=0.38, h_hoehe=0.42, rundung=0.80,
+        h_breite=0.46, h_hoehe=0.36, rundung=0.60,
         ws_ab=0.74, ws_rest=0.34, heck_ab=0.30, heck_rest=0.18,
         spanten=1, facetten=False, alle_ringe=False, tandem=False,
         ws_getrennt=True, extras="spitfire"),
     "cockpit_tandem": dict(
-        size=(1.225, 1.225, 3.1), exp=2.35, flach_unten=0.10, deck=0.080,
+        size=(1.225, 1.225, 3.1), exp=2.35, flach_unten=0.10, deck=0.080, vorn=(0.76, 0.82),
         oeff=(0.20, 0.84), x_off=0.32, sill=0.29, boden=-0.14,
-        h_breite=0.38, h_hoehe=0.40, rundung=0.82,
+        h_breite=0.46, h_hoehe=0.34, rundung=0.62,
         ws_ab=0.80, ws_rest=0.30, heck_ab=0.18, heck_rest=0.14,
         spanten=1, facetten=False, alle_ringe=False, tandem=True),
 }
@@ -456,15 +468,11 @@ def baue(pid, spec):
                  MI["frame"], MI["dark"])
         innenausbau(bm, y0 + laenge * (o0 * 0.30 + o1 * 0.70) - 0.16, sill_z, boden_z, breite)
 
+    # BEWUSST OHNE Panelnaehte, Haltegriff, Trittstufe und Antenne: die Referenz hat davon
+    # nichts, und genau diese Ruhe laesst sie hochwertig wirken. Die Wirkung kommt aus der
+    # Form, nicht aus angeschraubten Kleinteilen.
     if spec.get("extras") == "spitfire":
         spitfire_extras(bm, spec, breite, hoehe, laenge, y0, sill_z, boden_z)
-    for t in (0.14, 0.90):
-        panelnaht(bm, profil, breite, hoehe, spec, t, MI["frame"])
-    bx(bm, (breite * 0.40, y0 + laenge * (o0 + 0.03), sill_z - 0.22), (0.04, 0.16, 0.045),
-       MI["metal"])                                              # Haltegriff
-    bx(bm, (breite * 0.43, y0 + laenge * (o0 - 0.05), -hoehe * 0.12), (0.035, 0.15, 0.028),
-       MI["dark"])                                               # Trittstufe
-    zyl(bm, (0.0, y0 + laenge * 0.06, hoehe * 0.47), 0.016, 0.26, "z", MI["metal"], 6)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
     bm.normal_update()
     bm.to_mesh(ob.data)

@@ -493,6 +493,19 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Kopfstuetze/Gurten, Instrumentenbrett mit Rundinstrumenten, Knueppel, Pedale,
   Seitenkonsolen, Ueberrollbuegel; darueber eine Haube, deren Glas UND Spanten aus
   DEMSELBEN Laengsprofil kommen (sonst schweben die Buegel neben der Scheibe).
+  **FORM STATT DETAILS (dritte Runde, nach Nutzer-Ablehnung):** Der Vergleich mit dem
+  Referenzteil `spitfire_cockpit` (Parallel-Sitzung, 63k Tris) hat gezeigt, WORAN es lag:
+  dessen Qualitaet kommt aus der VERJUENGTEN, geschwungenen Silhouette, duennen RUNDEN
+  Haubenbuegeln und einer voellig ruhigen Oberflaeche — nicht aus Details. Meine Fassungen
+  hatten es umgekehrt (konstantes Rohr + Panelringe + angeschraubte Kleinteile). Daher:
+  Panelnaehte, Haltegriff, Trittstufe und Antenne sind RAUS, Spanten sind Rundprofile
+  (r 0.011) statt Kaesten, Haube breiter und flacher.
+  **`vorn_skala`:** die vordere Haelfte verjuengt sich frei (Spitfire 0.70 x 0.76), das HECK
+  bleibt exakt auf Profil — dort dockt das Rumpfsegment an (Spalt weiterhin 0.00000).
+  Das ist die Entscheidung des Nutzers: Silhouette vorne, Andockflaeche nur hinten.
+  ERKENNTNIS: beidseitig ebene Enden erzwingen einen konstanten Querschnitt und damit die
+  Rohrform — die schoene Referenz kann sich verjuengen, weil sie ein Wurzelteil OHNE
+  hintere Andockflaeche ist.
   **SPITFIRE-KANZEL `cockpit_spitfire`** (+ `fuselage_spitfire`): eigener fuenfter Stil,
   bewusst NICHT `spitfire_cockpit` — das ist ein anderes Teil aus einer Parallel-Sitzung
   und bleibt unberuehrt. Merkmale: schmaler/hoher Querschnitt (1.15 x 1.28), starker
