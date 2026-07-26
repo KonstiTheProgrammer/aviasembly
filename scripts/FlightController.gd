@@ -287,6 +287,12 @@ func build_from_design(d: Array) -> void:
 			vis.transform = Transform3D(xf.basis * Basis.from_scale(psc), xf.origin)
 		body.add_child(vis)
 		PartCatalog.set_gear_length(vis, p, float(item.get("glen", 1.0)))
+		var br: Array = item.get("br", [])
+		if br.size() == 8:
+			var ra := PartCatalog.block_radien_neu()
+			for bi in 8:
+				ra[bi] = clampf(float(br[bi]), 0.0, 1.0)
+			PartCatalog.set_block_rounding(vis, p, ra)
 		var prop := vis.find_child("Prop", true, false)
 		var wheel_node: Node3D = vis.find_child("Wheel", true, false)   # dreht beim Rollen
 		# Bewegliche Fläche: Hauptflügel = "FlapHinge" (Rolle "flap"), Steuerflügel = "CtrlHinge"

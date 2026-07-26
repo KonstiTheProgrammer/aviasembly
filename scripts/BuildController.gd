@@ -80,6 +80,7 @@ var _drag_t0 := 0.0               # Startparameter auf der Achse
 var _drag_scale0 := Vector3.ONE
 var _drag_origin0 := Vector3.ZERO
 var _drag_taper0 := 1.0           # Enden-Drag: Taper-Wert des Endes beim Greifen
+var _drag_corner := 0            # gezogene Klotz-Ecke (0..7)
 var _drag_half := 1.0             # Enden-Drag: halbe Höhe (Sensitivität)
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
 var _move_kids: Array = []        # Anbauten (auswärtiger Teilbaum), die beim Verschieben mitwandern
@@ -785,6 +786,10 @@ func _build_handles() -> void:
 	if String(PartCatalog.get_part(selected_part.get_meta("part_id")).get(
 			"category", "")) == PartCatalog.CAT_GEAR:
 		_build_leg_handle()
+	# Klotz: acht Eckgriffe zum Abrunden, ebenfalls in jedem Gizmo-Modus
+	if String(PartCatalog.get_part(selected_part.get_meta("part_id")).get(
+			"shape", "")) == "block":
+		_build_round_handles()
 	_update_handles()
 
 
@@ -870,6 +875,36 @@ func _build_leg_handle() -> void:
 	h.add_child(mi)
 	selected_part.add_child(h)
 	_handles.append(h)
+
+
+# Acht Eckgriffe des Klotzes: nach INNEN ziehen rundet diese Ecke ab.
+func _build_round_handles() -> void:
+	for i in 8:
+		var h := StaticBody3D.new()
+		h.add_to_group("handle")
+		h.collision_layer = HANDLE_LAYER
+		h.collision_mask = 0
+		h.set_meta("kind", "round")
+		h.set_meta("axis", 0)
+		h.set_meta("corner", i)
+		var col := Color(0.45, 1.0, 0.65)
+		h.set_meta("base_col", col)
+		var cs := CollisionShape3D.new()
+		var bs := BoxShape3D.new()
+		bs.size = Vector3(0.42, 0.42, 0.42)
+		cs.shape = bs
+		h.add_child(cs)
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.17
+		sm.height = 0.34
+		sm.radial_segments = 8
+		sm.rings = 5
+		mi.mesh = sm
+		mi.material_override = _gizmo_mat(col)
+		h.add_child(mi)
+		selected_part.add_child(h)
+		_handles.append(h)
 
 
 func _build_ends_handles() -> void:
@@ -1034,6 +1069,16 @@ func _update_handles() -> void:
 				h.position = off + Vector3(float(halves[0]) * et + 0.4, 0.0, es * float(halves[2]))
 			else:
 				h.position = off + Vector3(0.0, float(halves[1]) * et + 0.4, es * float(halves[2]))
+		elif kind == "round":
+			var ci: int = h.get_meta("corner", 0)
+			var e := Vector3(1.0 if (ci & 1) != 0 else -1.0,
+				1.0 if (ci & 2) != 0 else -1.0,
+				1.0 if (ci & 4) != 0 else -1.0)
+			# Griff sitzt AUF der Ecke und wandert mit der Rundung nach innen
+			var rr: float = _block_r(selected_part)[ci]
+			var schrumpf: float = minf(minf(half_v.x, half_v.y), half_v.z) * rr * 0.55
+			h.position = off + Vector3(e.x * (half_v.x - schrumpf),
+				e.y * (half_v.y - schrumpf), e.z * (half_v.z - schrumpf))
 		elif kind == "leg":
 			# sitzt unter dem Reifen und wandert beim Ausfahren mit
 			var ext: float = PartCatalog.gear_ext(p, selected_part.get_meta("gear_len", 1.0))
@@ -1112,6 +1157,21 @@ func _begin_handle_drag(handle: Node3D) -> void:
 		_rot_u = _rot_u.normalized()
 		_rot_v = _rot_axis_w.cross(_rot_u).normalized()
 		_rot_a0 = _ring_angle()
+		return
+	if _drag_kind == "round":
+		# entlang der RAUMDIAGONALE durch diese Ecke ziehen: nach innen = runder
+		_drag_corner = handle.get_meta("corner", 0)
+		var bp := PartCatalog.get_part(selected_part.get_meta("part_id"))
+		var bpsc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+		var bh: Vector3 = PartCatalog.col_size(bp) * bpsc * 0.5
+		_drag_half = maxf(minf(minf(bh.x, bh.y), bh.z), 0.12)
+		_drag_taper0 = _block_r(selected_part)[_drag_corner]
+		var e := Vector3(1.0 if (_drag_corner & 1) != 0 else -1.0,
+			1.0 if (_drag_corner & 2) != 0 else -1.0,
+			1.0 if (_drag_corner & 4) != 0 else -1.0)
+		_drag_axis_w = (selected_part.global_transform.basis * e).normalized()
+		_drag_origin0 = handle.global_position
+		_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
 		return
 	if _drag_kind == "leg":
 		# entlang der LOKALEN Y-Achse ziehen (nach unten = laenger)
@@ -1228,6 +1288,25 @@ func _update_transform_drag() -> void:
 			dreh = roundf(dreh / (PI * 0.25)) * (PI * 0.25)
 		var nb := (Basis(_rot_axis_w, dreh) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
+	elif _drag_handle != null and _drag_kind == "round":
+		# Mausweg auf der Ecken-Diagonale -> Rundungsgrad 0..1 (feste Spanne).
+		# SHIFT = ALLE acht Ecken zugleich, ohne SHIFT nur die gezogene.
+		var rt := _ray_axis_t(_drag_origin0, _drag_axis_w)
+		var wert: float = clampf(float(_drag_taper0) + (_drag_t0 - rt) / _drag_half,
+			0.0, 1.0)
+		var rad: PackedFloat32Array = _block_r(selected_part)
+		if Input.is_key_pressed(KEY_SHIFT):
+			for i in 8:
+				rad[i] = wert
+		else:
+			rad[_drag_corner] = wert
+		selected_part.set_meta("block_r", rad)
+		var bsc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+		_rebuild_visual(selected_part)
+		_apply_part_scale(selected_part, bsc)
+		_sync_mirror_block(selected_part, bsc)
+		_update_handles()
+		_notify_changed()
 	elif _drag_handle != null and _drag_kind == "leg":
 		# Mausweg entlang -Y in Beinlaengen umrechnen; die Spanne ist FEST (kein Stelzen).
 		var lt := _ray_axis_t(_drag_origin0, _drag_axis_w)
@@ -1367,6 +1446,8 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 			m.transform = _mirror_xform(part.transform)
 			_apply_part_scale(m, sc)
 		_sync_mirror_gear(part, m, sc)
+		if part.has_meta("block_r"):
+			_sync_mirror_block(part, sc)
 		# Mittelspalt-Füllung beider Hälften an die neue Position anpassen
 		_update_wing_fill(part)
 		_update_wing_fill(m)
@@ -1384,6 +1465,25 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 		part.remove_meta("mirror")
 		m.free()
 		_update_wing_fill(part)
+
+
+# Eckrundungen des Klotzes (8 Werte 0..1); fehlt das Meta, alle scharf.
+func _block_r(part: Node3D) -> PackedFloat32Array:
+	if part.has_meta("block_r"):
+		var a: PackedFloat32Array = part.get_meta("block_r")
+		if a.size() == 8:
+			return a
+	return PartCatalog.block_radien_neu()
+
+
+# Rundung auf den Spiegel uebertragen — sonst haette die gespiegelte Haelfte scharfe Ecken.
+func _sync_mirror_block(part: Node3D, sc: Vector3) -> void:
+	var m = part.get_meta("mirror") if part.has_meta("mirror") else null
+	if m == null or not is_instance_valid(m):
+		return
+	m.set_meta("block_r", _block_r(part).duplicate())
+	_rebuild_visual(m)
+	_apply_part_scale(m, sc)
 
 
 # Ausgefahrenes Fahrwerksbein auf den Spiegel uebertragen. Ohne das blieb das
@@ -1644,8 +1744,10 @@ func _rebuild_visual(part: Node) -> void:
 	nv.name = "Visual"
 	nv.scale = part.get_meta("pscale", Vector3.ONE)
 	part.add_child(nv)
-	PartCatalog.set_gear_length(nv, PartCatalog.get_part(part.get_meta("part_id")),
-		part.get_meta("gear_len", 1.0))
+	var pdef := PartCatalog.get_part(part.get_meta("part_id"))
+	PartCatalog.set_gear_length(nv, pdef, part.get_meta("gear_len", 1.0))
+	if part.has_meta("block_r"):
+		PartCatalog.set_block_rounding(nv, pdef, part.get_meta("block_r"))
 
 
 # --- Verjüngung (Taper): Enden des Rumpfes breiter/schmaler ----------------
@@ -2662,6 +2764,7 @@ func get_design() -> Array:
 				"tuser_f": child.has_meta("taper_front_user"),  # (Auto-Taper respektiert das)
 				"fill": child.get_meta("fill", 0.0),   # Flügel-Mittelspalt-Füllung (für Flug + Speichern)
 				"glen": child.get_meta("gear_len", 1.0),   # ausgefahrenes Fahrwerksbein
+				"br": Array(_block_r(child)),              # Eckrundungen des Klotzes
 				"thrust_reverse": child.get_meta("thrust_reverse", false),   # Prop-Schub umkehren
 			})
 	return out
@@ -2679,6 +2782,18 @@ func load_design(arr: Array) -> void:
 			np.set_meta("thrust_reverse", bool(item.get("thrust_reverse", false)))
 			# Ausgefahrenes Fahrwerksbein wiederherstellen (Visual neu bauen, damit die
 			# Beinlaenge sofort steht — _add_part kennt das Meta beim Bauen noch nicht).
+			var brs: Array = item.get("br", [])
+			if brs.size() == 8:
+				var ra := PartCatalog.block_radien_neu()
+				var scharf := true
+				for i in 8:
+					ra[i] = clampf(float(brs[i]), 0.0, 1.0)
+					if ra[i] > 0.002:
+						scharf = false
+				if not scharf:
+					np.set_meta("block_r", ra)
+					_rebuild_visual(np)
+					_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
 			var glen := float(item.get("glen", 1.0))
 			if glen > 1.0001:
 				np.set_meta("gear_len", clampf(glen, PartCatalog.GEAR_LEN_MIN,

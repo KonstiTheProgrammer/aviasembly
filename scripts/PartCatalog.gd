@@ -157,6 +157,15 @@ static func _build() -> void:
 		"metal": 0.28, "rough": 0.50, "biends": true,
 		"desc": "Automatisches Rumpfsegment mit exakt demselben abgeflachten Zwölfeck-Querschnitt wie das moderne Transport-Cockpit.",
 	})
+	# FREIER BAUSTEIN mit acht einzeln abrundbaren Ecken. Verschieben/Drehen/Skalieren
+	# kommt vom normalen Gizmo; die Rundung haengt als Meta "block_r" (8 Werte 0..1) am
+	# Teil und wird von BuildController per set_block_rounding auf das Visual gelegt.
+	_add({
+		"id": "block", "name": "Klotz (Ecken rundbar)", "category": CAT_BODY,
+		"mass": 90.0, "color": C_BODY, "shape": "block",
+		"size": Vector3(1.2, 1.2, 1.2),
+		"desc": "Freier Baustein: verschieben, drehen, skalieren — und jede der ACHT Ecken einzeln abrunden. Griff an einer Ecke ziehen rundet nur diese; mit SHIFT alle acht gleichzeitig.",
+	})
 	_add({
 		"id": "fuselage_long", "name": "Langes Rumpfsegment", "category": CAT_BODY,
 		"mass": 175.0, "color": C_BODY, "shape": "box",
@@ -1124,6 +1133,103 @@ static func _leg_stretched(orig: Mesh, ext: float, radius: float) -> Mesh:
 	return neu
 
 
+# --- KLOTZ MIT EINZELN ABRUNDBAREN ECKEN ---------------------------------------------
+# VERFAHREN: jeder Punkt p der Boxoberflaeche wird auf die Rounded-Box-Flaeche projiziert
+#     q = clamp(p, -(b - r), b - r)          # Punkt auf dem geschrumpften Innenkoerper
+#     Flaeche = q + normalize(p - q) * r
+# Auf ebenen Flaechen ist |p - q| = r, der Punkt bleibt also liegen; nur in Ecken und
+# Kanten wandert er auf die Kugel. Der Radius r ist dabei NICHT konstant, sondern
+# TRILINEAR aus den acht Eckwerten interpoliert. Genau das macht einzelne Ecken moeglich:
+# die Flaeche bleibt stetig, auch wenn nur eine Ecke rund ist.
+static func block_radien_neu() -> PackedFloat32Array:
+	var a := PackedFloat32Array()
+	a.resize(8)
+	return a
+
+
+static func _block_r_bei(p: Vector3, b: Vector3, radien: PackedFloat32Array,
+		r_max: float) -> float:
+	var u := clampf(p.x / maxf(b.x, 0.0001), -1.0, 1.0)
+	var v := clampf(p.y / maxf(b.y, 0.0001), -1.0, 1.0)
+	var w := clampf(p.z / maxf(b.z, 0.0001), -1.0, 1.0)
+	var r := 0.0
+	for i in 8:
+		var sx := 1.0 if (i & 1) != 0 else -1.0
+		var sy := 1.0 if (i & 2) != 0 else -1.0
+		var sz := 1.0 if (i & 4) != 0 else -1.0
+		var gew := (1.0 + sx * u) * 0.5 * (1.0 + sy * v) * 0.5 * (1.0 + sz * w) * 0.5
+		r += gew * clampf(radien[i], 0.0, 1.0)
+	return r * r_max
+
+
+static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
+	var b: Vector3 = size * 0.5
+	var scharf := radien.size() < 8
+	if not scharf:
+		scharf = true
+		for i in 8:
+			if radien[i] > 0.002:
+				scharf = false
+				break
+	var n := 1 if scharf else 6          # scharfe Box braucht kein Raster
+	var r_max: float = minf(minf(b.x, b.y), b.z) * 0.98
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)              # flach schattiert wie der Rest des Spiels
+	# sechs Seiten, je als n x n Raster; achs = welche Achse ist die Flaechennormale
+	for achs in 3:
+		for vorz in [-1.0, 1.0]:
+			for i in n:
+				for j in n:
+					var ecken: Array[Vector3] = []
+					for du in [0, 1]:
+						for dv in [0, 1]:
+							var a := (float(i + du) / float(n)) * 2.0 - 1.0
+							var c := (float(j + dv) / float(n)) * 2.0 - 1.0
+							var p := Vector3.ZERO
+							if achs == 0:
+								p = Vector3(vorz * b.x, a * b.y, c * b.z)
+							elif achs == 1:
+								p = Vector3(a * b.x, vorz * b.y, c * b.z)
+							else:
+								p = Vector3(a * b.x, c * b.y, vorz * b.z)
+							if not scharf:
+								var rr: float = _block_r_bei(p, b, radien, r_max)
+								var bi := Vector3(maxf(b.x - rr, 0.0), maxf(b.y - rr, 0.0),
+									maxf(b.z - rr, 0.0))
+								var q: Vector3 = p.clamp(-bi, bi)
+								var d: Vector3 = p - q
+								if d.length() > 0.00001:
+									p = q + d.normalized() * rr
+							ecken.append(p)
+					# ecken: [du0dv0, du0dv1, du1dv0, du1dv1] -> zwei Dreiecke, Wicklung
+					# so, dass die Normale nach AUSSEN zeigt (Vorzeichen der Achse).
+					var vs: Array[Vector3] = [ecken[0], ecken[1], ecken[3], ecken[2]]
+					if vorz < 0.0:
+						vs.reverse()
+					if achs == 1:
+						vs.reverse()
+					st.add_vertex(vs[0])
+					st.add_vertex(vs[1])
+					st.add_vertex(vs[2])
+					st.add_vertex(vs[0])
+					st.add_vertex(vs[2])
+					st.add_vertex(vs[3])
+	st.generate_normals()
+	return st.commit()
+
+
+# Rundung nachtraeglich auf ein bereits gebautes Klotz-Visual legen.
+static func set_block_rounding(vis: Node3D, p: Dictionary, radien: PackedFloat32Array) -> void:
+	if vis == null or String(p.get("shape", "")) != "block":
+		return
+	for c in vis.get_children():
+		var mi := c as MeshInstance3D
+		if mi != null:
+			mi.mesh = _block_mesh(p.get("size", Vector3.ONE), radien)
+			return
+
+
 static func has_model(id: String) -> bool:
 	return id != "" and ResourceLoader.exists(MODEL_DIR + id + ".glb")
 
@@ -1261,6 +1367,10 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 	var size: Vector3 = p.get("size", Vector3.ONE)
 
 	match shape:
+		"block":
+			root.add_child(_mi(_block_mesh(size, PackedFloat32Array()),
+				make_material(col, metal, rough, false)))
+
 		"box":
 			# Rumpfsegment als glatter, leicht abgerundeter Tubus (elliptischer Querschnitt).
 			# BEIDE Enden einzeln in X UND Y skalierbar (elliptischer Loft): ef = vorderes
