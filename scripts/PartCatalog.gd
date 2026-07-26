@@ -1162,6 +1162,30 @@ static func _block_r_bei(p: Vector3, b: Vector3, radien: PackedFloat32Array,
 	return r * r_max
 
 
+# Abtastpunkte einer Achse: von -b nach +b, mit FESTER Zahl Schritte INNERHALB der
+# Rundung und nur wenigen in der ebenen Mitte.
+# WARUM: vorher war das Raster n x n je Flaeche, unabhaengig von der Kantenlaenge. Bei
+# einem 1.2 x 3.6 gestreckten Klotz sind die Zellen dann 0.13 x 0.40 gross — die Grenze
+# zwischen ebener Flaeche und Rundung fiel pro Achse an eine andere Stelle im Raster und
+# die Ecken sahen NICHT gleich gross aus, obwohl der Radius gleich war. Jetzt liegt die
+# Grenze bei +-(b-r) EXAKT auf einer Rasterlinie, auf jeder Achse gleich, und die Rundung
+# wird ueberall mit denselben Schritten aufgeloest.
+static func _block_axis_samples(b: float, r: float, schritte: int) -> PackedFloat32Array:
+	var s := PackedFloat32Array()
+	if r <= 0.001:
+		s.append(-b)
+		s.append(b)
+		return s
+	var innen: float = maxf(b - r, 0.0)
+	for i in schritte + 1:
+		s.append(-b + r * float(i) / float(schritte))       # -b .. -(b-r)
+	if innen > 0.0005:
+		s.append(0.0)                                        # ebene Mitte
+	for i in schritte + 1:
+		s.append(innen + r * float(i) / float(schritte))     # (b-r) .. b
+	return s
+
+
 static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
 	var b: Vector3 = size * 0.5
 	var scharf := radien.size() < 8
@@ -1177,8 +1201,16 @@ static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
 	if not scharf:
 		for i in 8:
 			r_gross = maxf(r_gross, clampf(radien[i], 0.0, 1.0))
-	var n := 1 if scharf else clampi(int(roundf(5.0 + 7.0 * r_gross)), 5, 12)
 	var r_max: float = minf(minf(b.x, b.y), b.z) * 0.98
+	var r_abs: float = r_gross * r_max          # groesster tatsaechlicher Radius
+	# Schritte INNERHALB der Rundung. Die GENAUIGKEIT haengt nicht daran (die Grenze
+	# liegt so oder so auf einer Rasterlinie), nur die Glaettung des Bogens — mit
+	# analytischen Normalen reichen darum wenige: 3 bei leichter Fase, 5 bei voller
+	# Rundung (1728 Dreiecke). Mit 8 waren es 3888, ohne sichtbaren Gewinn.
+	var schritte: int = clampi(int(roundf(2.0 + 3.0 * r_gross)), 3, 5)
+	var sx := _block_axis_samples(b.x, r_abs, schritte)
+	var sy := _block_axis_samples(b.y, r_abs, schritte)
+	var sz := _block_axis_samples(b.z, r_abs, schritte)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# Scharf = flach schattiert (harte Kanten). Gerundet = GLATT, mit ANALYTISCHEN
@@ -1191,21 +1223,23 @@ static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
 	# sechs Seiten, je als n x n Raster; achs = welche Achse ist die Flaechennormale
 	for achs in 3:
 		for vorz in [-1.0, 1.0]:
-			for i in n:
-				for j in n:
+			var ua: PackedFloat32Array = sy if achs == 0 else sx
+			var va: PackedFloat32Array = sy if achs == 2 else sz
+			for i in ua.size() - 1:
+				for j in va.size() - 1:
 					var ecken: Array[Vector3] = []
 					var normalen: Array[Vector3] = []
 					for du in [0, 1]:
 						for dv in [0, 1]:
-							var a := (float(i + du) / float(n)) * 2.0 - 1.0
-							var c := (float(j + dv) / float(n)) * 2.0 - 1.0
+							var a: float = ua[i + du]
+							var c: float = va[j + dv]
 							var p := Vector3.ZERO
 							if achs == 0:
-								p = Vector3(vorz * b.x, a * b.y, c * b.z)
+								p = Vector3(vorz * b.x, a, c)
 							elif achs == 1:
-								p = Vector3(a * b.x, vorz * b.y, c * b.z)
+								p = Vector3(a, vorz * b.y, c)
 							else:
-								p = Vector3(a * b.x, c * b.y, vorz * b.z)
+								p = Vector3(a, c, vorz * b.z)
 							var nrm := Vector3.ZERO
 							if achs == 0:
 								nrm = Vector3(vorz, 0.0, 0.0)
