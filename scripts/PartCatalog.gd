@@ -472,6 +472,17 @@ static func _build() -> void:
 		"size": Vector3(1.5, 1.5, 1.9), "metal": 0.7, "rough": 0.35,
 	})
 	_add({
+		"id": "b29_engine", "name": "B-29-Motor (R-3350)", "category": CAT_PROP,
+		"mass": 520.0, "color": Color(0.48, 0.53, 0.61),
+		"shape": "prop", "thrust": 15000.0,
+		# Die Klick-/Physikbox umfasst die Cowling; Propeller und Spinner dürfen
+		# wie bei den übrigen Motoren sichtbar darüber hinausragen.
+		"size": Vector3(1.72, 1.72, 1.64),
+		"col_size": Vector3(1.70, 1.70, 1.64),
+		"metal": 0.42, "rough": 0.38, "spin_mult": 0.72, "strength": 20.0,
+		"desc": "Schwere B-29-Motorgondel im Spielstil: Wright-R-3350-Cowling, großer Vierblattpropeller mit gelben Spitzen, dunkle Kühlluftöffnung, hintere Kühlklappen, Ölkühler, Blechstöße und Abgasstutzen. Plane Rückseite zum sauberen Andocken.",
+	})
+	_add({
 		"id": "spitfire_engine", "name": "Spitfire-Merlin-Motor", "category": CAT_PROP,
 		"mass": 250.0, "color": Color(0.26, 0.33, 0.22), "shape": "prop", "thrust": 11000.0,
 		"size": Vector3(1.5, 1.5, 1.9), "col_size": Vector3(1.42, 1.32, 1.92),

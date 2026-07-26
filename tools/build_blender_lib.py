@@ -23,7 +23,7 @@ MODELS = "C:/Users/Konst/Projects/aviasembly/models/"
 OUT = "C:/Users/Konst/Projects/aviasembly/blender_lib/"
 
 LIB = {
-    "motoren": ["prop_engine", "prop_engine_big", "prop_engine_nose", "spitfire_engine",
+    "motoren": ["prop_engine", "prop_engine_big", "b29_engine", "prop_engine_nose", "spitfire_engine",
                 "reto_engine", "engine_radial", "jet_engine", "jet_square", "thruster",
                 "f14_nacelle", "f22_engine"],
     "fahrwerke": ["wheel", "wheel_light", "wheel_heavy", "wheel_jet", "wheel_retract",
