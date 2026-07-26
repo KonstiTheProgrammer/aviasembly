@@ -292,7 +292,9 @@ func build_from_design(d: Array) -> void:
 			var ra := PartCatalog.block_radien_neu()
 			for bi in 8:
 				ra[bi] = clampf(float(br[bi]), 0.0, 1.0)
-			PartCatalog.set_block_rounding(vis, p, ra)
+			var bake: Vector3 = item.get("bsc", Vector3.ONE)
+			PartCatalog.set_block_rounding(vis, p, ra, bake)
+			vis.scale = PartCatalog.block_rest_scale(vis.scale, bake)
 		var prop := vis.find_child("Prop", true, false)
 		var wheel_node: Node3D = vis.find_child("Wheel", true, false)   # dreht beim Rollen
 		# Bewegliche Fläche: Hauptflügel = "FlapHinge" (Rolle "flap"), Steuerflügel = "CtrlHinge"

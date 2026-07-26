@@ -1241,14 +1241,32 @@ static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
 
 
 # Rundung nachtraeglich auf ein bereits gebautes Klotz-Visual legen.
-static func set_block_rounding(vis: Node3D, p: Dictionary, radien: PackedFloat32Array) -> void:
+#
+# REIHENFOLGE: `bake` ist die Teil-Skalierung, die galt, als der Spieler die Ecken
+# gerundet hat. Genau diese Streckung wird ins Netz EINGEBACKEN, der Radius ist darin
+# also ein absolutes Mass:
+#   erst in die Laenge skalieren, dann runden -> bake = (1,1,3): das Netz wird schon
+#       gestreckt gebaut, die Rundungen sind an allen Ecken GLEICH GROSS.
+#   erst runden, dann skalieren -> bake = (1,1,1): das Netz bleibt in Grundgroesse, und
+#       die Node-Skalierung (pscale/bake) streckt die fertige Rundung MIT.
+# Die Node-Skalierung setzt der Aufrufer auf pscale/bake, damit beides zusammenpasst.
+static func set_block_rounding(vis: Node3D, p: Dictionary, radien: PackedFloat32Array,
+		bake := Vector3.ONE) -> void:
 	if vis == null or String(p.get("shape", "")) != "block":
 		return
+	var groesse: Vector3 = p.get("size", Vector3.ONE)
+	groesse = Vector3(groesse.x * bake.x, groesse.y * bake.y, groesse.z * bake.z)
 	for c in vis.get_children():
 		var mi := c as MeshInstance3D
 		if mi != null:
-			mi.mesh = _block_mesh(p.get("size", Vector3.ONE), radien)
+			mi.mesh = _block_mesh(groesse, radien)
 			return
+
+
+# Restskalierung fuer das Visual: alles, was NACH dem Runden skaliert wurde.
+static func block_rest_scale(pscale: Vector3, bake: Vector3) -> Vector3:
+	return Vector3(pscale.x / maxf(bake.x, 0.001), pscale.y / maxf(bake.y, 0.001),
+		pscale.z / maxf(bake.z, 0.001))
 
 
 static func has_model(id: String) -> bool:

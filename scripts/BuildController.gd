@@ -1301,7 +1301,10 @@ func _update_transform_drag() -> void:
 		else:
 			rad[_drag_corner] = wert
 		selected_part.set_meta("block_r", rad)
+		# Skalierung von JETZT einbacken: damit sind die Kanten in der aktuellen (evtl.
+		# gestreckten) Form gleich gross. Spaeteres Skalieren streckt sie dann mit.
 		var bsc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+		selected_part.set_meta("block_sc", bsc)
 		_rebuild_visual(selected_part)
 		_apply_part_scale(selected_part, bsc)
 		_sync_mirror_block(selected_part, bsc)
@@ -1482,6 +1485,7 @@ func _sync_mirror_block(part: Node3D, sc: Vector3) -> void:
 	if m == null or not is_instance_valid(m):
 		return
 	m.set_meta("block_r", _block_r(part).duplicate())
+	m.set_meta("block_sc", part.get_meta("block_sc", Vector3.ONE))
 	_rebuild_visual(m)
 	_apply_part_scale(m, sc)
 
@@ -1747,7 +1751,10 @@ func _rebuild_visual(part: Node) -> void:
 	var pdef := PartCatalog.get_part(part.get_meta("part_id"))
 	PartCatalog.set_gear_length(nv, pdef, part.get_meta("gear_len", 1.0))
 	if part.has_meta("block_r"):
-		PartCatalog.set_block_rounding(nv, pdef, part.get_meta("block_r"))
+		PartCatalog.set_block_rounding(nv, pdef, part.get_meta("block_r"),
+			part.get_meta("block_sc", Vector3.ONE))
+		nv.scale = PartCatalog.block_rest_scale(nv.scale,
+			part.get_meta("block_sc", Vector3.ONE))
 
 
 # --- Verjüngung (Taper): Enden des Rumpfes breiter/schmaler ----------------
@@ -2134,7 +2141,11 @@ func _apply_part_scale(part: Node3D, pscale: Vector3) -> void:
 			(vis as Node3D).scale = Vector3(pscale.x + fill / nspan, pscale.y, pscale.z)
 			(vis as Node3D).position = Vector3(-fill, 0.0, 0.0)
 		else:
-			(vis as Node3D).scale = pscale
+			# Beim Klotz ist die Skalierung, die beim Runden galt, schon im NETZ. Die
+			# Node-Skalierung traegt nur den Rest — sonst wirkte sie doppelt.
+			(vis as Node3D).scale = PartCatalog.block_rest_scale(pscale,
+				part.get_meta("block_sc", Vector3.ONE)) if part.has_meta("block_r") \
+				else pscale
 			(vis as Node3D).position = Vector3.ZERO
 	var cs := part.get_node_or_null("Pick/CollisionShape3D") as CollisionShape3D
 	if cs == null:
@@ -2765,6 +2776,7 @@ func get_design() -> Array:
 				"fill": child.get_meta("fill", 0.0),   # Flügel-Mittelspalt-Füllung (für Flug + Speichern)
 				"glen": child.get_meta("gear_len", 1.0),   # ausgefahrenes Fahrwerksbein
 				"br": Array(_block_r(child)),              # Eckrundungen des Klotzes
+				"bsc": child.get_meta("block_sc", Vector3.ONE),  # Skalierung beim Runden
 				"thrust_reverse": child.get_meta("thrust_reverse", false),   # Prop-Schub umkehren
 			})
 	return out
@@ -2792,6 +2804,7 @@ func load_design(arr: Array) -> void:
 						scharf = false
 				if not scharf:
 					np.set_meta("block_r", ra)
+					np.set_meta("block_sc", item.get("bsc", Vector3.ONE))
 					_rebuild_visual(np)
 					_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
 			var glen := float(item.get("glen", 1.0))
