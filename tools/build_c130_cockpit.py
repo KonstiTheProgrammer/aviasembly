@@ -1,22 +1,26 @@
-# C-130-artiges Transporter-Cockpit — EIGENE Datei, unabhaengig von allen bestehenden
-# Kanzeln:  blender_lib/c130_cockpit.blend  +  models/cockpit_c130.glb
+# C-130-artiges Transporter-Cockpit — eigene Datei, unabhaengig von allen anderen Kanzeln:
+#   blender_lib/c130_cockpit.blend  +  models/cockpit_c130.glb
 #
-# Vorbild ist der Herkules-Bug: rundes Radom unten vorn, darueber ein umlaufendes
-# Kanzelband aus EBENEN, gegeneinander abgewinkelten Scheiben, darunter die typischen
-# schraeg nach unten blickenden Kinnfenster, oben eine Dachluke, hinten ein gerader
-# Rumpfabschnitt mit ebener Andockflaeche.
+# ZWEITER ANLAUF. Der erste war ein glatter Ellipsoid mit Fensterfeldern im Ringraster —
+# das las sich als Ei mit Insektenauge, nicht als Herkules. Die drei Ursachen und was
+# jetzt anders ist:
 #
-# BAUPRINZIP: ein gelofteter Rumpf aus Querschnitts-RINGEN (16-Eck). Die Scheiben sind
-# keine aufgesetzten Platten, sondern GENAU die Vierecke des Rumpfrasters — dieselben
-# vier Eckpunkte, nur ein Stueck nach aussen versetzt. Dadurch folgt jede Scheibe der
-# Rumpfkruemmung, sitzt buendig im Rahmen und kann nicht schief in der Haut haengen.
-# Zwischen den Scheiben bleibt die Haut stehen und bildet die Rahmenstege.
+#   1. KONTUR: frueher schrumpfte der Querschnitt schon ab y=0.06 kontinuierlich (bei
+#      y=0.52 noch 97 %, bei 1.04 nur 89 %) — deshalb wirkte alles weich und aufgeblasen.
+#      Jetzt haelt die VOLLE Rumpfroehre bis KANZEL_Y0 und knickt dort ab; der Bauch
+#      bleibt lange tief und schwenkt erst kurz vor dem Radom hoch.
+#   2. KANZEL: frueher Fensterfelder im Ringraster, dadurch zickzackten Ober- und
+#      Unterkante. Jetzt ein echter AUFBAU: das Rumpfdach wird im Kanzelbereich FLACH
+#      abgeschnitten (Bruestungsdeck), darauf steht ein Kranz ebener Scheiben zwischen
+#      einer waagerechten Brauenlinie oben und der Deckkante unten. Beide Randlinien sind
+#      damit von Natur aus gerade, die Scheiben nach innen geneigte Trapeze.
+#   3. RADOM: frueher nur ein Materialwechsel mitten auf glatter Haut (sah aus wie Lack).
+#      Jetzt sitzt an der Naht ein DOPPELRING mit Radiussprung -> echte umlaufende Kante.
 #
 # Achsen (Projektkonvention): Blender +Y = Godot -Z (VORNE), Blender Z = Godot Y (oben).
-# Die Nase zeigt also nach +Y, die ebene Andockflaeche liegt hinten bei -Y.
 #
 # Usage: blender --background --python tools/build_c130_cockpit.py
-#        C130_PREVIEW=<ordner>  rendert zusaetzlich Ansichten
+#        C130_PREVIEW=<ordner>  rendert zusaetzlich drei Ansichten
 import bpy
 import bmesh
 import math
@@ -28,9 +32,14 @@ BLEND = ROOT + "blender_lib/c130_cockpit.blend"
 GLB = ROOT + "models/cockpit_c130.glb"
 PREVIEW = os.environ.get("C130_PREVIEW", "")
 
-SEITEN = 16          # Ringteilung
-HECK_Y = -1.55       # ebene Andockflaeche
-NASE_Y = 2.38
+SEITEN = 16
+HECK_Y = -1.55        # ebene Andockflaeche
+KANZEL_Y0 = 0.30      # Kanzel hinten
+KANZEL_Y1 = 1.08      # Kanzel vorn
+BRAUE_Z = 0.90        # Oberkante der Scheiben — WAAGERECHT
+DECK_HINTEN = 0.60    # Bruestung hinten
+DECK_VORN = 0.46      # Bruestung vorn (faellt zur Nase ab)
+NEIGUNG = 0.12        # wie stark die Scheiben nach innen kippen
 
 
 def srgb2lin(c):
@@ -38,10 +47,9 @@ def srgb2lin(c):
 
 
 MATS = {
-    # "cockpit_body" steht in PartCatalog.PAINT_MATS -> lackierbar
-    "cockpit_body": ((0.615, 0.630, 0.655), 0.35, 0.52),
+    "cockpit_body": ((0.615, 0.630, 0.655), 0.35, 0.52),   # in PAINT_MATS -> lackierbar
     "radome":       ((0.335, 0.345, 0.365), 0.15, 0.62),
-    "frame":        ((0.455, 0.470, 0.495), 0.40, 0.50),
+    "frame":        ((0.470, 0.485, 0.510), 0.40, 0.50),
     "glass":        ((0.055, 0.070, 0.095), 0.30, 0.14),
     "dark":         ((0.120, 0.130, 0.150), 0.35, 0.55),
 }
@@ -66,76 +74,78 @@ def mat(name):
     return m
 
 
-# --- Querschnitt ------------------------------------------------------------------------
-# STATIONEN: (y, Halbbreite, Halbhoehe, Mitte z). Hinten konstanter Rumpf, dann der
-# Kanzelbereich, davor faellt die Kontur zum Radom ab. Die Mitte wandert nach unten,
-# damit die Nase wie beim Original TIEF sitzt und das Dach lange hoch bleibt.
+# --- Rumpfstationen: (y, Halbbreite, Oberkante, Unterkante) ------------------------------
 STATIONEN = [
-    # (y, Halbbreite, Oberkante z, Unterkante z)
     (HECK_Y, 0.960, 0.940, -0.940),
-    (-0.62, 0.960, 0.940, -0.940),
-    (0.06, 0.952, 0.940, -0.920),
-    (0.52, 0.936, 0.936, -0.884),     # Seitenscheiben
-    (0.80, 0.906, 0.930, -0.846),     # Brauenkante: bis hierher bleibt das Dach oben
-    (1.04, 0.858, 0.790, -0.812),     # Windschutz: Dach faellt STEIL
-    (1.28, 0.782, 0.588, -0.774),
-    (1.60, 0.712, 0.318, -0.690),     # Radom: bleibt lange dick ...
-    (1.86, 0.628, 0.176, -0.606),
-    (2.06, 0.512, 0.052, -0.520),
-    (2.20, 0.372, -0.044, -0.446),
-    (2.30, 0.208, -0.116, -0.386),    # ... und rundet erst hier ab
-    (NASE_Y, 0.078, -0.166, -0.344),
+    (-0.40, 0.960, 0.940, -0.940),
+    (0.28, 0.960, 0.940, -0.940),       # bis hier volle Roehre
+    (KANZEL_Y0, 0.958, 0.938, -0.936),
+    (0.64, 0.950, 0.930, -0.930),
+    (0.98, 0.934, 0.910, -0.916),
+    (KANZEL_Y1, 0.900, 0.872, -0.892),  # Kanzelvorderkante
+    (1.20, 0.884, 0.792, -0.884),       # Nasenruecken
+    (1.46, 0.836, 0.612, -0.844),       # Radomnaht aussen
+    (1.47, 0.782, 0.560, -0.812),       # Radomnaht innen -> sichtbare Kante
+    (1.62, 0.712, 0.408, -0.744),
+    (1.90, 0.574, 0.200, -0.626),
+    (2.12, 0.408, 0.022, -0.508),
+    (2.28, 0.224, -0.106, -0.414),
+    (2.38, 0.084, -0.192, -0.350),
 ]
-
-# Ringindex: k=0 rechts (+X), k=4 oben (+Z), k=8 links (-X), k=12 unten (-Z).
-OBEN = 4
-
-# GLASFELDER als (Stationsindex, Ringindex): genau diese Rumpf-Vierecke werden zu
-# Scheiben. Stationen 6..7 = Frontscheiben (das Band ueber dem Radom), 4..5 = die
-# zurueckgesetzten Seitenscheiben, 4..5 weiter unten = die Kinnfenster.
-def glasfelder():
-    felder = set()
-    # Frontscheiben: die beiden STEIL abfallenden Baender direkt hinter der Braue.
-    # Nur die oberen fuenf Felder — laeuft das Band weiter herum, sieht es aus wie ein
-    # Insektenauge statt wie eine Kanzel (genau das war der erste Versuch).
-    for si in (4, 5):
-        for k in (OBEN - 2, OBEN - 1, OBEN, OBEN + 1, OBEN + 2):
-            felder.add((si, k % SEITEN))
-    for k in (OBEN - 4, OBEN - 3, OBEN + 3, OBEN + 4):  # Seitenscheiben, klar dahinter
-        felder.add((3, k % SEITEN))
-    for k in (OBEN - 5, OBEN + 5):                      # Kinnfenster, nur eine Reihe
-        felder.add((4, k % SEITEN))
-    return felder
+NASE_Y = STATIONEN[-1][0]
+RADOM_AB = 9          # ab diesem Stationsindex ist die Haut Radom
 
 
-GLAS = glasfelder()
+def station_bei(y):
+    for i in range(len(STATIONEN) - 1):
+        a, b = STATIONEN[i], STATIONEN[i + 1]
+        if a[0] <= y <= b[0]:
+            t = (y - a[0]) / max(b[0] - a[0], 1e-9)
+            return (a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t,
+                    a[3] + (b[3] - a[3]) * t)
+    st = STATIONEN[-1] if y > STATIONEN[-1][0] else STATIONEN[0]
+    return (st[1], st[2], st[3])
 
 
-def ring(y, bx, oben_z, unten_z):
-    """Querschnitt aus Ober- und Unterkante — so laesst sich das Dach unabhaengig vom
-    Bauch absenken, und genau daraus entsteht die Braue vor dem Windschutz."""
+def deck_z(y):
+    """Hoehe der Bruestung (Fensterunterkante) — faellt zur Nase hin ab."""
+    t = (y - KANZEL_Y0) / max(KANZEL_Y1 - KANZEL_Y0, 1e-9)
+    return DECK_HINTEN + (DECK_VORN - DECK_HINTEN) * min(max(t, 0.0), 1.0)
+
+
+def breite_bei_z(y, z):
+    """Halbe Rumpfbreite an der Stelle y auf der Hoehe z."""
+    bx, oz, uz = station_bei(y)
+    mitte = (oz + uz) * 0.5
+    hoch = (oz - uz) * 0.5
+    t = (z - mitte) / max(hoch, 1e-9)
+    if abs(t) >= 1.0:
+        return 0.0
+    return bx * math.sqrt(max(1.0 - t * t, 0.0))
+
+
+def deck_breite(y):
+    return breite_bei_z(y, deck_z(y))
+
+
+def ring(y, bx, oben_z, unten_z, kappen=False):
+    """Querschnitt. Im Kanzelbereich oben FLACH abgeschnitten — dieses Deck traegt die
+    Kanzel, und seine Kante ist zugleich die gerade Fensterunterkante."""
     mitte = (oben_z + unten_z) * 0.5
     hoch = (oben_z - unten_z) * 0.5
+    grenze = deck_z(y) if kappen else 1e9
+    dbr = deck_breite(y) if kappen else 0.0
     pts = []
     for k in range(SEITEN):
         t = 2.0 * math.pi * k / SEITEN
-        pts.append(mathutils.Vector((bx * math.cos(t), y, mitte + hoch * math.sin(t))))
+        z = mitte + hoch * math.sin(t)
+        x = bx * math.cos(t)
+        if z > grenze:
+            z = grenze
+            if abs(x) > dbr:
+                x = math.copysign(dbr, x)
+        pts.append(mathutils.Vector((x, y, z)))
     return pts
-
-
-def ring_mitte(st):
-    return (st[2] + st[3]) * 0.5
-
-
-def achse_bei(y):
-    """Hoehe der Rumpfachse bei y — sie wandert zur Nase hin nach unten."""
-    for i in range(len(STATIONEN) - 1):
-        a = STATIONEN[i]
-        b = STATIONEN[i + 1]
-        if a[0] <= y <= b[0]:
-            t = (y - a[0]) / max(b[0] - a[0], 1e-6)
-            return ring_mitte(a) + (ring_mitte(b) - ring_mitte(a)) * t
-    return ring_mitte(STATIONEN[-1] if y > STATIONEN[-1][0] else STATIONEN[0])
 
 
 def flaeche(bm, verts, mi):
@@ -147,18 +157,15 @@ def flaeche(bm, verts, mi):
         return None
 
 
-def scheibe_auf(bm, ecken, n, tiefe_rahmen=0.012, tiefe_glas=0.026, rand=0.17):
-    """Fensterfeld auf ein bereits ausgerichtetes Hautviereck setzen.
+def quad(bm, ecken, mi):
+    return flaeche(bm, [bm.verts.new(p) for p in ecken], mi)
 
-    Die vier Ecken sind DIESELBEN wie das Rumpfviereck darunter, nur entlang dessen
-    Normale nach aussen versetzt — so liegt das Fenster garantiert in der Haut. Die
-    Normale kommt von der Haut, nicht aus einer eigenen Rechnung: sonst dreht
-    recalc_face_normals einzelne Platten um und man sieht die helle Rahmenplatte.
-    """
+
+def scheibe(bm, ecken, n, tiefe=0.014, rand=0.13):
+    """Rahmenfeld mit eingesetzter Scheibe; der stehen bleibende Rand IST der Steg."""
     mitte = (ecken[0] + ecken[1] + ecken[2] + ecken[3]) * 0.25
-    flaeche(bm, [bm.verts.new(p + n * tiefe_rahmen) for p in ecken], MI["frame"])
-    innen = [p + (mitte - p) * rand + n * tiefe_glas for p in ecken]
-    flaeche(bm, [bm.verts.new(p) for p in innen], MI["glass"])
+    quad(bm, ecken, MI["frame"])
+    quad(bm, [p + (mitte - p) * rand + n * tiefe for p in ecken], MI["glass"])
 
 
 def kasten(bm, mitte, groesse, mi):
@@ -174,13 +181,32 @@ def kasten(bm, mitte, groesse, mi):
         flaeche(bm, [v[i] for i in f], mi)
 
 
-def platte(bm, ecken, mi, hoehe=0.008):
-    """Duenne aufliegende Platte (Tuerumriss, Panel) — leicht ueber der Haut."""
-    n = mathutils.geometry.normal(ecken)
-    mitte = (ecken[0] + ecken[1] + ecken[2] + ecken[3]) * 0.25
-    if n.dot(mitte - mathutils.Vector((0.0, mitte.y, 0.0))) < 0.0:
-        n = -n
-    flaeche(bm, [bm.verts.new(p + n * hoehe) for p in ecken], mi)
+def spantlinie(bm, y, breite=0.012, tiefe=0.003):
+    """Umlaufende Panellinie — erst solche Linien machen die nackte Haut zum Flugzeug."""
+    bx, oz, uz = station_bei(y)
+    mitte = (oz + uz) * 0.5
+    hoch = (oz - uz) * 0.5
+    for k in range(SEITEN):
+        t0 = 2.0 * math.pi * k / SEITEN
+        t1 = 2.0 * math.pi * (k + 1) / SEITEN
+        ps = []
+        for t in (t0, t1):
+            r = mathutils.Vector((math.cos(t), 0.0, math.sin(t)))
+            n = mathutils.Vector((r.x / max(bx, 1e-6), 0.0, r.z / max(hoch, 1e-6)))
+            n.normalize()
+            p = mathutils.Vector((bx * math.cos(t), y, mitte + hoch * math.sin(t)))
+            ps.append((p, n))
+        (p0, n0), (p1, n1) = ps
+        q = mathutils.Vector((0.0, breite * 0.5, 0.0))
+        quad(bm, [p0 - q + n0 * tiefe, p1 - q + n1 * tiefe,
+                  p1 + q + n1 * tiefe, p0 + q + n0 * tiefe], MI["frame"])
+
+
+def kanzel_umriss():
+    """Deckkante von vorn-Mitte ueber rechts nach hinten; links wird gespiegelt."""
+    ys = [KANZEL_Y1, 0.96, 0.78, 0.56, KANZEL_Y0]
+    rechts = [(deck_breite(y), y) for y in ys]
+    return [(0.0, KANZEL_Y1 + 0.05)] + rechts
 
 
 def bauen():
@@ -190,77 +216,118 @@ def bauen():
     bpy.context.scene.collection.objects.link(ob)
     for n in MATN:
         me.materials.append(mat(n))
-
     bm = bmesh.new()
-    ringe = [ring(*st) for st in STATIONEN]
 
-    # --- Aussenhaut -------------------------------------------------------------------
-    haut = []
-    glasfeld = []
+    # --- Rumpfhaut ---------------------------------------------------------------------
+    ringe = []
+    for st in STATIONEN:
+        kappen = KANZEL_Y0 - 0.001 <= st[0] <= KANZEL_Y1 + 0.001
+        ringe.append(ring(st[0], st[1], st[2], st[3], kappen))
     for si in range(len(ringe) - 1):
         for k in range(SEITEN):
             j = (k + 1) % SEITEN
             ecken = [ringe[si][k], ringe[si][j], ringe[si + 1][j], ringe[si + 1][k]]
-            m = MI["radome"] if si >= 7 else MI["cockpit_body"]
-            if (si, k) in GLAS:
-                m = MI["frame"]
-            f = flaeche(bm, [bm.verts.new(p) for p in ecken], m)
-            if f is not None:
-                haut.append(f)
-                if (si, k) in GLAS:
-                    glasfeld.append(f)
-
-    # Haut ausrichten, BEVOR die Fenster daraufgesetzt werden. NICHT ueber
-    # recalc_face_normals: das richtet eine OFFENE Roehre nur KONSISTENT aus, nicht
-    # zwingend nach aussen — im Versuch zeigte danach die ganze Haut nach innen und
-    # saemtliche Fensterplatten verschwanden im Rumpf. Stattdessen wird je Flaeche
-    # gegen die Rumpfachse auf ihrer Hoehe geprueft und nur das Noetige gedreht.
-    bm.normal_update()
-    falsch = []
-    for f in haut:
-        m = f.calc_center_median()
-        aussen = mathutils.Vector((m.x, 0.0, m.z - achse_bei(m.y)))
-        if aussen.length < 1e-6 or f.normal.dot(aussen) < 0.0:
-            falsch.append(f)
-    if falsch:
-        bmesh.ops.reverse_faces(bm, faces=falsch)
-    bm.normal_update()
-    print("    Haut: %d von %d Flaechen umgedreht" % (len(falsch), len(haut)))
-    for f in glasfeld:
-        ecken = [v.co.copy() for v in f.verts]
-        scheibe_auf(bm, ecken, f.normal.copy())
-
-    # --- ebene Andockflaeche hinten + Nasenkappe --------------------------------------
+            if (ecken[0] - ecken[1]).length < 1e-6 and (ecken[3] - ecken[2]).length < 1e-6:
+                continue                       # entartet auf der Deckkante
+            m = MI["radome"] if si >= RADOM_AB else MI["cockpit_body"]
+            quad(bm, ecken, m)
     flaeche(bm, [bm.verts.new(p) for p in ringe[0]], MI["cockpit_body"])
-    spitze = bm.verts.new((0.0, NASE_Y + 0.05, ring_mitte(STATIONEN[-1])))
+    spitze = bm.verts.new((0.0, NASE_Y + 0.05,
+                           (STATIONEN[-1][2] + STATIONEN[-1][3]) * 0.5))
     for k in range(SEITEN):
         j = (k + 1) % SEITEN
         flaeche(bm, [bm.verts.new(ringe[-1][j]), bm.verts.new(ringe[-1][k]), spitze],
                 MI["radome"])
 
-    # --- Aufbauten --------------------------------------------------------------------
-    # Dachluke ueber dem Flugdeck + kleine Antenne dahinter (wie im Vorbild)
-    kasten(bm, (0.0, 0.30, 0.95), (0.40, 0.46, 0.10), MI["cockpit_body"])
-    kasten(bm, (0.0, 0.30, 1.00), (0.30, 0.34, 0.03), MI["dark"])
-    kasten(bm, (0.0, -0.62, 0.97), (0.10, 0.16, 0.14), MI["cockpit_body"])
-    # Pitotrohre seitlich vorn
+    # Haut nach AUSSEN drehen. NICHT ueber recalc_face_normals: das richtet eine OFFENE
+    # Roehre nur KONSISTENT aus — gemessen zeigten so 192 von 192 Flaechen nach innen und
+    # alle Aufsaetze verschwanden im Rumpf. Darum je Flaeche gegen die Rumpfachse pruefen.
+    bm.normal_update()
+    falsch = []
+    for f in bm.faces:
+        m = f.calc_center_median()
+        bx, oz, uz = station_bei(m.y)
+        aussen = mathutils.Vector((m.x, 0.0, m.z - (oz + uz) * 0.5))
+        if aussen.length > 1e-6 and f.normal.dot(aussen) < 0.0:
+            falsch.append(f)
+    if falsch:
+        bmesh.ops.reverse_faces(bm, faces=falsch)
+    bm.normal_update()
+    print("    Haut: %d von %d Flaechen gedreht" % (len(falsch), len(bm.faces)))
+
+    # --- KANZELAUFBAU --------------------------------------------------------------------
+    halb = kanzel_umriss()
+    umriss = [(-x, y) for x, y in reversed(halb[1:])] + halb    # links -> vorn -> rechts
+    unten = [mathutils.Vector((x, y, deck_z(y))) for x, y in umriss]
+    oben = []
+    for x, y in umriss:
+        bz = breite_bei_z(y, BRAUE_Z)
+        sx = 0.0 if abs(x) < 1e-6 else math.copysign(1.0, x)
+        # x auf die Rumpfkontur ziehen, y leicht zurueck -> die Scheiben legen sich an
+        oben.append(mathutils.Vector((sx * min(abs(x), bz), y - NEIGUNG * 0.55, BRAUE_Z)))
+    n_seg = len(umriss) - 1
+    for i in range(n_seg):
+        ecken = [unten[i], unten[i + 1], oben[i + 1], oben[i]]
+        mitte = (ecken[0] + ecken[1] + ecken[2] + ecken[3]) * 0.25
+        n = mathutils.Vector((mitte.x, mitte.y - KANZEL_Y0, 0.30))
+        if n.length < 1e-6:
+            n = mathutils.Vector((0.0, 1.0, 0.30))
+        n.normalize()
+        if i == 0 or i == n_seg - 1:
+            quad(bm, ecken, MI["cockpit_body"])      # hinterste Felder: Blech
+        else:
+            scheibe(bm, ecken, n)
+    # Dach auf Brauenhoehe + Keil nach hinten auf den Rumpfruecken
+    for i in range(n_seg):
+        a, b = oben[i], oben[i + 1]
+        fa = mathutils.Vector((0.0, a.y, station_bei(a.y)[1]))
+        fb = mathutils.Vector((0.0, b.y, station_bei(b.y)[1]))
+        if (fa - fb).length < 1e-6:
+            flaeche(bm, [bm.verts.new(a), bm.verts.new(b), bm.verts.new(fa)],
+                    MI["cockpit_body"])
+        else:
+            quad(bm, [a, b, fb, fa], MI["cockpit_body"])
+    ruecken_z = station_bei(KANZEL_Y0 - 0.30)[1]
+    kl = mathutils.Vector((oben[0].x, oben[0].y, BRAUE_Z))
+    kr = mathutils.Vector((oben[-1].x, oben[-1].y, BRAUE_Z))
+    hl = mathutils.Vector((kl.x * 0.70, KANZEL_Y0 - 0.34, ruecken_z - 0.02))
+    hr = mathutils.Vector((kr.x * 0.70, KANZEL_Y0 - 0.34, ruecken_z - 0.02))
+    quad(bm, [kl, kr, hr, hl], MI["cockpit_body"])
+    for ecke, hint in ((kr, hr), (kl, hl)):
+        flaeche(bm, [bm.verts.new(ecke), bm.verts.new(hint),
+                     bm.verts.new(mathutils.Vector((ecke.x, KANZEL_Y0,
+                                                    deck_z(KANZEL_Y0))))],
+                MI["cockpit_body"])
+
+    # --- Anbauten ------------------------------------------------------------------------
+    kasten(bm, (0.0, 0.60, BRAUE_Z + 0.03), (0.34, 0.40, 0.06), MI["cockpit_body"])
+    kasten(bm, (0.0, 0.60, BRAUE_Z + 0.06), (0.25, 0.30, 0.02), MI["dark"])
+    kasten(bm, (0.0, -0.78, 0.96), (0.09, 0.14, 0.13), MI["cockpit_body"])
     for sx in (-1.0, 1.0):
-        kasten(bm, (sx * 0.70, 1.02, 0.02), (0.05, 0.42, 0.05), MI["dark"])
-    # Tuerumriss + zwei kleine Kabinenfenster hinten seitlich
+        kasten(bm, (sx * 0.74, 1.06, 0.00), (0.045, 0.38, 0.045), MI["dark"])
+    # kleine Beobachtungsfenster tief an der Nasenseite (statt der zu grossen Kinnfelder)
     for sx in (-1.0, 1.0):
-        y0, y1 = -1.30, -0.72
-        z0, z1 = -0.42, 0.34
-        ecken = [mathutils.Vector((sx * 0.955, y0, z0)),
-                 mathutils.Vector((sx * 0.955, y1, z0)),
-                 mathutils.Vector((sx * 0.955, y1, z1)),
-                 mathutils.Vector((sx * 0.955, y0, z1))]
-        platte(bm, ecken, MI["frame"], 0.006)
-        for yy in (-0.30, -0.05):
-            f = [mathutils.Vector((sx * 0.952, yy - 0.10, 0.26)),
-                 mathutils.Vector((sx * 0.952, yy + 0.10, 0.26)),
-                 mathutils.Vector((sx * 0.952, yy + 0.10, 0.46)),
-                 mathutils.Vector((sx * 0.952, yy - 0.10, 0.46))]
-            scheibe_auf(bm, f, mathutils.Vector((sx, 0.0, 0.0)), 0.006, 0.011, 0.20)
+        for yy in (0.60, 0.92):
+            bx = station_bei(yy)[0]
+            f = [mathutils.Vector((sx * bx, yy - 0.12, -0.14)),
+                 mathutils.Vector((sx * bx, yy + 0.12, -0.14)),
+                 mathutils.Vector((sx * bx, yy + 0.12, 0.10)),
+                 mathutils.Vector((sx * bx, yy - 0.12, 0.10))]
+            scheibe(bm, f, mathutils.Vector((sx, 0.0, 0.0)), 0.012, 0.16)
+    # Tuer und Kabinenfenster hinten
+    for sx in (-1.0, 1.0):
+        quad(bm, [mathutils.Vector((sx * 0.966, -1.26, -0.38)),
+                  mathutils.Vector((sx * 0.966, -0.76, -0.38)),
+                  mathutils.Vector((sx * 0.966, -0.76, 0.32)),
+                  mathutils.Vector((sx * 0.966, -1.26, 0.32))], MI["frame"])
+        for yy in (-0.34, -0.06):
+            f = [mathutils.Vector((sx * 0.962, yy - 0.09, 0.22)),
+                 mathutils.Vector((sx * 0.962, yy + 0.09, 0.22)),
+                 mathutils.Vector((sx * 0.962, yy + 0.09, 0.40)),
+                 mathutils.Vector((sx * 0.962, yy - 0.09, 0.40))]
+            scheibe(bm, f, mathutils.Vector((sx, 0.0, 0.0)), 0.008, 0.18)
+    for yy in (-1.02, -0.52, 0.04):
+        spantlinie(bm, yy)
 
     bm.to_mesh(me)
     bm.free()
@@ -284,10 +351,9 @@ def main():
     print("=== C-130-Cockpit: %d Tris" % sum(len(p.vertices) - 2 for p in me.polygons))
     print("    X %+.3f..%+.3f  Y %+.3f..%+.3f  Z %+.3f..%+.3f"
           % (lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]))
-    print("    Andockflaeche hinten: %.3f breit x %.3f hoch"
-          % (STATIONEN[0][1] * 2.0, STATIONEN[0][2] * 2.0))
-    print("    blend: " + BLEND)
-    print("    glb:   " + GLB)
+    print("    Andockflaeche %.2f x %.2f | Deck %.2f..%.2f | Braue %.2f | Deckbreite vorn %.2f"
+          % (STATIONEN[0][1] * 2, STATIONEN[0][2] * 2, DECK_HINTEN, DECK_VORN, BRAUE_Z,
+             deck_breite(KANZEL_Y1) * 2))
 
     if PREVIEW:
         os.makedirs(PREVIEW, exist_ok=True)
@@ -302,15 +368,14 @@ def main():
         sc.collection.objects.link(cam)
         sc.camera = cam
         for name, pos, ziel in (
-                ("c130_schraeg", (3.4, 3.6, 2.3), (0.0, 0.35, -0.05)),
-                ("c130_seite", (5.2, 0.2, 0.4), (0.0, 0.1, 0.0)),
-                ("c130_vorn", (1.6, 5.0, 1.4), (0.0, 1.0, -0.05))):
+                ("c130_schraeg", (3.6, 3.9, 2.4), (0.0, 0.45, 0.0)),
+                ("c130_seite", (5.4, 0.3, 0.4), (0.0, 0.2, 0.05)),
+                ("c130_vorn", (1.7, 5.2, 1.5), (0.0, 1.1, 0.1))):
             cam.location = pos
             d = mathutils.Vector(ziel) - mathutils.Vector(pos)
             cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
             sc.render.filepath = os.path.join(PREVIEW, name + ".png")
             bpy.ops.render.render(write_still=True)
-            print("    Bild: " + sc.render.filepath)
 
 
 main()
