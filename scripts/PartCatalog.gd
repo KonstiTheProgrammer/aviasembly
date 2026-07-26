@@ -1171,17 +1171,30 @@ static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
 			if radien[i] > 0.002:
 				scharf = false
 				break
-	var n := 1 if scharf else 6          # scharfe Box braucht kein Raster
+	# Rasterfeinheit richtet sich nach der staerksten Rundung: eine leicht angefaste Ecke
+	# braucht kein feines Netz, eine voll verrundete schon.
+	var r_gross := 0.0
+	if not scharf:
+		for i in 8:
+			r_gross = maxf(r_gross, clampf(radien[i], 0.0, 1.0))
+	var n := 1 if scharf else clampi(int(roundf(5.0 + 7.0 * r_gross)), 5, 12)
 	var r_max: float = minf(minf(b.x, b.y), b.z) * 0.98
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(-1)              # flach schattiert wie der Rest des Spiels
+	# Scharf = flach schattiert (harte Kanten). Gerundet = GLATT, mit ANALYTISCHEN
+	# Normalen: bei einer Rounded Box ist normalize(p - q) exakt die Flaechennormale —
+	# auf ebenen Seiten ist das konstant die Seitennormale (die Seite bleibt also flach),
+	# nur in Kanten und Ecken dreht sie sich weich. Nur damit werden die Rundungen glatt,
+	# ohne das Netz aufzublasen; mit generate_normals() blieb jede Rasterzelle als Facette
+	# sichtbar — genau das gemeldete "zu blockig".
+	st.set_smooth_group(0 if not scharf else -1)
 	# sechs Seiten, je als n x n Raster; achs = welche Achse ist die Flaechennormale
 	for achs in 3:
 		for vorz in [-1.0, 1.0]:
 			for i in n:
 				for j in n:
 					var ecken: Array[Vector3] = []
+					var normalen: Array[Vector3] = []
 					for du in [0, 1]:
 						for dv in [0, 1]:
 							var a := (float(i + du) / float(n)) * 2.0 - 1.0
@@ -1193,6 +1206,13 @@ static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
 								p = Vector3(a * b.x, vorz * b.y, c * b.z)
 							else:
 								p = Vector3(a * b.x, c * b.y, vorz * b.z)
+							var nrm := Vector3.ZERO
+							if achs == 0:
+								nrm = Vector3(vorz, 0.0, 0.0)
+							elif achs == 1:
+								nrm = Vector3(0.0, vorz, 0.0)
+							else:
+								nrm = Vector3(0.0, 0.0, vorz)
 							if not scharf:
 								var rr: float = _block_r_bei(p, b, radien, r_max)
 								var bi := Vector3(maxf(b.x - rr, 0.0), maxf(b.y - rr, 0.0),
@@ -1200,23 +1220,24 @@ static func _block_mesh(size: Vector3, radien: PackedFloat32Array) -> ArrayMesh:
 								var q: Vector3 = p.clamp(-bi, bi)
 								var d: Vector3 = p - q
 								if d.length() > 0.00001:
-									p = q + d.normalized() * rr
+									nrm = d.normalized()
+									p = q + nrm * rr
 							ecken.append(p)
+							normalen.append(nrm)
 					# ecken: [du0dv0, du0dv1, du1dv0, du1dv1] -> zwei Dreiecke, Wicklung
 					# so, dass die Normale nach AUSSEN zeigt (Vorzeichen der Achse).
-					var vs: Array[Vector3] = [ecken[0], ecken[1], ecken[3], ecken[2]]
+					var idx: Array[int] = [0, 1, 3, 2]
 					if vorz < 0.0:
-						vs.reverse()
+						idx.reverse()
 					if achs == 1:
-						vs.reverse()
-					st.add_vertex(vs[0])
-					st.add_vertex(vs[1])
-					st.add_vertex(vs[2])
-					st.add_vertex(vs[0])
-					st.add_vertex(vs[2])
-					st.add_vertex(vs[3])
-	st.generate_normals()
-	return st.commit()
+						idx.reverse()
+					for k in [0, 1, 2, 0, 2, 3]:
+						var vi: int = idx[k]
+						st.set_normal(normalen[vi])
+						st.add_vertex(ecken[vi])
+	if scharf:
+		st.generate_normals()   # nur die scharfe Box; sonst wuerde es die analytischen
+	return st.commit()          # Normalen ueberschreiben und alles wieder facettieren
 
 
 # Rundung nachtraeglich auf ein bereits gebautes Klotz-Visual legen.
