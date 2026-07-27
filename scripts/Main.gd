@@ -452,6 +452,13 @@ func _setup_world() -> void:
 			CityBuilder.build(fly_world, terrain, ap, CityBuilder.plan_flugplatz(),
 				"Flugplatzbauten_" + String(af["name"]), hd)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
+	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
+	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
+	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.
+	# Wolken bleiben ABSICHTLICH unbegrenzt: die haengen hoch in der Luft, brauchen keinen
+	# Boden darunter und sollen den Horizont fuellen.
+	_limit_sichtweite(fly_world, CityBuilder.SICHT_DIST, CityBuilder.SICHT_FADE)
+
 	# WOLKEN: hoch in der Luft, locker über viele Höhen verteilte Kumulus zum Durchfliegen
 	# (keine Kollision, nur Flug-Welt).
 	CloudField.build(fly_world, {"area": 4400.0, "spacing": 340.0, "layer_y": 320.0, "billow": 40.0, "layer_jitter": 110.0, "cover_thresh": -0.05})
@@ -890,6 +897,18 @@ func _deco_light(parent: Node3D, pos: Vector3, col: Color) -> void:
 	m.position = pos
 	m.material_override = _emit_mat(col, 2.2)
 	parent.add_child(m)
+
+
+# Sichtweite aller Meshes unter `wurzel` deckeln (rekursiv). Terrain-Chunks haengen nicht
+# hier drunter, die regelt TerrainWorld selbst.
+func _limit_sichtweite(wurzel: Node, dist: float, fade: float) -> void:
+	for c in wurzel.get_children():
+		var gi := c as GeometryInstance3D
+		if gi != null and gi.visibility_range_end <= 0.0:
+			gi.visibility_range_end = dist
+			gi.visibility_range_end_margin = fade
+			gi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		_limit_sichtweite(c, dist, fade)
 
 
 # Wahrzeichen/POIs (Stufe 2) — Geometrie in Landmarks.gd (Spiel + Render-Tool teilen sie).

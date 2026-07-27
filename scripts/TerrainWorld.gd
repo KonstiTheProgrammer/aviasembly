@@ -17,7 +17,13 @@ extends Node3D
 
 const CHUNK := 384.0            # Kantenlänge eines Chunks (m)
 const CELLS := 48               # Zellen pro Kante (8 m Raster -> Low-Poly-Look)
-const VIEW_DIST := 2400.0       # Chunks innerhalb dieses Radius werden geladen
+const VIEW_DIST := 3800.0       # Chunks innerhalb dieses Radius werden geladen
+# Ab hier werden Baeume und Felsen nicht mehr GEZEICHNET. Sie bleiben im Chunk und
+# erscheinen beim Naeherkommen von selbst wieder — im Gegensatz zum Weglassen beim Bauen
+# braucht es dafuer keinen Neuaufbau. Ohne das Limit kosten 3800 m Sichtweite pro Chunk
+# bis zu acht zusaetzliche Draw-Calls, von denen man auf 3 km ohnehin nichts erkennt.
+const FLORA_DIST := 1600.0
+const FLORA_FADE := 240.0       # weicher Uebergang, damit Baeume nicht aufpoppen
 const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionsebene hin)
 const MAX_ATTACH_PER_FRAME := 1 # fertige Chunks je Frame einhängen (Physik-Insert kostet)
 
@@ -492,6 +498,9 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	mmi.material_override = _mat
+	mmi.visibility_range_end = FLORA_DIST
+	mmi.visibility_range_end_margin = FLORA_FADE
+	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	parent.add_child(mmi)
 
 

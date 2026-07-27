@@ -19,6 +19,11 @@ const LIB := "res://models/world_buildings.glb"
 const LIB_HD := "res://models/world_buildings_hd.glb"
 ## Ab dieser Entfernung schaltet ein Viertel von der Nah- auf die Fernstufe.
 const LOD_DIST := 900.0
+# Sichtlimit der Fernstufe: knapp INNERHALB des Terrainrands. Vorher hatte die Fernstufe
+# gar kein Limit — die Haeuser wurden bis zur Kamera-Fernebene (9 km) gezeichnet, das
+# Terrain aber nur bis VIEW_DIST. Genau daher standen Gebaeude sichtbar im Leeren.
+const SICHT_DIST := TerrainWorld.VIEW_DIST - 250.0
+const SICHT_FADE := 300.0
 
 static var _meshes: Dictionary = {}     # "Haus_Kirche" -> ArrayMesh (Fernstufe)
 static var _meshes_hd: Dictionary = {}  # dieselbe Form mit Nahdetails
@@ -118,6 +123,9 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 		mmi.multimesh = mm
 		if _meshes_hd.has(t):
 			mmi.visibility_range_begin = LOD_DIST    # uebernimmt ab der Umschaltweite
+		mmi.visibility_range_end = SICHT_DIST        # nie ueber den Terrainrand hinaus
+		mmi.visibility_range_end_margin = SICHT_FADE
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 		# KEIN custom_aabb: MultiMesh leitet seine Bounds aus den Instanzen ab. Eine von Hand
 		# gesetzte Box um den Node-Ursprung hat frueher das ganze Viertel weggecullt
 		# (Instanzen lagen in WELT-Koordinaten, die Box aber beim Ursprung).
