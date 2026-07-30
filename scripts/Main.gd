@@ -133,7 +133,8 @@ var sel_panel: Control             # Kontext-Panel für ausgewähltes Teil
 var sel_title: Label
 var sel_scale_label: Label
 var sel_delete_btn: Button
-var sel_mode_btns: Array = []      # [Bewegen, Drehen, Skalieren] zum Hervorheben des aktiven Modus
+var sel_mode_btns: Array = []      # [Bewegen, Drehen, Skalieren, Enden skalieren,
+                                   #  Enden verschieben] — Index = gizmo_mode
 var sel_taper_row: VBoxContainer   # Verjüngungs-Regler (nur für taper-fähige Rumpfteile)
 var sel_taper_front_row: HBoxContainer  # vorderes Ende (nur biends-Teile, z. B. F-22-Rumpf)
 var sel_taper_label: Label
@@ -1885,12 +1886,14 @@ func _build_selection_panel() -> void:
 	sel_scale_label = _lbl("", 12, Color(0.8, 0.85, 0.95))
 	v.add_child(sel_scale_label)
 	# --- Modus-Umschaltung (Blender-artig: Bewegen/Drehen/Skalieren, Tasten G/R/S) ---
-	v.add_child(_lbl("Werkzeug (G / R / S):", 11, Color(0.82, 0.82, 0.88)))
+	v.add_child(_lbl("Werkzeug (G / R / S · Enden: E / T):", 11, Color(0.82, 0.82, 0.88)))
 	var mrow := HBoxContainer.new()
 	v.add_child(mrow)
 	sel_mode_btns.clear()
-	var modes := [["Bewegen", 0], ["Drehen", 1], ["Skalieren", 2], ["Enden", 3],
-		["Versetzen", 4]]
+	# Die beiden ENDEN-Werkzeuge stehen zusammen in einer eigenen Zeile darunter: sie
+	# gehoeren inhaltlich zusammen (dasselbe Rumpfende, einmal formen, einmal versetzen)
+	# und brauchen laengere Beschriftungen, als in eine Fuenferzeile passen.
+	var modes := [["Bewegen", 0], ["Drehen", 1], ["Skalieren", 2]]
 	for md in modes:
 		var mb := Button.new()
 		mb.text = md[0]
@@ -1899,8 +1902,19 @@ func _build_selection_panel() -> void:
 		mb.pressed.connect(build_ctrl.set_gizmo_mode.bind(md[1]))
 		mrow.add_child(mb)
 		sel_mode_btns.append(mb)
+	var erow := HBoxContainer.new()
+	v.add_child(erow)
+	for md in [["Enden skalieren", 3], ["Enden verschieben", 4]]:
+		var eb := Button.new()
+		eb.text = md[0]
+		eb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		eb.add_theme_font_size_override("font_size", 11)
+		eb.pressed.connect(build_ctrl.set_gizmo_mode.bind(md[1]))
+		erow.add_child(eb)
+		sel_mode_btns.append(eb)
 	v.add_child(_lbl("Pfeile/Würfel im 3D-Raum ziehen · Drehen: Teil ziehen · 90°-Schritte unten:", 10, Color(0.7, 0.74, 0.82)))
-	v.add_child(_lbl("Enden (Rumpf, auch per Rechtsklick): 4 Vierecke — vorne/hinten je X (seitlich) + Y (oben) — auswärts ziehen = dicker.", 10, Color(0.55, 0.72, 0.95)))
+	v.add_child(_lbl("Enden skalieren (E): 4 Würfel — vorne/hinten je X (seitlich) + Y (oben), auswärts ziehen = dicker.", 10, Color(0.55, 0.72, 0.95)))
+	v.add_child(_lbl("Enden verschieben (T): je Ende 2 Zylinder — links/rechts und hoch/runter.", 10, Color(0.55, 0.72, 0.95)))
 	var axis_names := ["Breite", "Höhe", "Länge"]
 	for i in 3:
 		var row := HBoxContainer.new()
@@ -1992,8 +2006,10 @@ func _on_selection_changed(info: Dictionary) -> void:
 	var gm: int = info.get("gizmo", 0)
 	for i in sel_mode_btns.size():
 		sel_mode_btns[i].modulate = Color(0.5, 1.0, 0.6) if i == gm else Color(1, 1, 1)
-	if sel_mode_btns.size() >= 4:
+	# Beide ENDEN-Werkzeuge nur bei Rumpfsegmenten mit zwei formbaren Enden zeigen
+	if sel_mode_btns.size() >= 5:
 		sel_mode_btns[3].visible = biends
+		sel_mode_btns[4].visible = biends
 	# »Schub umkehren« nur bei Prop-Triebwerken zeigen; Haken ohne Signal setzen
 	if sel_reverse_cb:
 		sel_reverse_cb.visible = info.get("is_prop", false)
