@@ -911,35 +911,42 @@ func _build_round_handles() -> void:
 		_handles.append(h)
 
 
-# Je Ende ein Griff zum VERSETZEN (hoch/runter/links/rechts). Der vorhandene
-# Enden-Taper skaliert das Ende nur — versetzen konnte man es bisher gar nicht.
+# Je Ende ZWEI Achsen-Zylinder zum VERSETZEN: einer laengs X (links/rechts), einer
+# laengs Y (hoch/runter). Jeder zieht NUR auf seiner Achse — eine freie Kugel liess sich
+# schlechter kontrollieren, weil sie beide Richtungen gleichzeitig verstellte.
+# Der vorhandene Enden-Taper skaliert das Ende nur; versetzen ging vorher gar nicht.
 func _build_shift_handles() -> void:
 	for s in [-1.0, 1.0]:
-		var h := StaticBody3D.new()
-		h.add_to_group("handle")
-		h.collision_layer = HANDLE_LAYER
-		h.collision_mask = 0
-		h.set_meta("kind", "shift")
-		h.set_meta("axis", 2)
-		h.set_meta("sign", s)
-		var col: Color = Color(0.55, 0.85, 1.0) if s < 0.0 else Color(1.0, 0.78, 0.45)
-		h.set_meta("base_col", col)
-		var cs := CollisionShape3D.new()
-		var sp := SphereShape3D.new()
-		sp.radius = 0.26
-		cs.shape = sp
-		h.add_child(cs)
-		var mi := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.2
-		sm.height = 0.4
-		sm.radial_segments = 10
-		sm.rings = 6
-		mi.mesh = sm
-		mi.material_override = _gizmo_mat(col)
-		h.add_child(mi)
-		selected_part.add_child(h)
-		_handles.append(h)
+		for ax in [0, 1]:
+			var h := StaticBody3D.new()
+			h.add_to_group("handle")
+			h.collision_layer = HANDLE_LAYER
+			h.collision_mask = 0
+			h.set_meta("kind", "shift")
+			h.set_meta("axis", ax)              # 0 = links/rechts, 1 = hoch/runter
+			h.set_meta("sign", s)               # -1 = vorderes Ende, +1 = hinteres
+			# Achsenfarbe wie beim Bewegen-Gizmo, vorn etwas heller als hinten
+			var col: Color = GIZ_COLS[ax] if s < 0.0 else GIZ_COLS[ax].darkened(0.25)
+			h.set_meta("base_col", col)
+			var cs := CollisionShape3D.new()
+			var bs := BoxShape3D.new()
+			bs.size = Vector3(0.5, 0.5, 0.5) if ax == 0 else Vector3(0.5, 0.5, 0.5)
+			cs.shape = bs
+			h.add_child(cs)
+			var mi := MeshInstance3D.new()
+			var cm := CylinderMesh.new()
+			cm.top_radius = 0.075
+			cm.bottom_radius = 0.075
+			cm.height = 0.62
+			cm.radial_segments = 10
+			mi.mesh = cm
+			# CylinderMesh zeigt nach +Y; fuer den X-Griff um Z kippen
+			if ax == 0:
+				mi.rotation_degrees = Vector3(0, 0, 90)
+			mi.material_override = _gizmo_mat(col)
+			h.add_child(mi)
+			selected_part.add_child(h)
+			_handles.append(h)
 
 
 func _build_ends_handles() -> void:
@@ -1105,11 +1112,17 @@ func _update_handles() -> void:
 			else:
 				h.position = off + Vector3(0.0, float(halves[1]) * et + 0.4, es * float(halves[2]))
 		elif kind == "shift":
-			# sitzt in der Mitte der jeweiligen Stirnflaeche und wandert mit dem Versatz
+			# sitzt am Mittelpunkt der jeweiligen Stirnflaeche, wandert mit dem Versatz
+			# mit, und die beiden Achsen-Zylinder stehen versetzt nebeneinander
 			var ss: float = h.get_meta("sign")
 			var sv: Vector2 = _end_shift(selected_part, ss)
-			h.position = off + Vector3(sv.x * bs.x * psc.x, sv.y * bs.y * psc.y,
-				ss * float(halves[2]))
+			var basis_pos := off + Vector3(sv.x * bs.x * psc.x, sv.y * bs.y * psc.y,
+				ss * (float(halves[2]) + 0.22))
+			if i == 0:
+				basis_pos += Vector3(float(halves[0]) * 0.55 + 0.30, 0.0, 0.0)
+			else:
+				basis_pos += Vector3(0.0, float(halves[1]) * 0.55 + 0.30, 0.0)
+			h.position = basis_pos
 		elif kind == "round":
 			var ci: int = h.get_meta("corner", 0)
 			var e := Vector3(1.0 if (ci & 1) != 0 else -1.0,
@@ -1200,12 +1213,14 @@ func _begin_handle_drag(handle: Node3D) -> void:
 		_rot_a0 = _ring_angle()
 		return
 	if _drag_kind == "shift":
-		# frei in der QUERSCHNITTSEBENE ziehen (Ebene senkrecht zur Teil-Laengsachse)
+		# NUR entlang der eigenen Achse ziehen (0 = links/rechts, 1 = hoch/runter)
 		_drag_sign = handle.get_meta("sign")
+		_drag_axis_i = handle.get_meta("axis")
 		_drag_shift0 = _end_shift(selected_part, _drag_sign)
-		_drag_axis_w = (selected_part.global_transform.basis * Vector3(0, 0, 1)).normalized()
+		_drag_axis_w = (selected_part.global_transform.basis
+			* _axis_vec(_drag_axis_i)).normalized()
 		_drag_origin0 = handle.global_position
-		_drag_ebene0 = _ray_ebene(_drag_origin0, _drag_axis_w)
+		_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
 		return
 	if _drag_kind == "round":
 		# entlang der RAUMDIAGONALE durch diese Ecke ziehen: nach innen = runder
@@ -1338,14 +1353,16 @@ func _update_transform_drag() -> void:
 		var nb := (Basis(_rot_axis_w, dreh) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
 	elif _drag_handle != null and _drag_kind == "shift":
-		var tref: Vector3 = _ray_ebene(_drag_origin0, _drag_axis_w)
-		var welt: Vector3 = tref - _drag_ebene0
-		var lok: Vector3 = selected_part.global_transform.basis.inverse() * welt
+		# Mausweg auf DIESER Achse; die andere Komponente bleibt unangetastet.
+		var tref: float = _ray_axis_t(_drag_origin0, _drag_axis_w)
+		var weg: float = tref - _drag_t0
 		var sp := PartCatalog.get_part(selected_part.get_meta("part_id"))
 		var gr: Vector3 = PartCatalog.col_size(sp)
-		var neu := Vector2(
-			clampf(_drag_shift0.x + lok.x / maxf(gr.x, 0.05), -SHIFT_MAX, SHIFT_MAX),
-			clampf(_drag_shift0.y + lok.y / maxf(gr.y, 0.05), -SHIFT_MAX, SHIFT_MAX))
+		var neu := _drag_shift0
+		if _drag_axis_i == 0:
+			neu.x = clampf(_drag_shift0.x + weg / maxf(gr.x, 0.05), -SHIFT_MAX, SHIFT_MAX)
+		else:
+			neu.y = clampf(_drag_shift0.y + weg / maxf(gr.y, 0.05), -SHIFT_MAX, SHIFT_MAX)
 		selected_part.set_meta("shift_front" if _drag_sign < 0.0 else "shift_back", neu)
 		var ssc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
 		_rebuild_visual(selected_part)

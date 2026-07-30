@@ -56,6 +56,12 @@ func _process(_d: float) -> bool:
 		var k := String(h.get_meta("kind", "?"))
 		arten[k] = int(arten.get(k, 0)) + 1
 	print("  Griffe im Enden-Modus: ", str(arten))
+	for h in bc._handles:
+		if String(h.get_meta("kind", "")) == "shift":
+			print("    Versatz-Griff: Ende %+.0f  Achse %d (%s)  Position %s"
+				% [h.get_meta("sign"), h.get_meta("axis"),
+				   "links/rechts" if int(h.get_meta("axis")) == 0 else "hoch/runter",
+				   str(h.position.round())])
 	var sc: Vector3 = teil.get_meta("pscale", Vector3.ONE)
 	bc._sync_mirror(teil, sc)        # Spiegel erst erzeugen
 	teil.set_meta("shift_front", Vector2(0.3, 0.2))
