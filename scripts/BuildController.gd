@@ -2578,6 +2578,16 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 			transport_chain["scale"] = Vector3.ONE
 			return transport_chain
 
+	# C-130-BAUKASTEN: ein Rumpfsegment am C-130-Cockpit oder an einem C-130-Ring
+	# wird durch das passende C-130-Segment ersetzt. WELCHES es wird, entscheidet die
+	# bisher gebaute Rumpflaenge (siehe _c130_segment_id).
+	# Bewusst NICHT ueber _fuselage_fit: dessen "laengste Achse"-Heuristik haelt den
+	# 2.55 breiten, 2.40 langen Ring fuer quer liegend und wuerde SEITLICH andocken —
+	# derselbe Grund, aus dem der Sternmotor einen eigenen Zweig hat.
+	if _ist_rumpfsegment(p) and _ist_c130_zelle(_reto_tgt):
+		var c130_id := _c130_segment_id()
+		return _c130_fit(PartCatalog.get_part(c130_id), part, n, surface, c130_id)
+
 	# UMGEDREHTES ANDOCKEN AM NORMALEN PROPELLERMOTOR: Steht der Motor bereits im Raum
 	# und der Spieler zieht ein Rumpfteil daran, rechnen wir mit der kurzen, planen
 	# Bughauben-Box. Beim Loslassen wird das Zielteil dauerhaft auf prop_engine_nose
@@ -2739,6 +2749,71 @@ func _orient_to_normal(n: Vector3) -> Basis:
 	var z := x.cross(y).normalized()
 	y = z.cross(x).normalized()
 	return Basis(x, y, z).orthonormalized()
+
+
+# ===========================================================================
+# C-130-BAUKASTEN
+# ---------------------------------------------------------------------------
+# Ab dieser Rumpflaenge (Godot-Einheiten) kommen die LANGEN Ringe.
+# Cockpit allein sind 2.591, Cockpit + EIN kurzer Ring sind 4.511 — die Schwelle
+# liegt knapp darunter, damit nach genau einem kurzen Ring umgeschaltet wird. Das
+# ist der Aufbau der Quelldatei: hinter dem Cockpit ein kurzes Segment, alles
+# dahinter lang. (Bei 4.6 kamen zwei kurze Ringe, gemessen.)
+const C130_LANG_AB := 4.4
+
+
+func _ist_c130_zelle(id: String) -> bool:
+	return id == "cockpit_c130" or id.begins_with("fuselage_c130")
+
+
+# Zaehlt als anzudockendes Rumpfsegment: die formbaren Standard-Segmente UND die
+# C-130-Ringe selbst (die sind glb-basiert und daher nicht "biends").
+func _ist_rumpfsegment(p: Dictionary) -> bool:
+	return bool(p.get("biends", false)) 		or String(p.get("id", "")).begins_with("fuselage_c130")
+
+
+# Wie lang ist der C-130-Rumpf bisher? Summe der Laengen von Cockpit und allen
+# C-130-Ringen (mal ihrer Teil-Skalierung). BEWUSST nicht die Bounding-Box des
+# ganzen Designs — Fluegel, Leitwerk und Motoren sollen die Segmentwahl nicht
+# verschieben, sonst kippt sie beim Anbauen eines Fluegels.
+func _c130_kette_laenge() -> float:
+	var laenge := 0.0
+	for c in design_root.get_children():
+		if not c.is_in_group("part"):
+			continue
+		var id := String(c.get_meta("part_id", ""))
+		if _ist_c130_zelle(id):
+			var sc: Vector3 = c.get_meta("pscale", Vector3.ONE)
+			laenge += PartCatalog.col_size(PartCatalog.get_part(id)).z * sc.z
+	return laenge
+
+
+func _c130_segment_id() -> String:
+	return "fuselage_c130_long" if _c130_kette_laenge() >= C130_LANG_AB 		else "fuselage_c130_short"
+
+
+# Koaxial und stossbuendig an das getroffene Ende setzen. Alle C-130-Teile teilen
+# denselben 2.55er Querschnitt, darum scale = ONE und kein Auto-Fit noetig.
+func _c130_fit(neu: Dictionary, ziel: Node3D, n: Vector3, treffer: Vector3,
+		neu_id: String) -> Dictionary:
+	var tb := ziel.global_transform.basis.orthonormalized()
+	var tdef := PartCatalog.get_part(ziel.get_meta("part_id"))
+	if tdef.is_empty():
+		return {"valid": false}
+	var tsc: Vector3 = ziel.get_meta("pscale", Vector3.ONE)
+	var tmitte := ziel.global_position + tb * (PartCatalog.col_offset(tdef) * tsc)
+	var lhit := tb.inverse() * (treffer - tmitte)
+	var ln := tb.inverse() * n
+	# Vorne (-Z) oder hinten (+Z)? Ein Treffer auf der Stirnflaeche entscheidet
+	# direkt; sonst zaehlt, in welcher Haelfte der Klick liegt. Damit reicht es,
+	# irgendwo hinten auf den Rumpf zu ziehen — man muss den Ring nicht treffen.
+	var sgn: float = signf(ln.z) if absf(ln.z) > 0.5 else signf(lhit.z)
+	if sgn == 0.0:
+		sgn = 1.0
+	var flaeche := tmitte + tb.z * (sgn * PartCatalog.col_size(tdef).z * tsc.z * 0.5)
+	var ursprung := flaeche + tb.z * (sgn * PartCatalog.col_size(neu).z * 0.5) 		- tb * PartCatalog.col_offset(neu)
+	return {"valid": true, "xform": Transform3D(tb, ursprung), "scale": Vector3.ONE,
+		"id": neu_id}
 
 
 # Ist das ein Rumpfteil? (Kategorie "Rumpf", kein Flügel) -> nimmt am Auto-Fit teil.

@@ -157,6 +157,60 @@ static func _build() -> void:
 		"metal": 0.28, "rough": 0.50, "biends": true,
 		"desc": "Automatisches Rumpfsegment mit exakt demselben abgeflachten Zwölfeck-Querschnitt wie das moderne Transport-Cockpit.",
 	})
+	# ------------------------------------------------------------------------
+	# C-130-BAUKASTEN (Blender-Import, Regenerator tools/build_c130_kit.py aus
+	# blender_lib/c130_kit_flugzeug.blend + c130_kit_triebwerk.blend).
+	# Massstab: Quellrumpf 4.35 -> 2.55 Querschnitt, also etwas GROESSER als das
+	# bisher groesste Cockpit (cockpit_transport, 2.20) — es ist ein Frachter.
+	# Die beiden Rumpfsegmente sind KEINE biends-Teile: sie kommen aus einem glb,
+	# und _attach_model steigt vor dem prozeduralen Mesh aus. Enden-Werkzeuge
+	# wuerden also Griffe zeigen, die nichts bewirken (genau der Fehler, der bei
+	# transport_tube schon einmal drinsteckte).
+	# ------------------------------------------------------------------------
+	_add({
+		"id": "cockpit_c130", "name": "C-130-Frachtcockpit", "category": CAT_BODY,
+		"mass": 340.0, "color": Color(0.31, 0.28, 0.28),
+		"shape": "box", "root": true,
+		"size": Vector3(2.55, 2.55, 2.591),
+		"col_size": Vector3(2.55, 2.55, 2.591),
+		"col_offset": Vector3(0.0, 0.0, 0.0),
+		"dock_size": Vector2(2.55, 2.55),
+		"metal": 0.30, "rough": 0.55,
+		"desc": "Hochdecker-Bug eines viermotorigen Frachters: verglaste Kanzel mit Kinnfenstern, Radom und Bugfahrwerkswanne. Bewusst groesser als die uebrigen Cockpits. Der plane Heckring zieht ein Rumpfsegment automatisch auf den 2,55-m-Querschnitt und waehlt dabei die passende Segmentlaenge.",
+	})
+	_add({
+		"id": "fuselage_c130_short", "name": "C-130-Rumpfsegment (kurz)", "category": CAT_BODY,
+		"mass": 150.0, "color": Color(0.31, 0.28, 0.28), "shape": "box",
+		"size": Vector3(2.55, 2.55, 1.92),
+		"col_size": Vector3(2.55, 2.55, 1.92),
+		"col_offset": Vector3(0.0, 0.0, 0.0),
+		"dock_size": Vector2(2.55, 2.55),
+		"metal": 0.30, "rough": 0.55,
+		"desc": "Kurzer Rumpfring des C-130-Baukastens. Wird automatisch gesetzt, solange der Rumpf noch kurz ist.",
+	})
+	_add({
+		"id": "fuselage_c130_long", "name": "C-130-Rumpfsegment (lang)", "category": CAT_BODY,
+		"mass": 185.0, "color": Color(0.31, 0.28, 0.28), "shape": "box",
+		"size": Vector3(2.55, 2.55, 2.40),
+		"col_size": Vector3(2.55, 2.55, 2.40),
+		"col_offset": Vector3(0.0, 0.0, 0.0),
+		"dock_size": Vector2(2.55, 2.55),
+		"metal": 0.30, "rough": 0.55,
+		"desc": "Langer Rumpfring des C-130-Baukastens. Uebernimmt, sobald der Rumpf eine gewisse Laenge hat.",
+	})
+	_add({
+		"id": "engine_c130", "name": "C-130-Turboprop (T56)", "category": CAT_PROP,
+		"mass": 430.0, "color": Color(0.31, 0.28, 0.28),
+		"shape": "prop", "thrust": 13000.0,
+		"size": Vector3(2.516, 2.252, 3.775),
+		# Klick-/Montagebox ist NUR die Gondel. Die Propellerscheibe ist mit 2.52
+		# mehr als doppelt so breit — als Box genommen wuerde der Motor beim
+		# Andocken um ihre halbe Breite von der Flaeche abheben.
+		"col_size": Vector3(1.124, 0.951, 3.104),
+		"col_offset": Vector3(0.076, -0.040, 0.336),
+		"metal": 0.55, "rough": 0.42,
+		"desc": "Vierblatt-Turboprop mit langer Gondel, Auspuffrohr und Kinneinlauf. Der Propeller haengt als eigener Knoten \"Prop\" im Modell und dreht im Flug mit.",
+	})
 	# FREIER BAUSTEIN mit acht einzeln abrundbaren Ecken. Verschieben/Drehen/Skalieren
 	# kommt vom normalen Gizmo; die Rundung haengt als Meta "block_r" (8 Werte 0..1) am
 	# Teil und wird von BuildController per set_block_rounding auf das Visual gelegt.
@@ -784,6 +838,8 @@ const PALETTE_HIDDEN := {
 	"jet_nose_point": true, "nose": true, "tailcone": true,
 	"prop_engine_nose": true, "fuselage_reto": true, "fuselage_radial": true,
 	"fuselage_b29": true, "fuselage_transport": true,
+	# C-130: das passende Segment waehlt die Laengenregel beim Andocken
+	"fuselage_c130_short": true, "fuselage_c130_long": true,
 }
 
 # Soll dieses Teil in der Bau-Palette erscheinen? (Katalog/Presets bleiben unberührt.)

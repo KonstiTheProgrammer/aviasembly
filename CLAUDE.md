@@ -515,6 +515,40 @@ prozedurale Segment verwendet dieselbe 12-seitige Superellipse und denselben
 `tools/transport_cockpit_test.gd` prüft Godot-Import, Meshgruppen, Materialien,
 Außenmaße, Palette, Spezial-Snap und die Andockebene.
 
+### C-130-BAUKASTEN (`tools/build_c130_kit.py`)
+Vier Teile aus ZWEI mitgelieferten Blender-Quellen: `blender_lib/c130_kit_flugzeug.blend`
+(→ `cockpit_c130`, `fuselage_c130_long`, `fuselage_c130_short`) und
+`c130_kit_triebwerk.blend` (→ `engine_c130`). Aus dem Flugzeug wird bewusst NUR Cockpit und
+die zwei Rumpfringe geholt; Flügel/Fahrwerk/Details bleiben draußen.
+**Maßstab:** Quellrumpf 4.35 → **2.55** Querschnitt, also etwas größer als das bisher
+größte Cockpit (`cockpit_transport`, 2.20) — es ist ein Frachter. Das Cockpit wird UNIFORM
+skaliert (2.55×2.55×2.591; eine geformte Nase darf man nicht längs ziehen). Die beiden
+Ringe sind nachgemessen echte Röhren mit konstantem Querschnitt (alle Innenringe identisch,
+nur 0.04 Fase an den Enden) und dürfen daher längs gestreckt werden: EIN gemeinsamer
+Faktor 1.6 bringt den langen auf **2.40** (= `fuselage_transport`), der kurze folgt mit
+**1.92** und behält damit das Quellverhältnis.
+**Länge entscheidet die Variante:** `BuildController._c130_segment_id()` summiert die Länge
+von Cockpit + allen C-130-Ringen (`_c130_kette_laenge`, bewusst NICHT die Design-Bounding-Box
+— sonst verschöben Flügel und Motoren die Wahl) und schaltet ab `C130_LANG_AB = 4.4` auf den
+langen Ring. Cockpit allein sind 2.591, Cockpit + ein kurzer Ring 4.511 → hinter dem Cockpit
+sitzt genau EIN kurzer Ring, alles dahinter ist lang. Das ist exakt der Aufbau der Quelldatei.
+Beide Ringe sind `PALETTE_HIDDEN`: man zieht ein normales Rumpfsegment an die Kette, die
+Regel wählt. Angedockt wird über einen EIGENEN Zweig `_c130_fit` statt `_fuselage_fit` —
+dessen „längste Achse"-Heuristik hielte den 2.55 breiten, 2.40 langen Ring für querliegend
+und dockte SEITLICH an (gleicher Grund wie beim Sternmotor).
+**Triebwerk:** Gondel + drehender Knoten **`Prop`** (Spinner + 6 Blätter). `col_size` ist NUR
+die Gondel (1.124×0.951×3.104), nicht die 2.52 breite Propellerscheibe — sonst höbe der
+Motor beim Andocken um deren halbe Breite ab.
+FALLEN (beide hier reingelaufen): (1) Die sechs Blätter sind **Linked Duplicates** (ein
+Mesh-Datenblock) → `transform_apply` bricht mit „Cannot apply to a multi user" ab, erst
+`make_single_user`. (2) `o.bound_box` und `matrix_world` sind nach direktem Schreiben von
+`v.co` bzw. `.location` **veraltet** — die Teile kamen dadurch mit exakt der unskalierten
+Quellgröße heraus und die Propellerscheibe wurde in die Gondel gerechnet. AABB direkt aus
+den Vertices nehmen und nach `.location` ein `view_layer.update()`.
+Harness: `tools/_c130_kit_check.gd` (glb-Maße, Prop-Achse, Materialien),
+`tools/_c130_bau_check.gd` (Kette bauen: Variantenwahl, Spalt 0.00000, koaxial 1.0000,
+Propeller dreht sich im Flug).
+
 Dazu **`b29_wing`** („B-29-Tragflaeche"): langer Streckungsfluegel (Spannweite 7.2,
 Wurzel 2.0 / Spitze 1.1, leichte Pfeilung, `stress_mult` 1.9 fuer den kraeftigen Hauptholm)
 — traegt viel, dreht traege, wie das Original.
