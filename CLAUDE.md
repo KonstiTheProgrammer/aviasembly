@@ -349,8 +349,7 @@ die Ampel wird rot, und der **Start ist blockiert** (`_set_mode` → Toast statt
 (rastet flächenbündig an). Loslassen über UI = verworfen (`gui_get_hovered_control`). Release per
 Polling in `_process` erkannt (Druck ging an die UI). Gesperrte Kacheln: Klick kauft.
 **Vorhandenes Teil anklicken = AUSWÄHLEN** (`_on_left_press`→`_transform_left_press`) → **Blender-
-artiges Gizmo** je `gizmo_mode` (Tasten **G/R/S** oder Panel-Buttons): **Bewegen** = 3 Achsen-Pfeile
-(`_build_move_handles`, ziehen = entlang Achse verschieben) + Body ziehen = frei verschieben;
+artiges Gizmo** je `gizmo_mode` (Tasten **G/R/S** oder Panel-Buttons): **Bewegen** = 3 Achsen-Pfeile, JE ACHSE so weit aussen wie die Huelle des Teils auf dieser Weltachse reicht (`_giz_halb` aus `_part_world_aabb` — dieselbe Box, die der Debug-Haken zeichnet), plus die halbe Schaftlaenge; Pfeilgroesse `_giz_gr` skaliert mit dem Teil, geklemmt auf 0.45..1.5. FRUEHER galt fuer ALLE drei Pfeile die GROESSTE Halbachse + RING_MARGIN: an `wing_straight` (Halbmasse 2.20/0.10/0.85) hing der Y-Pfeil 3.20 von der Oberflaeche weg statt 1.15, am winzigen `aileron` 1.96 statt 0.64. Die Dreh-Ringe nutzen weiter den gemeinsamen Radius (ein Ring ist rund). Harness: `tools/_pfeil_abstand_check.gd` (8 Teile), `tools/_pfeil_render.gd` (Sichtprobe mit eingeschalteter Debug-Box) + Body ziehen = frei verschieben;
 **Drehen** = Body ziehen dreht (`_begin_rotate`: horiz=Gier, vert=Nick) + 90°/45°-Buttons;
 **Skalieren** = 6 Flächenwürfel (`_build_scale_handles`, ziehen = Achse strecken). Gizmo-Mats mit
 `no_depth_test` (immer sichtbar). Kontext-Panel rechts (`_build_selection_panel`/`_on_selection_changed`,

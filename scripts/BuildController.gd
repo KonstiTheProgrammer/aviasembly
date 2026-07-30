@@ -95,6 +95,9 @@ var _drag_half := 1.0             # Enden-Drag: halbe Höhe (Sensitivität)
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
 var _move_kids: Array = []        # Anbauten (auswärtiger Teilbaum), die beim Verschieben mitwandern
 var _clipboard: Dictionary = {}   # Strg+C-Ablage: reine Daten, kein Node-Verweis (siehe copy_selected)
+var _giz_halb := Vector3.ONE      # halbe Weltausdehnung des gewaehlten Teils (Pfeil-Abstand)
+var _giz_mitte := Vector3.ZERO    # Huellenmitte relativ zum Gizmo-Halter
+var _giz_gr := 1.0                # Groesse der Bewegen-Pfeile, skaliert mit dem Teil
 var _move_sel_p0 := Vector3.ZERO  # Startposition des gewählten Teils für den Kid-Versatz
 var _move_plane := Plane()
 var _move_grab := Vector3.ZERO
@@ -1205,11 +1208,30 @@ func _update_handles() -> void:
 	if is_instance_valid(_gizmo_root):
 		var giz_basis: Basis = selected_part.global_transform.basis if gizmo_mode == GIZ_ROTATE else Basis()
 		_gizmo_root.global_transform = Transform3D(giz_basis, selected_part.global_transform * off)
+	# Weltausdehnung des Teils (dieselbe Quelle wie die Debug-Box) fuer die Pfeile.
+	# Der Bewegen-Halter steht welt-ausgerichtet, lokale Versaetze sind dort also
+	# direkt Weltversaetze.
+	var wab := _part_world_aabb(selected_part)
+	_giz_halb = wab.size * 0.5
+	_giz_mitte = Vector3.ZERO
+	if is_instance_valid(_gizmo_root):
+		_giz_mitte = wab.get_center() - _gizmo_root.global_position
+	# Pfeilgroesse mit dem Teil mitwachsen lassen, aber gedeckelt: an einem winzigen
+	# Ruder darf das Gizmo das Teil nicht verschlucken, an einem 7-m-Fluegel muss es
+	# noch greifbar sein.
+	_giz_gr = clampf(maxf(_giz_halb.x, maxf(_giz_halb.y, _giz_halb.z)) * 0.85, 0.45, 1.5)
 	for h in _handles:
 		var i: int = h.get_meta("axis")
 		var kind: String = h.get_meta("kind", "scale")
 		if kind == "move":
-			h.position = _axis_vec(i) * radius        # Welt-Achse, relativ zum Welt-Halter
+			# JE ACHSE so weit aussen, wie das Teil auf DIESER Weltachse wirklich reicht,
+			# plus die halbe Schaftlaenge — der Pfeil setzt damit direkt an der Huelle an
+			# (derselben Box, die der Debug-Haken zeichnet). Vorher galt fuer alle drei
+			# Pfeile die GROESSTE Halbachse: an einem Fluegel mit 4.4 Spannweite hing der
+			# Y-Pfeil 2.2 in der Luft, obwohl das Teil dort nur 0.1 dick ist.
+			var mp: float = [_giz_halb.x, _giz_halb.y, _giz_halb.z][i]
+			h.scale = Vector3.ONE * _giz_gr
+			h.position = _giz_mitte + _axis_vec(i) * (mp + 0.70 * _giz_gr + 0.10)
 		elif kind == "rotate":
 			h.position = Vector3.ZERO                 # Ring um das Zentrum
 		elif kind == "ends":
