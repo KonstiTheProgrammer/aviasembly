@@ -2617,20 +2617,7 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 			return nfit
 
 	if p.get("orient_normal", false):
-		# Flügel beim Platzieren IMMER level (Auftrieb nach oben, Spannweite horizontal auswärts) —
-		# egal wie schräg die Rumpf-Rundung die Normale macht. Senkrechte Flosse (yaw) folgt der
-		# Fläche (oben getroffen = vertikal). R dreht/kippt erst danach in andere Richtungen.
-		var ori: Basis
-		if String(p.get("control", "")) == "yaw":
-			ori = _orient_to_normal(n)
-		else:
-			ori = _wing_level_orient(n)
-		if ghost_rot != 0:
-			# R kippt den Flügel um die Sehne (0/30/60/90°): senkrecht -> Rollsteuerung
-			ori = ori * Basis(Vector3(0, 0, 1), deg_to_rad(30.0 * ghost_rot))
-		var origin := surface - n * 0.04
-		origin = _snap_tangential(origin, n, 0.5)
-		return {"valid": true, "xform": Transform3D(ori, origin)}
+		return _fluegel_snap(p, part, n, surface)
 	else:
 		var ori := Basis()
 		if ghost_rot != 0:
@@ -2651,6 +2638,96 @@ func _compute_snap_for(id: String, hit: Dictionary) -> Dictionary:
 		return {"valid": true, "xform": Transform3D(ori, origin)}
 
 
+# ===========================================================================
+# FLUEGEL-ANHAFTUNG
+# ---------------------------------------------------------------------------
+# Gerechnet wird im BEZUGSSYSTEM DES GETROFFENEN TEILS, nicht in Weltachsen.
+# Damit stimmt die Ausrichtung auch an einem gerollten Rumpf, und ein Fluegel auf
+# einem bereits gespiegelten Fluegel (Basis mit det<0) erbt die Spiegelung von
+# selbst — sein "auswaerts" ist dann automatisch die andere Seite.
+#
+# Drei Regeln, aus denen sich alles ergibt:
+#   1. SEITE aus dem Treffer: die Normale entscheidet, wo sie eindeutig ist, sonst
+#      die Trefferposition. Damit landet ein Klick oben/unten nicht mehr blind rechts.
+#   2. Die linke Seite ist die SPIEGELUNG der rechten, keine 180-Grad-Drehung.
+#      Vorher kippte z = x kreuz y die Sehne mit um: gepfeilte und Deltafluegel
+#      pfeilten links nach VORNE (gemessen: Delta -1.35 statt +1.35).
+#   3. Die Sehne folgt der LAENGSACHSE des getroffenen Teils, nicht der Weltachse.
+# ---------------------------------------------------------------------------
+
+# Auf welcher lokalen Achse waechst der Fluegel aus seiner Wurzel? Ablesbar an
+# col_offset: auf der Spannachse ist der Versatz genau die halbe Boxgroesse (die
+# Wurzel sitzt im Ursprung, die Box liegt komplett auf einer Seite). Die meisten
+# Fluegel spannen in +X; mig21_fin ist als bereits stehende Flosse gebaut (+Y).
+# Ohne diese Unterscheidung legte die alte Ausrichtung genau diese Flosse flach.
+func _fluegel_spannachse(p: Dictionary) -> int:
+	var cs: Vector3 = PartCatalog.col_size(p)
+	var co: Vector3 = PartCatalog.col_offset(p)
+	if absf(co.y - cs.y * 0.5) < 0.02 and absf(co.x - cs.x * 0.5) > 0.02:
+		return 1
+	return 0
+
+
+# Wie tief die Wurzel unter die Haut rutscht: genug, dass an einer gewoelbten
+# Flanke keine Fuge aufblitzt, aber nie mehr als ein Viertel der eigenen Dicke —
+# sonst verschwaende ein duennes Ruder halb im Rumpf.
+func _fluegel_einsink(p: Dictionary) -> float:
+	return clampf(PartCatalog.col_size(p).y * 0.25, 0.03, 0.10)
+
+
+func _fluegel_snap(p: Dictionary, ziel: Node3D, n: Vector3, surface: Vector3) -> Dictionary:
+	var T: Basis = ziel.global_transform.basis.orthonormalized()
+	var Ti: Basis = T.inverse()
+	var lp: Vector3 = Ti * (surface - ziel.global_position)   # Treffer im Zielsystem
+	var ln: Vector3 = (Ti * n).normalized()                   # Normale im Zielsystem
+
+	# --- 1) Seite bestimmen ---------------------------------------------------
+	# Vorzeichen bevorzugt aus der Normale (eindeutig an einer Flanke), sonst aus
+	# der Position (Klick oben/unten), sonst rechts. Das "sonst" ist der Fall, der
+	# vorher IMMER griff, sobald man nicht genau seitlich traf.
+	var sx: float = signf(ln.x) if absf(ln.x) > 0.30 else signf(lp.x)
+	if sx == 0.0:
+		sx = 1.0
+	var sy: float = signf(ln.y) if absf(ln.y) > 0.30 else signf(lp.y)
+	if sy == 0.0:
+		sy = 1.0
+
+	# --- 2) Basis im Zielsystem bauen ----------------------------------------
+	# Sehne (Z) zeigt IMMER nach hinten, Auftrieb (Y) nach oben. Nur die Spann-
+	# richtung kippt — genau das macht aus der rechten Seite die gespiegelte linke
+	# (Determinante < 0, dieselbe improper Basis, die auch der Symmetrie-Modus
+	# erzeugt; fuer die Kollision wird sie wie dort proper gemacht).
+	var lokal: Basis
+	if String(p.get("control", "")) == "yaw":
+		# Seitenflosse: steht senkrecht, oben oder (unter dem Rumpf) unten.
+		if _fluegel_spannachse(p) == 1:
+			# Geometrie ist schon stehend gebaut -> nur die Hochachse umdrehen. Z NICHT
+			# mitdrehen: sonst zeigt die Sehne der Unterflosse nach vorne (gemessen).
+			# Die Basis wird dadurch improper — eine Unterflosse IST die Spiegelung
+			# einer Oberflosse, genau wie links/rechts beim Tragfluegel.
+			lokal = Basis(Vector3(1, 0, 0), Vector3(0, sy, 0), Vector3(0, 0, 1))
+		else:
+			# Spannachse X muss nach oben zeigen.
+			lokal = Basis(Vector3(0, sy, 0), Vector3(-sy, 0, 0), Vector3(0, 0, 1))
+	else:
+		lokal = Basis(Vector3(sx, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1))
+
+	var ori: Basis = T * lokal
+	if ghost_rot != 0:
+		# R kippt weiter um die Sehne (30er-Schritte). Auf der gespiegelten Seite
+		# kippt es dadurch spiegelbildlich mit -> aus einem Paar wird echte V-Stellung.
+		ori = ori * Basis(Vector3(0, 0, 1), deg_to_rad(30.0 * ghost_rot))
+
+	# --- 3) Wurzel setzen -----------------------------------------------------
+	# Laengs und hoch auf ein Raster IM ZIELSYSTEM — dadurch landen linke und rechte
+	# Seite auf exakt derselben Station, statt um Bruchteile zu versetzen.
+	var raster := 0.25
+	lp.z = roundf(lp.z / raster) * raster
+	lp.y = roundf(lp.y / raster) * raster
+	var origin: Vector3 = ziel.global_position + T * lp - n * _fluegel_einsink(p)
+	return {"valid": true, "xform": Transform3D(ori, origin)}
+
+
 func _orient_to_normal(n: Vector3) -> Basis:
 	var x := n.normalized()
 	var up := Vector3.UP
@@ -2659,19 +2736,6 @@ func _orient_to_normal(n: Vector3) -> Basis:
 		var rgt := Vector3.RIGHT
 		y = rgt - x * rgt.dot(x)
 	y = y.normalized()
-	var z := x.cross(y).normalized()
-	y = z.cross(x).normalized()
-	return Basis(x, y, z).orthonormalized()
-
-
-# Waagerechter Flügel, IMMER level: Spannweite = horizontale Auswärtsrichtung (Y aus der Normale
-# entfernt, damit die Rumpf-Rundung den Flügel nicht verkippt), Auftrieb nach oben. R kippt dann.
-func _wing_level_orient(n: Vector3) -> Basis:
-	var x := Vector3(n.x, 0.0, n.z)
-	if x.length() < 0.05:
-		x = Vector3.RIGHT                 # senkrecht getroffen (oben/unten) -> Standard-Spannweite +X
-	x = x.normalized()
-	var y := Vector3.UP                   # Auftrieb immer nach oben
 	var z := x.cross(y).normalized()
 	y = z.cross(x).normalized()
 	return Basis(x, y, z).orthonormalized()

@@ -221,6 +221,27 @@ Beim Bauen via `R` kippbar. In `FlightController.build_from_design` wird pro Fl�
 gekippter/senkrechter Anteil → **Rollsteuerung** (`roll_area`). Senkrecht = Winglet/
 Querruder, kein Auftrieb.
 
+### FLÜGEL-ANHAFTUNG (`_fluegel_snap`, ersetzt `_wing_level_orient`/`_orient_to_normal`)
+Gerechnet wird im **Bezugssystem des getroffenen Teils**, nicht in Weltachsen — dadurch
+stimmt es auch am gerollten Rumpf, und ein Flügel auf einem bereits gespiegelten Flügel
+(Basis det<0) erbt die Spiegelung von selbst. Drei Regeln:
+1. **Seite aus dem Treffer:** Vorzeichen aus der Normale, wo sie eindeutig ist
+   (`|ln.x| > 0.30`), sonst aus der Trefferposition, sonst rechts.
+2. **Links ist die SPIEGELUNG, keine 180°-Drehung** — Sehne zeigt immer nach hinten,
+   nur die Spannachse kippt (Basis wird improper, det<0, genau wie beim Symmetrie-Modus;
+   `FlightController:340` / `AircraftBody:506` machen sie generisch proper).
+3. **Sehne folgt der Längsachse des getroffenen Teils.**
+Die Spannachse eines Teils kommt aus `col_offset`: auf ihr ist der Versatz genau die halbe
+Boxgröße (`_fluegel_spannachse`). Fast alle spannen in +X, `mig21_fin` ist als stehende
+Flosse in +Y gebaut. Wurzel rastet längs/hoch auf 0.25 IM ZIELSYSTEM (linke und rechte
+Seite landen auf derselben Station) und sinkt um `col_size.y*0.25` (3–10 cm) unter die Haut.
+GESCHICHTE (nicht wiederholen): `z = x × y` kippte die Sehne mit der Spannweite um →
+gepfeilte und Deltaflügel pfeilten LINKS NACH VORNE (gemessen: Delta −1.35 statt +1.35).
+Oben/unten getroffen war `Vector3(n.x,0,n.z)` ≈ 0 → Fallback `Vector3.RIGHT`, also IMMER
+rechts. Und `_orient_to_normal` setzte X = Normale, was `mig21_fin` (X = Dicke 0.14) flach
+hinlegte. Harness: `tools/_fluegelsnap_check.gd` (17 Flügel × 9 Trefferstellen mit Urteil),
+`tools/_fluegel_flug.gd` (direkt links gesetzter Flügel fliegt: 0 NaN-Frames, Drehrate 0.00).
+
 ## Bau-Editor (BuildController.gd)
 - **Drag&Snap:** Teil aus Palette wählen → in den Raum ziehen, rastet flächenbündig an
   die getroffene Fläche (`_compute_snap_for`, `_orient_to_normal`). Vorhandene Teile
