@@ -514,6 +514,15 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   verschieben (Flügelbruch nutzt `_break_pending`-Flag).
 - `contact_monitor=true` + `max_contacts_reported>0` nötig für `get_contact_count()`.
 - Gespiegelte (det<0) Basis nur für Visuals ok; für Kollision proper machen.
+- **Ein neues Pro-Teil-Meta braucht VIER Stellen, sonst wirkt das Feature „kaputt":**
+  (1) `BuildController.get_design/load_design`, (2) `Main._design_data` (Datei schreiben),
+  (3) `Main._load_design_from` (Datei lesen), (4) den Mesh-Bauer JEDER betroffenen
+  `shape`. Genau daran starb „Enden verschieben" doppelt: `_prism_mesh` (Formen
+  `transport_tube`/`prism`) kannte den Versatz nicht, und die Datei transportierte
+  `sf`/`sb`/`glen`/`br`/`bsc` gar nicht — im Editor gesetzt, beim Neustart still weg.
+  Beim Debuggen also nicht bei der Interaktion anfangen, sondern die Kette Meta →
+  Datei → Mesh je Form durchmessen (`tools/_versatz_form.gd` macht das für alle
+  `biends`-Formen auf einen Schlag).
 
 ## Bauteil-Modelle (Blender/glTF)
 - **18 Teile** (Rumpf, Nase/Heck, Tank, Cockpit, 4 Kanzel-Varianten [Bubble/Jet/Rahmen/Tandem],
