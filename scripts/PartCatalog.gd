@@ -1486,6 +1486,10 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			set_engine_half(root, false)   # Standard: freistehende Gondel; Andocken schaltet um
 		elif pid == "cockpit_radial":
 			set_cockpit_frames(root, true, true)   # Rahmen sichtbar; Andocken blendet je Seite aus
+		# Formbare Enden AUCH am importierten Modell: die Original-Geometrie wird
+		# verbogen statt durch einen prozeduralen Nachbau ersetzt.
+		if p.get("biends", false):
+			_modell_enden_formen(root, p, ef, eb, shift_front, shift_back)
 		return root
 	var shape: String = p.get("shape", "box")
 	var col: Color = p.get("color", Color.WHITE)
@@ -2043,6 +2047,78 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 # die Haupt-Materialien (PAINT_MATS) auf die Wunschfarbe gesetzt; Akzente (Glas,
 # Spinner, Gummi, Auspuff-Glühen ...) bleiben. Der "Prop"-Knoten bleibt erhalten
 # (FlightController dreht ihn im Flug).
+# ===========================================================================
+# ENDEN FORMEN AM IMPORTIERTEN MODELL
+# ---------------------------------------------------------------------------
+# Ein glb-Teil laesst sich nicht loften — es gibt kein Profil, nur fertige Dreiecke.
+# Also wird die Original-Geometrie SELBST verformt: jeder Vertex wird nach seiner Lage
+# auf der Laengsachse (t = 0 vorne .. 1 hinten) quer skaliert und versetzt. Fuer einen
+# Rumpf mit durchgehendem Querschnitt ergibt das exakt dieselbe Form, die _profile_tube
+# baeuen wuerde — nur mit ALLEN Details, Materialien und UVs des Modells.
+# So bekommt ein echtes Blender-Modell Enden-Skalierung und Enden-Versatz, ohne dass man
+# es durch einen prozeduralen Nachbau ersetzen muesste.
+static func _modell_enden_formen(root: Node3D, p: Dictionary, ef: Vector2, eb: Vector2,
+		of: Vector2, ob: Vector2) -> void:
+	if ef.is_equal_approx(Vector2.ONE) and eb.is_equal_approx(Vector2.ONE) 			and of.is_zero_approx() and ob.is_zero_approx():
+		return          # Ruhelage -> das Original-Mesh bleibt voellig unangetastet
+	var laenge: float = maxf(col_size(p).z, 0.001)
+	var z0: float = col_offset(p).z - laenge * 0.5
+	# Der Versatz steht als ANTEIL der Teilbreite in den Metas (so rechnet auch der
+	# Zieh-Griff); im Modell liegen die Verts schon in Endmassen -> hochrechnen.
+	var g: Vector3 = p.get("size", Vector3.ONE)
+	for n in root.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		mi.mesh = _mesh_enden_formen(mi.mesh, ef, eb,
+			Vector2(of.x * g.x, of.y * g.y), Vector2(ob.x * g.x, ob.y * g.y), z0, laenge)
+
+
+# Baut ein NEUES ArrayMesh — das geladene glb ist eine geteilte Ressource; wer die
+# aendert, verbiegt jedes andere Exemplar des Teils gleich mit.
+static func _mesh_enden_formen(m: Mesh, ef: Vector2, eb: Vector2, of: Vector2, ob: Vector2,
+		z0: float, laenge: float) -> ArrayMesh:
+	var neu := ArrayMesh.new()
+	# Aenderung je Laengeneinheit — fuer die Normalen gebraucht
+	var dsx: float = (eb.x - ef.x) / laenge
+	var dsy: float = (eb.y - ef.y) / laenge
+	var dox: float = (ob.x - of.x) / laenge
+	var doy: float = (ob.y - of.y) / laenge
+	for si in m.get_surface_count():
+		var arr: Array = m.surface_get_arrays(si)
+		if arr.is_empty() or arr[Mesh.ARRAY_VERTEX] == null:
+			continue
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var hat_n: bool = arr[Mesh.ARRAY_NORMAL] != null
+		var ns := PackedVector3Array()
+		if hat_n:
+			ns = arr[Mesh.ARRAY_NORMAL]
+		for i in vs.size():
+			var v: Vector3 = vs[i]
+			var t: float = clampf((v.z - z0) / laenge, 0.0, 1.0)
+			var sx: float = maxf(lerpf(ef.x, eb.x, t), 0.001)
+			var sy: float = maxf(lerpf(ef.y, eb.y, t), 0.001)
+			if hat_n and i < ns.size():
+				# Normale mit der INVERSEN TRANSPONIERTEN der lokalen Jacobi-Matrix
+				# drehen. Ohne das wird ein verjuengter Rumpf falsch beleuchtet: die
+				# Flanke steht danach schraeg, die Normale zeigt aber noch quer.
+				var ax: float = v.x * dsx + dox
+				var ay: float = v.y * dsy + doy
+				var nn: Vector3 = ns[i]
+				ns[i] = Vector3(nn.x / sx, nn.y / sy,
+					nn.z - ax * nn.x / sx - ay * nn.y / sy).normalized()
+			vs[i] = Vector3(v.x * sx + lerpf(of.x, ob.x, t),
+				v.y * sy + lerpf(of.y, ob.y, t), v.z)
+		arr[Mesh.ARRAY_VERTEX] = vs
+		if hat_n:
+			arr[Mesh.ARRAY_NORMAL] = ns
+		neu.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		var mat: Material = m.surface_get_material(si)
+		if mat != null:
+			neu.surface_set_material(si, mat)
+	return neu
+
+
 static func _attach_model(root: Node3D, id: String, col_override: Color) -> void:
 	var ps: Resource = load(MODEL_DIR + id + ".glb")
 	if ps == null or not (ps is PackedScene):

@@ -533,15 +533,29 @@ von Cockpit + allen C-130-Ringen (`_c130_kette_laenge`, bewusst NICHT die Design
 langen Ring. Cockpit allein sind 2.591, Cockpit + ein kurzer Ring 4.511 → hinter dem Cockpit
 sitzt genau EIN kurzer Ring, alles dahinter ist lang. Das ist exakt der Aufbau der Quelldatei.
 Beide Ringe sind `PALETTE_HIDDEN`: man zieht ein normales Rumpfsegment an die Kette, die
-Regel wählt. Sie sind **prozedural** (Shape `c130_tube`, Loft über `C130_PROFILE` mit
-`_profile_tube`) und damit `biends` — Enden-Skalierung, Enden-Versatz und Auto-Taper wirken.
-Als glb ging das NICHT: `_attach_model` steigt vor dem Mesh-Bau aus, die Griffe wären ohne
-jede Wirkung erschienen (dieselbe Falle wie bei `transport_tube`/`_prism_mesh`). Darum
-exportiert `build_c130_kit.py` die beiden Ringe bewusst nicht mehr — wer sie wieder als glb
-anlegt, macht die Enden-Werkzeuge erneut tot. `C130_PROFILE` kommt aus
-`tools/extract_c130_profile.py` (mittlerer Ring von `Fuselage_long`, 82 → 24 Punkte, CCW,
-normiert). Der Querschnitt ist KEIN Kreis: an den Diagonalen liegt er bei 0.512 statt 0.500,
-ein Ellipsen-Tubus wäre dort sichtbar schmaler und die Naht zum Cockpit-glb bekäme eine Kante. Angedockt wird über einen EIGENEN Zweig `_c130_fit` statt `_fuselage_fit` —
+Regel wählt. Beide sind `biends`, obwohl sie aus einem **glb** kommen — siehe
+„Formbare Enden am importierten Modell" unten. Der Shape `c130_tube` (Loft über
+`C130_PROFILE` mit `_profile_tube`) ist nur noch der Notnagel, falls ein glb fehlt.
+`C130_PROFILE` kommt aus `tools/extract_c130_profile.py` (mittlerer Ring von
+`Fuselage_long`, 82 → 24 Punkte, CCW, normiert); der Querschnitt ist KEIN Kreis, an den
+Diagonalen liegt er bei 0.512 statt 0.500.
+
+### FORMBARE ENDEN AM IMPORTIERTEN MODELL (`_modell_enden_formen`)
+Ein glb-Teil lässt sich nicht loften — es gibt kein Profil, nur fertige Dreiecke. Deshalb
+wird die **Original-Geometrie selbst verformt**: jeder Vertex wird nach seiner Lage auf der
+Längsachse (`t = 0` vorne … 1 hinten) quer skaliert (`taper`) und versetzt (`shift`). Für
+einen Rumpf mit durchgehendem Querschnitt ergibt das exakt dieselbe Form wie `_profile_tube`,
+nur mit ALLEN Details, Materialien und UVs des Modells. Damit bekommt jedes `biends`-Teil mit
+glb automatisch Enden-Skalierung und -Versatz; ein prozeduraler Nachbau ist nicht nötig.
+ZWEI PUNKTE, an denen es sonst kippt: (1) Es wird ein **neues ArrayMesh** gebaut — das
+geladene glb ist eine geteilte Ressource, wer sie ändert verbiegt jedes andere Exemplar
+gleich mit. (2) Die **Normalen** werden mit der inversen Transponierten der lokalen
+Jacobi-Matrix mitgedreht (`n' = (nx/sx, ny/sy, nz − ax·nx/sx − ay·ny/sy)`), sonst wird die
+schräge Flanke eines verjüngten Rumpfs falsch beleuchtet. Der Versatz steht als ANTEIL der
+Teilbreite in den Metas (so rechnet der Zieh-Griff), das Modell liegt in Endmaßen → beim
+Anwenden mit `size` hochrechnen. Beleg: `tools/_c130_enden_check.gd` (Verjüngung 0.55 →
+Halbbreite 1.2627→0.6945 bei unverändertem Heck; Versatz 0.22/0.30 → 0.5610/0.7650 = Anteil
+× 2.55, Gegenfläche 0.0000) und `tools/_c130_verform_render.gd` (Sichtprobe Beleuchtung). Angedockt wird über einen EIGENEN Zweig `_c130_fit` statt `_fuselage_fit` —
 dessen „längste Achse"-Heuristik hielte den 2.55 breiten, 2.40 langen Ring für querliegend
 und dockte SEITLICH an (gleicher Grund wie beim Sternmotor).
 **Triebwerk:** Gondel + drehender Knoten **`Prop`** (Spinner + 6 Blätter). `col_size` ist NUR

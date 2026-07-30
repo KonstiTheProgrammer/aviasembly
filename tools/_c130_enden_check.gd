@@ -60,8 +60,9 @@ func _process(_d: float) -> bool:
 		   str(PartCatalog.has_model("fuselage_c130_long"))])
 	if not bool(p.get("biends", false)):
 		fehler.append("Teil ist nicht biends")
-	if PartCatalog.has_model("fuselage_c130_long"):
-		fehler.append("es gibt noch ein glb -> _attach_model gewinnt weiter")
+	# Das ECHTE Blender-Modell muss es sein — nicht der prozedurale Notnagel.
+	if not PartCatalog.has_model("fuselage_c130_long"):
+		fehler.append("kein glb -> es laeuft der prozedurale Fallback statt des Modells")
 
 	var sc: Vector3 = ring.get_meta("pscale", Vector3.ONE)
 	var v0 := _ring(ring, false)
@@ -71,6 +72,8 @@ func _process(_d: float) -> bool:
 		quit()
 		return true
 	print("")
+	print("Modell statt Nachbau: %d Meshes im Visual"
+		% ring.get_node("Visual").find_children("*", "MeshInstance3D", true, false).size())
 	print("Ruhe             : vorn Halbbreite %.4f   hinten %.4f"
 		% [v0["halbbreite"], h0["halbbreite"]])
 
@@ -99,7 +102,12 @@ func _process(_d: float) -> bool:
 	var dh: Vector3 = (h2["mitte"] as Vector3) - (h0["mitte"] as Vector3)
 	print("Versatz (0.22,0.30): vordere Mitte %+.4f %+.4f   hintere %+.4f %+.4f"
 		% [dv.x, dv.y, dh.x, dh.y])
-	if absf(dv.x - 0.22) > 0.002 or absf(dv.y - 0.30) > 0.002:
+	# Die Metas halten den Versatz als ANTEIL der Teilbreite; das Modell liegt in
+	# Endmassen -> erwartet wird Anteil x Groesse.
+	var gr: Vector3 = p.get("size", Vector3.ONE)
+	var soll := Vector2(0.22 * gr.x, 0.30 * gr.y)
+	print("   erwartet %+.4f %+.4f (Anteil x Groesse %.2f/%.2f)" % [soll.x, soll.y, gr.x, gr.y])
+	if absf(dv.x - soll.x) > 0.003 or absf(dv.y - soll.y) > 0.003:
 		fehler.append("Versatz kommt nicht im Mesh an")
 	if dh.length() > 0.001:
 		fehler.append("hintere Flaeche ist mitgewandert")
