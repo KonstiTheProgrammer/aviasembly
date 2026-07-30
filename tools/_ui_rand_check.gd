@@ -49,10 +49,23 @@ func _process(_d: float) -> bool:
 		get_root().add_child(m)
 		return false
 	if f == 40:
+		_shot("ui_bauteile.png")     # Rumpf-Kategorie
+		m._on_cat_icon(1)            # Fluegel
+		return false
+	if f == 48:
+		_shot("ui_fluegel.png")
+		m._on_cat_icon(3)            # Antrieb
+		return false
+	if f == 56:
+		_shot("ui_antrieb.png")
+		m._on_cat_icon(4)            # Fahrwerk
+		return false
+	if f == 64:
+		_shot("ui_fahrwerk.png")
 		# Werkzeuge-Reiter oeffnen (dort sitzt LACKIEREN)
 		m._on_tools_icon()
 		return false
-	if f == 70:
+	if f == 78:
 		_shot("ui_werkzeuge.png")
 		var schirm: Vector2 = get_root().get_viewport().get_visible_rect().size
 		print("Bildschirm: %.0f x %.0f" % [schirm.x, schirm.y])

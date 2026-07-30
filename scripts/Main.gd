@@ -1732,7 +1732,9 @@ func _part_stats_text(p: Dictionary) -> String:
 func _make_part_tile(p: Dictionary) -> Button:
 	var id: String = p["id"]
 	var tile := Button.new()
-	tile.custom_minimum_size = Vector2(0, 156)
+	# 176 statt 156: die Vorschau ist hoeher geworden, dadurch schnitt clip_contents
+	# bei zweizeiligen Namen die Massenangabe ab.
+	tile.custom_minimum_size = Vector2(0, 176)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tile.tooltip_text = _part_stats_text(p) + "\nin den Bauraum ziehen zum Setzen"
 	tile.clip_contents = true
@@ -1789,50 +1791,120 @@ func _make_preview(p: Dictionary) -> SubViewportContainer:
 	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	svc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var vp := SubViewport.new()
-	vp.size = Vector2i(128, 92)
+	vp.size = Vector2i(140, 104)
 	vp.own_world_3d = true
 	vp.transparent_bg = false
-	vp.msaa_3d = Viewport.MSAA_4X
+	# 8x statt 4x: die Kachel wird nur EINMAL gerendert (UPDATE_ONCE), die hoehere
+	# Stufe kostet also nichts Laufendes und nimmt duennen Streben und
+	# Propellerblaettern die Treppchen.
+	vp.msaa_3d = Viewport.MSAA_8X
 	vp.gui_disable_input = true
 	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	svc.add_child(vp)
 
+	# HIMMEL statt Volltonflaeche: gibt gleichzeitig einen weichen Verlauf im Hintergrund
+	# UND eine Reflexionsquelle. Vorher stand alles auf einer flachen dunklen Flaeche —
+	# dunkle Teile (Bohnen-Kanzel, Metallrahmen) verschwanden darin fast, und die
+	# Metall-Materialien hatten nichts zu spiegeln und wirkten wie Grauguss.
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.09, 0.12, 0.17)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.62, 0.68, 0.8)
-	env.ambient_light_energy = 0.8
+	var sky := Sky.new()
+	var psm := ProceduralSkyMaterial.new()
+	# Wie eine Studio-Hohlkehle: oben dunkel, unten deutlich heller. Die Kamera schaut
+	# leicht nach unten, das Teil sitzt also vor dem hellen Teil — helle Teile heben sich
+	# oben ab, dunkle unten. Ein gleichmaessig dunkler Grund liess schwarze Teile
+	# (Bohnen-Kanzel, Metallrahmen) im Hintergrund verschwinden.
+	psm.sky_top_color = Color(0.09, 0.12, 0.17)
+	psm.sky_horizon_color = Color(0.17, 0.22, 0.29)
+	psm.ground_horizon_color = Color(0.40, 0.46, 0.54)
+	psm.ground_bottom_color = Color(0.24, 0.29, 0.36)
+	psm.sky_energy_multiplier = 1.0
+	psm.ground_energy_multiplier = 1.0
+	sky.sky_material = psm
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_energy = 1.35
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_white = 6.0
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.12
+	env.adjustment_contrast = 1.06
 	var we := WorldEnvironment.new()
 	we.environment = env
 	vp.add_child(we)
 
+	# Drei-Punkt-Licht: Fuehrung von vorn-oben-links, weiche Aufhellung von unten-rechts
+	# gegen schwarze Unterseiten, und eine Kante von hinten, die das Teil vom Hintergrund
+	# abloest. Ohne die Kante liefen dunkle Teile am Rand in den Hintergrund ueber.
 	var key := DirectionalLight3D.new()
-	key.rotation_degrees = Vector3(-42, -38, 0)
-	key.light_energy = 1.25
+	key.rotation_degrees = Vector3(-38, 34, 0)
+	key.light_energy = 2.1
+	key.light_color = Color(1.0, 0.97, 0.92)
 	vp.add_child(key)
 	var fill := DirectionalLight3D.new()
-	fill.rotation_degrees = Vector3(18, 130, 0)
-	fill.light_energy = 0.45
+	fill.rotation_degrees = Vector3(14, -128, 0)
+	fill.light_energy = 0.55
+	fill.light_color = Color(0.80, 0.88, 1.0)
 	vp.add_child(fill)
+	var rim := DirectionalLight3D.new()
+	rim.rotation_degrees = Vector3(-16, 168, 0)
+	rim.light_energy = 1.15
+	rim.light_color = Color(0.72, 0.86, 1.0)
+	vp.add_child(rim)
 
 	var vis := PartCatalog.build_visual(p)
 	vp.add_child(vis)
 
-	# Kamera so setzen, dass das Teil formatfüllend im 3/4-Winkel sitzt
+	# Kamera im 3/4-Winkel VON VORNE. Vorher zeigte die Richtung nach +Z — die Teile
+	# haben ihre Nase aber bei -Z, man sah also von JEDEM Teil nur das Heck. Cockpits,
+	# Nasen und Motoren waren dadurch nicht voneinander zu unterscheiden.
 	var aabb := _visual_aabb(vis)
 	var center: Vector3 = aabb.get_center()
-	var radius: float = maxf(aabb.size.length() * 0.5, 0.4)
 	var cam := Camera3D.new()
-	cam.fov = 36.0
-	var dist: float = radius / tan(deg_to_rad(cam.fov * 0.5)) * 1.06
-	var dir: Vector3 = Vector3(0.82, 0.58, 1.0).normalized()
+	cam.fov = 34.0
+	# BLICKHOEHE AUS DER TEILFORM: Ein Rumpf will den 3/4-Blick von schraeg vorn, eine
+	# TRAGFLAECHE dagegen den Blick von OBEN — flach von der Seite sind Trapez-, Pfeil-
+	# und Deltafluegel nicht zu unterscheiden (alle nur ein Splitter). "Flach" heisst:
+	# Hoehe im Verhaeltnis zur groessten Grundflaechen-Kante.
+	var mass: Vector3 = aabb.size
+	var flach: float = mass.y / maxf(maxf(mass.x, mass.z), 0.001)
+	var hoehe: float = lerpf(1.55, 0.46, clampf(flach / 0.30, 0.0, 1.0))
+	var dir: Vector3 = Vector3(0.78, hoehe, -1.0).normalized()
+	var dist: float = _vorschau_abstand(aabb, dir, cam.fov,
+		float(vp.size.x) / float(vp.size.y))
 	var pos: Vector3 = center + dir * dist
 	# look_at() braucht den Baum — hier noch nicht eingehängt, daher from_position:
 	cam.look_at_from_position(pos, center, Vector3.UP)
 	cam.current = true
 	vp.add_child(cam)
 	return svc
+
+
+# Abstand, bei dem das Teil die Kachel gerade ausfuellt. Gerechnet wird ueber die ACHT
+# ECKEN der Box im Kamerabild, nicht ueber die Umkugel: bei einer breiten, duennen Form
+# (Propellerscheibe, Tragflaeche) ist die Umkugel viel groesser als die sichtbare
+# Silhouette — die Motoren sassen dadurch verloren klein in der Kachel.
+func _vorschau_abstand(box: AABB, dir: Vector3, fov: float, seite: float) -> float:
+	var vorwaerts: Vector3 = -dir.normalized()
+	var rechts: Vector3 = Vector3.UP.cross(vorwaerts)
+	if rechts.length() < 0.001:
+		rechts = Vector3.RIGHT
+	rechts = rechts.normalized()
+	var oben: Vector3 = vorwaerts.cross(rechts).normalized()
+	var ty: float = tan(deg_to_rad(fov * 0.5))          # Godot: fov ist die HOEHE
+	var tx: float = ty * maxf(seite, 0.01)
+	var mitte: Vector3 = box.get_center()
+	var d := 0.0
+	for i in 8:
+		var e := Vector3(
+			box.position.x + (box.size.x if (i & 1) != 0 else 0.0),
+			box.position.y + (box.size.y if (i & 2) != 0 else 0.0),
+			box.position.z + (box.size.z if (i & 4) != 0 else 0.0)) - mitte
+		var tiefe: float = e.dot(vorwaerts)              # + = hinter der Mitte
+		d = maxf(d, absf(e.dot(rechts)) / tx - tiefe)
+		d = maxf(d, absf(e.dot(oben)) / ty - tiefe)
+	return maxf(d, 0.2) * 1.12                           # etwas Luft zum Kachelrand
 
 
 # Kombinierte AABB aller Mesh-Kinder eines Visuals (im lokalen Raum).
@@ -2982,7 +3054,10 @@ func _make_design_thumb(parts: Array) -> Control:
 	vp.size = Vector2i(76, 48)
 	vp.own_world_3d = true
 	vp.transparent_bg = false
-	vp.msaa_3d = Viewport.MSAA_4X
+	# 8x statt 4x: die Kachel wird nur EINMAL gerendert (UPDATE_ONCE), die hoehere
+	# Stufe kostet also nichts Laufendes und nimmt duennen Streben und
+	# Propellerblaettern die Treppchen.
+	vp.msaa_3d = Viewport.MSAA_8X
 	vp.gui_disable_input = true
 	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 	svc.add_child(vp)

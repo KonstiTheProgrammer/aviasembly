@@ -57,6 +57,19 @@ scripts/Main.gd          Welt (Licht/Himmel + blauer Blueprint-Raum), Modus BUIL
                          3D-Vorschau-Kacheln. Jede Kachel = eigener SubViewport (own_world_3d,
                          eigene Cam+Licht+Environment, UPDATE_ONCE) der das Teil-Visual rendert.
                          Helfer: _make_part_tile/_make_preview/_visual_aabb/_style_tile.
+                         VORSCHAU-KACHELN (_make_preview): Blickrichtung `Vector3(0.78, hoehe, -1.0)` — die Kamera
+                         stand vorher bei **+Z** und damit HINTER dem Teil (Nasen zeigen nach −Z), man sah von
+                         jedem Teil nur das Heck; Cockpits, Nasen und Motoren waren nicht zu unterscheiden.
+                         `hoehe` kommt aus der TEILFORM: flache Teile (Höhe/Grundkante < 0.30, also
+                         Tragflächen) bekommen den Blick von OBEN, sonst 3/4 von schräg vorn — von der Seite
+                         sind Trapez-, Pfeil- und Deltaflügel alle nur ein Splitter. Rahmung über
+                         `_vorschau_abstand`: projiziert die ACHT BOXECKEN ins Kamerabild statt die Umkugel zu
+                         nehmen (bei breiten dünnen Formen wie einer Propellerscheibe ist die Umkugel viel
+                         größer als die Silhouette). Hintergrund ist ein ProceduralSky als Studio-Hohlkehle
+                         (oben dunkel, unten hell) — liefert Verlauf UND Reflexionsquelle, vorher verschwanden
+                         dunkle Teile in der flachen Fläche und Metall wirkte wie Grauguss. Dazu Drei-Punkt-
+                         Licht mit Kante von hinten, MSAA 8x (UPDATE_ONCE, kostet nichts Laufendes),
+                         Kachelhöhe 176 (bei 156 schnitt clip_contents die Massenangabe ab).
                          Auswahl exklusiv via ButtonGroup (_part_group), aktiv = grüner Rahmen
                          (_refresh_tool_ui setzt button_pressed). STOLPERFALLE: Kamera ist beim
                          Bauen noch nicht im Baum -> look_at() schlägt fehl, daher
