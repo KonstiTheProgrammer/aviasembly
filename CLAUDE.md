@@ -533,7 +533,15 @@ von Cockpit + allen C-130-Ringen (`_c130_kette_laenge`, bewusst NICHT die Design
 langen Ring. Cockpit allein sind 2.591, Cockpit + ein kurzer Ring 4.511 → hinter dem Cockpit
 sitzt genau EIN kurzer Ring, alles dahinter ist lang. Das ist exakt der Aufbau der Quelldatei.
 Beide Ringe sind `PALETTE_HIDDEN`: man zieht ein normales Rumpfsegment an die Kette, die
-Regel wählt. Angedockt wird über einen EIGENEN Zweig `_c130_fit` statt `_fuselage_fit` —
+Regel wählt. Sie sind **prozedural** (Shape `c130_tube`, Loft über `C130_PROFILE` mit
+`_profile_tube`) und damit `biends` — Enden-Skalierung, Enden-Versatz und Auto-Taper wirken.
+Als glb ging das NICHT: `_attach_model` steigt vor dem Mesh-Bau aus, die Griffe wären ohne
+jede Wirkung erschienen (dieselbe Falle wie bei `transport_tube`/`_prism_mesh`). Darum
+exportiert `build_c130_kit.py` die beiden Ringe bewusst nicht mehr — wer sie wieder als glb
+anlegt, macht die Enden-Werkzeuge erneut tot. `C130_PROFILE` kommt aus
+`tools/extract_c130_profile.py` (mittlerer Ring von `Fuselage_long`, 82 → 24 Punkte, CCW,
+normiert). Der Querschnitt ist KEIN Kreis: an den Diagonalen liegt er bei 0.512 statt 0.500,
+ein Ellipsen-Tubus wäre dort sichtbar schmaler und die Naht zum Cockpit-glb bekäme eine Kante. Angedockt wird über einen EIGENEN Zweig `_c130_fit` statt `_fuselage_fit` —
 dessen „längste Achse"-Heuristik hielte den 2.55 breiten, 2.40 langen Ring für querliegend
 und dockte SEITLICH an (gleicher Grund wie beim Sternmotor).
 **Triebwerk:** Gondel + drehender Knoten **`Prop`** (Spinner + 6 Blätter). `col_size` ist NUR

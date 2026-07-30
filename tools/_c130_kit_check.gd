@@ -2,8 +2,11 @@
 ## drehende "Prop"-Knoten auf der Achse, und welche Materialien sind lackierbar?
 extends SceneTree
 
-const DATEIEN: Array = ["cockpit_c130", "fuselage_c130_long", "fuselage_c130_short",
-	"engine_c130"]
+## Die beiden RUMPFRINGE stehen hier bewusst NICHT: sie sind prozedural (Shape
+## "c130_tube" aus C130_PROFILE). Als glb waeren die Enden-Werkzeuge wirkungslos,
+## weil _attach_model vor dem Mesh-Bau aussteigt. Geprueft werden sie in
+## tools/_c130_enden_check.gd und tools/_versatz_form.gd.
+const DATEIEN: Array = ["cockpit_c130", "engine_c130"]
 
 
 func _aabb(n: Node3D) -> AABB:

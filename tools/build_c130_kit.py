@@ -251,8 +251,13 @@ print("=" * 74)
 print("C-130-BAUKASTEN   Querschnitt-Faktor %.4f   Laengs-Faktor %.4f" % (S, LAENGS))
 print("=" * 74)
 bau_zelle("Cockpit", "cockpit_c130.glb", S, "cockpit_body")
-bau_zelle("Fuselage_long", "fuselage_c130_long.glb", LAENGS, "body")
-bau_zelle("Fuselage_short", "fuselage_c130_short.glb", LAENGS, "body")
+# Die BEIDEN RUMPFRINGE werden bewusst NICHT mehr als glb exportiert. Ein glb-Teil
+# steigt in PartCatalog._attach_model aus, bevor ueberhaupt ein Mesh gebaut wird —
+# Enden-Skalierung, Enden-Versatz und Auto-Taper haetten Griffe ohne jede Wirkung
+# gezeigt. Stattdessen loftet PartCatalog sie prozedural aus C130_PROFILE (Shape
+# "c130_tube"); das Profil kommt aus tools/extract_c130_profile.py, gezogen aus
+# genau diesen beiden Objekten. Wer die Ringe hier wieder exportiert, macht die
+# Enden-Werkzeuge erneut wirkungslos.
 bau_triebwerk()
 
 print("")

@@ -180,22 +180,22 @@ static func _build() -> void:
 	})
 	_add({
 		"id": "fuselage_c130_short", "name": "C-130-Rumpfsegment (kurz)", "category": CAT_BODY,
-		"mass": 150.0, "color": Color(0.31, 0.28, 0.28), "shape": "box",
+		"mass": 150.0, "color": Color(0.31, 0.28, 0.28), "shape": "c130_tube",
 		"size": Vector3(2.55, 2.55, 1.92),
 		"col_size": Vector3(2.55, 2.55, 1.92),
 		"col_offset": Vector3(0.0, 0.0, 0.0),
 		"dock_size": Vector2(2.55, 2.55),
-		"metal": 0.30, "rough": 0.55,
+		"metal": 0.30, "rough": 0.55, "biends": true,
 		"desc": "Kurzer Rumpfring des C-130-Baukastens. Wird automatisch gesetzt, solange der Rumpf noch kurz ist.",
 	})
 	_add({
 		"id": "fuselage_c130_long", "name": "C-130-Rumpfsegment (lang)", "category": CAT_BODY,
-		"mass": 185.0, "color": Color(0.31, 0.28, 0.28), "shape": "box",
+		"mass": 185.0, "color": Color(0.31, 0.28, 0.28), "shape": "c130_tube",
 		"size": Vector3(2.55, 2.55, 2.40),
 		"col_size": Vector3(2.55, 2.55, 2.40),
 		"col_offset": Vector3(0.0, 0.0, 0.0),
 		"dock_size": Vector2(2.55, 2.55),
-		"metal": 0.30, "rough": 0.55,
+		"metal": 0.30, "rough": 0.55, "biends": true,
 		"desc": "Langer Rumpfring des C-130-Baukastens. Uebernimmt, sobald der Rumpf eine gewisse Laenge hat.",
 	})
 	_add({
@@ -1511,6 +1511,16 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			root.add_child(_mi(tube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
+		"c130_tube":
+			# C-130-Rumpfring: dasselbe Profil wie der Cockpit-Anschluss, aber PROZEDURAL
+			# geloftet. Vorher kam der Ring aus einem glb - dann steigt build_visual in
+			# _attach_model aus, BEVOR ueberhaupt ein Mesh gebaut wird, und Enden-Skalierung,
+			# Enden-Versatz und Auto-Taper konnten nicht wirken: Griffe ohne jede Wirkung.
+			var c130_tube := _profile_tube(C130_PROFILE, ef, eb, shift_front, shift_back)
+			root.add_child(_mi(c130_tube, make_material(col, metal, rough, true),
+				Vector3.ZERO, Vector3.ZERO, size))
+
+
 		"transport_tube":
 			# Exakter Anschlussquerschnitt des Transport-Cockpits: dieselbe 12-seitige
 			# Superellipse (Exponent 0.70), mit einzeln formbaren Enden.
@@ -2478,6 +2488,25 @@ const RADIAL_PROFILE: Array = [
 	Vector2(0.315, 0.4543), Vector2(0.2031, 0.4886), Vector2(0.0, 0.5),
 ]
 
+
+
+# C-130-QUERSCHNITT: aus dem mittleren Ring von 'Fuselage_long' in
+# blender_lib/c130_kit_flugzeug.blend gezogen (tools/extract_c130_profile.py -> 82 Punkte,
+# auf 24 ausgeduennt, CCW, normiert auf [-0.5, 0.5]2). Echte Blattgroesse 4.3500 x 4.3492,
+# im Spiel 2.55 x 2.55 (steckt in der size der Teile).
+# KEIN Kreis: an den Diagonalen liegt die Kontur bei 0.512 statt 0.500 - eine gerundete
+# Frachtform. Mit dem Ellipsen-Tubus ("box") waere der Rumpf dort sichtbar schmaler und
+# die Naht zum Cockpit-glb bekaeme eine Kante.
+const C130_PROFILE: Array = [
+	Vector2(-0.4800, -0.1580), Vector2(-0.4374, -0.2624), Vector2(-0.3622, -0.3623),
+	Vector2(-0.2624, -0.4375), Vector2(-0.1422, -0.4842), Vector2(0.0132, -0.5000),
+	Vector2(0.1422, -0.4842), Vector2(0.2624, -0.4375), Vector2(0.3622, -0.3623),
+	Vector2(0.4374, -0.2624), Vector2(0.4841, -0.1422), Vector2(0.5000, 0.0000),
+	Vector2(0.4800, 0.1580), Vector2(0.4374, 0.2624), Vector2(0.3622, 0.3623),
+	Vector2(0.2624, 0.4375), Vector2(0.1422, 0.4842), Vector2(-0.0132, 0.5000),
+	Vector2(-0.1422, 0.4842), Vector2(-0.2624, 0.4375), Vector2(-0.3622, 0.3623),
+	Vector2(-0.4374, 0.2624), Vector2(-0.4841, 0.1422), Vector2(-0.5000, 0.0000),
+]
 
 
 # Rumpf-Tubus mit BELIEBIGEM Profilquerschnitt (geschlossener CCW-Punktzug in [-0.5,0.5]²).

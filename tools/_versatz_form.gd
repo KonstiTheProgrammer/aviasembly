@@ -6,7 +6,7 @@ extends SceneTree
 
 const FORMEN: Array = ["fuselage", "fuselage_reto", "fuselage_radial",
 	"fuselage_transport", "fuselage_long", "fuselage_wide", "fuselage_taper",
-	"f22_fuselage"]
+	"f22_fuselage", "fuselage_c130_short", "fuselage_c130_long"]
 
 const VERSATZ := 0.30    # Teil-Einheiten, quer nach oben (+Y)
 
