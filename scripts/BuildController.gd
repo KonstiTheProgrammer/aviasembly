@@ -81,6 +81,9 @@ var _drag_scale0 := Vector3.ONE
 var _drag_origin0 := Vector3.ZERO
 var _drag_taper0 := 1.0           # Enden-Drag: Taper-Wert des Endes beim Greifen
 var _drag_corner := 0            # gezogene Klotz-Ecke (0..7)
+var _drag_shift0 := Vector2.ZERO  # Enden-Versatz beim Greifen
+var _drag_ebene0 := Vector3.ZERO  # Startpunkt in der Querschnittsebene
+const SHIFT_MAX := 0.9            # feste Spanne: +-90 % der Querschnittsgroesse
 var _drag_half := 1.0             # Enden-Drag: halbe Höhe (Sensitivität)
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
 var _move_kids: Array = []        # Anbauten (auswärtiger Teilbaum), die beim Verschieben mitwandern
@@ -772,6 +775,7 @@ func _build_handles() -> void:
 		_build_scale_handles()        # Würfel: bleiben am Teil (lokal -> Dimensionen strecken)
 	elif gizmo_mode == GIZ_ENDS:
 		_build_ends_handles()         # 2 Würfel an den Enden (lokal): vorne/hinten dick/dünn
+		_build_shift_handles()        # dazu je Ende eine Kugel zum Versetzen
 	else:
 		# Bewegen/Drehen: welt-ausgerichteter Halter (dreht NICHT mit dem Teil)
 		_gizmo_root = Node3D.new()
@@ -900,6 +904,37 @@ func _build_round_handles() -> void:
 		sm.height = 0.34
 		sm.radial_segments = 8
 		sm.rings = 5
+		mi.mesh = sm
+		mi.material_override = _gizmo_mat(col)
+		h.add_child(mi)
+		selected_part.add_child(h)
+		_handles.append(h)
+
+
+# Je Ende ein Griff zum VERSETZEN (hoch/runter/links/rechts). Der vorhandene
+# Enden-Taper skaliert das Ende nur — versetzen konnte man es bisher gar nicht.
+func _build_shift_handles() -> void:
+	for s in [-1.0, 1.0]:
+		var h := StaticBody3D.new()
+		h.add_to_group("handle")
+		h.collision_layer = HANDLE_LAYER
+		h.collision_mask = 0
+		h.set_meta("kind", "shift")
+		h.set_meta("axis", 2)
+		h.set_meta("sign", s)
+		var col: Color = Color(0.55, 0.85, 1.0) if s < 0.0 else Color(1.0, 0.78, 0.45)
+		h.set_meta("base_col", col)
+		var cs := CollisionShape3D.new()
+		var sp := SphereShape3D.new()
+		sp.radius = 0.26
+		cs.shape = sp
+		h.add_child(cs)
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.2
+		sm.height = 0.4
+		sm.radial_segments = 10
+		sm.rings = 6
 		mi.mesh = sm
 		mi.material_override = _gizmo_mat(col)
 		h.add_child(mi)
@@ -1069,6 +1104,12 @@ func _update_handles() -> void:
 				h.position = off + Vector3(float(halves[0]) * et + 0.4, 0.0, es * float(halves[2]))
 			else:
 				h.position = off + Vector3(0.0, float(halves[1]) * et + 0.4, es * float(halves[2]))
+		elif kind == "shift":
+			# sitzt in der Mitte der jeweiligen Stirnflaeche und wandert mit dem Versatz
+			var ss: float = h.get_meta("sign")
+			var sv: Vector2 = _end_shift(selected_part, ss)
+			h.position = off + Vector3(sv.x * bs.x * psc.x, sv.y * bs.y * psc.y,
+				ss * float(halves[2]))
 		elif kind == "round":
 			var ci: int = h.get_meta("corner", 0)
 			var e := Vector3(1.0 if (ci & 1) != 0 else -1.0,
@@ -1157,6 +1198,14 @@ func _begin_handle_drag(handle: Node3D) -> void:
 		_rot_u = _rot_u.normalized()
 		_rot_v = _rot_axis_w.cross(_rot_u).normalized()
 		_rot_a0 = _ring_angle()
+		return
+	if _drag_kind == "shift":
+		# frei in der QUERSCHNITTSEBENE ziehen (Ebene senkrecht zur Teil-Laengsachse)
+		_drag_sign = handle.get_meta("sign")
+		_drag_shift0 = _end_shift(selected_part, _drag_sign)
+		_drag_axis_w = (selected_part.global_transform.basis * Vector3(0, 0, 1)).normalized()
+		_drag_origin0 = handle.global_position
+		_drag_ebene0 = _ray_ebene(_drag_origin0, _drag_axis_w)
 		return
 	if _drag_kind == "round":
 		# entlang der RAUMDIAGONALE durch diese Ecke ziehen: nach innen = runder
@@ -1288,6 +1337,22 @@ func _update_transform_drag() -> void:
 			dreh = roundf(dreh / (PI * 0.25)) * (PI * 0.25)
 		var nb := (Basis(_rot_axis_w, dreh) * _rot_b0).orthonormalized()
 		_apply_sel_transform(nb, selected_part.position, selected_part.get_meta("pscale", Vector3.ONE))
+	elif _drag_handle != null and _drag_kind == "shift":
+		var tref: Vector3 = _ray_ebene(_drag_origin0, _drag_axis_w)
+		var welt: Vector3 = tref - _drag_ebene0
+		var lok: Vector3 = selected_part.global_transform.basis.inverse() * welt
+		var sp := PartCatalog.get_part(selected_part.get_meta("part_id"))
+		var gr: Vector3 = PartCatalog.col_size(sp)
+		var neu := Vector2(
+			clampf(_drag_shift0.x + lok.x / maxf(gr.x, 0.05), -SHIFT_MAX, SHIFT_MAX),
+			clampf(_drag_shift0.y + lok.y / maxf(gr.y, 0.05), -SHIFT_MAX, SHIFT_MAX))
+		selected_part.set_meta("shift_front" if _drag_sign < 0.0 else "shift_back", neu)
+		var ssc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
+		_rebuild_visual(selected_part)
+		_apply_part_scale(selected_part, ssc)
+		_sync_mirror_shift(selected_part, ssc)
+		_update_handles()
+		_notify_changed()
 	elif _drag_handle != null and _drag_kind == "round":
 		# Mausweg auf der Ecken-Diagonale -> Rundungsgrad 0..1 (feste Spanne).
 		# SHIFT = ALLE acht Ecken zugleich, ohne SHIFT nur die gezogene.
@@ -1468,6 +1533,36 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 		part.remove_meta("mirror")
 		m.free()
 		_update_wing_fill(part)
+
+
+# Versatz eines Rumpfendes (-1 = vorne/-Z, +1 = hinten/+Z), in Teil-Einheiten.
+func _end_shift(part: Node3D, sign: float) -> Vector2:
+	return part.get_meta("shift_front" if sign < 0.0 else "shift_back", Vector2.ZERO)
+
+
+# Schnittpunkt des Maus-Strahls mit der Ebene durch `punkt` senkrecht zu `normale`.
+func _ray_ebene(punkt: Vector3, normale: Vector3) -> Vector3:
+	if camera == null:
+		return punkt
+	var mp := get_viewport().get_mouse_position()
+	var ro := camera.project_ray_origin(mp)
+	var rd := camera.project_ray_normal(mp)
+	var d := normale.dot(rd)
+	if absf(d) < 0.00001:
+		return punkt
+	return ro + rd * (normale.dot(punkt - ro) / d)
+
+
+# Versatz auf den Spiegel uebertragen — X gespiegelt, Y gleich.
+func _sync_mirror_shift(part: Node3D, sc: Vector3) -> void:
+	var m = part.get_meta("mirror") if part.has_meta("mirror") else null
+	if m == null or not is_instance_valid(m):
+		return
+	for k in ["shift_front", "shift_back"]:
+		var v: Vector2 = part.get_meta(k, Vector2.ZERO)
+		m.set_meta(k, Vector2(-v.x, v.y))
+	_rebuild_visual(m)
+	_apply_part_scale(m, sc)
 
 
 # Eckrundungen des Klotzes (8 Werte 0..1); fehlt das Meta, alle scharf.
@@ -1744,7 +1839,8 @@ func _rebuild_visual(part: Node) -> void:
 	var nv := PartCatalog.build_visual(PartCatalog.get_part(part.get_meta("part_id")),
 		part.get_meta("color", Color(0, 0, 0, 0)),
 		part.get_meta("taper", 1.0), part.get_meta("taper_front", 1.0),
-		part.get_meta("taper_y", -1.0), part.get_meta("taper_front_y", -1.0))
+		part.get_meta("taper_y", -1.0), part.get_meta("taper_front_y", -1.0),
+		part.get_meta("shift_front", Vector2.ZERO), part.get_meta("shift_back", Vector2.ZERO))
 	nv.name = "Visual"
 	nv.scale = part.get_meta("pscale", Vector3.ONE)
 	part.add_child(nv)
@@ -2776,6 +2872,8 @@ func get_design() -> Array:
 				"fill": child.get_meta("fill", 0.0),   # Flügel-Mittelspalt-Füllung (für Flug + Speichern)
 				"glen": child.get_meta("gear_len", 1.0),   # ausgefahrenes Fahrwerksbein
 				"br": Array(_block_r(child)),              # Eckrundungen des Klotzes
+				"sf": child.get_meta("shift_front", Vector2.ZERO),   # Versatz vorderes Ende
+				"sb": child.get_meta("shift_back", Vector2.ZERO),    # Versatz hinteres Ende
 				"bsc": child.get_meta("block_sc", Vector3.ONE),  # Skalierung beim Runden
 				"thrust_reverse": child.get_meta("thrust_reverse", false),   # Prop-Schub umkehren
 			})
@@ -2794,6 +2892,13 @@ func load_design(arr: Array) -> void:
 			np.set_meta("thrust_reverse", bool(item.get("thrust_reverse", false)))
 			# Ausgefahrenes Fahrwerksbein wiederherstellen (Visual neu bauen, damit die
 			# Beinlaenge sofort steht — _add_part kennt das Meta beim Bauen noch nicht).
+			var vsf: Vector2 = item.get("sf", Vector2.ZERO)
+			var vsb: Vector2 = item.get("sb", Vector2.ZERO)
+			if vsf.length() > 0.0005 or vsb.length() > 0.0005:
+				np.set_meta("shift_front", vsf)
+				np.set_meta("shift_back", vsb)
+				_rebuild_visual(np)
+				_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
 			var brs: Array = item.get("br", [])
 			if brs.size() == 8:
 				var ra := PartCatalog.block_radien_neu()

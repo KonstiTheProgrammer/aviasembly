@@ -1412,7 +1412,7 @@ static func rear_docked(eng_id: String, eng_xf: Transform3D, eng_psc: Vector3, o
 	return false
 
 
-static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0, taper_front := 1.0, taper_y := -1.0, taper_front_y := -1.0) -> Node3D:
+static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper := 1.0, taper_front := 1.0, taper_y := -1.0, taper_front_y := -1.0, shift_front := Vector2.ZERO, shift_back := Vector2.ZERO) -> Node3D:
 	# taper/taper_front = X-Skalierung des hinteren/vorderen Endes; taper_y/taper_front_y =
 	# separate Y-Skalierung (< 0 -> wie X, also gleichförmig). So lässt sich jedes Rumpf-Ende
 	# in Breite (X) und Höhe (Y) getrennt formen.
@@ -1449,7 +1449,9 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			# BEIDE Enden einzeln in X UND Y skalierbar (elliptischer Loft): ef = vorderes
 			# (-Z) Ende (x,y), eb = hinteres (+Z) -> Segment vorne/hinten verschieden breit/hoch.
 			# Normaler runder Zylinder mit flachen, scharfkantigen Enden (kein Rundungs-Bevel).
-			var tube := _box_tube(ef, eb, 24)
+			# shift_* versetzt das jeweilige Ende quer zur Achse (in Teil-Einheiten,
+			# skaliert also mit size mit) -> geknickte/versetzte Ruempfe.
+			var tube := _box_tube(ef, eb, 24, shift_front, shift_back)
 			root.add_child(_mi(tube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
@@ -1521,7 +1523,7 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 		"reto_tube":
 			# Rumpf-Tubus mit dem RETO-Profilquerschnitt (aus dem Blender-Profilblatt) statt
 			# Ellipse. Beide Enden einzeln skalierbar (ef/eb) wie beim normalen Rumpfsegment.
-			var rtube := _profile_tube(RETO_PROFILE, ef, eb)
+			var rtube := _profile_tube(RETO_PROFILE, ef, eb, shift_front, shift_back)
 			root.add_child(_mi(rtube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
@@ -1642,7 +1644,7 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 		"radial_tube":
 			# Wie "reto_tube", aber mit dem Querschnitt des Sternmotors (abgerundetes Quadrat) —
 			# fuehrt dessen Schnittebene nahtlos als Rumpf weiter. Beide Enden einzeln skalierbar.
-			var atube := _profile_tube(RADIAL_PROFILE, ef, eb)
+			var atube := _profile_tube(RADIAL_PROFILE, ef, eb, shift_front, shift_back)
 			root.add_child(_mi(atube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
@@ -2336,7 +2338,8 @@ static func _prism_mesh(cs: PackedVector2Array, ef: Vector2, eb: Vector2) -> Arr
 
 # Elliptischer Rumpf-Tubus entlang Z (leicht gerundete Enden). Vorderes (-Z) Ende
 # Querschnitt × ef=(x,y), hinteres (+Z) × eb=(x,y) -> X UND Y pro Ende getrennt.
-static func _box_tube(ef: Vector2, eb: Vector2, segs := 24) -> ArrayMesh:
+static func _box_tube(ef: Vector2, eb: Vector2, segs := 24, of := Vector2.ZERO,
+		ob := Vector2.ZERO) -> ArrayMesh:
 	# NORMALER ZYLINDER/FRUSTUM: runde Seite, aber FLACHE Deckel mit SCHARFEN Kanten
 	# (keine abgerundeten Ecken). Vorderes (-Z) Ende Radius × ef=(x,y), hinteres (+Z) × eb.
 	# Eigene Deckel-Verts mit Achsen-Normale -> die Kante Seite↔Deckel bleibt knackig scharf.
@@ -2349,10 +2352,10 @@ static func _box_tube(ef: Vector2, eb: Vector2, segs := 24) -> ArrayMesh:
 		var a1: float = TAU * float(s + 1) / float(segs)
 		var c0 := Vector2(cos(a0), sin(a0))
 		var c1 := Vector2(cos(a1), sin(a1))
-		var f0 := Vector3(c0.x * rf.x, c0.y * rf.y, -0.5)
-		var f1 := Vector3(c1.x * rf.x, c1.y * rf.y, -0.5)
-		var b0 := Vector3(c0.x * rb.x, c0.y * rb.y, 0.5)
-		var b1 := Vector3(c1.x * rb.x, c1.y * rb.y, 0.5)
+		var f0 := Vector3(c0.x * rf.x + of.x, c0.y * rf.y + of.y, -0.5)
+		var f1 := Vector3(c1.x * rf.x + of.x, c1.y * rf.y + of.y, -0.5)
+		var b0 := Vector3(c0.x * rb.x + ob.x, c0.y * rb.y + ob.y, 0.5)
+		var b1 := Vector3(c1.x * rb.x + ob.x, c1.y * rb.y + ob.y, 0.5)
 		# glatte Außen-Normalen (Ellipsen-Gradient) -> runde, glatte Seitenwand
 		var nf0 := Vector3(c0.x / maxf(rf.x, 0.001), c0.y / maxf(rf.y, 0.001), 0.0).normalized()
 		var nf1 := Vector3(c1.x / maxf(rf.x, 0.001), c1.y / maxf(rf.y, 0.001), 0.0).normalized()
@@ -2366,11 +2369,11 @@ static func _box_tube(ef: Vector2, eb: Vector2, segs := 24) -> ArrayMesh:
 		st.set_normal(nb0); st.add_vertex(b0)
 		st.set_normal(nb1); st.add_vertex(b1)
 		# Flacher Deckel vorne (-Z) — eigene Verts, Normale (0,0,-1)
-		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(Vector3(0, 0, -0.5))
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(Vector3(of.x, of.y, -0.5))
 		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f0)
 		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f1)
 		# Flacher Deckel hinten (+Z)
-		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(Vector3(0, 0, 0.5))
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(Vector3(ob.x, ob.y, 0.5))
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b1)
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b0)
 	return st.commit()
@@ -2414,7 +2417,8 @@ const RADIAL_PROFILE: Array = [
 # Rumpf-Tubus mit BELIEBIGEM Profilquerschnitt (geschlossener CCW-Punktzug in [-0.5,0.5]²).
 # Vorderes (-Z) Ende × ef=(x,y), hinteres (+Z) × eb — wie _box_tube, nur mit Profil-Punkten
 # statt Ellipse. Glatte Seiten-Normalen aus dem Umriss, flache Deckel mit scharfer Kante.
-static func _profile_tube(profile: Array, ef: Vector2, eb: Vector2) -> ArrayMesh:
+static func _profile_tube(profile: Array, ef: Vector2, eb: Vector2,
+		of := Vector2.ZERO, ob := Vector2.ZERO) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := profile.size()
@@ -2429,10 +2433,10 @@ static func _profile_tube(profile: Array, ef: Vector2, eb: Vector2) -> ArrayMesh
 		var j := (s + 1) % n
 		var p0: Vector2 = profile[s]
 		var p1: Vector2 = profile[j]
-		var f0 := Vector3(p0.x * ef.x, p0.y * ef.y, -0.5)
-		var f1 := Vector3(p1.x * ef.x, p1.y * ef.y, -0.5)
-		var b0 := Vector3(p0.x * eb.x, p0.y * eb.y, 0.5)
-		var b1 := Vector3(p1.x * eb.x, p1.y * eb.y, 0.5)
+		var f0 := Vector3(p0.x * ef.x + of.x, p0.y * ef.y + of.y, -0.5)
+		var f1 := Vector3(p1.x * ef.x + of.x, p1.y * ef.y + of.y, -0.5)
+		var b0 := Vector3(p0.x * eb.x + ob.x, p0.y * eb.y + ob.y, 0.5)
+		var b1 := Vector3(p1.x * eb.x + ob.x, p1.y * eb.y + ob.y, 0.5)
 		var n0: Vector2 = norms[s]
 		var n1: Vector2 = norms[j]
 		var nf0 := Vector3(n0.x / maxf(ef.x, 0.001), n0.y / maxf(ef.y, 0.001), 0.0).normalized()
@@ -2447,10 +2451,10 @@ static func _profile_tube(profile: Array, ef: Vector2, eb: Vector2) -> ArrayMesh
 		st.set_normal(nb0); st.add_vertex(b0)
 		st.set_normal(nb1); st.add_vertex(b1)
 		# Flache Deckel vorne (-Z) / hinten (+Z)
-		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(Vector3(0, 0, -0.5))
+		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(Vector3(of.x, of.y, -0.5))
 		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f0)
 		st.set_normal(Vector3(0, 0, -1)); st.add_vertex(f1)
-		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(Vector3(0, 0, 0.5))
+		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(Vector3(ob.x, ob.y, 0.5))
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b1)
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b0)
 	return st.commit()

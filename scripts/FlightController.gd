@@ -270,7 +270,8 @@ func build_from_design(d: Array) -> void:
 		var has_fill: bool = fill > 0.0
 		var psx_eff: float = psc.x + (fill / nspan if has_fill else 0.0)
 
-		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)), item.get("taper", 1.0), item.get("taper_front", 1.0), item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
+		var vis := PartCatalog.build_visual(p, item.get("color", Color(0, 0, 0, 0)), item.get("taper", 1.0), item.get("taper_front", 1.0), item.get("taper_y", -1.0), item.get("taper_front_y", -1.0),
+			item.get("sf", Vector2.ZERO), item.get("sb", Vector2.ZERO))
 		if id == "engine_radial":   # Heck offen (Rumpf dockt an) oder freistehende Gondel?
 			PartCatalog.set_engine_half(vis, PartCatalog.rear_docked(id, xf, psc, dock_items))
 		elif id == "cockpit_radial":   # Anschlussrahmen nur an OFFENEN Enden zeigen
