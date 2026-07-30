@@ -678,9 +678,12 @@ func _on_right_click() -> void:
 	_ctx_menu.add_item("Bewegen", 0)
 	_ctx_menu.add_item("⟳  Drehen", 1)
 	_ctx_menu.add_item("⤢  Skalieren", 2)
-	# Enden X/Y getrennt skalieren — nur für Rumpfsegmente (biends): 4 Vierecke vorne/hinten.
+	# Die beiden ENDEN-Werkzeuge — nur für Rumpfsegmente (biends). Beide gehoeren hier
+	# zusammen: ohne den zweiten Eintrag kam man ueber das Rechtsklickmenue gar nicht in
+	# den Versetzen-Modus und zog stattdessen weiter an den Taper-Wuerfeln.
 	if PartCatalog.get_part(part.get_meta("part_id")).get("biends", false):
 		_ctx_menu.add_item("Enden skalieren (X/Y)", 5)
+		_ctx_menu.add_item("Enden verschieben (hoch/seitlich)", 6)
 	_ctx_menu.add_separator()
 	_ctx_menu.add_item("Umdrehen (180°)", 3)
 	_ctx_menu.add_item("Löschen", 4)   # auch die Wurzel ist löschbar
@@ -1202,7 +1205,6 @@ func set_gizmo_mode(m: int) -> void:
 		_build_handles()
 		_emit_selection()
 
-
 func _begin_handle_drag(handle: Node3D) -> void:
 	_drag_handle = handle
 	_moving_sel = false
@@ -1232,6 +1234,7 @@ func _begin_handle_drag(handle: Node3D) -> void:
 			* _axis_vec(_drag_axis_i)).normalized()
 		_drag_origin0 = handle.global_position
 		_drag_t0 = _ray_axis_t(_drag_origin0, _drag_axis_w)
+		_capture_end_kids(_drag_sign)   # was an DIESEM Ende haengt, wandert mit
 		return
 	if _drag_kind == "round":
 		# entlang der RAUMDIAGONALE durch diese Ecke ziehen: nach innen = runder
@@ -1326,6 +1329,50 @@ func _capture_move_kids() -> void:
 		_move_kids.append({"n": o, "p0": (o as Node3D).position})
 
 
+# Teile, die am angegebenen ENDE des gewaehlten Teils haengen (-1 = vorne/-Z, +1 = hinten).
+# Basis ist dieselbe BFS wie beim Verschieben und beim Fluegelbruch: erst alles, was OHNE
+# Weg ueber das gewaehlte Teil vom Cockpit erreichbar ist, dann der Rest auswaerts. Aus dem
+# wird nur behalten, was auf der Seite DIESES Endes liegt.
+func _capture_end_kids(seite: float) -> void:
+	_move_kids = []
+	if selected_part == null:
+		return
+	var parts: Array = []
+	var root: Node3D = null
+	for c in design_root.get_children():
+		if c.is_in_group("part"):
+			parts.append(c)
+			if c.get_meta("is_root", false):
+				root = c
+	if root == null or root == selected_part:
+		return
+	var boxes := {}
+	for pp in parts:
+		boxes[pp] = _part_world_aabb(pp).grow(0.12)
+	var reach := {selected_part: true, root: true}
+	var queue: Array = [root]
+	while not queue.is_empty():
+		var cur = queue.pop_back()
+		for o in parts:
+			if not reach.has(o) and boxes[cur].intersects(boxes[o]):
+				reach[o] = true
+				queue.append(o)
+	var sub := {}
+	queue = [selected_part]
+	while not queue.is_empty():
+		var cur2 = queue.pop_back()
+		for o in parts:
+			if not reach.has(o) and not sub.has(o) and boxes[cur2].intersects(boxes[o]):
+				sub[o] = true
+				queue.append(o)
+	# Seite bestimmen: Lage des Nachbarn im LOKALEN System des gewaehlten Teils
+	var inv := selected_part.global_transform.affine_inverse()
+	for o in sub:
+		var lz: float = (inv * (o as Node3D).global_position).z
+		if signf(lz) == signf(seite) or absf(lz) < 0.05:
+			_move_kids.append({"n": o, "p0": (o as Node3D).position})
+
+
 func _begin_move() -> void:
 	_moving_sel = true
 	_drag_handle = null
@@ -1379,6 +1426,16 @@ func _update_transform_drag() -> void:
 		_rebuild_visual(selected_part)
 		_apply_part_scale(selected_part, ssc)
 		_sync_mirror_shift(selected_part, ssc)
+		# Was an diesem Ende haengt, um DENSELBEN Weg mitnehmen — sonst bleibt an der
+		# Naht genau der Versatz als Stufe stehen.
+		var d := neu - _drag_shift0
+		var welt: Vector3 = selected_part.transform.basis * Vector3(d.x * gr.x * ssc.x,
+			d.y * gr.y * ssc.y, 0.0)
+		for k in _move_kids:
+			var kn = k["n"]
+			if is_instance_valid(kn):
+				(kn as Node3D).position = (k["p0"] as Vector3) + welt
+				_sync_mirror(kn, (kn as Node3D).get_meta("pscale", Vector3.ONE))
 		_update_handles()
 		_notify_changed()
 	elif _drag_handle != null and _drag_kind == "round":
