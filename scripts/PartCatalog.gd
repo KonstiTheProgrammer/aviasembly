@@ -1458,7 +1458,8 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 		"transport_tube":
 			# Exakter Anschlussquerschnitt des Transport-Cockpits: dieselbe 12-seitige
 			# Superellipse (Exponent 0.70), mit einzeln formbaren Enden.
-			var transport_tube := _prism_mesh(_transport_cross_section(), ef, eb)
+			var transport_tube := _prism_mesh(_transport_cross_section(), ef, eb,
+				shift_front, shift_back)
 			root.add_child(_mi(transport_tube, make_material(col, metal, rough, true),
 				Vector3(0.0, 0.09, 0.0), Vector3.ZERO, size))
 
@@ -1493,7 +1494,7 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 		"prism":
 			# Gechinter Stealth-Rumpf (F-22-Querschnitt). Beide Enden in X UND Y getrennt:
 			# ef = vorderer (-Z) Querschnitt (x,y), eb = hinterer (+Z) -> Verjüngung/Formung.
-			var pm := _prism_mesh(_f22_cross_section(), ef, eb)
+			var pm := _prism_mesh(_f22_cross_section(), ef, eb, shift_front, shift_back)
 			var pmat := make_material(col, metal, rough)
 			pmat.cull_mode = BaseMaterial3D.CULL_DISABLED   # beidseitig -> kein Durchsehen
 			root.add_child(_mi(pm, pmat, Vector3.ZERO, Vector3.ZERO, size))
@@ -2311,7 +2312,13 @@ static func _f22_cross_section() -> PackedVector2Array:
 # Querschnitt entlang Z extrudieren (unit ±0.5). Vorderes (-Z) Ende × ef=(x,y),
 # hinteres (+Z) × eb=(x,y) -> beide Enden in X UND Y getrennt skalierbar (Frustum).
 # FLACHE Facetten = gechintes Stealth-Aussehen.
-static func _prism_mesh(cs: PackedVector2Array, ef: Vector2, eb: Vector2) -> ArrayMesh:
+# of/ob versetzen das vordere/hintere Ende QUER zur Achse (Teil-Einheiten, genau wie bei
+# _box_tube): die eine Stirnflaeche wandert, die gegenueberliegende bleibt stehen, der
+# Mantel dazwischen wird schraeg gezogen. Ohne diese beiden Parameter haben die Formen
+# "transport_tube" und "prism" den Enden-Versatz stumm verschluckt — Griffe und Wert waren
+# da, das Mesh sah sie nie.
+static func _prism_mesh(cs: PackedVector2Array, ef: Vector2, eb: Vector2,
+		of := Vector2.ZERO, ob := Vector2.ZERO) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := cs.size()
@@ -2319,20 +2326,23 @@ static func _prism_mesh(cs: PackedVector2Array, ef: Vector2, eb: Vector2) -> Arr
 	var zb := 0.5
 	for i in n:                                         # Seitenfacetten (Trapeze)
 		var j := (i + 1) % n
-		var f0 := Vector3(cs[i].x * ef.x, cs[i].y * ef.y, zf)
-		var f1 := Vector3(cs[j].x * ef.x, cs[j].y * ef.y, zf)
-		var b0 := Vector3(cs[i].x * eb.x, cs[i].y * eb.y, zb)
-		var b1 := Vector3(cs[j].x * eb.x, cs[j].y * eb.y, zb)
-		var mid := (f0 + f1 + b0 + b1) * 0.25
-		var outward := Vector3(mid.x, mid.y, 0.0).normalized()
+		var f0 := Vector3(cs[i].x * ef.x + of.x, cs[i].y * ef.y + of.y, zf)
+		var f1 := Vector3(cs[j].x * ef.x + of.x, cs[j].y * ef.y + of.y, zf)
+		var b0 := Vector3(cs[i].x * eb.x + ob.x, cs[i].y * eb.y + ob.y, zb)
+		var b1 := Vector3(cs[j].x * eb.x + ob.x, cs[j].y * eb.y + ob.y, zb)
+		# Aussenrichtung aus dem UNVERSETZTEN Umriss nehmen: der versetzte Mittelpunkt
+		# kann bei grossem Versatz auf die andere Seite der Achse rutschen, dann klappte
+		# die Wicklung einzelner Facetten nach innen (Loch im Rumpf).
+		var pmid := (cs[i] + cs[j]) * 0.5
+		var outward := Vector3(pmid.x, pmid.y, 0.0).normalized()
 		_face(st, f0, f1, b1, outward)
 		_face(st, f0, b1, b0, outward)
-	var cf := Vector3(0, 0, zf)
-	var cb := Vector3(0, 0, zb)
+	var cf := Vector3(of.x, of.y, zf)
+	var cb := Vector3(ob.x, ob.y, zb)
 	for i in n:                                         # Deckel vorne (-Z) / hinten (+Z)
 		var j := (i + 1) % n
-		_face(st, cf, Vector3(cs[i].x * ef.x, cs[i].y * ef.y, zf), Vector3(cs[j].x * ef.x, cs[j].y * ef.y, zf), Vector3(0, 0, -1))
-		_face(st, cb, Vector3(cs[i].x * eb.x, cs[i].y * eb.y, zb), Vector3(cs[j].x * eb.x, cs[j].y * eb.y, zb), Vector3(0, 0, 1))
+		_face(st, cf, Vector3(cs[i].x * ef.x + of.x, cs[i].y * ef.y + of.y, zf), Vector3(cs[j].x * ef.x + of.x, cs[j].y * ef.y + of.y, zf), Vector3(0, 0, -1))
+		_face(st, cb, Vector3(cs[i].x * eb.x + ob.x, cs[i].y * eb.y + ob.y, zb), Vector3(cs[j].x * eb.x + ob.x, cs[j].y * eb.y + ob.y, zb), Vector3(0, 0, 1))
 	return st.commit()
 
 

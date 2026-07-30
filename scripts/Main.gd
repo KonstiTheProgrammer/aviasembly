@@ -2944,10 +2944,19 @@ func _design_data() -> Array:
 	for it in build_ctrl.get_design():
 		var c: Color = it.get("color", Color(0, 0, 0, 0))
 		var s: Vector3 = it.get("scale", Vector3.ONE)
+		# Alles, was der Spieler von Hand FORMT, muss mit in die Datei. Fehlte es hier,
+		# lieferte get_design() die Werte zwar korrekt, beim naechsten Start waren sie weg:
+		# Enden-Versatz, Beinlaenge und Eckrundungen sprangen stumm auf Standard zurueck.
+		var sf: Vector2 = it.get("sf", Vector2.ZERO)
+		var sb: Vector2 = it.get("sb", Vector2.ZERO)
+		var bsc: Vector3 = it.get("bsc", Vector3.ONE)
 		data.append({"id": it["id"], "xform": _xform_to_array(it["xform"]),
 			"color": [c.r, c.g, c.b, c.a], "scale": [s.x, s.y, s.z],
 			"taper": it.get("taper", 1.0), "taper_front": it.get("taper_front", 1.0),
 			"taper_y": it.get("taper_y", -1.0), "taper_front_y": it.get("taper_front_y", -1.0),
+			"tuser_f": it.get("tuser_f", false), "tuser_b": it.get("tuser_b", false),
+			"glen": it.get("glen", 1.0), "br": it.get("br", []),
+			"sf": [sf.x, sf.y], "sb": [sb.x, sb.y], "bsc": [bsc.x, bsc.y, bsc.z],
 			"fill": it.get("fill", 0.0), "thrust_reverse": it.get("thrust_reverse", false)})
 	return data
 
@@ -3165,11 +3174,37 @@ func _load_design_from(path: String) -> bool:
 			var tpf: float = float(it.get("taper_front", 1.0))
 			var tpy: float = float(it.get("taper_y", -1.0))
 			var tpfy: float = float(it.get("taper_front_y", -1.0))
-			arr.append({"id": it["id"], "xform": _array_to_xform(it["xform"]), "color": col, "scale": scl, "taper": tp, "taper_front": tpf, "taper_y": tpy, "taper_front_y": tpfy, "fill": float(it.get("fill", 0.0)), "thrust_reverse": bool(it.get("thrust_reverse", false))})
+			# Von Hand geformte Werte zurueckholen (siehe _design_data). Fehlen sie in der
+			# Datei, ist es ein ALTER Speicherstand -> Standard, und die tuser-Flags bleiben
+			# ABWESEND, damit die bestehende Alt-Save-Erkennung im BuildController greift.
+			var bscv := Vector3.ONE
+			if typeof(it.get("bsc")) == TYPE_ARRAY and (it["bsc"] as Array).size() >= 3:
+				var ba: Array = it["bsc"]
+				bscv = Vector3(ba[0], ba[1], ba[2])
+			var eintrag: Dictionary = {"id": it["id"], "xform": _array_to_xform(it["xform"]),
+				"color": col, "scale": scl, "taper": tp, "taper_front": tpf,
+				"taper_y": tpy, "taper_front_y": tpfy,
+				"glen": float(it.get("glen", 1.0)),
+				"br": it.get("br", []), "bsc": bscv,
+				"sf": _array_to_vec2(it.get("sf")), "sb": _array_to_vec2(it.get("sb")),
+				"fill": float(it.get("fill", 0.0)),
+				"thrust_reverse": bool(it.get("thrust_reverse", false))}
+			if it.has("tuser_f") or it.has("tuser_b"):
+				eintrag["tuser_f"] = bool(it.get("tuser_f", false))
+				eintrag["tuser_b"] = bool(it.get("tuser_b", false))
+			arr.append(eintrag)
 	if arr.is_empty():
 		return false
 	build_ctrl.load_design(arr)
 	return true
+
+
+# [x, y] aus der Datei -> Vector2 (fehlt/kaputt -> Null, also kein Versatz).
+func _array_to_vec2(v) -> Vector2:
+	if typeof(v) == TYPE_ARRAY and (v as Array).size() >= 2:
+		var a: Array = v
+		return Vector2(float(a[0]), float(a[1]))
+	return Vector2.ZERO
 
 
 func _xform_to_array(t: Transform3D) -> Array:
