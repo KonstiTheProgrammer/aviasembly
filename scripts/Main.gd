@@ -1889,7 +1889,8 @@ func _build_selection_panel() -> void:
 	var mrow := HBoxContainer.new()
 	v.add_child(mrow)
 	sel_mode_btns.clear()
-	var modes := [["Bewegen", 0], ["Drehen", 1], ["Skalieren", 2], ["Enden", 3]]
+	var modes := [["Bewegen", 0], ["Drehen", 1], ["Skalieren", 2], ["Enden", 3],
+		["Versetzen", 4]]
 	for md in modes:
 		var mb := Button.new()
 		mb.text = md[0]

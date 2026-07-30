@@ -98,6 +98,8 @@ const GIZ_MOVE := 0
 const GIZ_ROTATE := 1
 const GIZ_SCALE := 2
 const GIZ_ENDS := 3             # Enden skalieren (nur Rumpfsegmente: vorne/hinten dick/dünn)
+const GIZ_SHIFT := 4            # Enden VERSETZEN (eigener Modus, sonst kollidieren die
+                                # Griffe mit den Taper-Wuerfeln und man greift den falschen)
 var gizmo_mode := GIZ_MOVE
 var _drag_kind := "scale"         # "move" (Pfeil) | "rotate" (Ring) | "scale" (Würfel)
 var _rotating := false            # (Alt-Pfad, ungenutzt — Drehen läuft jetzt über Ring-Griffe)
@@ -399,6 +401,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_S:
 				if selected_part != null:
 					set_gizmo_mode(GIZ_SCALE)
+			# E = Enden verjuengen, T = Enden VERSETZEN (eigener Modus)
+			KEY_E:
+				if selected_part != null:
+					set_gizmo_mode(GIZ_ENDS)
+			KEY_T:
+				if selected_part != null:
+					set_gizmo_mode(GIZ_SHIFT)
 				# V: ein Rumpf-Ende verjüngen (schmaler), Shift+V = breiter.
 			KEY_V:
 				if selected_part != null:
@@ -685,6 +694,7 @@ func _on_ctx_id(id: int) -> void:
 		1: set_gizmo_mode(GIZ_ROTATE)
 		2: set_gizmo_mode(GIZ_SCALE)
 		5: set_gizmo_mode(GIZ_ENDS)
+		6: set_gizmo_mode(GIZ_SHIFT)
 		3: invert_selected()
 		4: delete_selected()
 
@@ -774,8 +784,9 @@ func _build_handles() -> void:
 	if gizmo_mode == GIZ_SCALE:
 		_build_scale_handles()        # Würfel: bleiben am Teil (lokal -> Dimensionen strecken)
 	elif gizmo_mode == GIZ_ENDS:
-		_build_ends_handles()         # 2 Würfel an den Enden (lokal): vorne/hinten dick/dünn
-		_build_shift_handles()        # dazu je Ende eine Kugel zum Versetzen
+		_build_ends_handles()         # 4 Würfel an den Enden (lokal): vorne/hinten dick/dünn
+	elif gizmo_mode == GIZ_SHIFT:
+		_build_shift_handles()        # je Ende zwei Achsen-Zylinder zum Versetzen
 	else:
 		# Bewegen/Drehen: welt-ausgerichteter Halter (dreht NICHT mit dem Teil)
 		_gizmo_root = Node3D.new()
@@ -1119,9 +1130,9 @@ func _update_handles() -> void:
 			var basis_pos := off + Vector3(sv.x * bs.x * psc.x, sv.y * bs.y * psc.y,
 				ss * (float(halves[2]) + 0.22))
 			if i == 0:
-				basis_pos += Vector3(float(halves[0]) * 0.55 + 0.30, 0.0, 0.0)
+				basis_pos += Vector3(float(halves[0]) + 0.55, 0.0, 0.0)
 			else:
-				basis_pos += Vector3(0.0, float(halves[1]) * 0.55 + 0.30, 0.0)
+				basis_pos += Vector3(0.0, float(halves[1]) + 0.55, 0.0)
 			h.position = basis_pos
 		elif kind == "round":
 			var ci: int = h.get_meta("corner", 0)
@@ -1182,9 +1193,9 @@ func _ring_angle() -> float:
 
 # Gizmo-Modus setzen (0=Bewegen 1=Drehen 2=Skalieren 3=Enden) und Griffe neu aufbauen.
 func set_gizmo_mode(m: int) -> void:
-	gizmo_mode = clampi(m, 0, 3)
-	# Enden-Modus nur für Rumpfsegmente mit zwei skalierbaren Enden (biends).
-	if gizmo_mode == GIZ_ENDS and selected_part != null \
+	gizmo_mode = clampi(m, 0, 4)
+	# Enden-Modi nur für Rumpfsegmente mit zwei formbaren Enden (biends).
+	if (gizmo_mode == GIZ_ENDS or gizmo_mode == GIZ_SHIFT) and selected_part != null \
 			and not PartCatalog.get_part(selected_part.get_meta("part_id")).get("biends", false):
 		gizmo_mode = GIZ_SCALE
 	if selected_part != null:

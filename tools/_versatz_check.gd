@@ -50,12 +50,22 @@ func _process(_d: float) -> bool:
 		if String(c.get_meta("part_id", "")) == "fuselage":
 			teil = c
 	bc._select_part(teil)
-	bc.set_gizmo_mode(3)
-	var arten: Dictionary = {}
-	for h in bc._handles:
-		var k := String(h.get_meta("kind", "?"))
-		arten[k] = int(arten.get(k, 0)) + 1
-	print("  Griffe im Enden-Modus: ", str(arten))
+	for modus in [3, 4]:
+		bc.set_gizmo_mode(modus)
+		var arten: Dictionary = {}
+		for h in bc._handles:
+			var k := String(h.get_meta("kind", "?"))
+			arten[k] = int(arten.get(k, 0)) + 1
+		print("  Modus %d (%s): %s" % [modus, "Enden" if modus == 3 else "Versetzen",
+			str(arten)])
+		# kleinster Abstand zwischen zwei Griffen — muss groesser als die Klickbox sein
+		var min_d := 99.0
+		for a in bc._handles:
+			for b in bc._handles:
+				if a != b:
+					min_d = minf(min_d, (a.position - b.position).length())
+		print("      kleinster Griff-Abstand: %.2f (Klickbox 0.5)" % min_d)
+	bc.set_gizmo_mode(4)
 	for h in bc._handles:
 		if String(h.get_meta("kind", "")) == "shift":
 			print("    Versatz-Griff: Ende %+.0f  Achse %d (%s)  Position %s"
