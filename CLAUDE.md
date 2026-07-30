@@ -283,6 +283,11 @@ Querruder, kein Auftrieb.
 (Griffe+Panel: skalieren/drehen/löschen), **Body ziehen=verschieben** (AUSWÄRTIGER TEILBAUM wandert mit — `_capture_move_kids`, BFS wie beim Flügelbruch; Alt = nur das Teil) · leerer Raum/Rechtsmaus=drehen ·
 Mausrad/`+`/`−`/Pinch=Zoom · `X` löschen · `R` drehen/kippen · `M` Symmetrie ·
 `Strg+Z`/`Strg+Y` Undo/Redo · `F` Ansicht · **`Strg+D` duplizieren** (Klon+Spiegel, `duplicate_selected`) ·
+**`Strg+C`/`Strg+V` kopieren/einfügen** (`copy_selected`/`paste_clipboard`; `_clipboard` hält
+reine DATEN, keinen Node-Verweis, überlebt also Löschen und Moduswechsel) · Alle drei Wege
+gehen über `_teil_schnappschuss` → `_teil_einsetzen` → `_form_uebernehmen`, also **denselben**
+Code wie `load_design`. Vorher trug `duplicate_selected` nur Farbe/Größe mit und verlor still
+Verjüngung, Enden-Versatz, Eckrundung und Beinlänge — inklusive am erzeugten Spiegel ·
 **Pfeiltasten** = ausgewähltes Teil fein verschieben (`nudge_selected`, 0.25er) ·
 **`1`/`2`/`3` orthografische Blueprint-Ansicht** Front/Seite/Oben, **`4`** frei (`set_view`/`_ortho_view`,
 Kamera `PROJECTION_ORTHOGONAL`; manuelles Drehen → zurück Perspektive) · Tab=Testflug.

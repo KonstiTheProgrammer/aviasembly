@@ -7,6 +7,7 @@ extends Node3D
 signal design_changed(stats: Dictionary)
 signal selection_changed(info: Dictionary)   # {} = nichts gewählt; sonst {name, scale, is_root}
 signal snap_changed(on: bool)                 # Auto-Andocken an/aus (Checkbox + Taste N synchron)
+signal kopiert(part_name: String)             # Strg+C: fuer die Rueckmeldung im Hangar
 
 const BUILD_LAYER := 2
 const HANDLE_LAYER := 8       # Transform-Griffe (eigener Raycast-Layer)
@@ -87,6 +88,7 @@ const SHIFT_MAX := 0.9            # feste Spanne: +-90 % der Querschnittsgroesse
 var _drag_half := 1.0             # Enden-Drag: halbe Höhe (Sensitivität)
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
 var _move_kids: Array = []        # Anbauten (auswärtiger Teilbaum), die beim Verschieben mitwandern
+var _clipboard: Dictionary = {}   # Strg+C-Ablage: reine Daten, kein Node-Verweis (siehe copy_selected)
 var _move_sel_p0 := Vector3.ZERO  # Startposition des gewählten Teils für den Kid-Versatz
 var _move_plane := Plane()
 var _move_grab := Vector3.ZERO
@@ -388,6 +390,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				redo()
 			elif event.keycode == KEY_D:
 				duplicate_selected()
+			elif event.keycode == KEY_C:
+				copy_selected()
+			elif event.keycode == KEY_V:
+				paste_clipboard()
 			return
 		match event.keycode:
 			KEY_G:
@@ -716,27 +722,89 @@ func invert_selected() -> void:
 func duplicate_selected() -> void:
 	if selected_part == null:
 		return
-	var id: String = selected_part.get_meta("part_id")
-	if id == "":
+	_teil_einsetzen(_teil_schnappschuss(selected_part))
+
+
+# Schnappschuss eines Teils im get_design()-Format — eine Quelle fuer Duplizieren,
+# Kopieren und Speichern, damit nie wieder eine Eigenschaft nur an einer Stelle mitkommt.
+func _teil_schnappschuss(teil: Node3D) -> Dictionary:
+	# Dieselben Schluessel wie get_design(), aber fuer EIN Teil (get_design liefert keine
+	# Zuordnung zum Node zurueck, also direkt am Node auslesen).
+	return {
+		"id": teil.get_meta("part_id", ""),
+		"xform": teil.transform,
+		"color": teil.get_meta("color", Color(0, 0, 0, 0)),
+		"scale": teil.get_meta("pscale", Vector3.ONE),
+		"taper": teil.get_meta("taper", 1.0),
+		"taper_front": teil.get_meta("taper_front", 1.0),
+		"taper_y": teil.get_meta("taper_y", -1.0),
+		"taper_front_y": teil.get_meta("taper_front_y", -1.0),
+		"tuser_b": teil.has_meta("taper_user"),
+		"tuser_f": teil.has_meta("taper_front_user"),
+		"fill": teil.get_meta("fill", 0.0),
+		"glen": teil.get_meta("gear_len", 1.0),
+		"br": Array(_block_r(teil)),
+		"sf": teil.get_meta("shift_front", Vector2.ZERO),
+		"sb": teil.get_meta("shift_back", Vector2.ZERO),
+		"bsc": teil.get_meta("block_sc", Vector3.ONE),
+		"thrust_reverse": teil.get_meta("thrust_reverse", false),
+	}
+
+
+# Setzt einen Schnappschuss als NEUES Teil, nach Bildschirm-rechts versetzt, und waehlt es aus.
+func _teil_einsetzen(daten: Dictionary) -> void:
+	var id: String = daten.get("id", "")
+	if id == "" or not PartCatalog.has(id):
 		return
-	var xf := selected_part.transform
+	var xf: Transform3D = daten.get("xform", Transform3D())
 	var off := Vector3(1.2, 0.0, 0.0)
 	if camera != null:
 		off = camera.global_transform.basis.x.normalized() * 1.3   # nach Bildschirm-rechts versetzt
 	xf.origin += off
-	var sc: Vector3 = selected_part.get_meta("pscale", Vector3.ONE)
-	var cl: Color = selected_part.get_meta("color", Color(0, 0, 0, 0))
-	var np := _place_id(id, xf, sc, cl)
+	var np := _place_id(id, xf, daten.get("scale", Vector3.ONE),
+		daten.get("color", Color(0, 0, 0, 0)))
 	if np != null:
-		var rv: bool = selected_part.get_meta("thrust_reverse", false)   # Reverse-Flag mitklonen
-		np.set_meta("thrust_reverse", rv)
+		# Verjuengung setzen, BEVOR die Form uebernommen wird (die baut das Visual neu).
+		for schluessel in [["taper", "taper"], ["taper_front", "taper_front"],
+				["taper_y", "taper_y"], ["taper_front_y", "taper_front_y"]]:
+			np.set_meta(schluessel[0], float(daten.get(schluessel[1], 1.0)))
+		np.set_meta("thrust_reverse", bool(daten.get("thrust_reverse", false)))
+		_form_uebernehmen(np, id, daten)
+		_rebuild_visual(np)
+		_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
+		# Im Symmetrie-Modus entsteht ein Spiegel — der muss dieselbe Formung erben,
+		# sonst steht auf der einen Seite ein geformtes und auf der anderen ein rohes Teil.
+		var nsc: Vector3 = np.get_meta("pscale", Vector3.ONE)
 		var nm = np.get_meta("mirror") if np.has_meta("mirror") else null
 		if is_instance_valid(nm):
-			nm.set_meta("thrust_reverse", rv)
+			nm.set_meta("thrust_reverse", bool(daten.get("thrust_reverse", false)))
+			for tk in ["taper", "taper_front", "taper_y", "taper_front_y"]:
+				(nm as Node3D).set_meta(tk, np.get_meta(tk, 1.0))
+			for uk in ["taper_user", "taper_front_user"]:
+				if np.has_meta(uk):
+					(nm as Node3D).set_meta(uk, true)
+			_sync_mirror_shift(np, nsc)
+			_sync_mirror_block(np, nsc)
+			_sync_mirror_gear(np, nm, nsc)
 	_push_history()
 	_notify_changed()
 	if np != null:
 		_select_part(np)
+
+
+# Strg+C / Strg+V. Die Ablage ueberlebt Moduswechsel und Neuaufbauten, weil sie reine
+# Daten haelt (kein Node-Verweis, der beim Loeschen ungueltig wuerde).
+func copy_selected() -> void:
+	if selected_part == null:
+		return
+	_clipboard = _teil_schnappschuss(selected_part)
+	kopiert.emit(String(_clipboard.get("id", "")))
+
+
+func paste_clipboard() -> void:
+	if _clipboard.is_empty():
+		return
+	_teil_einsetzen(_clipboard)
 
 
 # Ausgewähltes Teil um delta (Weltachsen) verschieben (Pfeiltasten-Feinjustage).
@@ -942,23 +1010,37 @@ func _build_shift_handles() -> void:
 			# Achsenfarbe wie beim Bewegen-Gizmo, vorn etwas heller als hinten
 			var col: Color = GIZ_COLS[ax] if s < 0.0 else GIZ_COLS[ax].darkened(0.25)
 			h.set_meta("base_col", col)
+			# Sieht aus wie der normale Bewegen-Pfeil (Schaft + Kegelspitze), nur kleiner:
+			# es ist dieselbe Geste (auf einer Achse ziehen), also dieselbe Sprache. Der
+			# schlichte Zylinder davor las sich wie ein Skalier-Anfasser.
+			var achse := _axis_vec(ax)
 			var cs := CollisionShape3D.new()
 			var bs := BoxShape3D.new()
-			bs.size = Vector3(0.5, 0.5, 0.5) if ax == 0 else Vector3(0.5, 0.5, 0.5)
+			# Klickbox LAENGER als der Schaft, damit auch die Spitze trifft (dieselbe
+			# Lehre wie beim Bewegen-Gizmo), quer aber schlank — sonst ueberlappen sich
+			# der X- und der Y-Pfeil desselben Endes wieder.
+			bs.size = Vector3(1.5, 0.42, 0.42) if ax == 0 else Vector3(0.42, 1.5, 0.42)
 			cs.shape = bs
+			cs.position = achse * 0.18
 			h.add_child(cs)
-			var mi := MeshInstance3D.new()
+			var schaft := MeshInstance3D.new()
+			var sm := BoxMesh.new()
+			sm.size = Vector3(0.8, 0.1, 0.1) if ax == 0 else Vector3(0.1, 0.8, 0.1)
+			schaft.mesh = sm
+			schaft.material_override = _gizmo_mat(col)
+			h.add_child(schaft)
+			var spitze := MeshInstance3D.new()
 			var cm := CylinderMesh.new()
-			cm.top_radius = 0.075
-			cm.bottom_radius = 0.075
-			cm.height = 0.62
-			cm.radial_segments = 10
-			mi.mesh = cm
-			# CylinderMesh zeigt nach +Y; fuer den X-Griff um Z kippen
+			cm.top_radius = 0.0
+			cm.bottom_radius = 0.17
+			cm.height = 0.36
+			cm.radial_segments = 12
+			spitze.mesh = cm
+			spitze.material_override = _gizmo_mat(col)
+			spitze.position = achse * 0.55       # zeigt nach AUSSEN, vom Teil weg
 			if ax == 0:
-				mi.rotation_degrees = Vector3(0, 0, 90)
-			mi.material_override = _gizmo_mat(col)
-			h.add_child(mi)
+				spitze.rotation = Vector3(0, 0, -PI * 0.5)   # CylinderMesh zeigt +Y -> X
+			h.add_child(spitze)
 			selected_part.add_child(h)
 			_handles.append(h)
 
@@ -2975,54 +3057,7 @@ func load_design(arr: Array) -> void:
 				item.get("taper", -1.0), item.get("taper_front", -1.0),
 				item.get("taper_y", -1.0), item.get("taper_front_y", -1.0))
 			np.set_meta("thrust_reverse", bool(item.get("thrust_reverse", false)))
-			# Ausgefahrenes Fahrwerksbein wiederherstellen (Visual neu bauen, damit die
-			# Beinlaenge sofort steht — _add_part kennt das Meta beim Bauen noch nicht).
-			var vsf: Vector2 = item.get("sf", Vector2.ZERO)
-			var vsb: Vector2 = item.get("sb", Vector2.ZERO)
-			if vsf.length() > 0.0005 or vsb.length() > 0.0005:
-				np.set_meta("shift_front", vsf)
-				np.set_meta("shift_back", vsb)
-				_rebuild_visual(np)
-				_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
-			var brs: Array = item.get("br", [])
-			if brs.size() == 8:
-				var ra := PartCatalog.block_radien_neu()
-				var scharf := true
-				for i in 8:
-					ra[i] = clampf(float(brs[i]), 0.0, 1.0)
-					if ra[i] > 0.002:
-						scharf = false
-				if not scharf:
-					np.set_meta("block_r", ra)
-					np.set_meta("block_sc", item.get("bsc", Vector3.ONE))
-					_rebuild_visual(np)
-					_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
-			var glen := float(item.get("glen", 1.0))
-			if glen > 1.0001:
-				np.set_meta("gear_len", clampf(glen, PartCatalog.GEAR_LEN_MIN,
-					PartCatalog.GEAR_LEN_MAX))
-				_rebuild_visual(np)
-				_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
-			# Manuell-geformt-Flags wiederherstellen. ALT-Saves (ohne tuser_*) kennzeichnen
-			# jedes vom Teil-Default abweichende Ende als manuell — die Auto-Anpassung darf
-			# bestehende Designs beim Laden nicht umformen.
-			if item.has("tuser_b") or item.has("tuser_f"):
-				if bool(item.get("tuser_b", false)):
-					np.set_meta("taper_user", true)
-				if bool(item.get("tuser_f", false)):
-					np.set_meta("taper_front_user", true)
-			else:
-				var pd := PartCatalog.get_part(id)
-				var d_b := float(pd.get("taper", 1.0))
-				var i_b := float(item.get("taper", d_b))
-				var i_by := float(item.get("taper_y", -1.0))
-				if absf(i_b - d_b) > 0.001 or (i_by >= 0.0 and absf(i_by - i_b) > 0.001):
-					np.set_meta("taper_user", true)
-				var d_f := float(pd.get("taper_front", 1.0))
-				var i_f := float(item.get("taper_front", d_f))
-				var i_fy := float(item.get("taper_front_y", -1.0))
-				if absf(i_f - d_f) > 0.001 or (i_fy >= 0.0 and absf(i_fy - i_f) > 0.001):
-					np.set_meta("taper_front_user", true)
+			_form_uebernehmen(np, id, item)
 			if item.has("root"):   # gespeicherte Wurzel exakt wiederherstellen (neue Saves)
 				np.set_meta("is_root", bool(item["root"]))
 	_ensure_root()
@@ -3031,6 +3066,61 @@ func load_design(arr: Array) -> void:
 	if not _suppress_history:
 		_seed_history()
 	_notify_changed()
+
+
+# Uebertraegt ALLES, was der Spieler an einem Teil von Hand geformt hat, aus einem
+# get_design()-Eintrag auf ein frisch gebautes Teil. Laden UND Kopieren/Einfuegen gehen
+# durch DIESELBE Funktion — vorher trug duplicate_selected nur Farbe/Groesse mit, die
+# Formung (Verjuengung, Enden-Versatz, Eckrundung, Beinlaenge) fiel still weg.
+func _form_uebernehmen(np: Node3D, id: String, item: Dictionary) -> void:
+	# Ausgefahrenes Fahrwerksbein wiederherstellen (Visual neu bauen, damit die
+	# Beinlaenge sofort steht — _add_part kennt das Meta beim Bauen noch nicht).
+	var vsf: Vector2 = item.get("sf", Vector2.ZERO)
+	var vsb: Vector2 = item.get("sb", Vector2.ZERO)
+	if vsf.length() > 0.0005 or vsb.length() > 0.0005:
+		np.set_meta("shift_front", vsf)
+		np.set_meta("shift_back", vsb)
+		_rebuild_visual(np)
+		_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
+	var brs: Array = item.get("br", [])
+	if brs.size() == 8:
+		var ra := PartCatalog.block_radien_neu()
+		var scharf := true
+		for i in 8:
+			ra[i] = clampf(float(brs[i]), 0.0, 1.0)
+			if ra[i] > 0.002:
+				scharf = false
+		if not scharf:
+			np.set_meta("block_r", ra)
+			np.set_meta("block_sc", item.get("bsc", Vector3.ONE))
+			_rebuild_visual(np)
+			_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
+	var glen := float(item.get("glen", 1.0))
+	if glen > 1.0001:
+		np.set_meta("gear_len", clampf(glen, PartCatalog.GEAR_LEN_MIN,
+			PartCatalog.GEAR_LEN_MAX))
+		_rebuild_visual(np)
+		_apply_part_scale(np, np.get_meta("pscale", Vector3.ONE))
+	# Manuell-geformt-Flags wiederherstellen. ALT-Saves (ohne tuser_*) kennzeichnen
+	# jedes vom Teil-Default abweichende Ende als manuell — die Auto-Anpassung darf
+	# bestehende Designs beim Laden nicht umformen.
+	if item.has("tuser_b") or item.has("tuser_f"):
+		if bool(item.get("tuser_b", false)):
+			np.set_meta("taper_user", true)
+		if bool(item.get("tuser_f", false)):
+			np.set_meta("taper_front_user", true)
+	else:
+		var pd := PartCatalog.get_part(id)
+		var d_b := float(pd.get("taper", 1.0))
+		var i_b := float(item.get("taper", d_b))
+		var i_by := float(item.get("taper_y", -1.0))
+		if absf(i_b - d_b) > 0.001 or (i_by >= 0.0 and absf(i_by - i_b) > 0.001):
+			np.set_meta("taper_user", true)
+		var d_f := float(pd.get("taper_front", 1.0))
+		var i_f := float(item.get("taper_front", d_f))
+		var i_fy := float(item.get("taper_front_y", -1.0))
+		if absf(i_f - d_f) > 0.001 or (i_fy >= 0.0 and absf(i_fy - i_f) > 0.001):
+			np.set_meta("taper_front_user", true)
 
 
 # Nach dem Laden Spiegelpaare wieder verknüpfen (gleiche ID, an −x gespiegelte Position),

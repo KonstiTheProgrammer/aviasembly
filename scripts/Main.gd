@@ -1139,6 +1139,8 @@ func _setup_controllers() -> void:
 	build_ctrl.design_changed.connect(_on_design_changed)
 	build_ctrl.selection_changed.connect(_on_selection_changed)
 	build_ctrl.snap_changed.connect(_on_snap_changed)
+	build_ctrl.kopiert.connect(func(n: String) -> void: _toast("Kopiert: %s (Strg+V einfügen)"
+		% PartCatalog.get_part(n).get("name", n)))
 
 	flight_ctrl = FlightController.new()
 	add_child(flight_ctrl)
