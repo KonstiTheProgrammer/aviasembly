@@ -75,6 +75,9 @@ var _hint_box: Control              # einmaliger Steuer-Hinweis beim ersten Flug
 # Snapping-Toggle ist jetzt snap_btn (Magnet) in der unteren Aktionsleiste.
 var drag_view_btn: Button
 var wind_legend: Control            # Farb-Legende, nur bei aktivem Windkanal sichtbar
+var paint_preview: ColorRect        # zeigt die aktuelle Lackfarbe
+var paint_picker: ColorPickerButton # freie Farbwahl (Farbrad/RGB/Hex)
+var pipette_btn: Button             # Pipette an/aus
 var part_buttons: Dictionary = {}
 var _part_group: ButtonGroup       # exklusive Auswahl der Teil-Kacheln
 var _cat_open: Dictionary = {}     # Kategorie -> auf-/zugeklappt
@@ -1141,6 +1144,11 @@ func _setup_controllers() -> void:
 	build_ctrl.snap_changed.connect(_on_snap_changed)
 	build_ctrl.kopiert.connect(func(n: String) -> void: _toast("Kopiert: %s (Strg+V einfügen)"
 		% PartCatalog.get_part(n).get("name", n)))
+	build_ctrl.farbe_gepickt.connect(_on_farbe_gepickt)
+	build_ctrl.pipette_umgeschaltet.connect(func(an: bool) -> void:
+		if pipette_btn != null:
+			pipette_btn.button_pressed = an
+		_refresh_tool_ui())
 
 	flight_ctrl = FlightController.new()
 	add_child(flight_ctrl)
@@ -1477,30 +1485,68 @@ func _build_hangar_ui() -> void:
 	erase_btn.pressed.connect(_on_erase_tool)
 	tool_row.add_child(erase_btn)
 
-	tv.add_child(_section("LACKIEREN   (Farbe wählen, dann Teil anklicken)"))
-	var pal := GridContainer.new()
-	pal.columns = 7
-	pal.add_theme_constant_override("h_separation", 5)
-	pal.add_theme_constant_override("v_separation", 5)
-	tv.add_child(pal)
-	var colors: Array = [
-		Color("d6382f"), Color("e8821a"), Color("eccb47"), Color("46a85a"),
-		Color("2f74bd"), Color("8e44ad"), Color("19bfc7"), Color("eef0f4"),
-		Color("9aa3ad"), Color("3a4049"), Color("121519"), Color("6e4a2c"),
-		Color("e85b9a"), Color("8bd24a"),
-	]
-	for c in colors:
-		var sw := Button.new()
-		sw.custom_minimum_size = Vector2(34, 28)
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = c
-		sb.set_corner_radius_all(4)
-		sw.add_theme_stylebox_override("normal", sb)
-		sw.add_theme_stylebox_override("hover", sb)
-		sw.add_theme_stylebox_override("pressed", sb)
-		sw.add_theme_stylebox_override("focus", sb)
-		sw.pressed.connect(_on_paint_color.bind(c))
-		pal.add_child(sw)
+	tv.add_child(_section("LACKIEREN"))
+
+	# Kopfzeile: aktuelle Farbe + freie Farbwahl + Pipette. Die drei gehoeren zusammen —
+	# man sieht, womit man malt, kann jede Farbe mischen und eine vorhandene aufnehmen.
+	var farb_kopf := HBoxContainer.new()
+	farb_kopf.add_theme_constant_override("separation", 6)
+	tv.add_child(farb_kopf)
+
+	paint_preview = ColorRect.new()
+	paint_preview.custom_minimum_size = Vector2(38, 30)
+	paint_preview.color = build_ctrl.paint_color
+	paint_preview.tooltip_text = "Aktuelle Lackfarbe"
+	farb_kopf.add_child(paint_preview)
+
+	paint_picker = ColorPickerButton.new()
+	paint_picker.custom_minimum_size = Vector2(0, 30)
+	paint_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	paint_picker.text = "Farbe mischen"
+	paint_picker.color = build_ctrl.paint_color
+	paint_picker.edit_alpha = false
+	paint_picker.tooltip_text = "Beliebige Farbe wählen (Farbrad, RGB, Hex)"
+	paint_picker.color_changed.connect(_on_paint_color)
+	farb_kopf.add_child(paint_picker)
+
+	pipette_btn = Button.new()
+	pipette_btn.toggle_mode = true
+	pipette_btn.text = "Pipette"
+	pipette_btn.custom_minimum_size = Vector2(78, 30)
+	pipette_btn.tooltip_text = "Pipette: Farbe von einem vorhandenen Teil aufnehmen (Taste P)"
+	pipette_btn.pressed.connect(_on_pipette)
+	farb_kopf.add_child(pipette_btn)
+
+	var hinweis := _lbl("Farbe wählen, dann Teil anklicken · Pipette nimmt die Farbe eines Teils", 11,
+		Color(0.66, 0.72, 0.80))
+	hinweis.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tv.add_child(hinweis)
+
+	# Palette in zwei Bloecken: erst Flugzeug-Lackierungen (die man wirklich braucht),
+	# darunter kraeftige Farben zum Markieren.
+	for gruppe in [
+		["Militär & Zivil", [
+			Color("3f4a3a"), Color("6a7355"), Color("8d8163"), Color("c8b892"),
+			Color("2c3742"), Color("55606b"), Color("9aa3ad"), Color("d8dde3"),
+			Color("eef0f4"), Color("1b2027"), Color("4a3b2c"), Color("7a5c3a"),
+			Color("1d3f6e"), Color("2f74bd"),
+		]],
+		["Kräftig", [
+			Color("d6382f"), Color("e8821a"), Color("eccb47"), Color("46a85a"),
+			Color("19bfc7"), Color("8e44ad"), Color("e85b9a"), Color("8bd24a"),
+			Color("f2f2f2"), Color("121519"), Color("b3801f"), Color("6e4a2c"),
+			Color("0f8f7a"), Color("c2352f"),
+		]],
+	]:
+		var titel := _lbl(String(gruppe[0]), 11, Color(0.55, 0.62, 0.72))
+		tv.add_child(titel)
+		var pal := GridContainer.new()
+		pal.columns = 7
+		pal.add_theme_constant_override("h_separation", 5)
+		pal.add_theme_constant_override("v_separation", 5)
+		tv.add_child(pal)
+		for c in (gruppe[1] as Array):
+			pal.add_child(_farb_knopf(c))
 
 	# Ansicht/Undo/Redo/Windkanal/Zentrieren sind jetzt in der oberen WERKZEUGLEISTE (_build_toolbar).
 	# Hier bleibt nur die Windkanal-Farblegende (erscheint, wenn der Windkanal an ist).
@@ -1610,7 +1656,12 @@ func _build_hangar_ui() -> void:
 	# --- Hinweisleiste unten ---
 	var hint := _lbl("Aus Liste ziehen = bauen (rastet am Teil unter der Maus) · Teil ziehen = andocken wo du hinzeigst (Anbauten wandern mit · Alt = nur das Teil) · Teil klicken = bearbeiten (G/R/S) · Strg+D: duplizieren · Pfeile: verschieben · 1/2/3 Ansicht Front/Seite/Oben, 4 frei · X: löschen · M: Symmetrie · Strg+Z/Y: Undo · F: Ansicht", 13, Color(0.25, 0.32, 0.42))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rect(hint, 0, 1, 1, 1, 512, -36, -18, -10)
+	# OHNE Umbruch ist die Mindestbreite eines Labels die volle Textbreite — die Anker
+	# koennen es dann nicht schmaler machen und es schob sich rechts aus dem Bild
+	# (gemessen 398 px). Mit Umbruch bricht es auf zwei Zeilen, dafuer mehr Hoehe.
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.clip_text = true
+	_rect(hint, 0, 1, 1, 1, 512, -58, -18, -8)
 	build_root.add_child(hint)
 
 	# Toast (kurze Meldung)
@@ -2023,7 +2074,51 @@ func _on_erase_tool() -> void:
 	_refresh_tool_ui()
 
 
+# Ein Palettenfeld. Der Rahmen macht helle Farben auf dunklem Grund ueberhaupt
+# erst als Flaeche erkennbar.
+func _farb_knopf(c: Color) -> Button:
+	var sw := Button.new()
+	sw.custom_minimum_size = Vector2(34, 28)
+	sw.tooltip_text = "#" + c.to_html(false)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = c
+	sb.set_corner_radius_all(4)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(1, 1, 1, 0.18)
+	for zustand in ["normal", "hover", "pressed", "focus"]:
+		sw.add_theme_stylebox_override(zustand, sb)
+	sw.pressed.connect(_on_paint_color.bind(c))
+	return sw
+
+
+func _on_pipette() -> void:
+	var an: bool = pipette_btn.button_pressed
+	build_ctrl.set_pick_mode(an)
+	_refresh_tool_ui()
+	if an:
+		_toast("Pipette: Teil anklicken, um dessen Farbe zu übernehmen")
+
+
+# Die Pipette hat eine Farbe geholt -> Vorschau, Farbrad und Knopf nachziehen.
+func _on_farbe_gepickt(c: Color) -> void:
+	if pipette_btn != null:
+		pipette_btn.button_pressed = false
+	_zeige_lackfarbe(c)
+	_refresh_tool_ui()
+	_toast("Farbe übernommen: #" + c.to_html(false))
+
+
+func _zeige_lackfarbe(c: Color) -> void:
+	if paint_preview != null:
+		paint_preview.color = c
+	if paint_picker != null and not paint_picker.color.is_equal_approx(c):
+		paint_picker.color = c
+
+
 func _on_paint_color(c: Color) -> void:
+	_zeige_lackfarbe(c)
+	if pipette_btn != null:
+		pipette_btn.button_pressed = false
 	build_ctrl.set_paint_color(c)
 	_refresh_tool_ui()
 
@@ -2061,13 +2156,17 @@ func _on_drag_view(on: bool) -> void:
 
 
 func _refresh_tool_ui() -> void:
-	var sel := "" if (build_ctrl.erase_mode or build_ctrl.paint_mode) else build_ctrl.brush_id
+	var sel := "" if (build_ctrl.erase_mode or build_ctrl.paint_mode or build_ctrl.pick_mode) 		else build_ctrl.brush_id
 	for pid in part_buttons:
 		part_buttons[pid].set_pressed_no_signal(pid == sel)
+	if pipette_btn != null and pipette_btn.button_pressed != build_ctrl.pick_mode:
+		pipette_btn.set_pressed_no_signal(build_ctrl.pick_mode)
 	if build_ctrl.erase_mode:
 		tool_label.text = "Werkzeug: Abriss – Teil anklicken zum Löschen"
+	elif build_ctrl.pick_mode:
+		tool_label.text = "Pipette – Teil anklicken, um dessen Farbe zu übernehmen"
 	elif build_ctrl.paint_mode:
-		tool_label.text = "Werkzeug: Lackieren – Teil anklicken zum Umfärben"
+		tool_label.text = "Werkzeug: Lackieren (#%s) – Teil anklicken zum Umfärben" 			% build_ctrl.paint_color.to_html(false)
 	elif build_ctrl.brush_id == "":
 		tool_label.text = "Teil aus Liste ziehen = setzen · Teil anklicken = bearbeiten (G/R/S) · leer = drehen"
 	else:
@@ -2349,12 +2448,30 @@ func _on_snap_changed(on: bool) -> void:
 # OBERE WERKZEUGLEISTE — alle Editor-Funktionen sichtbar & klickbar (statt nur Tastenkürzel)
 # ===========================================================================
 func _build_toolbar() -> void:
+	# Frueher stand die Leiste bildschirm-mittig (Anker 0.5, 1280 breit) und lag damit
+	# ueber dem linken Bau-Panel — die letzten Kategorie-Icons waren verdeckt. Jetzt
+	# spannt ein unsichtbarer Halter NUR den freien Bereich rechts des Panels auf, und
+	# die Leiste zentriert sich darin. Damit kann sie das Panel nie mehr ueberlappen und
+	# sitzt auf jeder Bildschirmbreite mittig im verbleibenden Platz.
+	var halter := Control.new()
+	halter.name = "WerkzeugleisteHalter"
+	halter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Rechts endet der freie Bereich am FLUG-CHECK-Panel (Anker rechts, 340 breit,
+	# 18 Rand) — sonst schoeben sich "Windkanal / Debug / Zentrieren" darunter.
+	_rect(halter, 0, 0, 1, 0, 512, 84, -376, 196)
+	build_root.add_child(halter)
 	var bar := _panel(Color(0.05, 0.07, 0.11, 0.86))
-	_rect(bar, 0.5, 0, 0.5, 0, -640, 84, 640, 124)   # oben mittig, unter dem Testflug-Button
-	build_root.add_child(bar)
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 3)
-	hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	bar.name = "Werkzeugleiste"
+	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	halter.add_child(bar)
+	# HFlowContainer statt HBoxContainer: eine HBox hat als Mindestbreite die SUMME
+	# aller Knoepfe und waechst notfalls aus dem Bild heraus — genau so schob sie sich
+	# unter das Statistik-Panel (gemessen: 1018 noetig, 946 frei). Der Flow-Container
+	# bricht stattdessen in eine zweite Reihe um und bleibt im Rahmen.
+	var hb := HFlowContainer.new()
+	hb.add_theme_constant_override("h_separation", 3)
+	hb.add_theme_constant_override("v_separation", 3)
+	hb.alignment = FlowContainer.ALIGNMENT_CENTER
 	bar.add_child(hb)
 	# Verlauf
 	hb.add_child(_tb_btn("Undo", "Rückgängig (Strg+Z)", _on_undo))

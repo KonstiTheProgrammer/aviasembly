@@ -8,6 +8,8 @@ signal design_changed(stats: Dictionary)
 signal selection_changed(info: Dictionary)   # {} = nichts gewählt; sonst {name, scale, is_root}
 signal snap_changed(on: bool)                 # Auto-Andocken an/aus (Checkbox + Taste N synchron)
 signal kopiert(part_name: String)             # Strg+C: fuer die Rueckmeldung im Hangar
+signal farbe_gepickt(c: Color)                # Pipette hat eine Farbe vom Teil geholt
+signal pipette_umgeschaltet(an: bool)         # Pipette per Taste P an/aus
 
 const BUILD_LAYER := 2
 const HANDLE_LAYER := 8       # Transform-Griffe (eigener Raycast-Layer)
@@ -49,6 +51,10 @@ var _lmb_was_down := false     # linke Maustaste letzten Frame gedrückt? (Relea
 # Lackieren & Undo/Redo
 var paint_mode := false
 var paint_color := Color(0.86, 0.22, 0.20)
+# Pipette: der naechste Klick auf ein Teil NIMMT dessen Farbe, statt zu lackieren.
+# Danach schaltet sie sich selbst ab — man will fast immer genau eine Farbe holen
+# und sie dann auftragen, nicht dauerhaft im Aufnahmemodus haengen.
+var pick_mode := false
 var wind_tunnel := false     # Windkanal-Ansicht (Pro-Teil-Heatmap + Luftströmung)
 var wind_worst := ""         # Teil mit dem höchsten Flug-Widerstand
 var wind_report: Array = []  # Windkanal: [{name, drag}] pro Teilname (Spiegel summiert), absteigend
@@ -457,6 +463,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_N:
 				snap_enabled = not snap_enabled
 				snap_changed.emit(snap_enabled)
+			KEY_P:
+				# Pipette umschalten. Signal, damit der Knopf im Panel mitgeht —
+				# sonst behauptet die Oberflaeche etwas anderes als der Zustand.
+				set_pick_mode(not pick_mode)
+				pipette_umgeschaltet.emit(pick_mode)
 
 
 # Linke Maus im 3D-Raum: Abriss / Lackieren / vorhandenes Teil AUSWÄHLEN+bearbeiten / Kamera drehen.
@@ -465,6 +476,9 @@ func _on_left_press() -> void:
 	var hit := _raycast_mouse()
 	if erase_mode:
 		_delete_hovered()
+		return
+	if pick_mode:
+		_farbe_aufnehmen()
 		return
 	if paint_mode:
 		_paint_hovered(hit)
@@ -533,6 +547,7 @@ func clear_tools() -> void:
 	brush_id = ""
 	erase_mode = false
 	paint_mode = false
+	pick_mode = false
 	_rebuild_ghost()
 
 
@@ -673,7 +688,7 @@ func delete_selected() -> void:
 
 # Rechtsklick auf ein Teil: auswählen + Kontextmenü (Werkzeug wählen / umdrehen / löschen).
 func _on_right_click() -> void:
-	if erase_mode or paint_mode or _carrying:
+	if erase_mode or paint_mode or pick_mode or _carrying:
 		return
 	var part := _pick_part_at_mouse()
 	if part == null:
@@ -1856,6 +1871,7 @@ func set_brush(id: String) -> void:
 	if id != "":
 		erase_mode = false
 		paint_mode = false
+		pick_mode = false
 		_deselect()
 	ghost_rot = 0
 	_rebuild_ghost()
@@ -1866,6 +1882,7 @@ func set_erase_mode(b: bool) -> void:
 	if b:
 		brush_id = ""
 		paint_mode = false
+		pick_mode = false
 		_deselect()
 	_rebuild_ghost()
 
@@ -1873,15 +1890,52 @@ func set_erase_mode(b: bool) -> void:
 func set_paint_mode(b: bool) -> void:
 	paint_mode = b
 	if b:
+		pick_mode = false
 		brush_id = ""
 		erase_mode = false
 		_deselect()
 	_rebuild_ghost()
 
 
+# Pipette an/aus. Schliesst Lackieren NICHT aus: nach dem Aufnehmen faellt sie
+# automatisch in den Lackiermodus mit der geholten Farbe zurueck.
+func set_pick_mode(b: bool) -> void:
+	pick_mode = b
+	if b:
+		brush_id = ""
+		erase_mode = false
+		paint_mode = false
+		_deselect()
+	_rebuild_ghost()
+
+
+# Farbe des angeklickten Teils uebernehmen. Ohne eigene Lackierung (Meta "color" mit
+# a = 0) zaehlt die WERKSFARBE aus dem Katalog — sonst kaeme beim Picken eines nie
+# lackierten Teils Schwarz heraus.
+func teil_farbe(part: Node3D) -> Color:
+	if part == null:
+		return Color.WHITE
+	var c: Color = part.get_meta("color", Color(0, 0, 0, 0))
+	if c.a <= 0.0:
+		c = PartCatalog.get_part(part.get_meta("part_id")).get("color", Color.WHITE)
+	c.a = 1.0
+	return c
+
+
+func _farbe_aufnehmen() -> void:
+	var part := _pick_part_at_mouse()
+	if part == null:
+		return
+	var c := teil_farbe(part)
+	pick_mode = false
+	set_paint_color(c)          # direkt weiterlackieren koennen
+	farbe_gepickt.emit(c)
+
+
 func set_paint_color(c: Color) -> void:
 	paint_color = c
 	paint_mode = true
+	pick_mode = false
 	brush_id = ""
 	erase_mode = false
 	_deselect()

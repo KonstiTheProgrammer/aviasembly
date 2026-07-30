@@ -25,6 +25,8 @@ Der Bau passiert in einem blauen 3D-Blueprint-Raster. Du baust per **Drag & Snap
 | **Mittlere Maus ziehen** | Ansicht verschieben |
 | **✋ Bewegen/Greifen** / **🧹 Abriss** (Buttons) | Werkzeug ablegen / Abriss umschalten |
 | **🎨 Farbe wählen → Teil klicken** | Teil lackieren (Farbe wird gespeichert) |
+| **Farbe mischen** (Werkzeuge-Reiter) | beliebige Farbe über Farbrad / RGB / Hex |
+| **Pipette** bzw. **P** | Farbe von einem vorhandenen Teil aufnehmen |
 | **↶ Undo / ↷ Redo** bzw. **Strg+Z / Strg+Y** | Schritt zurück / vor |
 | **Strg+C / Strg+V** | Teil kopieren / einfügen (mit Form: Verjüngung, Enden-Versatz, Rundung, Beinlänge) |
 | **Strg+D** | Teil sofort duplizieren |

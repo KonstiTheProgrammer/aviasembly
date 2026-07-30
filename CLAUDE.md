@@ -252,10 +252,15 @@ hinlegte. Harness: `tools/_fluegelsnap_check.gd` (17 Flügel × 9 Trefferstellen
   **Bearbeiten dynamisch** (`_sync_mirror` in `_apply_sel_transform`): Verschieben/Drehen/
   Skalieren erzeugt/aktualisiert den Spiegel. Nach `load_design` werden Spiegelpaare per
   `_relink_mirrors` (gleiche ID, an −x gespiegelte Position) neu verknüpft → kein Duplikat.
-- **Werkzeuge:** Bearbeiten (Default — auswählen/skalieren/verschieben) / Abriss / Lackieren
-  (Farbpalette, Farbe wird im Design + Save gespeichert). „✦ Auswählen/Bewegen"-Button
-  (`clear_tools`) = zurück zum Bearbeiten-Default. **Undo/Redo** (`_history`, Strg+Z/Y). **R** dreht Box-Teile (90°)
-  bzw. kippt Flügel (Bank). **M** Symmetrie. **F** Kamera zentrieren.
+- **Werkzeuge:** Bearbeiten (Default — auswählen/skalieren/verschieben) / Abriss / **LACKIEREN**:
+  Vorschau der aktuellen Farbe + `ColorPickerButton` „Farbe mischen" (Farbrad/RGB/Hex) +
+  **Pipette** (`pick_mode`, Taste **P**) + zwei Palettenblöcke (Militär&Zivil / Kräftig, je 14).
+  Die Pipette nimmt beim nächsten Klick die Farbe eines Teils und **schaltet sich danach selbst
+  ab**, fällt also direkt in den Lackiermodus mit der geholten Farbe — man will fast immer eine
+  Farbe holen und sie dann auftragen. `teil_farbe()` liefert bei einem NIE lackierten Teil die
+  WERKSFARBE aus dem Katalog (Meta `color` hat dort a=0) — sonst käme Schwarz heraus.
+  `pick_mode` schliesst sich mit brush/erase/paint gegenseitig aus; Signale `farbe_gepickt`
+  und `pipette_umgeschaltet` halten den Panel-Knopf synchron. Beleg: `tools/_lackieren_check.gd`.
 - **Windkanal-Ansicht** (`set_wind_tunnel`): Pro-Teil-**Druckwiderstands-Heatmap mit
   VERDECKUNG** (physikalisch korrekt). Der Wind kommt von vorne (−Z). In
   `_apply_drag_heatmap` wird ein **Strahlengitter** aus −Z über die Modell-AABB
@@ -590,6 +595,17 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
 `user://aircraft_design.json`. (Bewaffnung wurde auf Wunsch wieder entfernt.)
 
 ## GDScript-/Godot-Stolpersteine (gelernt)
+- **UI läuft aus dem Bild — zweimal dieselbe Ursache:** Ein `Label` ohne Umbruch hat als
+  Mindestbreite die volle TEXTBREITE, eine `HBoxContainer` die SUMME ihrer Kinder. `Control.size`
+  wird nie unter `get_combined_minimum_size()` gedrückt — Anker helfen also nicht, das Element
+  wächst aus dem Bild. Gemessen: Hinweiszeile 398 px über den rechten Rand, Werkzeugleiste
+  1018 px nötig bei 946 px Platz. Fix: Label `autowrap_mode`, Leiste `HFlowContainer` (bricht um)
+  statt `HBoxContainer`. Dazu spannt ein unsichtbarer Halter nur den freien Bereich ZWISCHEN
+  Bau-Panel (endet 496) und Statistik-Panel (beginnt −376) auf. Harness: `tools/_ui_rand_check.gd`
+  läuft die echte Main-Szene ab, misst jedes Control gegen den Bildschirm UND die Überlappung der
+  Leiste mit beiden Panels. FALLE dabei: die Leiste über die Baumform zu suchen brach beim
+  nächsten Umbau still ab und die Probe mass etwas anderes — sie heisst jetzt `Werkzeugleiste`
+  und wird über den Namen gefunden.
 - `:=` nur für NEUE lokale Variablen; Member mit `=` zuweisen.
 - Bei Variant-Inferenz (Dict-Zugriff `* float`) explizit typisieren (`var f: Vector3 = …`).
 - **Keine Node-Änderungen in `_integrate_forces`** (reparent/add/remove) → in `_process`
