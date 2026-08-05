@@ -1,7 +1,9 @@
-## End-to-End: Flieger mit den 3 animierten Raedern bauen, G (toggle_gear) druecken und
+## End-to-End: Flieger mit ALLEN animierten Raedern bauen, G (toggle_gear) druecken und
 ## messen: laeuft die "retract"-Animation (Pivot-Rotation aendert sich), geht die
 ## Kollision aus, kommt sie beim Ausfahren zurueck? (Setup im 1. _process-Frame — SceneTree-Falle)
 extends SceneTree
+
+const GEAR_IDS := ["wheel_biplane_spoke", "wheel_biplane_disc", "wheel_spitfire", "wheel_f22"]
 
 var fc: FlightController
 var frame := 0
@@ -11,7 +13,7 @@ var rot0 := {}
 func _design() -> Array:
 	var d: Array = []
 	d.append({"id": "cockpit", "xform": Transform3D(), "color": Color(0,0,0,0), "scale": Vector3.ONE})
-	var ids := ["wheel_biplane_spoke", "wheel_biplane_disc", "wheel_spitfire"]
+	var ids := GEAR_IDS
 	for i in ids.size():
 		d.append({"id": ids[i], "xform": Transform3D(Basis(), Vector3(-1.5 + i * 1.5, -0.6, 0)),
 			"color": Color(0,0,0,0), "scale": Vector3.ONE})
@@ -42,7 +44,7 @@ func _process(_d: float) -> bool:
 		for g in ac.gear_items:
 			if g.get("anim") != null:
 				n_anim += 1
-		print("gear_items=%d  davon animiert=%d  (erwartet 3)" % [ac.gear_items.size(), n_anim])
+		print("gear_items=%d  davon animiert=%d  (erwartet %d)" % [ac.gear_items.size(), n_anim, GEAR_IDS.size()])
 		rot0 = _pivots()
 		ac.toggle_gear()
 		print("G gedrueckt -> gear_down=", ac.gear_down, " (erwartet false)")
@@ -55,12 +57,12 @@ func _process(_d: float) -> bool:
 		for k in r1:
 			if rot0.has(k) and (Vector3(r1[k]) - Vector3(rot0[k])).length() > 45.0:
 				moved += 1
-		print("Pivots bewegt: %d/3 (erwartet 3)" % moved)
+		print("Pivots bewegt: %d/%d" % [moved, GEAR_IDS.size()])
 		var dis := 0
 		for g in ac.gear_items:
 			if is_instance_valid(g["cs"]) and g["cs"].disabled:
 				dis += 1
-		print("Kollisionen deaktiviert: %d/3 (erwartet 3)" % dis)
+		print("Kollisionen deaktiviert: %d/%d" % [dis, GEAR_IDS.size()])
 		ac.toggle_gear()
 		print("G nochmal -> ausfahren...")
 		return false
@@ -71,11 +73,11 @@ func _process(_d: float) -> bool:
 		for k in r2:
 			if rot0.has(k) and (Vector3(r2[k]) - Vector3(rot0[k])).length() < 5.0:
 				back += 1
-		print("Pivots zurueck in Ruhelage: %d/3 (erwartet 3)" % back)
+		print("Pivots zurueck in Ruhelage: %d/%d" % [back, GEAR_IDS.size()])
 		var en := 0
 		for g in ac.gear_items:
 			if is_instance_valid(g["cs"]) and not g["cs"].disabled:
 				en += 1
-		print("Kollisionen wieder aktiv: %d/3 (erwartet 3)" % en)
+		print("Kollisionen wieder aktiv: %d/%d" % [en, GEAR_IDS.size()])
 		quit()
 	return false

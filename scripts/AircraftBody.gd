@@ -545,8 +545,11 @@ func recompute_aero() -> void:
 			# RUHELAGE und Achsrichtung im Körpersystem werden hier EINMAL gemerkt: das
 			# Rollen rechnet daraus absolut, statt Drehungen auf die aktuelle Transform
 			# aufzusummieren (siehe Kommentar im Roll-Block).
-			var wn = pi.get("wheel")
-			if wn != null and is_instance_valid(wn):
+			# Mehrere Knoten moeglich: ein Drehgestell bringt zwei Achsen mit, die je
+			# EIGENSTAENDIG um ihre eigene Achse drehen muessen.
+			for wn in pi.get("wheels", []):
+				if wn == null or not is_instance_valid(wn):
+					continue
 				var axb := Vector3.RIGHT
 				var gb: Basis = global_transform.basis
 				if absf(gb.determinant()) > 0.0001:

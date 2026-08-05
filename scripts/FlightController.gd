@@ -297,7 +297,14 @@ func build_from_design(d: Array) -> void:
 			PartCatalog.set_block_rounding(vis, p, ra, bake)
 			vis.scale = PartCatalog.block_rest_scale(vis.scale, bake)
 		var prop := vis.find_child("Prop", true, false)
-		var wheel_node: Node3D = vis.find_child("Wheel", true, false)   # dreht beim Rollen
+		# Rad-Knoten fuers sichtbare Rollen. MEHRERE, weil ein Drehgestell (wheel_bogie)
+		# zwei Achsen hat: mit nur einem Knoten wuerde das vordere Paar beim Rollen um die
+		# HINTERE Achse kreisen statt sich um die eigene zu drehen.
+		var wheel_nodes: Array = []
+		for wnm in ["Wheel", "Wheel2", "Wheel3", "Wheel4"]:
+			var wnd := vis.find_child(wnm, true, false) as Node3D
+			if wnd != null:
+				wheel_nodes.append(wnd)
 		# Bewegliche Fläche: Hauptflügel = "FlapHinge" (Rolle "flap"), Steuerflügel = "CtrlHinge"
 		# (Rolle = control: pitch/roll/yaw). Wird im AircraftBody animiert.
 		var surf_node: Node3D = vis.find_child("FlapHinge", true, false)
@@ -354,7 +361,7 @@ func build_from_design(d: Array) -> void:
 		var pinfo := {
 			"vis": vis, "cs": cs, "xform": xf, "csize": box.size, "coffset": cob,
 			"id": id, "pos": xf.origin, "prop": prop, "broken": false,
-			"wheel": wheel_node, "wheel_r": wheel_r,
+			"wheels": wheel_nodes, "wheel_r": wheel_r,
 			"surf": surf_node, "surf_role": surf_role,
 			# Welt-"unten"-Vorzeichen aus der Flügel-Oberseite (basis.y.y); kippt bei Spiegelung
 			# NICHT (Mirror negiert nur X) -> beide Seiten schlagen gleich aus. Vertikale Flosse

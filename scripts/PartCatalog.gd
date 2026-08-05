@@ -677,6 +677,112 @@ static func _build() -> void:
 		"col_offset": Vector3(0, -0.5, 0), "metal": 0.6, "rough": 0.4, "retract": true,
 		"desc": "Modernes Kampfjet-Fahrwerk: schlanker Öldämpfer-Beinholm, kleines Low-Profile-Rad mit Bremsscheibe. Einziehbar (G). ~1250 kg.",
 	})
+	# Animiertes Blender-Fahrwerk (tools/build_wheel_f22.py): die glb traegt EINE
+	# Animation "retract" (Bein klappt nach vorn hoch, Klappe schwenkt zu) — AircraftBody
+	# treibt sie ueber _gear_anim per seek(), also synchron vor UND rueckwaerts.
+	_add({
+		"id": "wheel_f22", "name": "F-22-Fahrwerk (G)", "category": CAT_GEAR,
+		"mass": 68.0, "color": Color(0.16, 0.17, 0.20), "shape": "wheel", "gear_capacity": 1500.0,
+		"size": Vector3(0.40, 1.08, 0.43), "col_size": Vector3(0.38, 1.06, 0.42),
+		"col_offset": Vector3(0, -0.52, 0), "metal": 0.55, "rough": 0.42, "retract": true,
+		"desc": "Hauptfahrwerk der F-22: Oleo-Holm mit poliertem Kolben, Drehmomentschere, Knickstrebe, Einzieh-Aktuator und Bremsscheiben-Paket. Klappt mit G nach vorn ein, die Klappe schwenkt mit. ~1500 kg.",
+	})
+	# Die beiden Grundtypen, die VORNE bzw. HINTEN stehen (tools/build_gear_tail_nose.py).
+	# Ohne sie liess sich kein Flugzeug bauen, das korrekt auf drei Punkten aufsetzt.
+	_add({
+		"id": "wheel_tail", "name": "Spornrad (G)", "category": CAT_GEAR,
+		"mass": 18.0, "color": Color(0.17, 0.18, 0.21), "shape": "wheel", "gear_capacity": 320.0,
+		"size": Vector3(0.18, 0.42, 0.22), "col_size": Vector3(0.17, 0.41, 0.20),
+		"col_offset": Vector3(0, -0.205, 0), "metal": 0.5, "rough": 0.45, "retract": true,
+		"desc": "Kleines Spornrad ans Heck — macht aus dem Bau einen echten Taildragger. Das Rad haengt mit Nachlauf hinter der Schwenkachse und laeuft dadurch von selbst gerade. Klappt mit G ein. ~320 kg.",
+	})
+	_add({
+		"id": "wheel_nose", "name": "Bugfahrwerk (G)", "category": CAT_GEAR,
+		"mass": 62.0, "color": Color(0.16, 0.17, 0.20), "shape": "wheel", "gear_capacity": 950.0,
+		"size": Vector3(0.42, 1.10, 0.38), "col_size": Vector3(0.40, 1.08, 0.36),
+		"col_offset": Vector3(0, -0.54, 0), "metal": 0.55, "rough": 0.42, "retract": true,
+		"desc": "Bugfahrwerk mit Doppelrad, Lenkkranz, Drehmomentschere und Rollscheinwerfer — die Voraussetzung fuer jedes Dreiradfahrwerk. Klappt mit G nach vorn ein, beide Klappen schliessen. ~950 kg.",
+	})
+	# Klappt als einziges Fahrwerk um die LAENGSACHSE nach INNEN (tools/build_wheel_ww2.py).
+	# Das Spitfire-Bein klappt nach aussen — zusammen decken sie beide WW2-Bauarten ab.
+	_add({
+		"id": "wheel_ww2", "name": "Jaegerfahrwerk (G)", "category": CAT_GEAR,
+		"mass": 52.0, "color": Color(0.42, 0.45, 0.42), "shape": "wheel", "gear_capacity": 1050.0,
+		"size": Vector3(0.40, 1.05, 0.42), "col_size": Vector3(0.38, 1.04, 0.40),
+		"col_offset": Vector3(0, -0.52, 0), "metal": 0.35, "rough": 0.5, "retract": true,
+		"desc": "Jaegerfahrwerk der WW2-Aera (P-51/Fw 190): Oleo-Bein mit lackierter Verkleidung, Drehmomentschere und Bremstrommel. Klappt mit G um die Laengsachse nach INNEN in den Fluegel. ~1050 kg.",
+	})
+	# Einziges FESTES Fahrwerk mit Verkleidung (tools/build_wheel_spat.py): kein retract,
+	# dafuer robust und billig. Hose und Radschuh werden mitlackiert.
+	_add({
+		"id": "wheel_spat", "name": "Hosenbein-Fahrwerk", "category": CAT_GEAR,
+		"mass": 48.0, "color": Color(0.40, 0.44, 0.40), "shape": "wheel", "gear_capacity": 1150.0,
+		"size": Vector3(0.30, 0.95, 0.54), "col_size": Vector3(0.28, 0.94, 0.52),
+		"col_offset": Vector3(0, -0.47, 0), "metal": 0.2, "rough": 0.55,
+		"desc": "Starres Hosenbein der 1930er (Ju 87/Storch): Stromlinien-Hose ueber dem Holm und Radschuh, beide in Zellenfarbe lackiert. Faehrt NICHT ein — dafuer robust und wartungsarm. ~1150 kg.",
+	})
+	# Schwerstes Fahrwerk im Katalog (tools/build_wheel_bomber.py): EIN Bein, ZWEI grosse
+	# Raeder auf durchgehender Achse. Traegt allein mehr als zwei F-22-Beine zusammen.
+	_add({
+		"id": "wheel_bomber", "name": "Bomber-Doppelrad (G)", "category": CAT_GEAR,
+		"mass": 105.0, "color": Color(0.16, 0.17, 0.20), "shape": "wheel", "gear_capacity": 2600.0,
+		"size": Vector3(0.62, 1.26, 0.52), "col_size": Vector3(0.60, 1.25, 0.50),
+		"col_offset": Vector3(0, -0.625, 0), "metal": 0.5, "rough": 0.45, "retract": true,
+		"desc": "Schweres Hauptfahrwerk der Bomber (B-17/B-29/Lancaster): zwei grosse Raeder auf durchgehender Achse, A-Bock-Abstuetzung, Trommelbremsen und dicker Oleo-Holm. Klappt mit G nach vorn in die Gondel. ~2600 kg.",
+	})
+	# Einziges Fahrwerk mit KIPPENDEM Achstraeger und zwei Rad-Knoten (Wheel/Wheel2) —
+	# siehe tools/build_wheel_bogie.py. Traegt am meisten von allen.
+	_add({
+		"id": "wheel_bogie", "name": "Drehgestell (G)", "category": CAT_GEAR,
+		"mass": 165.0, "color": Color(0.16, 0.17, 0.20), "shape": "wheel", "gear_capacity": 4200.0,
+		"size": Vector3(0.56, 1.26, 0.68), "col_size": Vector3(0.54, 1.25, 0.66),
+		"col_offset": Vector3(0, -0.625, 0), "metal": 0.5, "rough": 0.45, "retract": true,
+		"desc": "Vierrad-Drehgestell der schweren Jets (B-52/Tu-95/C-5): zwei Achsen an einem Traeger, der im Querlager kippt. Beim Einfahren kippt er hoch, damit das Paket in den Schacht passt. Klappt mit G nach vorn. ~4200 kg.",
+	})
+	# Bugfahrwerk mit Katapultstange (tools/build_wheel_carrier.py). Die Stange ist ein
+	# eigener animierter Knoten und legt sich beim Einfahren als erstes an den Holm.
+	_add({
+		"id": "wheel_carrier", "name": "Traegerbugbein (G)", "category": CAT_GEAR,
+		"mass": 88.0, "color": Color(0.16, 0.17, 0.20), "shape": "wheel", "gear_capacity": 1400.0,
+		"size": Vector3(0.42, 1.18, 0.46), "col_size": Vector3(0.40, 1.17, 0.44),
+		"col_offset": Vector3(0, -0.585, 0), "metal": 0.55, "rough": 0.42, "retract": true,
+		"desc": "Bugfahrwerk fuer Traegerbetrieb (F-14/F-18/F-4): Katapultstange nach vorn, Rueckhalteklinke nach hinten, Anfluglichter und langer Federweg fuer gesetzte Landungen. Klappt mit G nach vorn ein. ~1400 kg.",
+	})
+	# Einziges Fahrwerk mit HEBELFEDERUNG statt Teleskopbein (tools/build_wheel_rough.py):
+	# Rad an einer Schwinge, schraeger Daempfer dazwischen.
+	_add({
+		"id": "wheel_rough", "name": "Rohfeld-Fahrwerk (G)", "category": CAT_GEAR,
+		"mass": 62.0, "color": Color(0.17, 0.17, 0.20), "shape": "wheel", "gear_capacity": 1300.0,
+		"size": Vector3(0.36, 1.12, 0.52), "col_size": Vector3(0.34, 1.11, 0.46),
+		"col_offset": Vector3(0, -0.555, 0), "metal": 0.45, "rough": 0.5, "retract": true,
+		"desc": "Fahrwerk fuer unbefestigte Pisten (MiG-21/29, Su-27): Rad an einer Schwinge mit schraegem Daempfer statt Teleskopbein, dicker Niederdruckreifen und Schmutzfaenger gegen Steinschlag. Klappt mit G nach vorn ein. ~1300 kg.",
+	})
+	# Fahrradfahrwerk (tools/build_gear_tandem.py): funktioniert nur als PAAR — zwei
+	# Mittellinien-Einheiten hintereinander plus Stuetzraeder an den Fluegelspitzen.
+	_add({
+		"id": "wheel_tandem", "name": "Fahrradfahrwerk (G)", "category": CAT_GEAR,
+		"mass": 118.0, "color": Color(0.16, 0.17, 0.20), "shape": "wheel", "gear_capacity": 2200.0,
+		"size": Vector3(0.50, 1.06, 0.44), "col_size": Vector3(0.48, 1.05, 0.42),
+		"col_offset": Vector3(0, -0.525, 0), "metal": 0.5, "rough": 0.45, "retract": true,
+		"desc": "Mittellinien-Einheit fuer Fahrradfahrwerk (B-47/Harrier/U-2): Doppelrad an breitem Quertraeger, QUER verstrebt statt laengs — es gibt ja keinen Fluegel zum Abstuetzen. Zwei davon hintereinander, dazu Stuetzraeder. Klappt mit G nach vorn. ~2200 kg.",
+	})
+	_add({
+		"id": "wheel_outrigger", "name": "Stuetzrad (G)", "category": CAT_GEAR,
+		"mass": 22.0, "color": Color(0.16, 0.17, 0.20), "shape": "wheel", "gear_capacity": 180.0,
+		"size": Vector3(0.20, 0.86, 0.22), "col_size": Vector3(0.19, 0.85, 0.20),
+		"col_offset": Vector3(0, -0.425, 0), "metal": 0.5, "rough": 0.45, "retract": true,
+		"desc": "Duennes Stuetzrad fuer die Fluegelspitze. Traegt fast nichts — es haelt die Maschine beim Fahrradfahrwerk nur aufrecht. Klappt mit G nach HINTEN in die Spitze. ~180 kg.",
+	})
+	# Einziges Fahrwerk OHNE Rad (tools/build_wheel_skid.py). Das glb bringt keinen
+	# "Wheel"-Knoten mit, AircraftBody haengt darum keinen Roll-Eintrag an — richtig so,
+	# eine Kufe schleift.
+	_add({
+		"id": "wheel_skid", "name": "Spornkufe", "category": CAT_GEAR,
+		"mass": 6.0, "color": Color(0.32, 0.22, 0.13), "shape": "wheel", "gear_capacity": 260.0,
+		"size": Vector3(0.14, 0.36, 0.42), "col_size": Vector3(0.13, 0.35, 0.30),
+		"col_offset": Vector3(0, -0.175, 0), "metal": 0.05, "rough": 0.7,
+		"desc": "Gefederte Holzkufe fuers Heck (Bleriot/Fokker E.III/Sopwith): schleift auf Gras statt zu rollen und bremst beim Ausrollen mit. Gummiseil-Federung, kein Rad, faehrt nicht ein. ~260 kg.",
+	})
 
 	# --- Bewaffnung (feuerbar: LEERTASTE = Kanone/Raketen, B = Bombe) ------
 	_add({
@@ -1116,9 +1222,14 @@ static func set_gear_length(vis: Node3D, p: Dictionary, f: float) -> void:
 		return
 	var bein := vis.find_child("Leg", true, false) as Node3D
 	var rad := vis.find_child("Wheel", true, false) as Node3D
-	if bein == null or rad == null:
+	if bein == null:
 		return
-	if bein is MeshInstance3D:
+	# Die Spornkufe hat gar kein Rad — fuer sie reicht der fertig strukturierte Aufbau
+	# mit "Extend". Ohne diese Ausnahme lief set_gear_length hier still ins Leere und
+	# der Beinlaengen-Regler tat bei ihr schlicht nichts.
+	if rad == null and bein.get_node_or_null("Extend") == null:
+		return
+	if bein is MeshInstance3D and rad != null:
 		# einmaliger Umbau in Drehpunkt + Netz + Rad
 		var eltern: Node = bein.get_parent()
 		if eltern == null:
@@ -1153,7 +1264,17 @@ static func set_gear_length(vis: Node3D, p: Dictionary, f: float) -> void:
 			bein.set_meta("bein_mesh0", lm.mesh)
 		lm.scale = Vector3.ONE
 		lm.mesh = _leg_stretched(bein.get_meta("bein_mesh0"), ext, col_size(p).z * 0.5)
-	if lr != null:
+	# Modelle mit EIGENER Teleskop-Animation (wheel_f22) bringen einen "Extend"-Knoten
+	# mit. Der traegt ausschliesslich die Editor-Beinlaenge, waehrend die Animation den
+	# darunterliegenden "Slider" bewegt — sonst wuerden sich beide auf demselben Knoten
+	# gegenseitig ueberschreiben und das Bein zuckte beim Ein-/Ausfahren.
+	var ausz := bein.get_node_or_null("Extend") as Node3D
+	if ausz != null:
+		if not bein.has_meta("ausz_ruhe"):
+			bein.set_meta("ausz_ruhe", ausz.position)
+		var ar: Vector3 = bein.get_meta("ausz_ruhe")
+		ausz.position = Vector3(ar.x, ar.y - ext, ar.z)
+	elif lr != null:
 		var ruhe: Vector3 = bein.get_meta("rad_ruhe", lr.position)
 		lr.position = Vector3(ruhe.x, ruhe.y - ext, ruhe.z)
 
