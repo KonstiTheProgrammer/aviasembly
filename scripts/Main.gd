@@ -12,32 +12,8 @@ const SLOT_DIR := "user://hangar"                  # benannte eigene Speicher-Sl
 const F_BOLD := preload("res://fonts/TitilliumWeb-Bold.ttf")   # fetter Schnitt für Überschriften
 const F_SEMI := preload("res://fonts/TitilliumWeb-SemiBold.ttf")  # Standard-UI-Schnitt (crisp)
 
-# Blueprint-Gitter-Shader (anti-aliased, zum Horizont ausgeblendet)
-const _BLUEPRINT_GRID_SHADER := "
-shader_type spatial;
-render_mode unshaded, cull_back;
-uniform vec3 line_color : source_color = vec3(0.55, 0.67, 0.82);
-uniform vec3 major_color : source_color = vec3(0.38, 0.53, 0.72);
-uniform vec3 bg_color : source_color = vec3(0.78, 0.83, 0.88);
-uniform float cell = 1.0;
-uniform float fade_dist = 95.0;
-varying vec3 wpos;
-void vertex() { wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; }
-float grid_a(vec2 p, float div) {
-	vec2 c = p / div;
-	vec2 g = abs(fract(c - 0.5) - 0.5) / fwidth(c);
-	return 1.0 - clamp(min(g.x, g.y), 0.0, 1.0);
-}
-void fragment() {
-	vec2 p = wpos.xz;
-	float minor = grid_a(p, cell);
-	float major = grid_a(p, cell * 10.0);
-	vec3 col = mix(bg_color, line_color, minor * 0.55);
-	col = mix(col, major_color, major);
-	float fade = clamp(1.0 - length(p) / fade_dist, 0.0, 1.0);
-	ALBEDO = mix(bg_color, col, fade);
-}
-"
+# Der Blueprint-Boden-Shader liegt jetzt als eigene Datei:
+# res://shaders/blueprint_floor.gdshader (siehe ShowroomStage).
 
 var mode: int = Mode.BUILD
 var camera: Camera3D
@@ -45,11 +21,10 @@ var build_ctrl: BuildController
 var flight_ctrl: FlightController
 
 var fly_world: Node3D
-var blueprint_grid: MeshInstance3D
+var showroom: ShowroomStage       # Praesentations-Buehne des Bau-Modus
 var airfields: Array = []
 var world_env: WorldEnvironment
 var terrain: TerrainWorld           # seed-basierte Landschaft (Chunks um den Spieler)
-var hangar_lights: Node3D           # Studio-Beleuchtung NUR für den Bau-Modus
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
 var env_sky: Environment
 var env_blueprint: Environment
@@ -62,6 +37,9 @@ var ui: CanvasLayer
 var build_root: Control
 var flight_root: Control
 var stats_label: Label
+# Praesentationstafel rechts: grosser Flugzeugname + Kennwerte (Showroom-Komposition)
+var praesent_titel: Label
+var praesent_werte: Label
 var flight_check: FlightCheckPanel  # grafische Flug-Info (Balance / Stabilität / Kennwerte / Verdict)
 var hud_label: Label
 var land_label: Label
@@ -220,35 +198,14 @@ func _setup_world() -> void:
 	env.glow_hdr_threshold = 1.45                      # nur ECHT helle Lichter bloomen (Sonne/Nachbrenner)
 	env_sky = env
 
-	# Blueprint-Umgebung für den Bau-Modus (tiefblauer Raum). Hintergrund bleibt dunkel,
-	# aber ein blauer Gradient-Himmel dient als REFLEXIONS- und Ambient-Quelle -> metallische
-	# Teile spiegeln (oben hell, unten dunkel) und das Drehen ändert die Reflexion sichtbar.
-	# HELLER TAGESLICHT-EDITOR (Feeling wie im Original-Aviassembly): freundlicher
-	# blauer Himmel mit fast weißem Horizont als Hintergrund UND Licht-/Reflexions-
-	# quelle — kein dunkler Raum mehr, das Flugzeug steht wie draußen am Flugfeld.
-	var sky_bp := Sky.new()
-	var psm_bp := ProceduralSkyMaterial.new()
-	psm_bp.sky_top_color = Color(0.34, 0.55, 0.83)
-	psm_bp.sky_horizon_color = Color(0.66, 0.77, 0.89)
-	psm_bp.ground_horizon_color = Color(0.66, 0.73, 0.82)
-	psm_bp.ground_bottom_color = Color(0.56, 0.61, 0.69)
-	psm_bp.sky_energy_multiplier = 1.0
-	sky_bp.sky_material = psm_bp
-	env_blueprint = Environment.new()
-	env_blueprint.background_mode = Environment.BG_SKY
-	env_blueprint.sky = sky_bp
-	env_blueprint.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env_blueprint.ambient_light_energy = 0.92             # vorher 1.3 -> Hangar war ein weißer Raum
-	env_blueprint.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env_blueprint.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env_blueprint.tonemap_exposure = 0.9                  # Belichtung runter -> angenehmer
-	env_blueprint.ssao_enabled = true
-	env_blueprint.ssao_intensity = 1.1
-	env_blueprint.ssao_radius = 1.4
-	env_blueprint.glow_enabled = true
-	env_blueprint.glow_intensity = 0.18
-	env_blueprint.glow_strength = 0.85
-	env_blueprint.glow_hdr_threshold = 1.45
+	# PRAESENTATIONS-BUEHNE fuer den Bau-Modus. Frueher stand hier ein heller Tages-
+	# himmel ("das Flugzeug steht wie draussen am Flugfeld"); die jetzige Art Direction
+	# verlangt stattdessen einen dunklen Petrolraum mit Blueprint-Boden, gerichtetem
+	# Dreipunktlicht und kraeftigen Kontaktschatten. Alles dazu steckt gebuendelt in
+	# ShowroomStage — Environment, Licht, Boden und Vignette.
+	showroom = ShowroomStage.new()
+	add_child(showroom)                       # _ready() der Buehne baut das Environment
+	env_blueprint = showroom.environment
 
 	world_env = WorldEnvironment.new()
 	world_env.environment = env_sky
@@ -271,35 +228,9 @@ func _setup_world() -> void:
 	underfill.shadow_enabled = false
 	sky_lights.add_child(underfill)
 
-	# --- HANGAR-STUDIO-RIG (nur im Bau-Modus aktiv): klassisches 3-Punkt-Licht ---
-	# Key warm + Schatten (Form), Fill kühl von rechts (weiche Schattenseite),
-	# Rim von hinten-oben (Kantenlicht trennt vom dunklen Raum), Underfill dezent.
-	hangar_lights = Node3D.new()
-	add_child(hangar_lights)
-	# KEINE SONNE (Nutzerwunsch): weiches, richtungsarmes Softbox-Licht wie an
-	# einem bedeckten Tag — keine Schatten, keine harte Lichtkante. Zwei ganz
-	# schwache, schattenlose Aufheller geben den Teilen minimale Plastizität,
-	# die Hauptarbeit macht der helle Himmels-Ambient.
-	var soft_top := DirectionalLight3D.new()
-	soft_top.rotation_degrees = Vector3(-62, -20, 0)
-	soft_top.light_energy = 0.45
-	soft_top.light_color = Color(1.0, 0.99, 0.96)
-	soft_top.shadow_enabled = false
-	soft_top.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY   # keine Sonnenscheibe im Himmel
-	hangar_lights.add_child(soft_top)
-	var soft_side := DirectionalLight3D.new()
-	soft_side.rotation_degrees = Vector3(-18, 135, 0)
-	soft_side.light_energy = 0.22
-	soft_side.light_color = Color(0.85, 0.90, 1.0)
-	soft_side.shadow_enabled = false
-	soft_side.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
-	hangar_lights.add_child(soft_side)
-	var hfill := DirectionalLight3D.new()
-	hfill.rotation_degrees = Vector3(58, 40, 0)
-	hfill.light_energy = 0.28
-	hfill.shadow_enabled = false
-	hfill.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
-	hangar_lights.add_child(hfill)
+	# Das Hangar-Licht liegt jetzt in ShowroomStage (Key/Fill/Rim mit Schatten).
+	# Frueher standen hier drei schattenlose Aufheller — die gaben zwar ein sehr
+	# gleichmaessiges Bild, aber weder Silhouette noch Kontaktschatten.
 
 	# Boden-Kollision: unendliche Ebene auf MEERES-Niveau (-6 m) — Sicherheitsnetz
 	# unter allem + "Wasseroberfläche" zum Notwassern. Land-Kollision liefert das Terrain.
@@ -467,19 +398,8 @@ func _setup_world() -> void:
 	# (keine Kollision, nur Flug-Welt).
 	CloudField.build(fly_world, {"area": 4400.0, "spacing": 340.0, "layer_y": 320.0, "billow": 40.0, "layer_jitter": 110.0, "cover_thresh": -0.05})
 
-	# Blueprint-Gitter (nur im Bau-Modus sichtbar)
-	blueprint_grid = MeshInstance3D.new()
-	var gp := PlaneMesh.new()
-	gp.size = Vector2(260, 260)
-	blueprint_grid.mesh = gp
-	blueprint_grid.position = Vector3(0, -1.9, 0)
-	var grid_shader := Shader.new()
-	grid_shader.code = _BLUEPRINT_GRID_SHADER
-	var gsm := ShaderMaterial.new()
-	gsm.shader = grid_shader
-	blueprint_grid.material_override = gsm
-	add_child(blueprint_grid)
-	blueprint_grid.visible = false
+	# Der Blueprint-Boden gehoert jetzt zu ShowroomStage und wird mit der Buehne
+	# geschaltet (frueher ein eigenes MeshInstance3D mit hellem Inline-Shader).
 
 
 func _flat_mat(c: Color, rough: float) -> StandardMaterial3D:
@@ -1179,10 +1099,11 @@ func _set_mode(m: int) -> void:
 
 	# Blueprint-Raum im Bau-Modus, Himmel + Flug-Welt im Flug
 	world_env.environment = env_blueprint if building else env_sky
-	blueprint_grid.visible = building
 	fly_world.visible = not building
-	if hangar_lights != null:
-		hangar_lights.visible = building   # Studio-Rig nur im Hangar
+	if showroom != null:
+		# Eigene Methode statt `visible`: die Vignette haengt in einem CanvasLayer und
+		# wuerde sonst auch im Flug stehen bleiben.
+		showroom.set_stage_visible(building)
 	if sky_lights != null:
 		sky_lights.visible = not building  # Sonne nur im Flug
 
@@ -1336,51 +1257,57 @@ func _show_controls_hint() -> void:
 # azurner Akzent, runde Ecken. Explizite Overrides (Kacheln, Header, Ampel)
 # gewinnen weiterhin gegen das Theme — das hier ist die saubere Grundschicht.
 func _make_ui_theme() -> Theme:
+	# Die Farben kommen aus ShowroomStage — dieselbe Palette wie die 3D-Buehne, damit
+	# UI und Bild zusammengehoeren und nicht an zwei Stellen nachgezogen werden muessen.
+	# Frueher stand hier ein eigenes Blau-Schema, das neben dem Petrolraum fremd wirkte.
 	var th := Theme.new()
 	var n := StyleBoxFlat.new()
-	n.bg_color = Color(0.11, 0.15, 0.21, 0.92)
-	n.set_corner_radius_all(6)
+	n.bg_color = Color(0.055, 0.145, 0.170, 0.90)          # Petrol, halbtransparent
+	n.set_corner_radius_all(7)
 	n.set_border_width_all(1)
-	n.border_color = Color(1, 1, 1, 0.10)
-	n.content_margin_left = 10
-	n.content_margin_right = 10
-	n.content_margin_top = 5
-	n.content_margin_bottom = 5
+	n.border_color = Color(ShowroomStage.AKZENT_KALT, 0.22)
+	n.content_margin_left = 12
+	n.content_margin_right = 12
+	n.content_margin_top = 6
+	n.content_margin_bottom = 6
 	var h: StyleBoxFlat = n.duplicate()
-	h.bg_color = Color(0.16, 0.23, 0.33, 0.96)
-	h.border_color = Color(0.45, 0.72, 1.0, 0.45)
+	h.bg_color = Color(0.085, 0.215, 0.245, 0.95)
+	h.border_color = Color(ShowroomStage.AKZENT_KALT, 0.55)
+	# AKTIV = orange. Das ist die einzige warme Farbe in der UI und trennt dadurch
+	# eindeutig, was gerade gewaehlt ist.
 	var pr: StyleBoxFlat = n.duplicate()
-	pr.bg_color = Color(0.10, 0.26, 0.46, 0.97)
-	pr.border_color = Color(0.5, 0.78, 1.0, 0.85)
+	pr.bg_color = Color(ShowroomStage.AKZENT, 0.90)
+	pr.border_color = Color(1.0, 0.78, 0.55, 0.9)
 	var dis: StyleBoxFlat = n.duplicate()
-	dis.bg_color = Color(0.09, 0.11, 0.14, 0.6)
+	dis.bg_color = Color(0.045, 0.095, 0.110, 0.55)
+	dis.border_color = Color(1, 1, 1, 0.06)
 	th.set_stylebox("normal", "Button", n)
 	th.set_stylebox("hover", "Button", h)
 	th.set_stylebox("pressed", "Button", pr)
 	th.set_stylebox("disabled", "Button", dis)
 	th.set_stylebox("focus", "Button", StyleBoxEmpty.new())
-	th.set_color("font_color", "Button", Color(0.92, 0.95, 1.0))
+	th.set_color("font_color", "Button", ShowroomStage.TEXT)
 	th.set_color("font_hover_color", "Button", Color(1, 1, 1))
-	th.set_color("font_pressed_color", "Button", Color(0.85, 0.95, 1.0))
-	th.set_color("font_disabled_color", "Button", Color(0.6, 0.65, 0.72))
+	th.set_color("font_pressed_color", "Button", Color(0.16, 0.09, 0.04))   # dunkel auf Orange
+	th.set_color("font_disabled_color", "Button", Color(0.55, 0.66, 0.68))
 	# Checkboxen: kein Knopf-Kasten, nur Haken + Text (ruhiger)
 	th.set_stylebox("normal", "CheckBox", StyleBoxEmpty.new())
 	th.set_stylebox("hover", "CheckBox", StyleBoxEmpty.new())
 	th.set_stylebox("pressed", "CheckBox", StyleBoxEmpty.new())
 	th.set_stylebox("focus", "CheckBox", StyleBoxEmpty.new())
-	th.set_color("font_color", "CheckBox", Color(0.88, 0.92, 0.98))
-	# Tooltips: dunkel-glasig mit Akzentrand (Teil-Infos lesen sich deutlich besser)
+	th.set_color("font_color", "CheckBox", ShowroomStage.TEXT)
+	# Tooltips: dunkel-glasig mit kaltem Akzentrand
 	var tip := StyleBoxFlat.new()
-	tip.bg_color = Color(0.06, 0.09, 0.13, 0.97)
+	tip.bg_color = Color(0.030, 0.080, 0.095, 0.97)
 	tip.set_corner_radius_all(8)
 	tip.set_border_width_all(1)
-	tip.border_color = Color(0.45, 0.72, 1.0, 0.4)
+	tip.border_color = Color(ShowroomStage.AKZENT_KALT, 0.40)
 	tip.set_content_margin_all(10)
 	th.set_stylebox("panel", "TooltipPanel", tip)
-	th.set_color("font_color", "TooltipLabel", Color(0.93, 0.96, 1.0))
+	th.set_color("font_color", "TooltipLabel", ShowroomStage.TEXT)
 	# Trenner dezent
 	var sep := StyleBoxLine.new()
-	sep.color = Color(1, 1, 1, 0.12)
+	sep.color = Color(ShowroomStage.AKZENT_KALT, 0.16)
 	th.set_stylebox("separator", "HSeparator", sep)
 	return th
 
@@ -1403,6 +1330,7 @@ func _setup_ui() -> void:
 	ui.add_child(flight_root)
 
 	_build_hangar_ui()
+	_build_praesentation_panel()
 	_build_flight_ui()
 
 
@@ -2246,6 +2174,66 @@ func _refresh_tool_ui() -> void:
 		tool_label.text = "Werkzeug: %s – ziehen & loslassen zum Setzen" % p.get("name", build_ctrl.brush_id)
 
 
+# Praesentationstafel am RECHTEN Bildrand: grosser Name, darunter die wenigen
+# Kennwerte, die beim Ansehen wirklich interessieren. Bewusst ohne Kasten und ohne
+# Rahmen — die Vorgabe verlangt weniger technische Kaesten und mehr freie Flaeche.
+# Das Flugzeug sitzt darum links im Bild (siehe BuildController.praesent_versatz).
+func _build_praesentation_panel() -> void:
+	var box := VBoxContainer.new()
+	box.name = "Praesentation"
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.alignment = BoxContainer.ALIGNMENT_BEGIN
+	box.add_theme_constant_override("separation", 6)
+	# Rechts oben verankert, mit fester Breite. Bei schmalen Fenstern schrumpft die
+	# Breite mit, damit die Tafel nicht ins Bauteil-Panel links hineinlaeuft.
+	box.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	box.anchor_left = 1.0
+	box.offset_left = -420.0
+	box.offset_right = -28.0
+	box.offset_top = 26.0
+	build_root.add_child(box)
+
+	praesent_titel = Label.new()
+	praesent_titel.text = _slot_name.to_upper()
+	praesent_titel.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	praesent_titel.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	praesent_titel.add_theme_font_override("font", F_BOLD)
+	praesent_titel.add_theme_font_size_override("font_size", 40)
+	praesent_titel.add_theme_color_override("font_color", ShowroomStage.TEXT)
+	# Weicher dunkler Schatten: haelt den hellen Text auch ueber hellen Flaechen lesbar.
+	praesent_titel.add_theme_color_override("font_shadow_color", Color(0, 0.04, 0.05, 0.75))
+	praesent_titel.add_theme_constant_override("shadow_offset_x", 0)
+	praesent_titel.add_theme_constant_override("shadow_offset_y", 3)
+	praesent_titel.add_theme_constant_override("shadow_outline_size", 6)
+	box.add_child(praesent_titel)
+
+	# Duenne orange Linie als Trenner — die einzige warme Farbe in der Tafel.
+	var linie := ColorRect.new()
+	linie.color = ShowroomStage.AKZENT
+	linie.custom_minimum_size = Vector2(0, 2)
+	linie.size_flags_horizontal = Control.SIZE_SHRINK_END
+	linie.custom_minimum_size.x = 96
+	box.add_child(linie)
+
+	praesent_werte = Label.new()
+	praesent_werte.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	praesent_werte.add_theme_font_size_override("font_size", 15)
+	praesent_werte.add_theme_color_override("font_color", ShowroomStage.AKZENT_KALT)
+	praesent_werte.add_theme_color_override("font_shadow_color", Color(0, 0.04, 0.05, 0.7))
+	praesent_werte.add_theme_constant_override("shadow_offset_y", 2)
+	praesent_werte.add_theme_constant_override("shadow_outline_size", 4)
+	box.add_child(praesent_werte)
+
+
+func _aktualisiere_praesentation(stats: Dictionary) -> void:
+	if praesent_titel != null:
+		praesent_titel.text = _slot_name.to_upper()
+	if praesent_werte != null:
+		praesent_werte.text = "%d Teile   ·   %d kg\n%.1f m² Fläche   ·   %d N Schub" % [
+			int(stats.get("parts", 0)), int(stats.get("mass", 0.0)),
+			float(stats.get("area", 0.0)), int(stats.get("thrust", 0.0))]
+
+
 func _build_flight_ui() -> void:
 	# HUD oben links
 	var hp := _panel(Color(0, 0, 0, 0.45))
@@ -2309,6 +2297,7 @@ func _build_flight_ui() -> void:
 # Signal-Handler
 # ===========================================================================
 func _on_design_changed(stats: Dictionary) -> void:
+	_aktualisiere_praesentation(stats)
 	_design_dirty = true   # -> Autosave-Debounce in _process (seit dem Slot-Menü fehlte JEDES Autosave)
 	if flight_check == null:
 		return
@@ -3314,6 +3303,9 @@ func _show_load_dialog() -> void:
 
 func _do_load_preset(id: String, title: String) -> void:
 	if _load_design_from("res://designs/%s.json" % id):
+		# Vorlagenname als Flugzeugname uebernehmen — die Praesentationstafel zeigt ihn
+		# gross an. Eigene Slots taten das schon, Vorlagen bisher nicht.
+		_slot_name = title.split("  ·  ")[0]
 		_write_design(SAVE_PATH)
 		_toast("Geladen: " + title)
 	else:

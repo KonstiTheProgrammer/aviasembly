@@ -42,3 +42,30 @@ static func actual_vfov_rad(cam: Camera3D) -> float:
 		var sz := vp.get_visible_rect().size
 		aspect = sz.x / maxf(sz.y, 1.0)
 	return 2.0 * atan(tan(deg_to_rad(cam.fov) * 0.5) / aspect)
+
+
+# Kamera-Abstand, bei dem `box` den gewuenschten Anteil des Bildes einnimmt.
+#
+# Die Ausdehnung wird auf die ECHTEN Bildachsen projiziert (Rechts/Hoch der Kamera).
+# Eine Abschaetzung ueber box.size allein geht je nach Blickwinkel deutlich daneben —
+# im ersten Anlauf fuellte das Flugzeug dadurch nur ~45 % statt der gewuenschten 60 %.
+static func fit_distance(box: AABB, vfov_rad: float, aspect: float, dir: Vector3,
+		breiten_anteil: float, hoehen_anteil: float) -> float:
+	var rechts := Vector3.UP.cross(dir)
+	if rechts.length_squared() < 0.000001:
+		rechts = Vector3.RIGHT
+	rechts = rechts.normalized()
+	var hoch := dir.cross(rechts).normalized()
+	var c := box.get_center()
+	var hb := 0.0
+	var hh := 0.0
+	for i in range(8):
+		var ecke := box.position + box.size * Vector3(
+			float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1))
+		var v := ecke - c
+		hb = maxf(hb, absf(v.dot(rechts)))
+		hh = maxf(hh, absf(v.dot(hoch)))
+	var t := tan(vfov_rad * 0.5)
+	var d_breite := (hb * 2.0 / maxf(breiten_anteil, 0.05)) / (2.0 * t * aspect)
+	var d_hoehe := (hh * 2.0 / maxf(hoehen_anteil, 0.05)) / (2.0 * t)
+	return maxf(d_breite, d_hoehe)

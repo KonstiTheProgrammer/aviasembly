@@ -29,6 +29,18 @@ var snap_enabled := true        # Auto-Andocken (magnetisches Flächen-Snapping)
 var ghost_rot := 0           # R-Drehung (nur für achsen-ausgerichtete Teile)
 
 # Orbit-Kamera (Blueprint: frei ums Flugzeug drehen)
+# --- Praesentations-Kamera (Showroom-Look) ---
+const PRAESENT_VFOV := 36.0         # vertikaler Sichtwinkel bei 16:9
+const PRAESENT_FUELLUNG := 0.76     # AABB-Anteil der Bildbreite. Hoeher als die
+                                    # angepeilten ~60 % SICHTBARE Breite, weil die
+                                    # Huellbox (Propellerkreis, Spannweite ueber Eck)
+                                    # deutlich groesser ist als die Silhouette.
+const PRAESENT_TEMPO := 6.0         # Grad/s der automatischen Drehung
+const PRAESENT_WARTE := 2.5         # Sekunden Ruhe, bevor sie einsetzt
+
+var praesent_versatz := 0.11        # Bruchteil der Bildbreite, um den das Modell nach LINKS rueckt
+var _ruhe_zeit := 0.0               # seit der letzten Eingabe
+
 var orbit_yaw := 0.7
 var orbit_pitch := 0.4
 var orbit_dist := 15.0
@@ -119,6 +131,13 @@ var _rot_b0 := Basis()
 # sondern global zur Welt). Skalier-Würfel bleiben am Teil (lokal -> Dimensionen strecken).
 var _gizmo_root: Node3D = null
 var _hover_handle: Node3D = null  # Griff unter der Maus (Hover-Highlight)
+
+# Auswahlkontur: duenner heller Saum um das gewaehlte Teil. Liegt NEBEN dem
+# vorhandenen Sweep-Glow — der bleibt die kurze Reaktion beim Wechsel, die Kontur
+# zeigt dauerhaft an, was gerade gewaehlt ist.
+var _kontur_mat: ShaderMaterial = null
+var _kontur_nodes: Array = []
+var _kontur_tween: Tween = null
 # Ring-Drehung (Drag eines Dreh-Rings)
 var _rot_axis_w := Vector3.UP     # Welt-Drehachse
 var _rot_center := Vector3.ZERO   # Drehzentrum (Teil-Weltposition)
@@ -209,6 +228,14 @@ var _heatmap_t := 0.0              # Throttle-Timer dafür
 
 
 func _process(delta: float) -> void:
+	# PRAESENTATIONSDREHUNG: setzt erst nach kurzer Ruhe ein und wird von jeder Eingabe
+	# zurueckgesetzt — so dreht sich nichts weg, waehrend der Spieler baut. In den
+	# Blueprint-Ansichten (ortho) bleibt sie aus, dort ist die feste Achse der Zweck.
+	_ruhe_zeit += delta
+	if _ruhe_zeit > PRAESENT_WARTE and not _carrying and _ortho_view == 0 and selected_part == null:
+		orbit_yaw += deg_to_rad(PRAESENT_TEMPO) * delta
+		_update_camera()
+
 	# Tastatur-Zoom (+/- bzw. Numpad)
 	if Input.is_key_pressed(KEY_EQUAL) or Input.is_key_pressed(KEY_KP_ADD):
 		orbit_dist -= 28.0 * delta
@@ -267,9 +294,58 @@ func _update_camera() -> void:
 		camera.size = orbit_dist
 	else:
 		camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-		ViewUtil.apply_vfov(camera, 64.0)           # 64° vertikal (16:9); Ultrawide -> kein Fischauge
+		# PRAESENTATIONS-BRENNWEITE: 36° statt der frueheren 64°. Der weite Winkel sah
+		# aus wie eine CAD-Ansicht und verzerrte die Nase; 36° liest sich wie ein
+		# Produktfoto. ViewUtil haelt Ultrawide dabei frei von Fischauge.
+		ViewUtil.apply_vfov(camera, PRAESENT_VFOV)
 	var up := Vector3.UP if _ortho_view != 3 else Vector3(0, 0, -1)  # Oben-Ansicht: Nase nach oben im Bild
-	camera.look_at(orbit_focus, up)
+	# Das Modell sitzt bewusst LINKS der Bildmitte — rechts bleibt Platz fuer Name und
+	# Kennwerte. Umgesetzt ueber ein seitlich versetztes Blickziel statt ueber
+	# camera.h_offset: der wirkt bei Perspektive in Kameraeinheiten und haengt damit an
+	# FOV und Seitenverhaeltnis, das Blickziel dagegen verschiebt zuverlaessig um einen
+	# festen Bruchteil der Bildbreite.
+	var ziel := orbit_focus
+	if _ortho_view == 0 and praesent_versatz != 0.0:
+		# Vorzeichen: dir zeigt VOM Fokus ZUR Kamera. Vector3.UP.cross(dir) ist damit
+		# die Rechts-Achse im Bild — mit dir.cross(UP) landete das Modell rechts
+		# statt links.
+		var rechts := Vector3.UP.cross(dir)
+		if rechts.length_squared() > 0.0001:
+			ziel += rechts.normalized() * _sichtbare_breite() * praesent_versatz
+	camera.look_at(ziel, up)
+
+
+# Sichtbare Weltbreite auf Hoehe des Blickziels — Grundlage fuer den Seitenversatz
+# und fuer das Einpassen des Flugzeugs.
+func _sichtbare_breite() -> float:
+	if camera == null:
+		return 10.0
+	var vfov := ViewUtil.actual_vfov_rad(camera)
+	var vp := camera.get_viewport()
+	var aspect := 16.0 / 9.0
+	if vp != null:
+		var sz := vp.get_visible_rect().size
+		aspect = sz.x / maxf(sz.y, 1.0)
+	return 2.0 * orbit_dist * tan(vfov * 0.5) * aspect
+
+
+# Welt-AABB der sichtbaren Teile im Bauraum (fuer das Kamera-Einpassen).
+func _design_aabb() -> AABB:
+	var box := AABB()
+	var erst := true
+	for m in design_root.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		if mi.mesh == null or not mi.is_visible_in_tree():
+			continue
+		var b: AABB = mi.get_aabb()
+		var t: Transform3D = mi.global_transform
+		var w := AABB(t * b.position, Vector3.ZERO)
+		for i in range(8):
+			w = w.expand(t * (b.position + b.size * Vector3(
+				float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1))))
+		box = w if erst else box.merge(w)
+		erst = false
+	return box
 
 
 func _update_ghost() -> void:
@@ -342,6 +418,7 @@ func _free_ghost_xform() -> Transform3D:
 # Eingabe
 # ---------------------------------------------------------------------------
 func _unhandled_input(event: InputEvent) -> void:
+	_ruhe_zeit = 0.0        # jede Eingabe haelt die Praesentationsdrehung an
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_RIGHT:
@@ -2023,6 +2100,7 @@ func _apply_sel_glow(part: Node3D) -> void:
 	var vis: Node = part.get_node_or_null("Visual")
 	if vis == null:
 		return
+	_baue_kontur(vis)
 	var ab := _part_world_aabb(part)
 	_sel_glow_mat = ShaderMaterial.new()
 	_sel_glow_mat.shader = _get_sel_glow_shader()
@@ -2042,6 +2120,46 @@ func _apply_sel_glow(part: Node3D) -> void:
 			_sel_glow_mat.set_shader_parameter("sweep", -1.0))
 
 
+# --- Auswahlkontur -----------------------------------------------------------
+func _baue_kontur(vis: Node) -> void:
+	_loesche_kontur()
+	_kontur_mat = ShaderMaterial.new()
+	_kontur_mat.shader = load("res://shaders/selection_outline.gdshader")
+	_kontur_mat.set_shader_parameter("kontur_farbe", Color(ShowroomStage.KONTUR, 1.0))
+	_kontur_mat.set_shader_parameter("pixel", 3.0)
+	_kontur_mat.set_shader_parameter("staerke", 0.0)
+	_haenge_kontur(vis)
+	# Weich einblenden statt hart aufpoppen.
+	_kontur_tween = create_tween()
+	_kontur_tween.tween_property(_kontur_mat, "shader_parameter/staerke", 0.85, 0.18) \
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+
+func _haenge_kontur(node: Node) -> void:
+	for ch in node.get_children():
+		_haenge_kontur(ch)
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var src := node as MeshInstance3D
+		var ov := MeshInstance3D.new()
+		ov.set_meta("sel_glow", true)   # wie der Glow vom Windkanal-Shader ausnehmen
+		ov.mesh = src.mesh
+		ov.material_override = _kontur_mat
+		ov.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		src.add_child(ov)
+		_kontur_nodes.append(ov)
+
+
+func _loesche_kontur() -> void:
+	if _kontur_tween != null and _kontur_tween.is_valid():
+		_kontur_tween.kill()
+	_kontur_tween = null
+	for n in _kontur_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_kontur_nodes = []
+	_kontur_mat = null
+
+
 func _attach_glow(node: Node) -> void:
 	for ch in node.get_children():
 		_attach_glow(ch)
@@ -2057,6 +2175,7 @@ func _attach_glow(node: Node) -> void:
 
 
 func _clear_sel_glow() -> void:
+	_loesche_kontur()
 	if _sel_glow_tween != null and _sel_glow_tween.is_valid():
 		_sel_glow_tween.kill()
 	_sel_glow_tween = null
@@ -2176,12 +2295,40 @@ func _apply_history() -> void:
 
 # --- Kamera zentrieren ------------------------------------------------------
 func reset_camera() -> void:
-	orbit_yaw = 0.7
-	orbit_pitch = 0.4
-	orbit_dist = 15.0
-	orbit_focus = Vector3(0, 0, 0)
+	# Praesentationswinkel: 30° seitlich, 12° von oben — attraktive Dreiviertelansicht,
+	# die den Rumpf zeigt statt draufzuschauen wie eine Konstruktionszeichnung.
+	orbit_yaw = deg_to_rad(30.0)
+	orbit_pitch = deg_to_rad(12.0)
 	_ortho_view = 0
+	var box := _design_aabb()
+	if box.size.length_squared() > 0.001:
+		# Auf den RUMPF fokussieren, nicht auf die Mitte des Gesamtkoerpers: mit
+		# Fahrwerk zieht die Box nach unten und die Kamera schaut auf die Raeder.
+		orbit_focus = box.get_center() + Vector3(0, box.size.y * 0.18, 0)
+		orbit_dist = _fit_abstand(box)
+	else:
+		orbit_focus = Vector3.ZERO
+		orbit_dist = 11.0
 	_update_camera()
+
+
+# Abstand, bei dem das Flugzeug rund PRAESENT_FUELLUNG der Bildbreite einnimmt.
+func _fit_abstand(box: AABB) -> float:
+	if camera == null:
+		return 11.0
+	var vp := camera.get_viewport()
+	var aspect := 16.0 / 9.0
+	if vp != null:
+		var sz := vp.get_visible_rect().size
+		aspect = sz.x / maxf(sz.y, 1.0)
+	var dir := Vector3(
+		cos(orbit_pitch) * sin(orbit_yaw),
+		sin(orbit_pitch),
+		cos(orbit_pitch) * cos(orbit_yaw))
+	# 0.78 in der Hoehe: hohe Doppeldecker duerfen oben nicht anschlagen.
+	var d := ViewUtil.fit_distance(box, ViewUtil.actual_vfov_rad(camera), aspect, dir,
+		PRAESENT_FUELLUNG, 0.78)
+	return clamp(d, 3.0, 90.0)
 
 
 # --- Windkanal-Ansicht: Pro-Teil-Widerstands-Heatmap + Luftströmung --------
