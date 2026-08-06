@@ -117,10 +117,16 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 			mih.name = String(t) + "_HD"
 			mih.multimesh = mh
 			mih.visibility_range_end = LOD_DIST      # nur in der Naehe zeichnen
+			# Ferne Kulisse wirft keine Schatten. Seit im Hangar ueberhaupt ein Licht
+			# Schatten wirft (ShowroomStage), fragt der Renderer JEDES Mesh nach
+			# material_casts_shadows — und diese MultiMeshes tragen ihr Material im Mesh
+			# selbst statt als Override. Das gab Fehlerspam in der Konsole.
+			mih.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			node.add_child(mih)
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = String(t)
 		mmi.multimesh = mm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if _meshes_hd.has(t):
 			mmi.visibility_range_begin = LOD_DIST    # uebernimmt ab der Umschaltweite
 		mmi.visibility_range_end = SICHT_DIST        # nie ueber den Terrainrand hinaus

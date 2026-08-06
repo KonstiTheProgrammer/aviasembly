@@ -129,13 +129,21 @@ func _baue_licht() -> void:
 	key_light.light_color = KEY
 	key_light.light_energy = 1.55
 	key_light.shadow_enabled = true
-	# Weiche Schatten: angular_distance verbreitert den Halbschatten mit dem Abstand
-	# zum Werfer — das gibt den kraeftigen, aber weichen Kontaktschatten der Vorgabe.
-	key_light.light_angular_distance = 1.8
-	key_light.shadow_blur = 1.35
+	# Weiche Schatten ueber angular_distance: der Halbschatten verbreitert sich mit
+	# dem Abstand zum Werfer — das gibt den kraeftigen, aber weichen Kontaktschatten.
+	#
+	# ACHTUNG, teuer erkauft: mit 1.8 streute die Schattensuche so weit, dass jedes
+	# Bauteil sich selbst verschattete. Auf Streben, Klappen und Felgen lag ein feines
+	# Punktmuster (Schatten-Akne), das wie Z-Fighting aussah — es verschwand aber
+	# weder mit angehobener Nahebene noch ohne SSAO, sondern erst mit abgeschaltetem
+	# Schatten. 0.55 ist der Kompromiss: weich genug fuer die Vorgabe, ohne Rauschen.
+	# Die Bias-Werte fangen den Rest ab.
+	key_light.light_angular_distance = 0.35
+	key_light.shadow_blur = 1.1
 	key_light.directional_shadow_max_distance = 46.0
 	key_light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	key_light.shadow_normal_bias = 1.4
+	key_light.shadow_bias = 0.055
+	key_light.shadow_normal_bias = 3.0
 	key_light.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	add_child(key_light)
 
@@ -154,7 +162,10 @@ func _baue_licht() -> void:
 	rim_light.light_color = RIM
 	rim_light.light_energy = 0.95                # ~61 % des Key -> klare Silhouette
 	rim_light.shadow_enabled = false
-	rim_light.light_specular = 1.4               # Kantenlicht darf glaenzen
+	# Kantenlicht traegt die Silhouette ueber die DIFFUSE Seite. Mit 1.4 Specular
+	# setzte es zusaetzlich harte Glanzpunkte auf jede Rundung — zusammen mit dem
+	# Material-Rim ergab das den billigen Plastikglanz.
+	rim_light.light_specular = 0.45
 	rim_light.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	add_child(rim_light)
 

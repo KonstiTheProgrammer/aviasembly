@@ -1,6 +1,15 @@
 ## Sichtpruefung der Praesentations-Buehne (ShowroomStage) mit einem echten Design.
 ##
-##   /opt/homebrew/bin/godot --script tools/_showroom_render.gd -- <design> <out.png> [breite hoehe]
+##   /opt/homebrew/bin/godot --script tools/_showroom_render.gd -- <design> <out.png> [breite hoehe] [konturIdx] [schalter...]
+##
+## DIAGNOSE-SCHALTER (einzeln zuschaltbar, um Bildfehler einzukreisen):
+##   nofarbe   gespeicherte Lackierung ignorieren -> zeigt die KATALOG-Palette
+##   noshadow  Schatten des Key-Lights aus
+##   nossao    SSAO aus
+##   nahplan   Kamera-Nahebene anheben (mehr Tiefenpraezision)
+## Genau diese drei haben ein feines Punktmuster auf Streben und Klappen als
+## SCHATTEN-AKNE entlarvt — es sah aus wie Z-Fighting, verschwand aber weder mit
+## angehobener Nahebene noch ohne SSAO, sondern erst ohne Schatten.
 ##
 ## Baut dieselbe Buehne wie der Bau-Modus (Environment, Drei-Punkt-Licht, Blueprint-
 ## Boden, Vignette) und stellt das Flugzeug mit DEN GLEICHEN Kamerawerten davor wie
@@ -19,6 +28,8 @@ var out_path := "/tmp/showroom.png"
 var breite := 1600
 var hoehe := 900
 var kontur_idx := -1
+# Gespeicherte Lackierung ignorieren -> zeigt die KATALOG-Palette.
+var ohne_farbe := false
 
 
 func _process(_d: float) -> bool:
@@ -44,6 +55,8 @@ func _args() -> void:
 		hoehe = int(a[3])
 	if a.size() >= 5:
 		kontur_idx = int(a[4])
+	if a.size() >= 6 and a[5] == "nofarbe":
+		ohne_farbe = true
 
 
 func _setup() -> void:
@@ -69,6 +82,10 @@ func _setup() -> void:
 	var buehne := ShowroomStage.new()
 	vp.add_child(buehne)
 	buehne.set_stage_visible(true)
+	if OS.get_cmdline_user_args().has("noshadow"):
+		buehne.key_light.shadow_enabled = false
+	if OS.get_cmdline_user_args().has("nossao"):
+		buehne.environment.ssao_enabled = false
 	var we := WorldEnvironment.new()
 	we.environment = buehne.environment
 	vp.add_child(we)
@@ -82,7 +99,8 @@ func _setup() -> void:
 		if not PartCatalog.has(id):
 			continue
 		var p := PartCatalog.get_part(id)
-		var vis := PartCatalog.build_visual(p, _col(item.get("color", [])))
+		var farbe := Color(0, 0, 0, 0) if ohne_farbe else _col(item.get("color", []))
+		var vis := PartCatalog.build_visual(p, farbe)
 		vis.scale = _vec(item.get("scale", []), Vector3.ONE)
 		var part := Node3D.new()
 		part.transform = _xf(item.get("xform", []))
@@ -116,6 +134,10 @@ func _setup() -> void:
 		BuildController.PRAESENT_FUELLUNG, 0.78), 3.0, 90.0)
 	# ERST in den Baum, DANN positionieren: global_transform gibt es ausserhalb des
 	# Baums nicht, die Kamera waere sonst im Ursprung stehen geblieben.
+	# Test: Nahebene anheben -> mehr Tiefenpraezision. Wenn das Punktmuster damit
+	# verschwindet, sind die Flaechen wirklich koinzident (Geometrie), sonst nicht.
+	if OS.get_cmdline_user_args().has("nahplan"):
+		cam.near = 0.6
 	cam.current = true
 	vp.add_child(cam)
 	# Modell nach links ruecken (Platz fuer Name/Kennwerte rechts)

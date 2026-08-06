@@ -16,13 +16,47 @@ const CAT_WEAPON := "Bewaffnung"
 const CATEGORY_ORDER := [CAT_BODY, CAT_WING, CAT_CTRL, CAT_PROP, CAT_GEAR, CAT_WEAPON]
 
 # Farben (klassisches Flugzeug-Look)
-const C_BODY := Color(0.80, 0.82, 0.85)
-const C_COCKPIT := Color(0.30, 0.45, 0.62)
-const C_WING := Color(0.84, 0.28, 0.24)
-const C_CTRL := Color(0.95, 0.62, 0.15)
-const C_ENGINE := Color(0.26, 0.28, 0.32)
-const C_GEAR := Color(0.10, 0.10, 0.12)
-const C_WEAPON := Color(0.32, 0.34, 0.38)
+# --- Palette: klein und abgestimmt -------------------------------------------
+# Frueher ein loser Satz Grau- und Blautoene ohne Bezug zueinander. Jetzt eine
+# begrenzte Palette aus warmem Creme, verbranntem Orange, dunklem Petrol und warmen
+# Grautoenen — abgestimmt auf die Buehne in ShowroomStage.
+const C_BODY := Color("#DCD2B8")       # warmes Creme, Sekundaerfarbe
+const C_COCKPIT := Color("#1E3A47")    # dunkles Petrolblau
+const C_WING := Color("#B0562C")       # verbranntes Orange, Hauptfarbe
+const C_CTRL := Color("#E8823C")       # Orange-Akzent (Ruder, bewegliche Flaechen)
+const C_ENGINE := Color("#4A453F")     # warmes Dunkelgrau
+const C_GEAR := Color("#2A2622")       # Anthrazit, warm gebrochen
+const C_WEAPON := Color("#5A554D")     # warmes Grau statt blauem Chrom
+
+# --- Materialbaender ---------------------------------------------------------
+# Stilisierter, leicht spielzeughafter Semi-PBR-Look. Statt jeden Wert einzeln zu
+# pflegen, klemmt `stilisiere` Rauheit und Metallanteil nach ROLLE in feste Baender.
+# Vorher reichten die Werte quer durcheinander von rough 0.12 bis 1.0 und metal 0.0
+# bis 1.0 — einzelne Bauteile sprengten damit die Harmonie.
+const STIL_LACK       := Vector2(0.55, 0.72)   # lackierte Flaechen
+const STIL_LACK_MET   := Vector2(0.00, 0.15)
+const STIL_METALL     := Vector2(0.48, 0.70)   # mechanische Teile — rauher als zuvor
+const STIL_METALL_MET := Vector2(0.18, 0.42)   # war 0.35-0.65: spiegelte zu stark
+const STIL_GUMMI      := Vector2(0.92, 1.00)   # Reifen — praktisch matt
+const STIL_RAD        := Vector2(0.55, 0.75)   # Felge/Nabe
+const STIL_RAD_MET    := Vector2(0.08, 0.24)
+const STIL_GLAS       := Vector2(0.30, 0.45)   # Kanzel — kontrolliert, kein Spiegel
+
+# Materialnamen der importierten glTF-Modelle -> Rolle
+const STIL_ROLLEN := {
+	"body": "lack", "cockpit_body": "lack", "tankmetal": "lack",
+	"engine": "metall", "gunmetal": "metall", "steel": "metall", "strut": "metall",
+	"piston": "metall", "spinner": "metall",
+	# Felge und Nabe sind lackierte/eloxierte Radteile, kein Chrom — eigenes,
+	# deutlich matteres Band, sonst wirkt das ganze Rad metallisch.
+	"rim": "radmetall", "hub": "radmetall", "brake": "radmetall",
+	"rubber": "gummi",
+	"glass": "glas",
+	"dark": "dunkel", "wood": "dunkel",
+}
+# Diese Materialien sind bewusst extrem eingestellt und werden NICHT eingeklemmt:
+# der Einlaufschacht muss ein mattschwarzes Loch bleiben.
+const STIL_AUSNAHMEN := ["ductdark", "ductsplit"]
 
 static var _parts: Dictionary = {}
 static var _order: Array = []
@@ -1088,18 +1122,78 @@ static func wing_exposed_fraction(wing_xf: Transform3D, span: float, sweep_off: 
 # ---------------------------------------------------------------------------
 # Material-Helfer
 # ---------------------------------------------------------------------------
+# Blaustichiges Chrom in warmes Grau ziehen — die Vorgabe verlangt ausdruecklich
+# "warmes Grau statt blauem Chrom". Warme Toene bleiben unberuehrt.
+static func _warm(c: Color) -> Color:
+	if c.b <= c.r:
+		return c
+	var grau: float = (c.r + c.g + c.b) / 3.0
+	return c.lerp(Color(grau * 1.08, grau, grau * 0.90, c.a), 0.65)
+
+
+# Ein Material auf den Hausstil bringen. `rolle` siehe STIL_ROLLEN.
+static func stilisiere(m: StandardMaterial3D, rolle: String) -> void:
+	match rolle:
+		"lack":
+			m.roughness = clampf(m.roughness, STIL_LACK.x, STIL_LACK.y)
+			m.metallic = clampf(m.metallic, STIL_LACK_MET.x, STIL_LACK_MET.y)
+		"metall":
+			m.roughness = clampf(m.roughness, STIL_METALL.x, STIL_METALL.y)
+			m.metallic = clampf(m.metallic, STIL_METALL_MET.x, STIL_METALL_MET.y)
+			m.albedo_color = _warm(m.albedo_color)
+		"gummi":
+			m.roughness = clampf(m.roughness, STIL_GUMMI.x, STIL_GUMMI.y)
+			m.metallic = 0.0
+			# Gummi reflektiert so gut wie nichts. Mit dem allgemeinen spec 0.30 und
+			# dem Kantenschimmer sah der Reifen aus wie schwarzer Lack.
+			m.metallic_specular = 0.02
+			m.rim_enabled = false
+			m.rim = 0.0                   # Reststaerke aus dem glb-Material mit nullen
+			m.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+			m.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+			return
+		"radmetall":
+			m.roughness = clampf(m.roughness, STIL_RAD.x, STIL_RAD.y)
+			m.metallic = clampf(m.metallic, STIL_RAD_MET.x, STIL_RAD_MET.y)
+			m.albedo_color = _warm(m.albedo_color)
+		"glas":
+			m.roughness = clampf(m.roughness, STIL_GLAS.x, STIL_GLAS.y)
+			m.metallic = clampf(m.metallic, 0.0, 0.35)
+		_:
+			m.roughness = clampf(m.roughness, 0.55, 0.95)
+			m.metallic = clampf(m.metallic, 0.0, 0.25)
+			m.albedo_color = _warm(m.albedo_color)
+	# WEICHE Wrap-Diffuse, NICHT Toon: die Vorgabe will weich und plastisch und
+	# schliesst harte Anime-Cel-Schattierung ausdruecklich aus. DIFFUSE_TOON waere
+	# genau die. LAMBERT_WRAP zieht das Licht um die Rundung herum und laesst die
+	# Schattenseite atmen — das ergibt den leicht spielzeughaften Eindruck.
+	m.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+	m.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+	# GLANZ DEUTLICH ZURUECK. Der Kantenschimmer lag mit rim 0.28 auf JEDEM Material
+	# und legte zusammen mit metallic_specular 0.6 einen Plastikglanz ueber das ganze
+	# Flugzeug — das war der "billige" Eindruck. Ein schwacher Rest bleibt, damit die
+	# Silhouette vor dem dunklen Hintergrund nicht verschwindet.
+	m.metallic_specular = 0.30
+	m.rim_enabled = true
+	m.rim = 0.08
+	m.rim_tint = 0.25
+
+
 static func make_material(c: Color, metal := 0.3, rough := 0.55, double_sided := false) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
 	m.metallic = metal
-	m.metallic_specular = 0.6
 	m.roughness = rough
-	# leichter Kanten-Glanz für mehr Plastizität
-	m.rim_enabled = true
-	m.rim = 0.3
-	m.rim_tint = 0.35
 	if double_sided:
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# Rolle aus den uebergebenen Werten ableiten — die Aufrufer kennen keine Rollen.
+	# Reifen zuerst pruefen: die kaemen sonst als "lack" durch und wuerden glaenzend.
+	var rolle := "lack"
+	if rough >= 0.80:
+		rolle = "gummi"
+	elif metal >= 0.35:
+		rolle = "metall"
+	stilisiere(m, rolle)
 	return m
 
 
@@ -1600,7 +1694,7 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 	# "model" erlaubt, ein FREMDES glb zu nutzen (z.B. die Bugmotor-Variante teilt das prop_engine-glb).
 	var pid: String = p.get("model", p.get("id", ""))
 	if has_model(pid) and not p.get("force_proc", false):
-		_attach_model(root, pid, col_override)
+		_attach_model(root, pid, col_override, p.get("color", C_BODY))
 		if pid == "reto_engine":
 			_fix_reto_prop(root)
 		elif pid == "engine_radial":
@@ -2240,14 +2334,23 @@ static func _mesh_enden_formen(m: Mesh, ef: Vector2, eb: Vector2, of: Vector2, o
 	return neu
 
 
-static func _attach_model(root: Node3D, id: String, col_override: Color) -> void:
+static func _attach_model(root: Node3D, id: String, col_override: Color,
+		standard: Color = C_BODY) -> void:
 	var ps: Resource = load(MODEL_DIR + id + ".glb")
 	if ps == null or not (ps is PackedScene):
 		return
 	var inst: Node = (ps as PackedScene).instantiate()
 	root.add_child(inst)
-	if col_override.a > 0.0:                 # nur bei Lackierung umfärben
+	# Lackierung des Spielers hat Vorrang. OHNE Lackierung galt frueher die im glb
+	# gebackene Farbe — die kam aus einzelnen Blender-Skripten und stand voellig
+	# neben der Katalogpalette (helles Grau am Rumpf, waehrend die prozeduralen
+	# Fluegel Creme und Orange trugen). Jetzt setzt die Katalogfarbe den Standard,
+	# und zwar nur auf den LACKIERBAREN Flaechen (PAINT_MATS) — Glas, Gummi und
+	# Metallteile behalten ihre eigene Optik.
+	if col_override.a > 0.0:
 		_recolor_model(inst, col_override)
+	elif standard.a > 0.0:
+		_recolor_model(inst, standard)
 	if id == "cockpit_b29":
 		_apply_b29_glass(inst)
 	_tone_model_accents(inst)               # zu grelle Chrom-Akzente (Federbein-Kolben) dämpfen
@@ -2294,6 +2397,10 @@ static func _tone_model_accents(node: Node) -> void:
 				dup.albedo_color = Color(0.50, 0.51, 0.55)
 				dup.metallic = 0.6
 				dup.roughness = 0.45
+				# Dieser Zweig lief bisher AN stilisiere VORBEI: der Kolben stand bei
+				# rim 1.0 und spec 0.5 und war damit das einzige verchromte Teil am
+				# ganzen Flugzeug — und er steckt in jedem Fahrwerksbein.
+				stilisiere(dup, "metall")
 				mi.set_surface_override_material(i, dup)
 			elif m is StandardMaterial3D and (m as StandardMaterial3D).resource_name == "ductdark":
 				# Lufteinlauf-Schacht: BEIDSEITIG (sonst sieht man durch die abgewandte Wand auf
@@ -2309,6 +2416,16 @@ static func _tone_model_accents(node: Node) -> void:
 				var ds: StandardMaterial3D = m.duplicate()
 				ds.cull_mode = BaseMaterial3D.CULL_DISABLED
 				mi.set_surface_override_material(i, ds)
+			elif m is StandardMaterial3D:
+				# Alle uebrigen Materialien der importierten Modelle auf den Hausstil
+				# bringen. Die glbs kommen aus einzelnen Blender-Skripten und brachten
+				# jeweils eigene Rauheits- und Metallwerte mit; erst das gemeinsame
+				# Band macht daraus eine Familie.
+				var sm := m as StandardMaterial3D
+				if not STIL_AUSNAHMEN.has(sm.resource_name):
+					var dup2: StandardMaterial3D = sm.duplicate()
+					stilisiere(dup2, STIL_ROLLEN.get(sm.resource_name, "dunkel"))
+					mi.set_surface_override_material(i, dup2)
 
 
 static func _recolor_model(node: Node, col: Color) -> void:
