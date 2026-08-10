@@ -117,16 +117,24 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 			mih.name = String(t) + "_HD"
 			mih.multimesh = mh
 			mih.visibility_range_end = LOD_DIST      # nur in der Naehe zeichnen
-			# Ferne Kulisse wirft keine Schatten. Seit im Hangar ueberhaupt ein Licht
-			# Schatten wirft (ShowroomStage), fragt der Renderer JEDES Mesh nach
-			# material_casts_shadows — und diese MultiMeshes tragen ihr Material im Mesh
-			# selbst statt als Override. Das gab Fehlerspam in der Konsole.
-			mih.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			# SCHATTEN AN. Hier stand frueher, das ginge nicht: die MultiMeshes tragen ihr
+			# Material im Mesh statt als Override, und daraus wurde Fehlerspam, sobald das
+			# Showroom-Licht als erster Schattenwerfer auftauchte. Nachgeprueft, seit auch
+			# die Sonne im Flug wirft: mit cast_shadow ON kam ueber alle acht Abnahme-
+			# Ansichten und ueber Start plus Hangar keine einzige Fehlerzeile. Ein
+			# material_override waere hier ausserdem der falsche Ausweg — MultiMeshInstance3D
+			# kennt keine Surface-Overrides, und die Haeuser sind Ein-Mesh-MEHR-Material-
+			# Modelle: ein Override zoege alle Flaechen auf eine Farbe. Ohne Schatten
+			# schweben die Haeuser ueber ihrem eigenen Grund — das war der teurere Fehler.
+			mih.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 			node.add_child(mih)
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = String(t)
 		mmi.multimesh = mm
-		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Auch die Fernstufe wirft. Teuer wird das nicht: der Sonnenschatten reicht 3 km
+		# weit (directional_shadow_max_distance), die Fernstufe uebernimmt ab 900 m — es
+		# ist also nur das Band dazwischen, das ueberhaupt in eine Kaskade faellt.
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 		if _meshes_hd.has(t):
 			mmi.visibility_range_begin = LOD_DIST    # uebernimmt ab der Umschaltweite
 		mmi.visibility_range_end = SICHT_DIST        # nie ueber den Terrainrand hinaus

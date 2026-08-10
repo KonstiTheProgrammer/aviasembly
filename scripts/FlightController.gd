@@ -745,7 +745,46 @@ func _physics_process(delta: float) -> void:
 		_drop_bomb(true)   # B: ebenfalls eine Bombe pro Druck
 	_bomb_held = bomb_down
 
+	_wolken_ruetteln()
 	_emit_hud()
+
+
+# --- TURBULENZ IN DER WOLKE ------------------------------------------------------------
+# `wolken_dichte` setzt Main jeden Frame (0 = freie Luft, 1 = mitten in einer Wolke,
+# Quelle CloudField.dichte_bei_allen). Ohne das Ruetteln ist eine Wolke nur eine Farbe,
+# durch die man hindurchfliegt — mit ihm ist sie ein Ort, der etwas mit dem Flugzeug macht.
+#
+# WARUM KEIN WEISSES RAUSCHEN: zufaellige Stoesse je Frame mitteln sich weg und fuehlen
+# sich wie ein Defekt an. Drei ueberlagerte Sinus je Achse mit unrunden Frequenzen ergeben
+# eine wandernde, nie exakt wiederkehrende Boe — das liest sich als Luft.
+#
+# ZAHLEN SIND KONSERVATIV GESETZT, NICHT EINGEFLOGEN: das Ruetteln soll spuerbar sein und
+# die Maschine nicht unsteuerbar machen. Wer das nachjustiert, faengt bei TURBULENZ an.
+const TURBULENZ := 0.55          # Drehmoment je Masse und Dichte
+const TURBULENZ_HUB := 0.40      # Anteil davon als senkrechtes Sacken/Heben
+var wolken_dichte := 0.0
+
+func _wolken_ruetteln() -> void:
+	if wolken_dichte <= 0.01 or not is_instance_valid(aircraft):
+		return
+	var t := float(Time.get_ticks_msec()) * 0.001
+	var b := aircraft.global_transform.basis
+	var w := Vector3(
+		sin(t * 3.11) + 0.5 * sin(t * 7.31 + 1.3),
+		sin(t * 2.29 + 1.7) + 0.5 * sin(t * 5.87),
+		sin(t * 4.13 + 3.1) + 0.5 * sin(t * 8.69 + 0.4))
+	var kraft := wolken_dichte * TURBULENZ * aircraft.mass
+	# SCHUTZSCHRANKE. Diese Funktion schiebt Kraefte direkt in einen RigidBody3D. Kaeme
+	# von irgendwoher ein NaN oder Unendlich in wolken_dichte, wuerde es hier in die
+	# Physik verstaerkt — und ein RigidBody mit NaN-Geschwindigkeit reisst die ganze
+	# Physikwelt mit. Lieber eine Boe auslassen als das Spiel verlieren.
+	if not is_finite(kraft):
+		wolken_dichte = 0.0
+		return
+	aircraft.apply_torque(b * w * kraft)
+	# Senkrechter Anteil: das Sacken beim Einflug ist das, was man als Erstes merkt.
+	aircraft.apply_central_force(Vector3.UP
+		* (sin(t * 2.71) + 0.6 * sin(t * 6.13 + 2.2)) * kraft * TURBULENZ_HUB)
 
 
 # Mündungsrichtung = Flugzeug-Vorwärts (-Z), Position = Welt-Offset des Mounts.

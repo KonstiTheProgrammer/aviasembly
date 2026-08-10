@@ -22,8 +22,54 @@ const VIEW_DIST := 3800.0       # Chunks innerhalb dieses Radius werden geladen
 # erscheinen beim Naeherkommen von selbst wieder — im Gegensatz zum Weglassen beim Bauen
 # braucht es dafuer keinen Neuaufbau. Ohne das Limit kosten 3800 m Sichtweite pro Chunk
 # bis zu acht zusaetzliche Draw-Calls, von denen man auf 3 km ohnehin nichts erkennt.
-const FLORA_DIST := 1600.0
-const FLORA_FADE := 240.0       # weicher Uebergang, damit Baeume nicht aufpoppen
+const FLORA_DIST := 3200.0
+const FLORA_FADE := 900.0       # Laenge des Schrumpf-Uebergangs (siehe _flora_mat)
+# Ab hier ist jede Instanz auf Groesse 0 gefahren. MUSS um mindestens eine halbe
+# Chunk-Diagonale (271 m) unter FLORA_DIST liegen: visibility_range_end misst vom
+# CHUNK-Mittelpunkt, das Schrumpfen dagegen pro Baum. Ohne den Abstand wuerde die
+# nahe Chunk-Ecke mit noch sichtbaren Baeumen weggeschnitten — genau das Aufpoppen,
+# das hier vermieden werden soll.
+const FLORA_FADE_END := 2900.0
+# --- FLORA-SPARSTUFEN ------------------------------------------------------------------
+# Ab dieser Entfernung bekommt ein Chunk die grobe Baumfassung und nur noch einen Teil
+# seiner Pflanzen. GEMESSEN, warum das noetig ist: die Flora kostet 4,65 von 7,86 ms je
+# Bild (59 %) und stellt 5,46 von 7,35 Mio Primitiven (74 %).
+# 1100 m ist so gewaehlt, dass die Umschaltung hinter der Strecke liegt, auf der man
+# einen einzelnen Baum ueberhaupt als Baum erkennt.
+const FLORA_GROB_AB := 1100.0
+# Anteil der Pflanzen, der jenseits davon noch gezeichnet wird. Die Transformationen
+# stehen in zufaelliger Reihenfolge im Puffer, ein Praefix ist also eine gleichmaessige
+# Stichprobe der Flaeche — deshalb genuegt visible_instance_count und es muss nichts
+# neu gebaut werden.
+const FLORA_GROB_ANTEIL := 0.55
+# GEMESSEN (1280x720, VSync aus, Reiseflug 400 m ueber Land, Blick in die Ferne):
+#                       Bildzeit   Primitive
+#   ohne Sparstufen     7,86 ms    7.354.668
+#   mit Sparstufen      5,52 ms    6.273.904
+# Die Flora selbst faellt damit von 4,65 auf 2,38 ms je Bild — knapp die Haelfte.
+# ACHTUNG BEIM MESSEN: mit VSync sieht man davon NICHTS. Alle Faelle lagen dann auf
+# exakt 8,33 ms, also 1/120 s. Wer hier nachmisst, schaltet VSync zuerst ab.
+# Bewuchs-Raster: gesampelt wird auf dem Mesh-Hoehenraster (8 m). Erwartete Baeume je
+# Zelle bei voller Walddichte -> 1.6 / 64 m^2 = rund 6 m Standabstand (geschlossener
+# Kronendach-Look von oben, Kronen sind 5-6 m breit).
+const FLORA_PER_CELL := 1.6
+const FLORA_MAX_H := 64.0       # Baumgrenze (darueber faerbt das Terrain ohnehin Fels)
+# Untergrenze. NICHT 0.8 wie frueher: gemessen liegen 47.9 % der Flaeche im 8x8-km-Feld
+# um den Spawn zwischen -4.4 m (Ende der Sandfarbe) und 0.8 m — flaches, GRUENES Tiefland,
+# das die alte Schwelle komplett ausgesperrt hat. Genau das war die kahle Ebene. Der
+# Meeresspiegel liegt bei -6, die Wasserplatte bei -5.85; -4.0..-2.2 laesst einen schmalen
+# Strandsaum frei, ohne die Ebene zu opfern.
+const FLORA_MIN_H := -4.0
+const FLORA_FULL_H := -2.2      # ab hier volle Dichte
+const CLEAR_CAP := 620.0        # groesster Freihalte-Radius um eine KREIS-Zone (Stadt, Dorf, …)
+# FREIHALTUNG NACH BEBAUUNG statt nach Radius — nur fuer Zonen, die "rects" mitbringen
+# (die Flugplaetze, siehe Main._setup_world). Gemessen wird der Abstand zum RAND der
+# bebauten Rechtecke, nicht zum Platzmittelpunkt: bis FREI_INNEN bleibt alles frei, ab
+# FREI_AUSSEN steht wieder voller Bewuchs. 20/50 m sind aus den Vorlagen abgelesen — in
+# heimat_1 und heimat_4 stehen die ersten Nadelbaeume 20 bis 40 m neben der Bahnkante
+# (= 35 bis 55 m von der Bahnachse), und die Bahn samt Sandschulter ist 45 m breit.
+const FREI_INNEN := 20.0
+const FREI_AUSSEN := 50.0
 const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionsebene hin)
 const MAX_ATTACH_PER_FRAME := 1 # fertige Chunks je Frame einhängen (Physik-Insert kostet)
 
@@ -42,7 +88,10 @@ var _flora: Dictionary = {}     # Art -> Mesh (aus models/world_trees.glb, siebe
 var _mesh_conifer: ArrayMesh    # Low-Poly-Tanne (Fallback, falls das glb fehlt)
 var _mesh_leaf: ArrayMesh       # Low-Poly-Laubbaum
 var _mesh_rock: ArrayMesh       # Low-Poly-Felsblock
+var _flora_mmis: Array = []     # alle Flora-MultiMeshes, fuer _flora_stufen
+var _grob_cache := {}           # Quellmesh -> vereinfachte Fassung
 var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
+var _flora_mat: ShaderMaterial  # wie _mat, zusätzlich Entfernungs-Schrumpfen
 
 const ARTEN := ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch"]
 
@@ -52,6 +101,10 @@ var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (im Worker unterwegs)
 var _mat: ShaderMaterial
 var _water: MeshInstance3D
+# Sonnenrichtung fuer den Glitzerpfad auf dem Wasser. Wird von Main ueber setze_sonne()
+# gesetzt; der Vorgabewert hier ist nur eine Notbremse, falls das jemand vergisst.
+var sonne_richtung := Vector3(0.55, 0.62, 0.55).normalized()
+var _wasser_mats: Array[ShaderMaterial] = []
 var _last_cc := Vector2i(2147483647, 0)   # zuletzt verarbeitete Spieler-Chunk-Zelle
 var _last_pos := Vector3.ZERO
 
@@ -67,6 +120,19 @@ var _exit := false
 func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array = []) -> void:
 	seed_value = seedv
 	airfields = afs
+	# Rechteck-Zonen einmal vorbereiten: Drehung des Platzes und ein Umkreis fuer den
+	# Vorfilter. _open_ground laeuft je DREIECK (4608 pro Chunk) ueber alle zwoelf Zonen —
+	# dort darf kein cos/sin und keine Wurzel mehr stehen, die sich hier sparen laesst.
+	for af in airfields:
+		if not af.has("rects"):
+			continue
+		var hd := float(af.get("heading", 0.0))
+		af["_cos"] = cos(hd)
+		af["_sin"] = sin(hd)
+		var rmax := 0.0
+		for r in af["rects"]:
+			rmax = maxf(rmax, Vector2(absf(r[0]) + r[2], absf(r[1]) + r[3]).length())
+		af["_rmax"] = rmax + FREI_AUSSEN
 	lakes = lks
 	massifs = mss
 	_prepare_rivers(rvs)
@@ -123,34 +189,47 @@ void fragment() {
 """
 	_mat = ShaderMaterial.new()
 	_mat.shader = sh
+	# FLORA-MATERIAL: gleiche Farbbehandlung, aber jede Instanz faehrt zur Sichtgrenze
+	# hin ihre GROESSE gegen null. Godots VISIBILITY_RANGE_FADE_SELF verlangt ein
+	# transparentes Material und tat an diesem Opaque-Shader nichts — die Baeume waeren
+	# an der Grenze hart erschienen. Alpha waere teuer und sortierpflichtig; Schrumpfen
+	# ist geometrisch und kostet nichts: bei 2.9 km ist ein 10-m-Baum bei 64 Grad
+	# vertikalem Sichtfeld auf 720 Zeilen noch rund zwei Pixel hoch.
+	var fsh := Shader.new()
+	fsh.code = """
+shader_type spatial;
+uniform float fade_start;
+uniform float fade_end;
+void vertex() {
+	vec3 wo = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, distance(wo, CAMERA_POSITION_WORLD));
+}
+void fragment() {
+	vec3 c = COLOR.rgb;
+	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+	ROUGHNESS = 1.0;
+	SPECULAR = 0.1;
+}
+"""
+	_flora_mat = ShaderMaterial.new()
+	_flora_mat.shader = fsh
+	_flora_mat.set_shader_parameter("fade_start", FLORA_FADE_END - FLORA_FADE)
+	_flora_mat.set_shader_parameter("fade_end", FLORA_FADE_END)
 	# Wasserfläche (rein optisch; Kollision = WorldBoundary bei SEA_Y in Main)
 	_water = MeshInstance3D.new()
 	var wm := PlaneMesh.new()
 	wm.size = Vector2(VIEW_DIST * 2.4, VIEW_DIST * 2.4)
 	_water.mesh = wm
 	_water.position = Vector3(0, SEA_Y + 0.15, 0)
-	# Tropisches Tiefen-Wasser (Shader): türkise Untiefen -> Lagune -> tiefes Blau
-	# über den Tiefenpuffer, Schaumkante am Ufer, Fresnel-Spiegelung.
-	var wmat := ShaderMaterial.new()
-	wmat.shader = load("res://shaders/water.gdshader")
-	_water.material_override = wmat
+	# Tropisches Tiefen-Wasser (Shader): tuerkise Untiefen -> Lagune -> tiefes Blau
+	# ueber den Tiefenpuffer, Schaumkante am Ufer, Fresnel-Himmelsspiegelung.
+	_water.material_override = _water_mat(MEER)
 	add_child(_water)
-	# Inland-Seen: je eine ruhige, leicht spiegelnde Wasserfläche an der Oberfläche.
+	# Inland-Seen: DERSELBE Shader wie das Meer, nur ruhiger parametriert. Frueher hing
+	# hier ein StandardMaterial3D mit roughness 0.08 — zusammen mit den Fluessen waren
+	# das DREI verschiedene Wasser-Looks in einer Welt.
 	for lk in lakes:
-		var lp: Vector3 = lk["pos"]
-		var lr: float = lk["r"]
-		var lake := MeshInstance3D.new()
-		var lm := PlaneMesh.new()
-		lm.size = Vector2(lr * 2.1, lr * 2.1)
-		lake.mesh = lm
-		lake.position = Vector3(lp.x, float(lk["surf"]), lp.z)
-		var lkmat := StandardMaterial3D.new()
-		lkmat.albedo_color = Color(0.20, 0.68, 0.72, 0.78)
-		lkmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		lkmat.roughness = 0.08
-		lkmat.metallic = 0.35
-		lake.material_override = lkmat
-		add_child(lake)
+		_build_lake_water(lk)
 	# Fluss-Wasserflächen (Ribbons entlang der Splines)
 	for rv in rivers:
 		_build_river_water(rv)
@@ -214,23 +293,37 @@ func height_at(x: float, z: float) -> float:
 	for ms in massifs:
 		var mp: Vector3 = ms["pos"]
 		var md := Vector2(x - mp.x, z - mp.z).length()
-		var cone := 1.0 - smoothstep(0.0, float(ms["r"]), md)
+		var mr := float(ms["r"])
+		var typ := String(ms.get("type", "berg"))
+		# UNTERWASSER-SCHELF fuer Inseln und Vulkane (tuerkiser Ring). Er reicht bewusst
+		# UEBER den Kegelradius hinaus und laeuft dort aus.
+		# WARUM AUSSERHALB: frueher endete der Kegel am Rand bei der Konstanten SEA_Y - 9,
+		# waehrend das Basisgelaende ringsum schon bei SEA_Y - 18 lag. Das ist eine
+		# 9-m-Stufe im Meeresgrund, gemessen 9,24 m, und weil sie exakt dem Kegelradius
+		# folgt, stand im Bild ein rasiermesserscharfer, perfekt kreisrunder Farbsprung
+		# Tuerkis gegen Tiefblau ueber zwei Pixel — ein aufgemalter Planschbeckenrand.
+		# Jetzt steigt der Grund von aussen her an und der Kegel setzt stufenlos darauf auf.
+		if typ != "berg":
+			var schelf := 1.0 - smoothstep(mr * 0.95, mr * 1.9, md)
+			if schelf > 0.0:
+				h = maxf(h, lerpf(h, SEA_Y - 9.0, schelf))
+		var cone := 1.0 - smoothstep(0.0, mr, md)
 		if cone > 0.0:
 			# craggy: breite Ridge-Form + hochfrequente Grat-Details -> Bergform statt Kuppel
 			var crag := clampf(_ridge.get_noise_2d(x * 2.4, z * 2.4) * 0.5 + 0.5, 0.0, 1.0)
 			var s := smoothstep(0.0, 1.0, cone)
-			var typ := String(ms.get("type", "berg"))
 			if typ == "berg":
 				var top := float(ms["peak"]) * s * (0.68 + 0.32 * rdg)
 				top += s * crag * 30.0
 				h = maxf(h, top)
 			else:
-				# INSEL/VULKAN: Rand fällt UNTER den Meeresspiegel -> echte Küste rundum
-				# + flacher Unterwasser-Schelf (türkiser Ring), egal wo die Basis liegt.
-				var top := lerpf(SEA_Y - 9.0, float(ms["peak"]), s) + s * crag * 22.0
+				# INSEL/VULKAN: Rand fällt UNTER den Meeresspiegel -> echte Küste rundum.
+				# Der Kegel setzt auf dem SCHELF auf (h), nicht auf einer Konstanten —
+				# sonst entsteht am Kegelrand wieder die Stufe.
+				var top := lerpf(h, float(ms["peak"]), s) + s * crag * 22.0
 				if typ == "vulkan":
 					# Krater: Kegelspitze zur Schüssel eindrücken (Boden bleibt hoch/trocken)
-					var cr := float(ms.get("crater_r", float(ms["r"]) * 0.16))
+					var cr := float(ms.get("crater_r", mr * 0.16))
 					var bowl := 1.0 - smoothstep(cr * 0.35, cr, md)
 					top -= bowl * float(ms.get("crater_depth", float(ms["peak"]) * 0.45))
 				h = maxf(h, top)
@@ -289,7 +382,20 @@ func _river_carve(x: float, z: float, h: float) -> float:
 		var valley: float = rv["valley"]
 		if dist < valley:
 			var w: float = rv["w"]
-			var bed := best_surf - float(rv["depth"])
+			# BETT NICHT UEBER DIE VOLLE BREITE FLACH, sondern zur Mitte hin tief.
+			# Vorher lag es ueber die ganze Breite w auf einer Ebene, waehrend das
+			# Wasserband nur 0,92*w breit ist: an der Bandkante standen damit noch 4 m
+			# Tiefe. Der Shader schneidet die Uferlinie aber ueber die TIEFE (waterline) —
+			# bei 4 m ist edge = 1 und foam = 0, das Wasser endete also mit voller
+			# Deckkraft an einer schnurgeraden Polygonkante, ohne Untiefe und ohne Schaum.
+			# Mit der Verjuengung bleibt an der Bandkante rund 0,2 m Tiefe uebrig, und der
+			# Shader laesst das Wasser dort von selbst auslaufen.
+			# Die Verjuengung muss VOR der Bandkante (0,92*w) auf null sein, nicht erst bei
+			# w: bei 0,45..1,0 blieben dort gemessen noch 0,40 m Tiefe, und der Shader
+			# schneidet die Uferlinie erst unter waterline (0,30 m) — die Kante waere
+			# sichtbar geblieben.
+			var mitte := 1.0 - smoothstep(w * 0.40, w * 0.88, dist)
+			var bed := best_surf - float(rv["depth"]) * mitte
 			# ROBUST (seed-unabhängig): Bett auf bed senken, Ufer steigen auf
 			# mind. Wasserhöhe+1 (nie unter Wasser -> kein schwebendes Wasser),
 			# außen ins natürliche Gelände blenden. Gesetzt, nicht nur min().
@@ -318,6 +424,85 @@ func _prepare_rivers(rvs: Array) -> void:
 		rivers.append({"pts": pts, "w": rv.get("w", 14.0), "valley": valley,
 			"depth": rv.get("depth", 4.0),
 			"minx": minx - m, "maxx": maxx + m, "minz": minz - m, "maxz": maxz + m})
+
+
+const LAKE_SEG := 192      # Richtungen (Bogenschritt am Rand: 5.7 m bei r=175)
+const LAKE_RINGS := 10     # Ringe Mittelpunkt -> Rand (Vorrat fuer die Gerstner-Runde)
+
+## Wasserflaeche eines Inlandsees: GESCHLOSSENES RINGGITTER UEBER DAS GANZE BECKEN.
+##
+## Die Uferlinie schneidet der SHADER, nicht das Mesh: dort ist ALPHA mit
+## smoothstep(0, waterline, Wassertiefe) multipliziert, ueber trockenem Grund ist die
+## senkrechte Tiefe null und die Flaeche damit unsichtbar. Das Mesh muss die Uferlinie
+## also nicht nachzeichnen — es muss das Becken nur lueckenlos ueberdecken.
+##
+## Der Versuch, sie trotzdem GEOMETRISCH zu suchen (Bisektion je Richtung von r nach
+## innen), ist gescheitert und war im Bild sofort zu sehen: er setzt voraus, dass
+## height_at vom Seemittelpunkt nach aussen monoton steigt. Das tut sie nicht — der
+## Fluss-Carve laeuft NACH dem See-Carve und zieht Uferwaelle quer durch das Becken
+## (See 0, Richtung 0 Grad, Hoehe ueber surf bei r=0/40/80/120/160 m:
+## -2.13 / -3.79 / +0.98 / -2.91 / +0.52). Die Bisektion landete auf der INNERSTEN
+## Kreuzung, der Faecher kollabierte zum Mittelpunkt und riss Tortenstuecke heraus:
+## gemessen See 0 Radius 41.5 .. 152.4 m (Fehlbetrag bis 109.5 m), See 1 0.0 .. 260.0 m.
+##
+## Nach AUSSEN wird bewusst NICHT gesucht: rund um See 1 liegt der Canyonboden auf
+## weiter Flaeche unter dessen Wasserhoehe (gemessen: in 42 von 64 Richtungen noch bei
+## 377 m, bis an die Messgrenze 780 m). Ein "bis zur naechsten Kreuzung fluten" wuerde
+## dort die halbe Schlucht unter Wasser setzen. Das Becken endet bei r — das ist der
+## Radius, bis zu dem height_at ueberhaupt graebt.
+##
+## GEMESSEN (Nadir-Render mit und ohne die Scheibe, Differenzbild, 64 Richtungen):
+## fehlendes Wasser See 0 im Mittel 2.67 m, See 1 1.58 m; Wasser ueber trockenem Grund
+## See 0 max 0.50 m, See 1 0.00 m.
+func _build_lake_water(lk: Dictionary) -> void:
+	var lp: Vector3 = lk["pos"]
+	var lr: float = lk["r"]
+	var surf: float = float(lk["surf"])
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	# Ringe vorberechnen. COLOR.a blendet den aeussersten Ring aus: wo der Beckenrand
+	# ausnahmsweise noch im Wasser liegt (See 1, Canyonseite: 1.0 m Tiefe bei r), endet
+	# die Flaeche sonst mit einer harten Linie. Innen ist COLOR.a = 1.
+	var rings: Array = []
+	for j in range(LAKE_RINGS + 1):
+		var rr := lr * float(j) / float(LAKE_RINGS)
+		var fade := 1.0 - smoothstep(float(LAKE_RINGS - 1), float(LAKE_RINGS), float(j))
+		var ring := PackedVector3Array()
+		for i in LAKE_SEG:
+			var a := TAU * float(i) / float(LAKE_SEG)
+			ring.append(Vector3(cos(a) * rr, 0.0, sin(a) * rr))
+		rings.append({"p": ring, "a": fade})
+	# Der Shader laeuft mit cull_disabled und setzt NORMAL selbst — die Wickelrichtung
+	# ist egal. Innerster Ring als Faecher, alles weitere als Quads: ein einzelner
+	# Randpunkt kann damit kein Loch bis zur Mitte mehr reissen.
+	var c0: Dictionary = rings[1]
+	var cp: PackedVector3Array = c0["p"]
+	st.set_color(Color(1, 1, 1, 1))
+	for i in LAKE_SEG:
+		var b := cp[(i + 1) % LAKE_SEG]
+		st.add_vertex(Vector3.ZERO); st.add_vertex(cp[i]); st.add_vertex(b)
+	for j in range(1, LAKE_RINGS):
+		var ri: Dictionary = rings[j]
+		var ro: Dictionary = rings[j + 1]
+		var pi: PackedVector3Array = ri["p"]
+		var po: PackedVector3Array = ro["p"]
+		var ai: float = ri["a"]
+		var ao: float = ro["a"]
+		for i in LAKE_SEG:
+			var k := (i + 1) % LAKE_SEG
+			st.set_color(Color(1, 1, 1, ai)); st.add_vertex(pi[i])
+			st.set_color(Color(1, 1, 1, ao)); st.add_vertex(po[i])
+			st.set_color(Color(1, 1, 1, ao)); st.add_vertex(po[k])
+			st.set_color(Color(1, 1, 1, ai)); st.add_vertex(pi[i])
+			st.set_color(Color(1, 1, 1, ao)); st.add_vertex(po[k])
+			st.set_color(Color(1, 1, 1, ai)); st.add_vertex(pi[k])
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.position = Vector3(lp.x, surf, lp.z)
+	mi.material_override = _water_mat(SEE)
+	add_child(mi)
 
 
 # Wasser-Ribbon entlang der Fluss-Spline (einmal gebaut, festes Mesh).
@@ -353,19 +538,103 @@ func _build_river_water(rv: Dictionary) -> void:
 	st.generate_normals()
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
-	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.20, 0.68, 0.72, 0.82)
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.roughness = 0.08
-	m.metallic = 0.35
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mi.material_override = m
+	mi.material_override = _water_mat(FLUSS)   # derselbe Shader wie Meer und See
 	add_child(mi)
 
 
+# Gewaesser-Typen fuer _water_mat.
+const MEER := 0
+const SEE := 1
+const FLUSS := 2
+
+## EIN Wasser-Shader fuer alles. Unterschiede zwischen Meer, See und Fluss sind reine
+## Parameter, keine zweite Optik: Binnengewaesser sind flacher (depth_fade), ruhiger
+## (kleinere Wellen, langsamer) und haben einen schmaleren Ufersaum. Alle Wellenmasse
+## stehen in WELTMETERN bzw. m/s — der Shader tastet die Weltposition ab, deshalb passen
+## dieselben Zahlen auf die 9,1-km-Meeresplatte wie auf ein 30 m breites Flussband.
+func _water_mat(typ: int) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/water.gdshader")
+	if typ == SEE:
+		# 3,0 m statt 6,5: das Becken ist nur 4 m tief (surf-4 in height_at). Mit einem
+		# Verlauf ueber 6,5 m blieb der ganze See in der hellen Uferfarbe stehen und sah
+		# aus wie eine graue Pfuetze statt wie ein See.
+		m.set_shader_parameter("depth_fade", 3.0)
+		m.set_shader_parameter("foam_band", 0.5)
+		m.set_shader_parameter("waterline", 0.20)
+		m.set_shader_parameter("foam_strength", 0.22)
+		m.set_shader_parameter("shallow_col", Color(0.30, 0.63, 0.60))
+		# Kuerzere Wellen, kleinere Amplituden — aber die Geschwindigkeit bleibt die
+		# Phasengeschwindigkeit sqrt(g*L/2pi) der jeweiligen Laenge. Ein ruhiger See hat
+		# KURZE Wellen, keine langsamen.
+		m.set_shader_parameter("swell_len", 12.0)
+		m.set_shader_parameter("swell_amp", 0.075)
+		m.set_shader_parameter("swell_speed", 4.33)
+		m.set_shader_parameter("chop_len", 4.0)
+		m.set_shader_parameter("chop_amp", 0.030)
+		m.set_shader_parameter("chop_speed", 2.50)
+		m.set_shader_parameter("ripple_len", 1.5)
+		m.set_shader_parameter("ripple_amp", 0.011)
+		m.set_shader_parameter("ripple_speed", 1.53)
+		# Binnengewaesser sind KLAR: in den Untiefen soll der Grund durchscheinen, nicht
+		# ein tuerkiser Deckel liegen. Am Meer bleibt es deckender (Schwebstoffe, Gischt).
+		m.set_shader_parameter("alpha_shallow", 0.40)
+		m.set_shader_parameter("alpha_deep", 0.85)
+		m.set_shader_parameter("deep_col", Color(0.07, 0.27, 0.44))
+		# Binnengewaesser sind nie 2,6 km weit weg -> keine Weltkanten-Angleichung.
+		m.set_shader_parameter("far_start", 9000.0)
+		m.set_shader_parameter("far_end", 9500.0)
+	elif typ == FLUSS:
+		m.set_shader_parameter("depth_fade", 3.2)
+		m.set_shader_parameter("foam_band", 0.30)
+		m.set_shader_parameter("waterline", 0.12)
+		m.set_shader_parameter("foam_strength", 0.14)
+		m.set_shader_parameter("shallow_col", Color(0.32, 0.62, 0.58))
+		# Fliessendes Wasser: die Duenung entfaellt, dafuer laeuft feiner Chop schnell.
+		# Phasengeschwindigkeit PLUS rund 1,5 m/s Stroemung — Flusswasser wird zusaetzlich
+		# mitgetragen, deshalb laeuft das Muster hier schneller als auf dem See.
+		m.set_shader_parameter("swell_len", 9.0)
+		m.set_shader_parameter("swell_amp", 0.045)
+		m.set_shader_parameter("swell_speed", 5.25)
+		m.set_shader_parameter("chop_len", 3.5)
+		m.set_shader_parameter("chop_amp", 0.030)
+		m.set_shader_parameter("chop_speed", 3.84)
+		m.set_shader_parameter("ripple_len", 1.3)
+		m.set_shader_parameter("ripple_amp", 0.012)
+		m.set_shader_parameter("ripple_speed", 2.93)
+		m.set_shader_parameter("ripple_fade", 500.0)
+		m.set_shader_parameter("alpha_shallow", 0.28)
+		m.set_shader_parameter("alpha_deep", 0.80)
+		m.set_shader_parameter("deep_col", Color(0.09, 0.32, 0.46))
+		m.set_shader_parameter("far_start", 9000.0)
+		m.set_shader_parameter("far_end", 9500.0)
+	m.set_shader_parameter("sun_dir", sonne_richtung)
+	_wasser_mats.append(m)
+	return m
+
+
+## Sonnenrichtung an ALLE Wasserflaechen durchreichen — Meer, Seen und Fluesse.
+## Ohne das stand sun_dir auf dem Vorgabewert des Uniforms und das Wasser glitzerte in
+## eine Richtung, die mit nichts sonst zusammenpasste: gemessen 64 Grad neben der
+## gemalten Sonne UND neben der Schattenrichtung. Der Kommentar am Uniform ("wie
+## sky_clouds.sun_dir") galt nur fuer die Vorgabewerte, nicht zur Laufzeit.
+## Darf auch NACH dem Bauen gerufen werden — die Materialien sind gemerkt.
+func setze_sonne(richtung: Vector3) -> void:
+	sonne_richtung = richtung
+	for m in _wasser_mats:
+		m.set_shader_parameter("sun_dir", richtung)
+
+
 func update_center(world_pos: Vector3) -> void:
+	_flora_stufen(world_pos)
+	# Weggefallene Chunks aus dem Register werfen, sonst waechst es unbegrenzt.
+	if _flora_mmis.size() > 4000:
+		_flora_mmis = _flora_mmis.filter(func(e): return is_instance_valid(e["mmi"]))
 	_last_pos = world_pos
-	# Wasser folgt dem Spieler (riesige Platte, aber endlich)
+	# Wasser folgt dem Spieler (riesige Platte, aber endlich). Das WELLENMUSTER folgt
+	# NICHT mit: water.gdshader tastet die Weltposition des Fragments ab, nicht die UV
+	# des Meshes. Frueher flog das ganze Muster mit dem Flugzeug mit und stand deshalb
+	# relativ zum Spieler still. Diese Zeilen duerfen also verschieben, was sie wollen.
 	_water.position.x = world_pos.x
 	_water.position.z = world_pos.z
 	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
@@ -421,7 +690,11 @@ func _worker_loop() -> void:
 		var key: Vector2i = key_v
 		var data := _make_chunk_data(key)
 		_mutex.lock()
-		_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"]})
+		# WICHTIG: flora/rocks MUESSEN mit — sonst kommt die im Worker berechnete
+		# Bepflanzung nie am Main-Thread an und die gestreamte Welt bleibt kahl
+		# (nur build_now_around um den Spawn hatte je Baeume).
+		_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
+			"flora": data["flora"], "rocks": data["rocks"]})
 		_mutex.unlock()
 
 
@@ -486,6 +759,33 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	_chunks[key] = node
 
 
+## Setzt je Flora-MultiMesh die passende Sparstufe. Laeuft beim Umzentrieren, nicht
+## jeden Frame: die Entfernung eines Chunks aendert sich nur langsam, und der Wechsel
+## faellt hinter 1,1 km ohnehin nicht auf.
+## FALLE, in die diese Schleife dreimal getreten ist: die Gueltigkeitspruefung muss VOR
+## der typisierten Zuweisung stehen. `var mmi: MultiMeshInstance3D = e["mmi"]` prueft beim
+## Zuweisen selbst, ob der Wert noch ein lebendes Objekt der Klasse ist — bei einem per
+## queue_free() abgeraeumten Chunk ist er das nicht, und Godot bricht mit
+## "Trying to assign invalid previously freed instance" ab, BEVOR is_instance_valid()
+## ueberhaupt drankommt. Der Fehler feuerte bei JEDEM update_center (gemessen: bei allen
+## vier Abnahmestellungen), und weil der Abbruch die Schleife beendet, blieben ALLE
+## dahinter liegenden MultiMeshes auf ihrer alten Sparstufe stehen.
+## Deshalb: erst untypisiert holen, pruefen, dann typisieren.
+func _flora_stufen(mitte: Vector3) -> void:
+	for e in _flora_mmis:
+		var roh: Variant = e["mmi"]
+		if not is_instance_valid(roh):
+			continue
+		var mmi: MultiMeshInstance3D = roh
+		var fern: bool = mmi.global_position.distance_to(mitte) > FLORA_GROB_AB
+		if bool(e["fern"]) == fern:
+			continue
+		e["fern"] = fern
+		var mm: MultiMesh = mmi.multimesh
+		mm.mesh = e["grob"] if fern else e["voll"]
+		mm.visible_instance_count = int(e["n"] * FLORA_GROB_ANTEIL) if fern else -1
+
+
 func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 	if xfs.is_empty() or mesh == null:
 		return
@@ -497,11 +797,18 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 		mm.set_instance_transform(i, xfs[i])
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
-	mmi.material_override = _mat
+	mmi.material_override = _flora_mat
+	# Harter Schnitt erst dort, wo der Shader die Instanzen laengst auf Groesse 0
+	# gefahren hat (FLORA_FADE_END + halbe Chunk-Diagonale) -> nichts poppt.
 	mmi.visibility_range_end = FLORA_DIST
-	mmi.visibility_range_end_margin = FLORA_FADE
-	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 	parent.add_child(mmi)
+	# Fuer _flora_stufen merken. Die grobe Fassung wird je Quellmesh EINMAL gebaut und
+	# dann von allen Chunks geteilt.
+	if not _grob_cache.has(mesh):
+		_grob_cache[mesh] = _grobe_fassung(mesh)
+	_flora_mmis.append({"mmi": mmi, "voll": mesh, "grob": _grob_cache[mesh],
+		"n": xfs.size(), "fern": false})
 
 
 # Mesh + Kollision für einen Chunk bauen (läuft im Worker ODER synchron beim Spawn).
@@ -545,93 +852,223 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	# wiederholt sich aus der Luft kein Muster.
 	var flora: Dictionary = {}      # Art -> Array[Transform3D]
 	var rocks: Array = []
-	for a in 150:
-		var px := ox + rng.randf() * CHUNK
-		var pz := oz + rng.randf() * CHUNK
-		var h := height_at(px, pz)
-		if h < 0.8 or h > 64.0:
-			continue   # nichts am Strand/Wasser/Flugplatz oder über der Baumgrenze
-		# Steilheit aus zwei Nachbarproben (Bäume nur auf gangbarem Hang)
-		var hx := height_at(px + 6.0, pz)
-		var hz := height_at(px, pz + 6.0)
-		if absf(hx - h) > 2.6 or absf(hz - h) > 2.6:
-			continue
-		var biome := biome_at(px, pz)
-		var art := ""
-		var lo := 1.1
-		var hi := 2.0
-		if biome == Biome.WUESTE:
-			if h > 28.0:
+	# DICHTE: frueher 150 Zufallsproben je Chunk (147 000 m^2) — nach allen Filtern blieben
+	# 14 Baeume uebrig, also einer je 100 m Abstand. Aus der Luft war das eine kahle Wiese.
+	# Jetzt wird jede Zelle des OHNEHIN BERECHNETEN Hoehenrasters besetzt: kein einziger
+	# zusaetzlicher height_at-Aufruf (der teure Teil: fBm + Ridge + Massive + Fluesse), und
+	# die Baeume stehen exakt auf der facettierten Flaeche statt auf der glatten Kurve
+	# darunter — mit height_at gesampelt schwebten sie auf Graten und steckten in Mulden.
+	var river_chunk := false
+	for rv in rivers:
+		if ox + CHUNK > rv["minx"] and ox < rv["maxx"] and oz + CHUNK > rv["minz"] and oz < rv["maxz"]:
+			river_chunk = true
+			break
+	for j in CELLS:
+		for i in CELLS:
+			var h00 := hs[j * (CELLS + 1) + i]
+			var h10 := hs[j * (CELLS + 1) + i + 1]
+			var h01 := hs[(j + 1) * (CELLS + 1) + i]
+			var h11 := hs[(j + 1) * (CELLS + 1) + i + 1]
+			var hc := (h00 + h10 + h01 + h11) * 0.25
+			if hc < SEA_Y + 1.0:
 				continue
-			var w := rng.randf()
-			if w < 0.05:
-				art = "Palme"
-				lo = 1.0
-				hi = 1.7
-			elif w < 0.085:
-				art = "Totholz"
-				lo = 0.9
-				hi = 1.5
-			elif w < 0.15:
-				art = "Busch"
-				lo = 0.8
-				hi = 1.8
-			else:
+			# Steilheit als Hoehenunterschied ueber die 8-m-Zelle (aus dem Raster, gratis)
+			var slope := maxf(maxf(absf(h10 - h00), absf(h01 - h00)),
+				maxf(absf(h11 - h10), absf(h11 - h01)))
+			var cx := ox + (float(i) + 0.5) * step
+			var cz := oz + (float(j) + 0.5) * step
+			# Eingeebnete Flugplaetze/Plateaus bleiben frei — frueher besorgte das die
+			# Hoehenschwelle nebenbei, jetzt explizit (siehe FLORA_MIN_H).
+			var open := _open_ground(cx, cz)
+			if open <= 0.01:
 				continue
-		else:
-			var f := _forest.get_noise_2d(px, pz)
-			if f < 0.05:
-				continue   # kein Wald-Cluster hier
-			var dens := clampf((f - 0.05) * 3.2, 0.0, 0.95)
+			# FELSEN: unabhaengig vom Wald, bevorzugt an Haengen und in Hochlagen.
+			# Auch oberhalb der Baumgrenze (dort tragen sie die Bergsilhouette).
+			if rng.randf() < open * (0.004 + clampf(slope * 0.012, 0.0, 0.05)
+					+ (0.02 if hc > 45.0 else 0.0)):
+				var rsc := Vector3(rng.randf_range(0.7, 2.6), rng.randf_range(0.5, 1.9),
+					rng.randf_range(0.7, 2.6))
+				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc),
+					Vector3(cx + rng.randf_range(-3.0, 3.0), hc - 0.3,
+						cz + rng.randf_range(-3.0, 3.0))))
+			# --- BEWUCHS ---
+			if hc < FLORA_MIN_H or hc > FLORA_MAX_H:
+				continue   # Strand/Wasser bzw. ueber der Baumgrenze
+			if hc < 34.0 and _submerged(cx, cz, hc, river_chunk):
+				continue   # See- und Flussbett: nicht unter Wasser pflanzen
+			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
+			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.
+			var edge := open * smoothstep(FLORA_MIN_H, FLORA_FULL_H, hc) \
+				* (1.0 - smoothstep(46.0, FLORA_MAX_H, hc)) \
+				* (1.0 - smoothstep(2.8, 4.6, slope))
+			if edge <= 0.005:
+				continue
+			var biome := biome_at(cx, cz)
+			var f := _forest.get_noise_2d(cx, cz)
+			# Waldkern dicht, Rand ausduennend, echte Lichtungen unter f = -0.28.
+			var dens := smoothstep(-0.28, 0.30, f)
+			dens = dens * dens
+			var per_cell := FLORA_PER_CELL
 			if biome == Biome.HEIDE:
-				dens *= 0.35   # offene Heide -> nur vereinzelte Bäume
-			if rng.randf() > dens:
-				continue
-			var r := rng.randf()
-			if h > 42.0:
-				art = "Fichte" if r < 0.86 else "Totholz"
-			elif h > 24.0:
-				if r < 0.50:
-					art = "Fichte"
-				elif r < 0.82:
-					art = "Kiefer"
+				per_cell *= 0.30   # offene Heide -> Strauchwerk und einzelne Baeume
+			elif biome == Biome.WUESTE:
+				if hc > 28.0:
+					continue
+				per_cell *= 0.05   # Wueste: nur Oasen-Tupfer im Rauschen-Hoch
+			var expect := per_cell * dens * edge
+			var n := int(floor(expect))
+			if rng.randf() < expect - float(n):
+				n += 1
+			for k in n:
+				var u := rng.randf()
+				var v := rng.randf()
+				# Hoehe auf der TATSAECHLICHEN Dreiecksflaeche (Diagonale v00-v11 wie
+				# oben trianguliert), damit kein Stamm in der Facette haengt.
+				var hp := (h00 + u * (h10 - h00) + v * (h11 - h10)) if u >= v \
+					else (h00 + v * (h01 - h00) + u * (h11 - h01))
+				var art := ""
+				var lo := 1.1
+				var hi := 2.0
+				if biome == Biome.WUESTE:
+					var w := rng.randf()
+					if w < 0.34:
+						art = "Palme"
+						lo = 1.0
+						hi = 1.7
+					elif w < 0.52:
+						art = "Totholz"
+						lo = 0.9
+						hi = 1.5
+					else:
+						art = "Busch"
+						lo = 0.8
+						hi = 1.8
 				else:
-					art = "Birke"
-			else:
-				if r < 0.26:
-					art = "Eiche"
-				elif r < 0.50:
-					art = "Birke"
-				elif r < 0.70:
-					art = "Fichte"
-				elif r < 0.80:
-					art = "Kiefer"
-				else:
-					art = "Busch"
-			if biome == Biome.HEIDE and rng.randf() < 0.45:
-				art = "Busch"   # offene Heide ist vor allem Strauchwerk
-			if art == "Busch":
-				lo = 0.8
-				hi = 1.8
-		var sc := rng.randf_range(lo, hi)
-		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
-			Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)), Vector3(px, h - 0.15, pz))
-		if not flora.has(art):
-			flora[art] = []
-		flora[art].append(xf)
-	for a in 14:
-		var px := ox + rng.randf() * CHUNK
-		var pz := oz + rng.randf() * CHUNK
-		var h := height_at(px, pz)
-		if h < SEA_Y + 1.0 or absf(h) < 0.4:
-			continue   # nicht im Meer, nicht auf der Flugplatz-Ebene
-		var hx := height_at(px + 6.0, pz)
-		if rng.randf() > (0.18 + clampf(absf(hx - h) * 0.25, 0.0, 0.5) + (0.35 if h > 45.0 else 0.0)):
-			continue   # Felsen bevorzugt an Hängen + in Hochlagen
-		var rsc := Vector3(rng.randf_range(0.7, 2.4), rng.randf_range(0.5, 1.8), rng.randf_range(0.7, 2.4))
-		rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc), Vector3(px, h - 0.3, pz)))
+					var r := rng.randf()
+					if hp > 42.0:
+						art = "Fichte" if r < 0.86 else "Totholz"
+					elif hp > 24.0:
+						if r < 0.50:
+							art = "Fichte"
+						elif r < 0.82:
+							art = "Kiefer"
+						else:
+							art = "Birke"
+					else:
+						if r < 0.26:
+							art = "Eiche"
+						elif r < 0.50:
+							art = "Birke"
+						elif r < 0.70:
+							art = "Fichte"
+						elif r < 0.80:
+							art = "Kiefer"
+						else:
+							art = "Busch"
+					if biome == Biome.HEIDE and rng.randf() < 0.45:
+						art = "Busch"   # offene Heide ist vor allem Strauchwerk
+					if art == "Busch":
+						lo = 0.8
+						hi = 1.8
+				var sc := rng.randf_range(lo, hi)
+				var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
+					Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)),
+					Vector3(ox + (float(i) + u) * step, hp - 0.15,
+						oz + (float(j) + v) * step))
+				if not flora.has(art):
+					flora[art] = []
+				flora[art].append(xf)
 	return {"mesh": mesh, "shape": mesh.create_trimesh_shape(),
 		"flora": flora, "rocks": rocks}
+
+
+## Wie frei ist die Stelle fuer Bewuchs? 0 = eingeebneter Flugplatz/Plateau (auf der
+## Piste waechst nichts, und dort stehen auch keine Felsbrocken), 1 = normales Gelaende.
+## Muss explizit sein: die alte Hoehenschwelle h > 0.8 hat das nebenbei miterledigt,
+## dafuer aber das halbe flache Tiefland gleich mit ausgesperrt.
+## FLUGPLAETZE RECHNEN SEIT DIESER RUNDE MIT RECHTECKEN. Vorher galt auch fuer sie der
+## Kreis unten: rf = min(r_flat, CLEAR_CAP) = 620 m, wieder voll ab rb = rf * 1.85 =
+## 1147 m. Bei 900 m Bahnlaenge heisst das 170 m ueber das Bahnende und rund 600 m
+## seitlich KEIN Baum, kein Busch, kein Stein — im Ueberflug lag der Platz in einer
+## leeren Halo-Scheibe, waehrend heimat_1 und heimat_4 Nadelwald bis 20-40 m an die
+## Bahnkante und Felsbrocken direkt am Bahnrand zeigen. Ein Kreis kann das nicht: er
+## muss den Umkreis der 900-m-Bahn abdecken und raeumt damit zwangslaeufig auch quer
+## dazu 450 m ab, wo gar nichts steht.
+## Jetzt: Abstand zum RAND der bebauten Rechtecke (Bahn, Rollweg/Vorfeld, bei den
+## Aussenfeldern zusaetzlich die Blender-Bauten). Kreise bleiben fuer Stadt, Dorf,
+## Leuchtturm & Co. — die sind rund, dort war der Kreis nie das Problem.
+func _open_ground(x: float, z: float) -> float:
+	var k := 1.0
+	for af in airfields:
+		var ap: Vector3 = af["pos"]
+		var dx := x - ap.x
+		var dz := z - ap.z
+		# Quadrat-Vergleich zuerst: _face_color ruft das je DREIECK (4608 pro Chunk)
+		# ueber alle zwoelf Zonen auf — fast immer liegt die Stelle draussen, und
+		# dieser Zweig kostet dann weder Wurzel noch smoothstep.
+		var d2 := dx * dx + dz * dz
+		if af.has("rects"):
+			var rmax: float = af["_rmax"]
+			if d2 >= rmax * rmax:
+				continue
+			# In Platz-Koordinaten drehen (Bahn laeuft dort laengs Z). cos/sin sind in
+			# setup() vorberechnet.
+			var co: float = af["_cos"]
+			var si: float = af["_sin"]
+			var lx := co * dx - si * dz
+			var lz := si * dx + co * dz
+			var nah := 1.0e9
+			for r in af["rects"]:
+				# Abstand Punkt->Rechteck: Ueberstand je Achse, negativ = innerhalb.
+				var qx: float = absf(lx - float(r[0])) - float(r[2])
+				var qz: float = absf(lz - float(r[1])) - float(r[3])
+				if qx <= 0.0 and qz <= 0.0:
+					nah = 0.0
+					break
+				var ex := maxf(qx, 0.0)
+				var ez := maxf(qz, 0.0)
+				nah = minf(nah, sqrt(ex * ex + ez * ez))
+			k = minf(k, smoothstep(FREI_INNEN, FREI_AUSSEN, nah))
+		else:
+			var rf := minf(float(af["r_flat"]), CLEAR_CAP)
+			var rb := minf(float(af["r_blend"]), rf * 1.85)
+			if d2 >= rb * rb:
+				continue
+			k = minf(k, smoothstep(rf, rb, sqrt(d2)))
+		if k <= 0.0:
+			break
+	return k
+
+
+## Steht an dieser Stelle Wasser ueber dem Boden? Meer deckt height_at schon ab, aber
+## Inlandsee-Becken und Flussbetten liegen UEBER 0.8 m — ohne diese Pruefung waechst
+## bei der neuen Dichte sichtbar Wald auf dem Seegrund.
+## Der Fluss-Teil laeuft nur, wenn ueberhaupt eine Spline-AABB den Chunk schneidet.
+func _submerged(x: float, z: float, h: float, check_rivers: bool) -> bool:
+	for lk in lakes:
+		var lp: Vector3 = lk["pos"]
+		if Vector2(x - lp.x, z - lp.z).length() < float(lk["r"]) and h < float(lk["surf"]) + 0.8:
+			return true
+	if not check_rivers:
+		return false
+	for rv in rivers:
+		if x < rv["minx"] or x > rv["maxx"] or z < rv["minz"] or z > rv["maxz"]:
+			continue
+		var pts: PackedVector3Array = rv["pts"]
+		var lim: float = float(rv["w"]) * 1.4
+		for i in range(pts.size() - 1):
+			var a := pts[i]
+			var b := pts[i + 1]
+			var dx := b.x - a.x
+			var dz := b.z - a.z
+			var l2 := dx * dx + dz * dz
+			var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.z) * dz) / l2, 0.0, 1.0)
+			var px := a.x + dx * t
+			var pz := a.z + dz * t
+			if (x - px) * (x - px) + (z - pz) * (z - pz) < lim * lim \
+					and h < lerpf(a.y, b.y, t) + 0.8:
+				return true
+	return false
 
 
 # Ein Dreieck mit Flächenfarbe (aus Höhe + Steilheit am Schwerpunkt) einfügen.
@@ -670,6 +1107,16 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 		return Color(0.35, 0.31, 0.27).lerp(Color(0.56, 0.52, 0.46),
 			clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
 	var t := _patch.get_noise_2d(cen.x, cen.z)
+	# WALDBODEN: exakt dieselbe Dichte-Formel wie die Bepflanzung in _make_chunk_data,
+	# also faerbt sich der Boden GENAU dort dunkel, wo auch Baeume stehen. Zwei Gewinne:
+	# unter dem Kronendach wirkt der Wald geschlossen statt aufgesetzt, und JENSEITS der
+	# Instanz-Sichtweite (FLORA_DIST, 3.2 km) liest sich das Land weiter als Wald statt
+	# als Rasen — ohne dafuer einen einzigen Baum zu zeichnen.
+	# _open_ground MUSS mit: sonst liegt rund um Bahn und Stadt dunkler Waldboden
+	# auf einer Wiese, auf der per Definition kein Baum steht.
+	var wald := smoothstep(-0.28, 0.30, _forest.get_noise_2d(cen.x, cen.z))
+	wald = wald * wald * smoothstep(FLORA_MIN_H, FLORA_FULL_H, cen.y) \
+		* (1.0 - smoothstep(46.0, FLORA_MAX_H, cen.y)) * _open_ground(cen.x, cen.z)
 	match biome_at(cen.x, cen.z):
 		Biome.WUESTE:
 			# Wüste: warme Sand-/Dünentöne, Erd-/Felsbänder dazwischen
@@ -681,27 +1128,63 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 				clampf(t * 0.6 + 0.5, 0.0, 1.0))
 		Biome.HEIDE:
 			# Heide/Herbst: staubiges Rosé/Ocker
-			if t < -0.40:
-				return Color(0.74, 0.62, 0.60) # Rosé-Fleck
-			if t > 0.45:
-				return Color(0.80, 0.72, 0.50) # Ocker-Gras
-			return Color(0.74, 0.68, 0.50).lerp(Color(0.66, 0.58, 0.50),
+			var hc := Color(0.74, 0.68, 0.50).lerp(Color(0.66, 0.58, 0.50),
 				clampf(t * 0.6 + 0.5, 0.0, 1.0))
+			if t < -0.40:
+				hc = Color(0.74, 0.62, 0.60)   # Rosé-Fleck
+			elif t > 0.45:
+				hc = Color(0.80, 0.72, 0.50)   # Ocker-Gras
+			# Heide traegt nur 30 % der Walddichte -> auch nur ein Hauch Waldboden
+			return hc.lerp(Color(0.44, 0.44, 0.31), wald * 0.30)
 		_:
 			# Wald/Wiese: SATTES Wiesen-Grün, nur wenige dezente Flecken (kein blasses Mint mehr)
-			if t < -0.55:
-				return Color(0.50, 0.52, 0.40) # seltener erdiger Fleck
-			if t > 0.55:
-				return Color(0.62, 0.62, 0.44) # seltener trockener Gras-Fleck
 			var g1 := Color(0.40, 0.61, 0.28)  # frisches, sattes Wiesen-Grün
 			var g2 := Color(0.28, 0.49, 0.23)  # tieferes Grün
-			return g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
+			var wc := g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
+			if t < -0.55:
+				wc = Color(0.50, 0.52, 0.40)   # seltener erdiger Fleck
+			elif t > 0.55:
+				wc = Color(0.62, 0.62, 0.44)   # seltener trockener Gras-Fleck
+			return wc.lerp(Color(0.15, 0.29, 0.16), wald * 0.62)
 
 
 # Baumarten aus models/world_trees.glb (tools/build_baeume.py). Die Meshes tragen
 # VERTEX-FARBEN und werden wie das Terrain mit _mat gezeichnet (ALBEDO = COLOR).
 # Fehlt das glb, fallen alle Arten auf die alten prozeduralen Formen zurueck — das
 # Spiel laeuft dann weiter, nur mit weniger Vielfalt.
+## Erzeugt vereinfachte Stufen fuer ein Mesh. Fuer die Flora ist das der groesste
+## Einzelhebel der Bodenansicht: gemessen kostet sie 4,65 von 7,86 ms je Bild (59 %) und
+## stellt 5,46 von 7,35 Mio Primitiven (74 %) — und das fuer Baeume, die in der Ferne nur
+## wenige Bildpunkte gross sind.
+## Die Stufen kommen NICHT aus dem Import: der Baum-GLB liefert sie nicht mit, und die
+## prozeduralen Ersatzmeshes koennen es gar nicht. Deshalb hier zur Ladezeit.
+## Baut eine VEREINFACHTE Fassung eines Meshes: dieselben Ecken, aber die Indexliste der
+## groebsten von generate_lods() erzeugten Stufe.
+##
+## WARUM NICHT EINFACH lod_bias AN DER MULTIMESH-INSTANZ: gemessen. Mit erzeugten
+## LOD-Stufen und lod_bias 1.0 bis 0.2 aenderte sich die Primitivzahl von 7.354.668 auf
+## 7.346.396 — ein Promille. Godot waehlt fuer eine MultiMesh keine LOD-Stufe aus; die
+## Stufen liegen zwar im Mesh, werden aber nie benutzt. Also muss das Mesh SELBST
+## getauscht werden, und genau das macht _flora_stufen() je Chunk.
+static func _grobe_fassung(quelle: Mesh) -> Mesh:
+	if quelle == null or quelle.get_surface_count() == 0:
+		return quelle
+	var im := ImporterMesh.new()
+	for si in quelle.get_surface_count():
+		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, quelle.surface_get_arrays(si), [], {}, null, "", 0)
+	im.generate_lods(25.0, 60.0, [])
+	var raus := ArrayMesh.new()
+	for si in quelle.get_surface_count():
+		var arr := quelle.surface_get_arrays(si)
+		var n := im.get_surface_lod_count(si)
+		if n > 0:
+			# Die letzte Stufe ist die groebste. Sie teilt sich die Eckenliste mit der
+			# Vollfassung, es aendert sich nur die Reihenfolge der Dreiecke.
+			arr[Mesh.ARRAY_INDEX] = im.get_surface_lod_indices(si, n - 1)
+		raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return raus
+
+
 func _load_flora() -> Dictionary:
 	var d: Dictionary = {}
 	var ps: Resource = load("res://models/world_trees.glb")

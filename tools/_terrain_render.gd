@@ -1,229 +1,163 @@
 extends SceneTree
-## Offscreen-Render der Flugwelt (Terrain + Himmel + Sonne + Fog) in einen SubViewport,
-## um den "Vibe" der Map ohne das schwarze Hauptfenster zu beurteilen.
+## ABNAHME-RENDER DER ECHTEN FLUGWELT.
+##
+## Frueher baute dieses Werkzeug eine EIGENE Welt nach: fester Seed, halber POI-Satz,
+## eine tool-eigene 26-km-Wasserplatte, camera.far 7000 und keine Wolken. Es zeigte damit
+## eine Welt, die es im Spiel nicht gibt — als Abnahme-Beleg wertlos.
+##
+## Jetzt wird scenes/Main.tscn instanziert und in den FLUG-Zustand geschaltet. Damit ist
+## per Konstruktion alles drin, was der Spieler sieht: sein Seed aus dem Spielstand,
+## alle Flugplaetze, Staedte, Inseln, Windpark, Schiffe, Wolken, das Wasser des Terrains
+## und dieselbe Kamera-Fernebene (9 km).
+##
 ## Godot --path . --script res://tools/_terrain_render.gd -- <out_prefix>
 
-var frame := 0
-var vp: SubViewport
+const VFOV := 64.0        # wie Main._setup_camera (ViewUtil, ultrawide-bewusst)
+const CAM_FAR := 9000.0   # wie Main._setup_camera — NICHT 7000
+const SHOT_W := 1280
+const SHOT_H := 720
+
 var prefix := "/tmp/map"
+var vp: SubViewport
+var main: Node3D
 var cam: Camera3D
 var terrain: TerrainWorld
-var _desert_c := Vector3.ZERO
-var _mtn_c := Vector3.ZERO
-var _peak := 0.0
 
-var _shots: Array = []
-var _si := 0
+var _started := false
+var _finished := false
+var _seen := {}          # md5 -> Shot-Name (Doppel-Erkennung)
+
+# [Name, Kameraposition, Blickziel]
+var _shots: Array = [
+	["pan1", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],           # Spawn -> Stadt/See/Berge
+	["pan2", Vector3(3550, 360, 600), Vector3(2500, 90, 1450)],          # Blick aufs Bergmassiv
+	["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],                # ueber dem Flugfeld HEIMAT
+	["grossstadt", Vector3(4300, 420, 4100), Vector3(4300, 60, 2500)],   # Skyline aus Sued
+	["windpark", Vector3(-3900, 300, 900), Vector3(-3900, 40, -700)],    # Windpark + Weite
+	["vulkan", Vector3(11800, 780, -4750), Vector3(11800, 120, -5600)],  # Vulkaninsel von Norden
+	["canyon", Vector3(-6300, 120, 1300), Vector3(-4900, 20, 3100)],     # IN die Schlucht
+	["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)], # Schlucht von oben
+]
+
 
 func _process(_d: float) -> bool:
-	frame += 1
-	if frame == 1:
-		var ua := OS.get_cmdline_user_args()
-		if ua.size() >= 1 and ua[0] != "": prefix = ua[0]
-		_setup()
-		_shots = [
-			["pan1", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],     # Spawn -> Stadt/See/Berge
-			["pan2", Vector3(3550, 360, 600), Vector3(2500, 90, 1450)],    # Blick aufs Bergmassiv
-			["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],          # über dem Flugfeld
-			["vulkan", Vector3(11800, 780, -4750), Vector3(11800, 120, -5600)],  # nah von Norden auf die Vulkaninsel
-			["canyon", Vector3(-6300, 120, 1300), Vector3(-4900, 20, 3100)],  # IN die Schlucht blicken
-			["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)],  # Schlucht von oben
-		]
-		return false
-	if frame == 6:
-		print("chunks=", terrain.get_child_count(), " h(C)=", terrain.height_at(3600.0, 3600.0),
-			" h(spawn+400)=", terrain.height_at(0.0, 400.0))
-	# Pro Shot: Kamera setzen, 3 Frames rendern lassen, dann fotografieren
-	if frame >= 6 and (frame - 6) % 3 == 0:
-		var idx := (frame - 6) / 3
-		if idx < _shots.size():
-			var s = _shots[idx]
-			cam.look_at_from_position(s[1], s[2], Vector3.UP)
-	if frame >= 8 and (frame - 8) % 3 == 0:
-		var idx := (frame - 8) / 3
-		if idx < _shots.size():
-			var s = _shots[idx]
-			var img := vp.get_texture().get_image()
-			img.save_png("%s_%s.png" % [prefix, s[0]])
-			print("Render -> %s_%s.png" % [prefix, s[0]])
-			if idx == _shots.size() - 1:
-				quit()
-				return true
-	return false
+	if not _started:
+		_started = true
+		_run()          # Koroutine — laeuft ueber viele Frames weiter
+	return _finished
+
+
+func _run() -> void:
+	var ua := OS.get_cmdline_user_args()
+	if ua.size() >= 1 and ua[0] != "":
+		prefix = ua[0]
+
+	_setup()
+	# Main._ready() ist beim Einhaengen gelaufen; ein Frame Ruhe fuer Threads/Deferreds.
+	await process_frame
+	await process_frame
+	_to_flight_state()
+
+	print("SEED=", main.game.world_seed, "  far=", cam.far, "  fov=", cam.fov,
+		"  Flugplaetze=", main.airfields.size(), "  POIs=", main._map_pois.size(),
+		"  Wolken=", _count_clouds())
+
+	var t0 := Time.get_ticks_msec()
+	for s in _shots:
+		await _shoot(String(s[0]), s[1], s[2])
+	print("Gesamt %.1f s fuer %d Shots" % [(Time.get_ticks_msec() - t0) / 1000.0, _shots.size()])
+
+	_finished = true
+	quit()
+
 
 func _setup() -> void:
 	vp = SubViewport.new()
-	vp.size = Vector2i(1280, 720)
+	vp.size = Vector2i(SHOT_W, SHOT_H)
 	vp.transparent_bg = false
 	vp.msaa_3d = Viewport.MSAA_4X
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	get_root().add_child(vp)
-	var w := Node3D.new(); vp.add_child(w)
 
-	# --- Wolken-Himmel (Shader) + satte Farben ---
-	var env := Environment.new()
-	var sky := Sky.new()
-	var sm := ShaderMaterial.new()
-	sm.shader = load("res://shaders/sky_clouds.gdshader")
-	# Sonnenrichtung passend zur DirectionalLight unten (rot -50,-50)
-	var sb := Basis.from_euler(Vector3(deg_to_rad(-50), deg_to_rad(-50), 0))
-	sm.set_shader_parameter("sun_dir", sb.z)
-	sky.sky_material = sm
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.85
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_white = 6.0
-	env.tonemap_exposure = 1.0
-	# KLAR & LEBENDIG (aber nicht grell): satte Farben halten, Helligkeit gezähmt.
-	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.18
-	env.adjustment_contrast = 1.05
-	env.adjustment_brightness = 1.0
-	# Klare Luft: nur dezente Fern-Tiefe (kein dichter Milchnebel mehr).
-	env.fog_enabled = true
-	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.66, 0.79, 0.94)
-	env.fog_sun_scatter = 0.15
-	env.fog_density = 0.00006
-	env.fog_aerial_perspective = 0.30
-	env.fog_sky_affect = 0.1
-	env.glow_enabled = true
-	env.glow_intensity = 0.15                          # dezentes Glühen, kein Schleier
-	env.glow_strength = 0.85
-	env.glow_bloom = 0.06
-	env.glow_hdr_threshold = 1.45
-	var we := WorldEnvironment.new()
-	we.environment = env
-	w.add_child(we)
-
-	# Hohe, freundliche Tagessonne (einen Tick wärmer -> verspielt)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-50, -50, 0)
-	sun.light_color = Color(1.0, 0.97, 0.88)
-	sun.light_energy = 1.30
-	sun.shadow_enabled = false
-	sun.directional_shadow_max_distance = 600.0
-	w.add_child(sun)
-	var underfill := DirectionalLight3D.new()
-	underfill.rotation_degrees = Vector3(58, 130, 0)
-	underfill.light_color = Color(0.80, 0.86, 0.95)
-	underfill.light_energy = 0.32
-	w.add_child(underfill)
-
-	# Sauberes, helles blaues Wasser (clean) — leicht spiegelnd
-	var sea := MeshInstance3D.new()
-	var pm := PlaneMesh.new(); pm.size = Vector2(12000, 12000)
-	sea.mesh = pm
-	var smat := ShaderMaterial.new()
-	smat.shader = load("res://shaders/water.gdshader")
-	sea.material_override = smat
-	sea.position = Vector3(0, TerrainWorld.SEA_Y, 0)
-	w.add_child(sea)
-
-	# --- Terrain + POIs (Stufe 2/3) — Spiegel von Main._setup_world ---
-	terrain = TerrainWorld.new()
-	var town_pos := Vector3(1400, 0, 750)
-	var factory_pos := town_pos + Vector3(-225, 0, 95)
-	var lake_pos := Vector3(1400, 0, 1030)
-	var lh_pos := Vector3(-950, 0, -1250)
-	var village_pos := Vector3(2550, 120, 1650)
-	var flat_zones := [
-		{"pos": Vector3.ZERO, "r_flat": 1700.0, "r_blend": 2300.0},
-		{"pos": town_pos, "r_flat": 360.0, "r_blend": 760.0},
-		{"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0},
-		{"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0},
-		{"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0},
-	]
-	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0},
-		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0}]
-	var massifs := [
-		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
-				# CANYON-FLANKEN: erzwungene Grate beidseits der Schlucht-Spline — der River-Carve
-		# schneidet DANACH hindurch (Reihenfolge in height_at) -> echte Waende, seed-robust.
-		{"pos": Vector3(-6725, 0, 1450), "r": 750.0, "peak": 120.0},
-		{"pos": Vector3(-5875, 0, 950), "r": 750.0, "peak": 135.0},
-		{"pos": Vector3(-5675, 0, 3050), "r": 750.0, "peak": 140.0},
-		{"pos": Vector3(-4825, 0, 2550), "r": 750.0, "peak": 125.0},
-		{"pos": Vector3(-4625, 0, 4350), "r": 700.0, "peak": 110.0},
-		{"pos": Vector3(-3775, 0, 3850), "r": 700.0, "peak": 120.0},
-		{"pos": Vector3(11800, 0, -5600), "r": 1250.0, "peak": 230.0, "type": "vulkan"},
-		{"pos": Vector3(16000, 0, -3800), "r": 520.0, "peak": 40.0, "type": "insel"},
-		{"pos": Vector3(12500, 0, -11500), "r": 500.0, "peak": 34.0, "type": "insel"},
-		
-	]
-	var rivers := [{
-		"w": 40.0, "valley": 260.0, "depth": 7.0,
-		"pts": [
-			Vector3(-6600, 46, 900), Vector3(-6050, 34, 1900), Vector3(-5250, 22, 2800),
-			Vector3(-4450, 12, 3700), Vector3(-3800, 8, 4500), Vector3(-3380, 4, 5100),
-		],
-	}, {
-		"w": 13.0, "valley": 55.0, "depth": 4.0,
-		"pts": [
-			Vector3(2545, 112, 1760), Vector3(2330, 82, 1600), Vector3(2110, 56, 1460),
-			Vector3(1900, 35, 1320), Vector3(1710, 20, 1210), Vector3(1560, 8, 1130),
-			Vector3(1460, 1, 1075), Vector3(1430, -1, 1030),
-		],
-	}]
-	terrain.setup(20259, flat_zones, lakes, rivers, massifs)
-	w.add_child(terrain)
-	# Tool-eigene Riesen-Wasserflaeche: _water folgt sonst nur dem letzten update_center
-	# und deckt weit auseinanderliegende Shot-Gebiete (Vulkan!) nicht ab.
-	var big_water := MeshInstance3D.new()
-	var bwm := PlaneMesh.new()
-	bwm.size = Vector2(26000, 26000)
-	big_water.mesh = bwm
-	big_water.position = Vector3(0, TerrainWorld.SEA_Y + 0.13, 0)
-	var bmat := ShaderMaterial.new()
-	bmat.shader = load("res://shaders/water.gdshader")
-	big_water.material_override = bmat
-	w.add_child(big_water)
-	Landmarks.build_town(w, town_pos)
-	Landmarks.build_airship_factory(w, factory_pos, 0.12)
-	Landmarks.build_lighthouse(w, lh_pos)
-	Landmarks.build_village(w, village_pos)
-	Landmarks.build_bridge(w, Vector3(1560, 22, 1130), 120.0, 1.0)
-	terrain.build_now_around(town_pos, 700.0, false)
-	terrain.build_now_around(Vector3(1950, 0, 1400), 800.0, false)   # Flusstal
-	terrain.build_now_around(village_pos, 800.0, false)
-	terrain.build_now_around(Vector3(11800, 0, -5600), 1400.0, false)   # Vulkaninsel
-	terrain.build_now_around(Vector3(-5250, 0, 2800), 1100.0, false)    # Canyon-Mitte
-	terrain.build_now_around(Vector3(-6300, 0, 1300), 800.0, false)     # Canyon-Nord (Kamera)
-	terrain.build_now_around(Vector3(-4100, 0, 4200), 900.0, false)     # Canyon-Sued
-	
-	# Scan: finde ein Wüsten- und ein Hochgebirgs-Zentrum (Noise ist sofort abfragbar)
-	var desert_c := Vector3(4200, 0, 0)
-	var mtn_c := Vector3(0, 0, 4200)
-	var best_relief := -1.0
-	var found_desert := false
-	for ang in range(0, 360, 12):
-		for dist in [3200.0, 4000.0, 4800.0, 5600.0]:
-			var dd: float = dist
-			var px: float = cos(deg_to_rad(ang)) * dd
-			var pz: float = sin(deg_to_rad(ang)) * dd
-			var rel: float = terrain.relief_at(px, pz) * smoothstep(700.0, 3000.0, dd)
-			if rel > best_relief:
-				best_relief = rel; mtn_c = Vector3(px, 0, pz)
-			if not found_desert and terrain.biome_at(px, pz) == 1:  # WUESTE
-				found_desert = true; desert_c = Vector3(px, 0, pz)
-	# höchsten Gipfel ums Gebirgs-Zentrum finden (für die Kamera-Höhe)
-	var peak := 0.0
-	for dx in range(-700, 701, 100):
-		for dz in range(-700, 701, 100):
-			peak = maxf(peak, terrain.height_at(mtn_c.x + dx, mtn_c.z + dz))
-	print("DESERT @ ", desert_c, "  MTN @ ", mtn_c, "  peak=", peak, "  relief=", best_relief)
-	terrain.build_now_around(Vector3.ZERO, 600.0, false)
-	terrain.build_now_around(desert_c, 850.0, false)
-	terrain.build_now_around(mtn_c, 950.0, false)
-	_desert_c = desert_c
-	_mtn_c = mtn_c
-	_peak = peak
+	# DIE ECHTE SPIELSZENE. Kein Nachbau mehr.
+	main = load("res://scenes/Main.tscn").instantiate()
+	vp.add_child(main)
+	terrain = main.terrain
 
 	cam = Camera3D.new()
-	cam.fov = 62.0
-	cam.far = 7000.0
-	cam.current = true
+	cam.far = CAM_FAR
 	vp.add_child(cam)
-	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	ViewUtil.apply_vfov(cam, VFOV)     # 1280x720 = 16:9 -> vertikal 64 Grad wie im Spiel
+	cam.current = true                 # verdraengt Main.camera
 
+
+## Main startet im BAU-Modus (Blueprint-Raum, Showroom-Licht, Bau-UI). _set_mode(FLY)
+## koennen wir nicht aufrufen — das baut ein Flugzeug, faengt die Maus und startet
+## Survival-Wellen. Also genau die Sicht-Umschaltungen aus _set_mode nachziehen und
+## danach `mode` auf FLY setzen, damit Mains _process nicht die Bau-Leiste synchronisiert.
+func _to_flight_state() -> void:
+	main.build_ctrl.set_active(false)
+	main.build_ctrl.design_root.visible = false
+	main.build_root.visible = false
+	main.flight_root.visible = false          # HUD gehoert nicht auf ein Landschaftsbild
+	main.world_env.environment = main.env_sky
+	main.fly_world.visible = true
+	if main.showroom != null:
+		main.showroom.set_stage_visible(false)
+	if main.sky_lights != null:
+		main.sky_lights.visible = true
+	main.camera.current = false
+	cam.current = true
+	main.mode = 1                              # Main.Mode.FLY
+	_hide_overlays(main)
+
+
+## Alles, was ueber der 3D-Welt liegt (Bau-UI, HUD, Vignette, Modus-Dialog), abschalten.
+func _hide_overlays(n: Node) -> void:
+	for c in n.get_children():
+		if c is CanvasLayer:
+			c.visible = false
+		_hide_overlays(c)
+
+
+func _count_clouds() -> int:
+	var cf: Node = main.fly_world.find_child("CloudField", false, false)
+	return 0 if cf == null else cf.get_child_count()
+
+
+func _shoot(name: String, pos: Vector3, target: Vector3) -> void:
+	# Erneut, nicht nur einmal beim Aufbau: Main haengt die Karte erst ein, wenn der
+	# Hintergrund-Thread ihr Bild geliefert hat — die CanvasLayer entsteht also spaeter.
+	_hide_overlays(main)
+	cam.look_at_from_position(pos, target, Vector3.UP)
+	# Die Welt so hinstellen, wie sie fuer einen Spieler AN DIESER STELLE aussieht:
+	# update_center schiebt die Wasserplatte des Terrains mit und wirft Chunks jenseits
+	# von VIEW_DIST weg (echte Weltkante!), build_now_around fuellt den Rest SYNCHRON,
+	# damit nichts halb geladen ins Bild kommt.
+	var t0 := Time.get_ticks_msec()
+	terrain.update_center(pos)
+	terrain.build_now_around(pos, TerrainWorld.VIEW_DIST, false)
+	var build_ms := Time.get_ticks_msec() - t0
+	await process_frame
+
+	var path := "%s_%s.png" % [prefix, name]
+	var sum := ""
+	# Bis zu 8 Versuche: get_image() liefert nur NACH frame_post_draw den frisch
+	# gezeichneten Inhalt. Fehlte dieses await, kam unter GPU-Last der vorige Frame
+	# zurueck — daher die frueher mehrfach identischen PNGs. Der Doppel-Check haelt
+	# das dauerhaft ehrlich, statt sich auf "zwei Frames warten reicht schon" zu verlassen.
+	for versuch in 8:
+		await RenderingServer.frame_post_draw
+		vp.get_texture().get_image().save_png(path)
+		sum = FileAccess.get_md5(path)
+		if not _seen.has(sum):
+			break
+		print("  ! %s gleicht noch %s (md5 %s) — Versuch %d" % [name, _seen[sum], sum, versuch + 1])
+
+	if _seen.has(sum):
+		push_warning("Shot %s ist IDENTISCH mit %s" % [name, _seen[sum]])
+		print("FEHLER: %s == %s (md5 %s)" % [name, _seen[sum], sum])
+	else:
+		_seen[sum] = name
+	print("Render -> %s   md5=%s  chunks=%d  h=%.1f  build=%d ms"
+		% [path, sum, terrain.get_child_count(), terrain.height_at(pos.x, pos.z), build_ms])

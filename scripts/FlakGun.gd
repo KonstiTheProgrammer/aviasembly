@@ -12,6 +12,10 @@ var zone_center := Vector3.ZERO
 var zone_radius := 320.0
 
 const RANGE := 1700.0           # max. Verfolgungsdistanz (Lauf zielt)
+# Ab dieser Wolkendichte gilt der Spieler als gedeckt und wird nicht mehr beschossen.
+# Bewusst nicht bei 0.99: man soll sich in den Rand einer Wolke retten koennen, ohne
+# genau ihren Mittelpunkt treffen zu muessen.
+const DECKUNG_SCHWELLE := 0.35
 const MIN_ALT := 45.0           # Zielband: darunter feuert die Flak NICHT (zu tief)
 const MAX_ALT := 650.0          # ... darüber auch nicht (zu hoch)
 const SHELL_SPEED_LO := 340.0   # Granaten-Tempo TIEF (schnell -> kurze Vorwarnzeit)
@@ -71,7 +75,14 @@ func _process(delta: float) -> void:
 		_aim(sol["point"])
 		var in_band := alt > MIN_ALT and alt < MAX_ALT
 		var in_zone := Vector2(p.x - zone_center.x, p.z - zone_center.z).length() < zone_radius
-		if in_band and in_zone:
+		# WOLKENDECKUNG: wer in einer Wolke sitzt, ist vom Boden aus nicht anzuvisieren.
+		# Damit wird die Wolkendecke zum taktischen Gelaende statt zur Kulisse — man kann
+		# sich in sie hineinfluechten. Das Rohr richtet weiter auf die letzte Loesung
+		# (es verliert das Ziel ja nicht aus dem Kopf), es FEUERT nur nicht mehr.
+		# Die Zahl schreibt Main jeden Frame ans Flugzeug; die Flak kennt weder
+		# CloudField noch Main, und das soll so bleiben.
+		var deckung: float = plane.get_meta("wolken_dichte", 0.0)
+		if in_band and in_zone and deckung < DECKUNG_SCHWELLE:
 			_cd -= delta
 			if _cd <= 0.0:
 				_fire(sol)
