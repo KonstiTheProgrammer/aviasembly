@@ -419,6 +419,16 @@ func _free_ghost_xform() -> Transform3D:
 # ---------------------------------------------------------------------------
 func _unhandled_input(event: InputEvent) -> void:
 	_ruhe_zeit = 0.0        # jede Eingabe haelt die Praesentationsdrehung an
+	# TOTE AUSWAHL WEGRAEUMEN, BEVOR IRGENDEIN KLICK SIE ANFASST.
+	# Beim Wechsel in den Flug gibt Main den Design-Baum frei. selected_part zeigt danach
+	# auf einen freigegebenen Knoten, und die Griffe des Gizmos haengen als Kollider noch
+	# bis zum Frameende in der Szene — queue_free wirkt erst dann. Ein Mausklick in genau
+	# dieses Fenster traf einen Griff, lief in _begin_handle_drag und griff dort auf
+	# selected_part.transform zu: "Invalid access to property or key 'transform' on a base
+	# object of type 'previously freed'". Im Debug-Build haelt Godot an dieser Stelle an,
+	# und das sieht aus wie ein Absturz — es war der Absturz beim Druecken von Start.
+	if selected_part != null and not is_instance_valid(selected_part):
+		_deselect()
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_RIGHT:
@@ -1402,6 +1412,11 @@ func set_gizmo_mode(m: int) -> void:
 		_emit_selection()
 
 func _begin_handle_drag(handle: Node3D) -> void:
+	# Zweite Schranke. Die erste steht in _unhandled_input; diese hier faengt den Fall ab,
+	# dass die Auswahl zwischen Klickauswertung und Ziehbeginn wegfaellt.
+	if handle == null or not is_instance_valid(handle) or not is_instance_valid(selected_part):
+		_deselect()
+		return
 	_drag_handle = handle
 	_moving_sel = false
 	_rotating = false
@@ -3283,12 +3298,22 @@ func _mirror_xform(t: Transform3D) -> Transform3D:
 # Raycast-Helfer
 # ---------------------------------------------------------------------------
 func _raycast_mouse(mask := BUILD_LAYER, exclude: Array[RID] = []) -> Dictionary:
-	if camera == null:
+	# ALLE DREI STUECKE PRUEFEN, nicht nur die Kamera. Godot bricht mit einem
+	# GDScript-Fehler ab, wenn get_world_3d() null liefert — und im Editor haelt der
+	# Debugger bei jedem GDScript-Fehler an, was sich wie ein Absturz anfuehlt. Der Fall
+	# tritt auf, sobald der Bau-Controller nicht mehr im Baum haengt oder seine Kamera
+	# beim Moduswechsel schon freigegeben ist, ein Mausklick aber noch durchkommt.
+	if camera == null or not is_instance_valid(camera) or not is_inside_tree():
 		return {}
-	var mp := get_viewport().get_mouse_position()
+	var vp := get_viewport()
+	if vp == null or vp.get_world_3d() == null:
+		return {}
+	var mp := vp.get_mouse_position()
 	var from := camera.project_ray_origin(mp)
 	var to := from + camera.project_ray_normal(mp) * 2000.0
-	var space := get_viewport().get_world_3d().direct_space_state
+	var space := vp.get_world_3d().direct_space_state
+	if space == null:
+		return {}
 	var q := PhysicsRayQueryParameters3D.create(from, to)
 	q.collision_mask = mask
 	q.collide_with_areas = false
