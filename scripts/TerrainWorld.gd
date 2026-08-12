@@ -42,6 +42,10 @@ const FLORA_GROB_AB := 1100.0
 # Stichprobe der Flaeche — deshalb genuegt visible_instance_count und es muss nichts
 # neu gebaut werden.
 const FLORA_GROB_ANTEIL := 0.55
+# Zeitbudget je Frame fuer das Nachziehen aufgeschobener Flora (Mikrosekunden).
+# 1200 us ist rund ein Vierzehntel eines 60-Hz-Frames: genug, damit ein Chunk in wenigen
+# Frames vollstaendig bestueckt ist, wenig genug, um im Bild nicht aufzufallen.
+const FLORA_BUDGET_US := 1200.0
 # GEMESSEN (1280x720, VSync aus, Reiseflug 400 m ueber Land, Blick in die Ferne):
 #                       Bildzeit   Primitive
 #   ohne Sparstufen     7,86 ms    7.354.668
@@ -90,6 +94,7 @@ var _mesh_leaf: ArrayMesh       # Low-Poly-Laubbaum
 var _mesh_rock: ArrayMesh       # Low-Poly-Felsblock
 var _flora_mmis: Array = []     # alle Flora-MultiMeshes, fuer _flora_stufen
 var _grob_cache := {}           # Quellmesh -> vereinfachte Fassung
+var _flora_warteschlange: Array = []   # Flora, die noch eingehaengt werden muss
 var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
 var _flora_mat: ShaderMaterial  # wie _mat, zusätzlich Entfernungs-Schrumpfen
 
@@ -714,6 +719,24 @@ func _process(_delta: float) -> void:
 			continue
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
 			item.get("rocks", []))
+	_flora_nachziehen()
+
+
+## Haengt aufgeschobene Flora nach, gedeckelt durch ein Zeitbudget statt durch eine feste
+## Anzahl: die Arten unterscheiden sich um mehr als das Zehnfache in der Pflanzenzahl, ein
+## Stueckzaehler wuerde also mal zu wenig und mal zu viel zulassen.
+func _flora_nachziehen() -> void:
+	if _flora_warteschlange.is_empty():
+		return
+	var t0 := Time.get_ticks_usec()
+	while not _flora_warteschlange.is_empty():
+		var e: Dictionary = _flora_warteschlange.pop_front()
+		var n: Variant = e["node"]
+		# Der Chunk kann laengst wieder abgebaut sein — dann faellt seine Flora weg.
+		if is_instance_valid(n):
+			_attach_multi(n, e["mesh"], e["xfs"])
+		if float(Time.get_ticks_usec() - t0) > FLORA_BUDGET_US:
+			return
 
 
 # Startbereich SOFORT bauen (synchron, Main-Thread), damit das Flugzeug beim
@@ -735,6 +758,21 @@ func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> vo
 				continue
 			var data := _make_chunk_data(key)
 			_attach_chunk(key, data["mesh"], data["shape"], data["flora"], data["rocks"])
+	# HIER KEIN AUFSCHUB. _attach_chunk stellt die Flora nur in die Warteschlange, damit
+	# der Ruck beim Nachladen im Flug verschwindet. Diese Funktion ist aber der
+	# SYNCHRONE Weg — Spawnbereich und Renderwerkzeuge verlassen sich darauf, dass
+	# hinterher wirklich alles steht. Ohne den Vollabbau stuenden Baeume erst Frames
+	# spaeter, und jedes Abnahmebild waere um seine Vegetation betrogen.
+	_flora_alles_nachziehen()
+
+
+## Warteschlange in einem Zug leeren, ohne Zeitbudget.
+func _flora_alles_nachziehen() -> void:
+	while not _flora_warteschlange.is_empty():
+		var e: Dictionary = _flora_warteschlange.pop_front()
+		var n: Variant = e["node"]
+		if is_instance_valid(n):
+			_attach_multi(n, e["mesh"], e["xfs"])
 
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
@@ -751,12 +789,20 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	cs.shape = shape
 	body.add_child(cs)
 	node.add_child(body)
-	# Flora: je ART EIN MultiMesh (hunderte Bäume = 1 Draw-Call pro Art und Chunk)
-	for art in flora.keys():
-		_attach_multi(node, _flora.get(art, _mesh_conifer), flora[art])
-	_attach_multi(node, _mesh_rock, rocks)
 	add_child(node)
 	_chunks[key] = node
+	# FLORA NICHT IM SELBEN FRAME. Gemessen kostet das Einhaengen eines Land-Chunks
+	# 6,44 ms im Mittel und bis zu 9,58 ms — bei 16,7 ms Frame ist das der sichtbare Ruck
+	# beim Nachladen. Davon entfallen 2,75 ms auf Netz und Kollisionskoerper und 3,7 ms
+	# auf die rund 730 Pflanzen. Das Gelaende MUSS sofort stehen (sonst faellt das
+	# Flugzeug hindurch), die Baeume nicht — die kommen ueber die naechsten Frames nach,
+	# gedeckelt durch ein Zeitbudget. Sichtbar ist das nicht: ein frisch geladener Chunk
+	# liegt am Rand der Sichtweite, wo die Flora ohnehin klein und ausgeblendet ist.
+	for art in flora.keys():
+		_flora_warteschlange.append({"node": node, "mesh": _flora.get(art, _mesh_conifer),
+			"xfs": flora[art]})
+	if not rocks.is_empty():
+		_flora_warteschlange.append({"node": node, "mesh": _mesh_rock, "xfs": rocks})
 
 
 ## Setzt je Flora-MultiMesh die passende Sparstufe. Laeuft beim Umzentrieren, nicht
@@ -786,6 +832,23 @@ func _flora_stufen(mitte: Vector3) -> void:
 		mm.visible_instance_count = int(e["n"] * FLORA_GROB_ANTEIL) if fern else -1
 
 
+## Wandelt eine Liste von Transformationen in den Rohpuffer einer MultiMesh um.
+## TRANSFORM_3D erwartet je Instanz ZWOELF Fliesskommazahlen: die Basis zeilenweise,
+## jede Zeile gefolgt vom zugehoerigen Verschiebungsanteil.
+static func _xf_puffer(xfs: Array) -> PackedFloat32Array:
+	var buf := PackedFloat32Array()
+	buf.resize(xfs.size() * 12)
+	var k := 0
+	for xf: Transform3D in xfs:
+		var b := xf.basis
+		var o := xf.origin
+		buf[k] = b.x.x; buf[k+1] = b.y.x; buf[k+2] = b.z.x; buf[k+3] = o.x
+		buf[k+4] = b.x.y; buf[k+5] = b.y.y; buf[k+6] = b.z.y; buf[k+7] = o.y
+		buf[k+8] = b.x.z; buf[k+9] = b.y.z; buf[k+10] = b.z.z; buf[k+11] = o.z
+		k += 12
+	return buf
+
+
 func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 	if xfs.is_empty() or mesh == null:
 		return
@@ -793,8 +856,12 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = mesh
 	mm.instance_count = xfs.size()
-	for i in xfs.size():
-		mm.set_instance_transform(i, xfs[i])
+	# EIN Aufruf statt einer je Pflanze. set_instance_transform() geht jedes Mal ueber die
+	# Skript-Grenze in den RenderingServer; bei rund 590 Pflanzen je Chunk waren das 590
+	# Einzelaufrufe im selben Frame, in dem der Chunk eingehaengt wird — genau der Frame,
+	# in dem ohnehin schon der Physikkoerper eingefuegt wird. set_buffer() uebergibt
+	# stattdessen den fertigen Rohpuffer am Stueck.
+	mm.set_buffer(_xf_puffer(xfs))
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	mmi.material_override = _flora_mat
