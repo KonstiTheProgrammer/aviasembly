@@ -110,7 +110,8 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
   Rotes-Baron-Cockpit mit separat ansteckbarem, genietetem Metallrahmen
 - **Tragflächen:** Gerade · Trapez · Pfeil · Delta · Stummel · Segler (lang) · Canard · Winglet
 - **Leitwerk & Steuerung:** Höhenleitwerk (Pitch), Seitenleitwerk (Yaw), Querruder (Roll), kleines Höhenruder
-- **Antrieb:** Propeller, großer Propeller, Düsentriebwerk, **eckiges Düsentriebwerk** (2D-Düse), Hilfstriebwerk
+- **Antrieb:** Propeller, großer Propeller, Düsentriebwerk, **eckiges Düsentriebwerk** (2D-Düse),
+  Hilfstriebwerk, **Raketenantrieb** mit Turbopumpen und kupfergekühlter Düsenglocke
 - **Fahrwerk (4 Varianten mit Traglast):** Leicht (~450 kg) · Standard (~850 kg) ·
   Schwer (~1750 kg) · **Einziehfahrwerk (~1050 kg, Taste G)**
 - **Bewaffnung (feuerbar!):** Bordkanone (Schnellfeuer) · **Ungelenkte Rakete** (fliegt

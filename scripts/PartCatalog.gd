@@ -635,6 +635,18 @@ static func _build() -> void:
 		"size": Vector3(1.2, 1.2, 2.6), "metal": 0.8, "rough": 0.25,
 	})
 	_add({
+		"id": "rocket_engine", "name": "Raketenantrieb", "category": CAT_PROP,
+		"mass": 620.0, "color": Color(0.70, 0.68, 0.65), "shape": "jet",
+		"thrust": 65000.0, "jet": true, "rocket_engine": true,
+		# Modellvertrag: Blender +Y -> Godot -Z (Montage), Blender -Y -> Godot +Z (Auslass).
+		# Pumpenkrone und Bolzen liegen asymmetrisch in der Box, daher der kleine Offset.
+		"size": Vector3(1.100, 1.215, 2.155),
+		"col_size": Vector3(1.100, 1.215, 2.155),
+		"col_offset": Vector3(0.0, 0.058, -0.028),
+		"metal": 0.75, "rough": 0.42, "flame_scale": 0.48, "strength": 28.0,
+		"desc": "Schwerer Flüssigkeits-Raketenantrieb mit kugeliger Brennkammer, Turbopumpen, dichter Verrohrung und kupfergekühlter Düsenglocke. Sehr hoher, konstanter Schub.",
+	})
+	_add({
 		"id": "thruster", "name": "Hilfstriebwerk", "category": CAT_PROP,
 		"mass": 95.0, "color": C_ENGINE, "shape": "jet", "thrust": 4200.0, "jet": true,
 		"size": Vector3(0.8, 0.8, 1.4), "metal": 0.8, "rough": 0.25,
