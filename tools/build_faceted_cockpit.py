@@ -5,8 +5,6 @@ glTF conversion therefore produces the Aviassembly convention X width, Y up,
 -Z nose.
 """
 
-import math
-
 import bpy
 from mathutils import Vector
 
@@ -82,33 +80,31 @@ def mesh_object(name, mesh_name, vertices, faces, collection, material):
     return obj
 
 
-def body_ring(y, width, top, bottom, vertical_shift):
+def body_ring(y, width, top, bottom, vertical_shift, facet_twist):
     top += vertical_shift
     bottom += vertical_shift
+    upper_chine = top * 0.58
+    lower_chine = bottom * 0.52
     return [
-        (0.00, y, top),
-        (0.58 * width, y, top * 0.96),
-        (0.90 * width, y, top * 0.66),
-        (1.00 * width, y, top * 0.16),
-        (0.94 * width, y, bottom * 0.50),
-        (0.61 * width, y, bottom * 0.91),
-        (0.00, y, bottom),
-        (-0.61 * width, y, bottom * 0.91),
-        (-0.94 * width, y, bottom * 0.50),
-        (-1.00 * width, y, top * 0.16),
-        (-0.90 * width, y, top * 0.66),
-        (-0.58 * width, y, top * 0.96),
+        (-0.60 * width, y, top),
+        (0.60 * width, y, top),
+        ((1.00 + facet_twist) * width, y, upper_chine),
+        ((1.00 - facet_twist) * width, y, lower_chine),
+        (0.67 * width, y, bottom),
+        (-0.67 * width, y, bottom),
+        (-(1.00 - facet_twist) * width, y, lower_chine),
+        (-(1.00 + facet_twist) * width, y, upper_chine),
     ]
 
 
 def canopy_ring(station):
-    y, base_width, roof_width, base_z, roof_z, crown = station
+    base_y, roof_y, base_width, roof_width, base_z, roof_z, crown = station
     return [
-        (-base_width, y, base_z),
-        (-roof_width, y, roof_z),
-        (0.0, y, roof_z + crown),
-        (roof_width, y, roof_z),
-        (base_width, y, base_z),
+        (-base_width, base_y, base_z),
+        (-roof_width, roof_y, roof_z),
+        (0.0, roof_y, roof_z + crown),
+        (roof_width, roof_y, roof_z),
+        (base_width, base_y, base_z),
     ]
 
 
@@ -118,24 +114,6 @@ def apply_modifier(obj, modifier):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.modifier_apply(modifier=modifier.name)
     obj.select_set(False)
-
-
-def add_beveled_cube(name, location, dimensions, material, collection, parent, bevel=0.04):
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=location)
-    obj = bpy.context.object
-    obj.name = name
-    move_to_collection(obj, collection)
-    obj.dimensions = dimensions
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    obj.data.materials.append(material)
-    if bevel > 0:
-        modifier = obj.modifiers.new("Soft corners", "BEVEL")
-        modifier.width = bevel
-        modifier.segments = 2
-        apply_modifier(obj, modifier)
-    obj.parent = parent
-    return obj
 
 
 def point_at(obj, target):
@@ -161,12 +139,22 @@ scene.collection.children.link(model_collection)
 presentation_collection = bpy.data.collections.new("PRESENTATION")
 scene.collection.children.link(presentation_collection)
 
-body_material = make_material("cockpit_body", (0.38, 0.46, 0.52, 1), metallic=0.42, roughness=0.38)
-glass_material = make_material("glass", (0.004, 0.010, 0.016, 1), metallic=0.08, roughness=0.16, transmission=0.02, alpha=1.0)
-frame_material = make_material("frame", (0.050, 0.068, 0.084, 1), metallic=0.72, roughness=0.28)
-interior_material = make_material("interior", (0.012, 0.016, 0.019, 1), metallic=0.08, roughness=0.48)
-seat_material = make_material("seat_leather", (0.055, 0.065, 0.068, 1), roughness=0.62)
-floor_material = make_material("Studio_Floor", (0.075, 0.09, 0.105, 1), roughness=0.72)
+body_material = make_material("cockpit_body", (0.32, 0.37, 0.41, 1), metallic=0.12, roughness=0.58)
+glass_material = make_material("glass", (0.002, 0.005, 0.008, 1), metallic=0.0, roughness=0.44, transmission=0.0, alpha=1.0)
+frame_material = make_material("frame", (0.040, 0.047, 0.052, 1), metallic=0.0, roughness=0.62)
+glass_bsdf = glass_material.node_tree.nodes.get("Principled BSDF")
+if glass_bsdf:
+    if "Specular IOR Level" in glass_bsdf.inputs:
+        glass_bsdf.inputs["Specular IOR Level"].default_value = 0.06
+    if "Coat Weight" in glass_bsdf.inputs:
+        glass_bsdf.inputs["Coat Weight"].default_value = 0.0
+frame_bsdf = frame_material.node_tree.nodes.get("Principled BSDF")
+if frame_bsdf:
+    if "Specular IOR Level" in frame_bsdf.inputs:
+        frame_bsdf.inputs["Specular IOR Level"].default_value = 0.22
+    if "Coat Weight" in frame_bsdf.inputs:
+        frame_bsdf.inputs["Coat Weight"].default_value = 0.0
+floor_material = make_material("Studio_Floor", (0.72, 0.75, 0.78, 1), roughness=0.78)
 
 root = bpy.data.objects.new("Cockpit_Faceted_Root", None)
 model_collection.objects.link(root)
@@ -179,12 +167,12 @@ root["reference_style"] = "faceted_low_poly_transport_cockpit"
 
 # Broad, blunt cockpit face flowing into a narrower modular rear section.
 sections = [
-    (2.48, 1.04, 0.68, -0.78, -0.02),
-    (1.82, 1.22, 0.76, -0.86, 0.00),
-    (0.78, 1.30, 0.82, -0.91, 0.02),
-    (-0.38, 1.25, 0.82, -0.90, 0.02),
-    (-1.43, 1.03, 0.77, -0.82, 0.00),
-    (-2.34, 0.70, 0.64, -0.66, -0.03),
+    (2.42, 0.98, 0.66, -0.75, -0.02, 0.020),
+    (1.78, 1.18, 0.75, -0.83, 0.00, -0.035),
+    (0.72, 1.29, 0.82, -0.88, 0.01, 0.028),
+    (-0.38, 1.25, 0.82, -0.87, 0.01, -0.025),
+    (-1.40, 1.04, 0.76, -0.80, 0.00, 0.032),
+    (-2.30, 0.72, 0.64, -0.65, -0.02, -0.020),
 ]
 body_vertices = []
 body_rings = []
@@ -194,7 +182,7 @@ for section in sections:
     body_vertices.extend(ring)
 
 body_faces = []
-ring_size = 12
+ring_size = len(body_rings[0])
 for section_index in range(len(body_rings) - 1):
     current = body_rings[section_index]
     following = body_rings[section_index + 1]
@@ -228,11 +216,12 @@ body.parent = root
 
 # Long raised greenhouse canopy: raked windshield, four side bays, tapered rear.
 canopy_stations = [
-    (1.52, 0.82, 0.58, 0.73, 1.15, 0.035),
-    (1.02, 0.98, 0.73, 0.81, 1.50, 0.055),
-    (0.27, 1.00, 0.77, 0.84, 1.55, 0.055),
-    (-0.48, 0.92, 0.73, 0.83, 1.47, 0.050),
-    (-1.03, 0.77, 0.60, 0.77, 1.22, 0.035),
+    # base Y, roof Y, base half-width, roof half-width, base Z, roof Z, crown
+    (1.54, 1.02, 0.84, 0.70, 0.74, 1.47, 0.040),
+    (1.00, 1.00, 0.98, 0.76, 0.81, 1.50, 0.045),
+    (0.32, 0.32, 0.99, 0.77, 0.83, 1.51, 0.045),
+    (-0.36, -0.36, 0.92, 0.73, 0.82, 1.49, 0.042),
+    (-1.04, -1.04, 0.78, 0.63, 0.77, 1.42, 0.035),
 ]
 glass_vertices = []
 glass_rings = []
@@ -251,7 +240,9 @@ for station_index in range(len(glass_rings) - 1):
 for ring_index, reverse in ((0, False), (len(glass_rings) - 1, True)):
     station = canopy_stations[ring_index]
     center_index = len(glass_vertices)
-    glass_vertices.append((0.0, station[0], (station[3] + station[4]) * 0.52))
+    ring_points = [Vector(glass_vertices[index]) for index in glass_rings[ring_index]]
+    cap_center = sum(ring_points, Vector()) / len(ring_points)
+    glass_vertices.append(tuple(cap_center))
     ring = glass_rings[ring_index]
     for strip in range(4):
         if reverse:
@@ -341,7 +332,11 @@ for station_index, ring in enumerate(canopy_points):
 for station_index in (0, len(canopy_points) - 1):
     ring = canopy_points[station_index]
     station = canopy_stations[station_index]
-    beam_between(f"Frame_CenterPost_{station_index}", (0, station[0], station[3]), ring[2], 0.078)
+    center_post = beam_between(f"Frame_CenterPost_{station_index}", (0, station[0], station[4]), ring[2], 0.078)
+    if station_index == 0:
+        center_post.location += Vector((0.0, 0.038, 0.024))
+    else:
+        center_post.location += Vector((0.0, -0.035, 0.0))
     beam_between(f"Frame_Lower_{station_index}", ring[0], ring[4], 0.082, 0.070)
 
 bpy.ops.object.select_all(action="DESELECT")
@@ -353,17 +348,6 @@ frame = frame_parts[0]
 frame.name = "Canopy_Frame"
 frame.data.name = "Canopy_Frame_Mesh"
 frame.parent = root
-
-# Interior is deliberately subdued behind the nearly black glazing.
-add_beveled_cube("Cockpit_Interior_Floor", (0, 0.10, 0.755), (1.70, 2.55, 0.055), interior_material, model_collection, root, 0.018)
-instrument_cowl = add_beveled_cube("Instrument_Cowl", (0, 1.15, 0.93), (1.60, 0.24, 0.22), interior_material, model_collection, root, 0.035)
-instrument_cowl.rotation_euler[0] = math.radians(-9)
-for side in (-0.38, 0.38):
-    suffix = "L" if side < 0 else "R"
-    add_beveled_cube(f"Pilot_Seat_{suffix}", (side, 0.18, 1.02), (0.46, 0.48, 0.48), seat_material, model_collection, root, 0.065)
-    back = add_beveled_cube(f"Pilot_Back_{suffix}", (side, -0.02, 1.23), (0.46, 0.18, 0.62), seat_material, model_collection, root, 0.07)
-    back.rotation_euler[0] = math.radians(-8)
-    add_beveled_cube(f"Headrest_{suffix}", (side, -0.10, 1.40), (0.26, 0.17, 0.15), seat_material, model_collection, root, 0.045)
 
 # Studio floor, camera and lights are deliberately outside the export collection.
 studio_floor = mesh_object(
@@ -397,16 +381,16 @@ def add_area(name, location, energy, size, color):
     return obj
 
 
-add_area("Key_Area", (4.8, 4.5, 7.5), 1250, 5.0, (0.88, 0.94, 1.0))
-add_area("Fill_Area", (-5.0, 3.0, 3.6), 900, 4.0, (0.65, 0.78, 1.0))
-add_area("Rim_Area", (2.0, -5.2, 5.2), 1100, 3.5, (1.0, 0.72, 0.48))
+add_area("Key_Area", (4.8, 4.5, 7.5), 950, 5.0, (0.92, 0.96, 1.0))
+add_area("Fill_Area", (-5.0, 3.0, 3.6), 650, 4.0, (0.78, 0.86, 1.0))
+add_area("Rim_Area", (2.0, -5.2, 5.2), 620, 3.5, (0.88, 0.94, 1.0))
 
 world = bpy.data.worlds.new("Studio_World")
 scene.world = world
 world.use_nodes = True
 background = world.node_tree.nodes.get("Background")
-background.inputs["Color"].default_value = (0.018, 0.024, 0.032, 1)
-background.inputs["Strength"].default_value = 0.34
+background.inputs["Color"].default_value = (0.82, 0.84, 0.86, 1)
+background.inputs["Strength"].default_value = 0.72
 
 # Rebuilding collections inside a live Blender session needs an explicit
 # dependency-graph update before the first export/render.
