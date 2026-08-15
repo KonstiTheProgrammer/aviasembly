@@ -167,12 +167,17 @@ root["reference_style"] = "faceted_low_poly_transport_cockpit"
 
 # Broad, blunt cockpit face flowing into a narrower modular rear section.
 sections = [
-    (2.42, 0.98, 0.66, -0.75, -0.02, 0.020),
-    (1.78, 1.18, 0.75, -0.83, 0.00, -0.035),
+    (2.42, 1.22, 0.66, -0.75, -0.02, 0.020),
+    (1.78, 1.28, 0.75, -0.83, 0.00, -0.035),
     (0.72, 1.29, 0.82, -0.88, 0.01, 0.028),
-    (-0.38, 1.25, 0.82, -0.87, 0.01, -0.025),
-    (-1.40, 1.04, 0.76, -0.80, 0.00, 0.032),
-    (-2.30, 0.72, 0.64, -0.65, -0.02, -0.020),
+    (-0.38, 1.22, 0.82, -0.87, 0.01, -0.025),
+    # The reference fuselage wraps up behind the greenhouse instead of
+    # continuing as a low deck. Two close rings form the steep rear cockpit
+    # bulkhead; the following ring begins the long descending tail shoulder.
+    (-0.96, 1.10, 0.80, -0.83, 0.00, 0.018),
+    (-1.07, 1.02, 1.24, -0.82, 0.00, -0.018),
+    (-1.48, 0.85, 1.08, -0.74, 0.00, 0.025),
+    (-2.30, 0.48, 0.55, -0.55, -0.02, -0.020),
 ]
 body_vertices = []
 body_rings = []
@@ -217,11 +222,11 @@ body.parent = root
 # Long raised greenhouse canopy: raked windshield, four side bays, tapered rear.
 canopy_stations = [
     # base Y, roof Y, base half-width, roof half-width, base Z, roof Z, crown
-    (1.54, 1.02, 0.84, 0.70, 0.74, 1.47, 0.040),
-    (1.00, 1.00, 0.98, 0.76, 0.81, 1.50, 0.045),
-    (0.32, 0.32, 0.99, 0.77, 0.83, 1.51, 0.045),
-    (-0.36, -0.36, 0.92, 0.73, 0.82, 1.49, 0.042),
-    (-1.04, -1.04, 0.78, 0.63, 0.77, 1.42, 0.035),
+    (1.54, 0.70, 0.80, 0.60, 0.74, 1.26, 0.015),
+    (0.68, 0.68, 0.91, 0.68, 0.81, 1.28, 0.016),
+    (0.11, 0.11, 0.92, 0.70, 0.83, 1.30, 0.016),
+    (-0.47, -0.47, 0.86, 0.68, 0.82, 1.29, 0.015),
+    (-1.04, -1.04, 0.70, 0.56, 0.77, 1.25, 0.012),
 ]
 glass_vertices = []
 glass_rings = []
