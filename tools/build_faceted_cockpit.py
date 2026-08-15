@@ -139,9 +139,9 @@ scene.collection.children.link(model_collection)
 presentation_collection = bpy.data.collections.new("PRESENTATION")
 scene.collection.children.link(presentation_collection)
 
-body_material = make_material("cockpit_body", (0.32, 0.37, 0.41, 1), metallic=0.12, roughness=0.58)
-glass_material = make_material("glass", (0.002, 0.005, 0.008, 1), metallic=0.0, roughness=0.44, transmission=0.0, alpha=1.0)
-frame_material = make_material("frame", (0.040, 0.047, 0.052, 1), metallic=0.0, roughness=0.62)
+body_material = make_material("cockpit_body", (0.25, 0.29, 0.33, 1), metallic=0.12, roughness=0.60)
+glass_material = make_material("glass", (0.012, 0.016, 0.020, 1), metallic=0.0, roughness=0.36, transmission=0.0, alpha=1.0)
+frame_material = make_material("frame", (0.022, 0.026, 0.030, 1), metallic=0.0, roughness=0.64)
 glass_bsdf = glass_material.node_tree.nodes.get("Principled BSDF")
 if glass_bsdf:
     if "Specular IOR Level" in glass_bsdf.inputs:
@@ -179,9 +179,9 @@ sections = [
     # The reference fuselage wraps up behind the greenhouse instead of
     # continuing as a low deck. Two close rings form the steep rear cockpit
     # bulkhead; the following ring begins the long descending tail shoulder.
-    (-0.96, 1.10, 0.80, -0.83, 0.00, 0.018),
-    (-1.07, 1.02, 1.28, -0.82, 0.00, -0.018),
-    (-1.48, 0.85, 1.10, -0.74, 0.00, 0.025),
+    (-0.96, 1.16, 0.80, -0.83, 0.00, 0.018),
+    (-1.07, 1.12, 1.18, -0.82, 0.00, -0.018),
+    (-1.48, 0.90, 1.02, -0.74, 0.00, 0.025),
     (-2.30, 0.44, 0.80, -0.35, -0.02, -0.020),
 ]
 body_vertices = []
@@ -230,11 +230,13 @@ canopy_stations = [
     # In plan view the greenhouse occupies only about three fifths of the
     # fuselage width.  The broader old values made it read as a full-width
     # cabin and disagreed with both oblique reference views.
-    (1.54, 0.82, 0.66, 0.50, 1.00, 1.34, 0.018),
-    (0.80, 0.80, 0.76, 0.58, 0.81, 1.36, 0.020),
-    (0.11, 0.11, 0.77, 0.60, 0.83, 1.37, 0.020),
-    (-0.47, -0.47, 0.73, 0.58, 0.82, 1.35, 0.018),
-    (-1.04, -1.04, 0.59, 0.48, 0.77, 1.29, 0.015),
+    (1.54, 0.82, 0.66, 0.50, 1.00, 1.34, 0.045),
+    # The reference mullions lean gently aft instead of standing perfectly
+    # vertical.  The offset diminishes toward the rear bulkhead.
+    (0.80, 0.90, 0.76, 0.58, 0.81, 1.36, 0.055),
+    (0.11, 0.18, 0.77, 0.60, 0.82, 1.36, 0.060),
+    (-0.47, -0.43, 0.73, 0.58, 0.80, 1.31, 0.052),
+    (-1.04, -1.02, 0.59, 0.48, 0.76, 1.20, 0.040),
 ]
 glass_vertices = []
 glass_rings = []
