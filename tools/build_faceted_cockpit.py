@@ -167,17 +167,22 @@ root["reference_style"] = "faceted_low_poly_transport_cockpit"
 
 # Broad, blunt cockpit face flowing into a narrower modular rear section.
 sections = [
-    (2.42, 1.22, 0.66, -0.75, -0.02, 0.020),
-    (1.78, 1.28, 0.75, -0.83, 0.00, -0.035),
+    # The reference nose deck is almost level in side view.  Keep the blunt
+    # front cap high and let it rise only slightly into the windshield brow.
+    (2.42, 1.22, 0.90, -0.62, -0.02, 0.020),
+    (1.78, 1.28, 0.96, -0.78, 0.00, -0.035),
+    # Raised nose brow under the lower windshield edge. The reference side
+    # sill then drops aft to the lower rectangular side-window baseline.
+    (1.54, 1.25, 1.00, -0.84, 0.00, 0.015),
     (0.72, 1.29, 0.82, -0.88, 0.01, 0.028),
     (-0.38, 1.22, 0.82, -0.87, 0.01, -0.025),
     # The reference fuselage wraps up behind the greenhouse instead of
     # continuing as a low deck. Two close rings form the steep rear cockpit
     # bulkhead; the following ring begins the long descending tail shoulder.
     (-0.96, 1.10, 0.80, -0.83, 0.00, 0.018),
-    (-1.07, 1.02, 1.24, -0.82, 0.00, -0.018),
-    (-1.48, 0.85, 1.08, -0.74, 0.00, 0.025),
-    (-2.30, 0.48, 0.55, -0.55, -0.02, -0.020),
+    (-1.07, 1.02, 1.28, -0.82, 0.00, -0.018),
+    (-1.48, 0.85, 1.10, -0.74, 0.00, 0.025),
+    (-2.30, 0.44, 0.80, -0.35, -0.02, -0.020),
 ]
 body_vertices = []
 body_rings = []
@@ -222,11 +227,14 @@ body.parent = root
 # Long raised greenhouse canopy: raked windshield, four side bays, tapered rear.
 canopy_stations = [
     # base Y, roof Y, base half-width, roof half-width, base Z, roof Z, crown
-    (1.54, 0.70, 0.80, 0.60, 0.74, 1.26, 0.015),
-    (0.68, 0.68, 0.91, 0.68, 0.81, 1.28, 0.016),
-    (0.11, 0.11, 0.92, 0.70, 0.83, 1.30, 0.016),
-    (-0.47, -0.47, 0.86, 0.68, 0.82, 1.29, 0.015),
-    (-1.04, -1.04, 0.70, 0.56, 0.77, 1.25, 0.012),
+    # In plan view the greenhouse occupies only about three fifths of the
+    # fuselage width.  The broader old values made it read as a full-width
+    # cabin and disagreed with both oblique reference views.
+    (1.54, 0.82, 0.66, 0.50, 1.00, 1.34, 0.018),
+    (0.80, 0.80, 0.76, 0.58, 0.81, 1.36, 0.020),
+    (0.11, 0.11, 0.77, 0.60, 0.83, 1.37, 0.020),
+    (-0.47, -0.47, 0.73, 0.58, 0.82, 1.35, 0.018),
+    (-1.04, -1.04, 0.59, 0.48, 0.77, 1.29, 0.015),
 ]
 glass_vertices = []
 glass_rings = []
@@ -283,7 +291,7 @@ glass.parent = root
 frame_parts = []
 
 
-def beam_between(name, start, end, thickness=0.072, second_thickness=None):
+def beam_between(name, start, end, thickness=0.066, second_thickness=None):
     start = Vector(start)
     end = Vector(end)
     direction = end - start
@@ -316,7 +324,7 @@ def beam_between(name, start, end, thickness=0.072, second_thickness=None):
 canopy_points = [canopy_ring(station) for station in canopy_stations]
 for rail_index in range(5):
     for station_index in range(len(canopy_points) - 1):
-        thickness = 0.082 if rail_index in (0, 4) else (0.067 if rail_index == 2 else 0.072)
+        thickness = 0.074 if rail_index in (0, 4) else (0.061 if rail_index == 2 else 0.066)
         beam_between(
             f"Frame_Long_{rail_index}_{station_index}",
             canopy_points[station_index][rail_index],
@@ -325,7 +333,7 @@ for rail_index in range(5):
         )
 
 for station_index, ring in enumerate(canopy_points):
-    thickness = 0.095 if station_index in (0, len(canopy_points) - 1) else 0.076
+    thickness = 0.086 if station_index in (0, len(canopy_points) - 1) else 0.070
     for edge_index in range(4):
         beam_between(
             f"Frame_Arch_{station_index}_{edge_index}",
@@ -337,12 +345,12 @@ for station_index, ring in enumerate(canopy_points):
 for station_index in (0, len(canopy_points) - 1):
     ring = canopy_points[station_index]
     station = canopy_stations[station_index]
-    center_post = beam_between(f"Frame_CenterPost_{station_index}", (0, station[0], station[4]), ring[2], 0.078)
+    center_post = beam_between(f"Frame_CenterPost_{station_index}", (0, station[0], station[4]), ring[2], 0.072)
     if station_index == 0:
         center_post.location += Vector((0.0, 0.038, 0.024))
     else:
         center_post.location += Vector((0.0, -0.035, 0.0))
-    beam_between(f"Frame_Lower_{station_index}", ring[0], ring[4], 0.082, 0.070)
+    beam_between(f"Frame_Lower_{station_index}", ring[0], ring[4], 0.074, 0.064)
 
 bpy.ops.object.select_all(action="DESELECT")
 for part in frame_parts:
