@@ -83,17 +83,20 @@ def mesh_object(name, mesh_name, vertices, faces, collection, material):
 def body_ring(y, width, top, bottom, vertical_shift, facet_twist):
     top += vertical_shift
     bottom += vertical_shift
-    upper_chine = top * 0.58
-    lower_chine = bottom * 0.52
+    center = (top + bottom) * 0.5
+    upper_chine = center + (top - center) * 0.58
+    lower_chine = center + (bottom - center) * 0.58
     return [
-        (-0.60 * width, y, top),
-        (0.60 * width, y, top),
-        ((1.00 + facet_twist) * width, y, upper_chine),
-        ((1.00 - facet_twist) * width, y, lower_chine),
-        (0.67 * width, y, bottom),
-        (-0.67 * width, y, bottom),
-        (-(1.00 - facet_twist) * width, y, lower_chine),
-        (-(1.00 + facet_twist) * width, y, upper_chine),
+        (-0.59 * width, y, top),
+        (0.59 * width, y, top),
+        ((0.88 + facet_twist) * width, y, upper_chine),
+        (1.00 * width, y, center),
+        ((0.88 - facet_twist) * width, y, lower_chine),
+        (0.50 * width, y, bottom),
+        (-0.50 * width, y, bottom),
+        (-(0.88 - facet_twist) * width, y, lower_chine),
+        (-1.00 * width, y, center),
+        (-(0.88 + facet_twist) * width, y, upper_chine),
     ]
 
 
@@ -193,7 +196,7 @@ for section_index, section in enumerate(sections):
         # chine and belly vertices progressively aft avoids a near-vertical
         # full-height strip in the oblique views while retaining the steep
         # cockpit rear wall visible in the reference side profile.
-        swept_y = (-1.07, -1.07, -1.10, -1.14, -1.18, -1.18, -1.14, -1.10)
+        swept_y = (-1.07, -1.07, -1.10, -1.12, -1.15, -1.18, -1.18, -1.15, -1.12, -1.10)
         ring = [(point[0], swept_y[index], point[2]) for index, point in enumerate(ring)]
     body_rings.append(list(range(len(body_vertices), len(body_vertices) + len(ring))))
     body_vertices.extend(ring)
