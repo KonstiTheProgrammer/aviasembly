@@ -140,12 +140,12 @@ presentation_collection = bpy.data.collections.new("PRESENTATION")
 scene.collection.children.link(presentation_collection)
 
 body_material = make_material("cockpit_body", (0.25, 0.29, 0.33, 1), metallic=0.12, roughness=0.60)
-glass_material = make_material("glass", (0.012, 0.016, 0.020, 1), metallic=0.0, roughness=0.36, transmission=0.0, alpha=1.0)
-frame_material = make_material("frame", (0.022, 0.026, 0.030, 1), metallic=0.0, roughness=0.64)
+glass_material = make_material("glass", (0.012, 0.016, 0.020, 1), metallic=0.0, roughness=0.48, transmission=0.0, alpha=1.0)
+frame_material = make_material("frame", (0.032, 0.038, 0.043, 1), metallic=0.0, roughness=0.64)
 glass_bsdf = glass_material.node_tree.nodes.get("Principled BSDF")
 if glass_bsdf:
     if "Specular IOR Level" in glass_bsdf.inputs:
-        glass_bsdf.inputs["Specular IOR Level"].default_value = 0.06
+        glass_bsdf.inputs["Specular IOR Level"].default_value = 0.035
     if "Coat Weight" in glass_bsdf.inputs:
         glass_bsdf.inputs["Coat Weight"].default_value = 0.0
 frame_bsdf = frame_material.node_tree.nodes.get("Principled BSDF")
@@ -186,8 +186,15 @@ sections = [
 ]
 body_vertices = []
 body_rings = []
-for section in sections:
+for section_index, section in enumerate(sections):
     ring = body_ring(*section)
+    if section_index == 6:
+        # Only the roof must rise abruptly behind the glazing.  Sweeping the
+        # chine and belly vertices progressively aft avoids a near-vertical
+        # full-height strip in the oblique views while retaining the steep
+        # cockpit rear wall visible in the reference side profile.
+        swept_y = (-1.07, -1.07, -1.10, -1.14, -1.18, -1.18, -1.14, -1.10)
+        ring = [(point[0], swept_y[index], point[2]) for index, point in enumerate(ring)]
     body_rings.append(list(range(len(body_vertices), len(body_vertices) + len(ring))))
     body_vertices.extend(ring)
 
