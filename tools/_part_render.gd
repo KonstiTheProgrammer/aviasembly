@@ -1,4 +1,7 @@
 ## Rendert beliebige TEILE (prozedural oder glb) ueber PartCatalog.build_visual.
+##
+## Godot --path . --script res://tools/_part_render.gd -- <id> [<id> ...]
+## Ohne Argumente bleibt es bei der Vorgabe unten. Bilder landen in user://part_<id>.png.
 extends SceneTree
 var f := 0
 var i := 0
@@ -32,6 +35,9 @@ func _zeige() -> void:
 func _process(_d: float) -> bool:
 	f += 1
 	if f == 2:
+		var ua := OS.get_cmdline_user_args()
+		if not ua.is_empty():
+			teile = ua
 		root3 = Node3D.new()
 		get_root().add_child(root3)
 		var env := WorldEnvironment.new()

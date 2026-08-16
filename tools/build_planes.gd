@@ -15,13 +15,27 @@ func _process(_d: float) -> bool:
 	if frame < 2:
 		return false
 	DirAccess.make_dir_recursive_absolute("res://designs")
-	_build_fokker()
-	_build_spitfire()
-	_build_mustang()
-	_build_me262()
-	_build_f86()
-	_build_mig15()
-	_build_sturmjet()
+	# Ohne Argument werden ALLE Vorlagen neu geschrieben. Mit `nur=<id>` nur die genannte
+	# — beim Feilen an einem Flugzeug soll nicht nebenbei jede andere Vorlage angefasst
+	# werden, sonst steht am Ende ein Diff ueber sieben Dateien fuer eine Aenderung.
+	var nur := ""
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("nur="):
+			nur = a.substr(4)
+	if nur == "" or nur == "fokker":
+		_build_fokker()
+	if nur == "" or nur == "spitfire":
+		_build_spitfire()
+	if nur == "" or nur == "mustang":
+		_build_mustang()
+	if nur == "" or nur == "me262":
+		_build_me262()
+	if nur == "" or nur == "f86":
+		_build_f86()
+	if nur == "" or nur == "mig15":
+		_build_mig15()
+	if nur == "" or nur == "sturmjet":
+		_build_sturmjet()
 	quit()
 	return true
 
@@ -168,29 +182,96 @@ func _build_mustang() -> void:
 
 
 ## 5) Messerschmitt Me 262 Schwalbe — erster einsatzfähiger Düsenjäger der Welt
+##
+## ALLE STELLEN SIND AUS DEM ECHTEN FLUGZEUG GERECHNET, nicht geschätzt.
+##
+## ACHTUNG, DIE FALLE: `me262_body` liegt NICHT mittig auf dem Ursprung. Nachgemessen an
+## der Geometrie (nicht am Katalog-Feld `size`!) reicht der Rumpf von z = -2.88 bis
+## z = +3.72 — der Ursprung sitzt also bei 44 % der Länge. Wer mit der Mitte rechnet,
+## setzt alles um 0,42 m zu weit vorn; beim ersten Versuch ragten deshalb die
+## Kanonenrohre 31 cm vor der Nasenspitze in die Luft.
+##
+## Die Me 262 A-1a ist 10,60 m lang, der Rumpf hier 6,60 m -> Maßstab 0,6226. Eine
+## Station x Meter hinter der echten Nasenspitze landet bei
+##       z = -2.88 + x * 0.6226
+## Alle Zahlen unten kommen aus dieser Formel und sind damit nachrechenbar.
+##
+## Verwendete Stationen (Dreiseitenansicht der A-1a, Meter ab Nasenspitze):
+##   Flügelwurzel Vorderkante 4,35 · Hinterkante 7,50   -> Mitte 5,93 -> z = +0.81
+##   Gondel vorn 4,15 · hinten 7,95                     -> Mitte 6,05 -> z = +0.89
+##   Seitenflosse Wurzel-Vorderkante 8,40               ->             z = +2.35
+##   Höhenleitwerk Mitte 9,90                           ->             z = +3.28
+##   Kanonen (MK 108) Mitte 1,70                        ->             z = -1.82
+##   Bugfahrwerk 1,90 · Hauptfahrwerk 5,40              -> z = -1.70 / +0.48
+##
+## Gemessene Eigen-Ausdehnungen der Teile (tools/_aabb_me262.gd), gebraucht, um von der
+## gewünschten STATION auf den zu setzenden URSPRUNG zu kommen:
+##   autocannon  z[-1.11..0.87]  (Rohr zeigt nach -z, Ursprung bei 56 %)
+##   jet_engine  z[-1.33..1.62]  y[-0.78..0.59]
+##   wing_swept  z[-0.85..2.04]  (Ursprung = Wurzel-Mitte)
+##   v_stab      z[-0.65..1.10]  x[0..1.80] (Spannweite -> nach dem Drehen die Höhe)
+##   h_stab      z[-0.55..0.68]  x[0..2.60]
+##   wheel_jet   y[-1.05..0]     wheel_nose  y[-1.10..0.02]
 func _build_me262() -> void:
 	var bc := _new_bc()
-	var GREY := Color(0.64, 0.67, 0.69)        # RLM 76 hellgrau-blau
+	var GREY := Color(0.62, 0.66, 0.70)        # RLM 76 hellgrau-blau, Rumpf und Gondeln
+	var GRUEN := Color(0.38, 0.43, 0.36)       # RLM 82 dunkelgrün, Tragflächen und Leitwerk
 	var DARK := Color(0.13, 0.13, 0.15)
-	# Cockpit-Wurzel verstecken — me262_body liefert die Kanzel
+	# Die Cockpit-Wurzel wird nur als Ankerpunkt gebraucht und deshalb winzig gemacht:
+	# me262_body bringt die Rahmenkanzel bereits mit. Zwei Kanzeln uebereinander waren
+	# der auffaelligste Fehler der alten Fassung.
 	_setup_root(bc, GREY, Vector3(0.12, 0.12, 0.12))
 	var rp := _root_part(bc)
 	if rp:
 		rp.position = Vector3(0, -0.05, -0.5)
 	# Dedizierter Me-262-Rumpf (Blender: Hai-Querschnitt + Kanzel) @ origin
 	P(bc, "me262_body", Vector3(0, 0, 0), Basis(), GREY)
-	# Pfeilflügel (durchgehend, tief)
-	PW(bc, "wing_swept", -0.20, 0.25, GREY, Vector3(1.05, 1.0, 1.0))
-	# Zwei Jumo-004-Düsengondeln unter den Flügeln (Symmetrie spiegelt die linke)
-	P(bc, "jet_engine", Vector3(1.65, -0.5, 0.1), Basis(), GREY, Vector3(0.78, 0.78, 0.9))
-	# Leitwerk am Heck: durchgehendes Höhenleitwerk + hohe Seitenflosse
-	PW(bc, "h_stab", 0.32, 3.15, GREY)
-	P(bc, "v_stab", Vector3(0, 0.42, 3.3), _ny(), GREY, Vector3(1.0, 1.15, 1.0))
-	# 4x MK108 30mm in der Nase (tief in die Nase eingelassen -> Mündung bündig)
-	P(bc, "cannon", Vector3(0, -0.06, -1.55), Basis(), DARK, Vector3(0.85, 0.85, 0.9))
-	# Dreirad-Jet-Fahrwerk: Bug (mittig) + Hauptfahrwerk (Symmetrie, rumpfnah)
-	P(bc, "wheel_jet", Vector3(0, -0.5, -1.5), Basis(), DARK)
-	P(bc, "wheel_jet", Vector3(0.5, -0.5, 0.55), Basis(), DARK)
+	# PFEILFLÜGEL, tief am dreieckigen Rumpf. Halbspannweite 3,95 m (echte 12,60 m mal
+	# Maßstab, halbiert) -> 3.95/4.60 = 0.86. Der Ursprung des Flügels IST die
+	# Wurzelmitte, die Station geht also direkt als z ein.
+	# Pfeilung bleibt unskaliert: 1,5 m Spitzenversatz auf 3,95 m = 21 Grad gegen die
+	# echten 18,5 Grad an der Vorderkante — näher kommt kein Flügel im Katalog.
+	PW(bc, "wing_swept", -0.30, 0.81, GRUEN, Vector3(0.86, 1.0, 1.0))
+	# ZWEI JUMO-004-GONDELN UNTER dem Flügel (Symmetrie spiegelt die linke).
+	# Länge 3,80 m -> 2,37 m -> 0.92. Durchmesser 0,85 m verhält sich zum 1,10 m breiten
+	# echten Rumpf wie 0,62 m zu den 0,80 m hier -> 0.52.
+	# z: Gondelmitte soll auf +0.89; der Ursprung liegt 0,135 m davor -> +0.76.
+	# y: Flügelunterseite liegt bei -0.37, Gondeloberseite 0,31 m über dem Ursprung
+	#    -> -0.68. Damit hängt die Gondel UNTER dem Flügel statt darauf.
+	P(bc, "jet_engine", Vector3(1.45, -0.68, 0.76), Basis(), GREY, Vector3(0.52, 0.52, 0.92))
+	# SEITENFLOSSE. Ragt echte 1,75 m über den Rumpf -> 1,10 m -> 1.10/1.80 = 0.61.
+	# Vorher stand hier 1.15, also fast doppelt so hoch: das war die „F-15-Flosse“.
+	# z: Wurzel-Vorderkante soll auf +2.35, sie liegt 0,52 m vor dem Ursprung -> +2.87;
+	#    die Hinterkante endet damit auf +3.75, also bündig mit dem Rumpfende (+3.72).
+	P(bc, "v_stab", Vector3(0, 0.30, 2.87), _ny(), GRUEN, Vector3(0.61, 1.0, 0.80))
+	# HÖHENLEITWERK — bei der Me 262 sitzt es ein Stück ÜBER dem Rumpf an der Flosse, auf
+	# rund 28 % ihrer Höhe. Genau das ist das Erkennungsmerkmal des Hecks, und genau das
+	# hatte die alte Fassung auf Rumpfhöhe verschenkt.
+	# Spannweite 3,70 m -> 2,30 m -> je Seite 1,15 -> 1.15/2.60 = 0.44.
+	PW(bc, "h_stab", 0.61, 3.22, GRUEN, Vector3(0.44, 1.0, 0.85))
+	# VIER MK 108 (30 mm) IN DER NASE, paarweise übereinander. autocannon statt cannon:
+	# die Me 262 trug 30-mm-, keine 20-mm-Kanonen.
+	# TIEF EINGELASSEN. Die Rechnung „Mündung 4 cm hinter der Nasenspitze“ war zwar
+	# richtig, taugte aber nichts: die Spitze ist ein PUNKT auf der Mittellinie, und die
+	# Rohre sitzen seitlich und höhenversetzt daneben — dort liegt die Rumpfhaut viel
+	# weiter hinten, und die Rohre standen entsprechend weit im Freien.
+	# Maßgeblich ist die Haut AN DER STELLE DES ROHRS. Nachgemessen (tools/_nase_breite.gd):
+	#     z = -2.40  halbe Breite 0.12       z = -1.80  0.24       z = -1.20  0.33
+	# x = ±0.21 (knapp über der Spiegelschwelle 0.15, sonst gäbe es nur zwei statt vier
+	# Kanonen) passt ab z = -1.87 in den Rumpf. Mit Skalierung 0.6 ragt das Rohr 0,67 m
+	# vor den Ursprung, bei z = -1.20 endet die Mündung also genau dort.
+	# Am Original sieht man von den vier MK 108 ohnehin nur die Mündungsöffnungen.
+	P(bc, "autocannon", Vector3(0.21, 0.05, -1.20), Basis(), DARK, Vector3(0.7, 0.7, 0.6))
+	P(bc, "autocannon", Vector3(0.21, -0.20, -1.20), Basis(), DARK, Vector3(0.7, 0.7, 0.6))
+	# DREIRADFAHRWERK — die Me 262 war der erste deutsche Serienjäger damit. Bugbein
+	# eigens als wheel_nose (Doppelrad, Lenkkranz); vorher stand dort ein drittes
+	# Hauptfahrwerksbein.
+	# Beide Beine sind so gesetzt, dass die Räder auf DERSELBEN Ebene stehen (-1.37):
+	# wheel_jet hängt 1,05 m unter seinem Ursprung, wheel_nose 1,10 m.
+	# Die Ebene liegt 0,28 m unter der Gondelunterseite (-1.09) — das ist die
+	# Bodenfreiheit, die die Triebwerke brauchen.
+	P(bc, "wheel_nose", Vector3(0, -0.27, -1.70), Basis(), DARK, Vector3(0.8, 1.0, 0.8))
+	P(bc, "wheel_jet", Vector3(0.55, -0.32, 0.48), Basis(), DARK)
 	_finish(bc, "me262", "Me 262 Schwalbe")
 
 

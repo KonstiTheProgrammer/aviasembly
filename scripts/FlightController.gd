@@ -75,13 +75,63 @@ const AIM_CMD_SLEW := 6.0       # Slew-Limit der kommandierten Richtung (rad/s) 
 const AIM_PITCH_CLAMP := 1.52   # Marker-Pitch-Klemme (~87°; echtes 90° ist in Yaw/Pitch singulär)
 const INS_KP_H := 2.2           # Instructor: Horizontalfehler -> Bahnrate (1/s)
 const INS_KP_V := 2.5           # Instructor: Fehlerwinkel -> Drehrate (1/s, linearer Endanflug)
-const AUTH_HEADROOM := 0.85     # Anteil der physisch erreichbaren Drehrate, den der Instructor
-								# kommandiert (Rest = Regelreserve der inneren Raten-Schleife)
+const AUTH_HEADROOM := 0.95     # Anteil der physisch erreichbaren Drehrate, den der Instructor
+								# kommandiert (Rest = Regelreserve der inneren Raten-Schleife).
+								# 0.85 -> 0.95: die 15 % Reserve waren nötig, solange die innere
+								# Nickschleife reines P war und 43 % Droop hatte — sie musste den
+								# Fehler ja erst aufbauen, um Ruderweg zu bekommen. Mit der
+								# Vorsteuerung in [F] liefert sie die kommandierte Rate direkt
+								# (gemessen Ratentreue 0.89-1.00 statt 0.37-0.99), die Reserve
+								# darf also schrumpfen. GEMESSEN mit tools/mf_schlepp.gd beim
+								# Ziehen mit 80 % der Zellenrate: Schleppfehler 12.11° -> 7.62°,
+								# mf_track-Mittel 43.7° -> 36.7°. Nicht weiter hoch: bei 1.0
+								# bliebe dem P-Anteil kein Weg mehr zum Nachkorrigieren.
+const ROLL_COORD_MAX := 2.2     # Obergrenze der Rollrate, die die KOORDINIERTE Bank-
+								# Kaskade fordern darf (rad/s ≈ 126°/s). Fassrolle,
+								# Roll-and-Pull und Tastatur bleiben unberührt.
+								# GRUND: mit der Ausroll-Planung besteht der Regler darauf,
+								# dass die Fläche waagerecht liegt, wenn die Nase ankommt.
+								# Am Ende eines 90°/180°-Flicks schließt der Fehler so
+								# schnell, dass die dafür nötige Querlagen-Rücknahme mit
+								# VOLLEM Querruder gefahren wird: gemessen (tools/_fein_maxw.gd)
+								# 53.5° Querlage im Moment des Einschwingens, danach
+								# in_roll = 1.00 und 2.59 rad/s reine Rollrate — über dem
+								# Regressions-Gate von tools/mousefly_test.gd (max. Drehrate
+								# im eingeschwungenen Zustand < 2.5). Mit 2.2 liegt die
+								# erreichte Spitze bei 1.93 und der Flick wird sogar
+								# schneller (t99 2.25 -> 2.16 s), weil nur das nutzlose
+								# Nachrollen beschnitten wird, nicht das Zielen.
+const BANK_AUS_RATE := 0.45     # Ausroll-Planung der Querlage (1/s), Herleitung in [E2]
 const AIM_TURN_ACC := 1.5       # angenommene Kurvenraten-Beschleunigung (rad/s²) für die
 								# STOPP-PLANUNG der Großkreis-Rate: w = sqrt(2·a·err)
 								# bremst die Drehung VOR dem Ziel ab (kein Durchziehen)
-const INS_YAW_BETA := 0.8       # Schiebewinkel-Koordination (β -> 0, WT AosPid)
-const INS_YAW_AIM := 0.6        # Ruder-Feinzielen bei kleinem Fehler
+const INS_YAW_BETA := 1.2       # Schiebewinkel-Koordination (β -> 0, WT AosPid). 0.8 -> 1.2.
+const INS_YAW_AIM := 6.0        # GIER-RATENSCHLEIFE (yaw_track - wb.y). 0.6 -> 6.0 — die
+								# größte Einzeländerung dieser Runde, und der Grund, warum
+								# die WAAGERECHTE Feinkorrektur überhaupt Autorität hat.
+								# WARUM: der Schiebewinkel war nicht Kosmetik, er FRASS die
+								# Kurve. GEMESSEN (tools/_fein_bank.gd, 10° seitlich, 143 m/s,
+								# Spieler-Design ohne Leitwerk): im Endanflug stand die Zelle
+								# 30° quer und drehte trotzdem nur 0.33°/s statt der 1.97°/s,
+								# die g·tan(30°)/v hergäbe. Die Bilanz erklärt es vollständig:
+								# Auftriebs-Horizontalanteil n·sin φ = 0.41·mg, dagegen die
+								# Rumpf-SEITENKRAFT aus β = 1.7° mit sin β·q·Fläche·SIDE =
+								# 0.29·mg — netto blieben 0.13·mg = 0.48°/s. Der Bau hat
+								# yaw_area = 0, seine Wetterfahne ist also schwach, während
+								# DAMP_YAW·apq = 5.12 jede Gierrate bremst: β baut sich im
+								# harten Einrollen auf und klingt danach mit ~1.2 s ab —
+								# genau die Sekunden, die der Einschwing-Zielwert verlor.
+								# Das Ruder hatte die Autorität die ganze Zeit (auth.y =
+								# 0.35 rad/s, benutzt wurden 0.03-0.04 von 1.0).
+								# WARUM auf die RATE und nicht auf β: β-Rückführung allein
+								# (INS_YAW_BETA 4-8) machte t90 zwar schnell (2.79 -> 1.26 s),
+								# erzeugte aber einen Dutch-Roll-Grenzzyklus von konstant
+								# 0.7° Spitze-Spitze in ALLEN Sprungweiten. (yaw_track - wb.y)
+								# dämpft Abweichungen von der KOMMANDIERTEN Rate und bremst
+								# die kommandierte Kurve deshalb nicht — der Grenzzyklus
+								# verschwindet: bei β=1.2/Rate=6.0 steht pp bei 0.020-0.034°.
+								# Sättigung ist unkritisch: yaw_track ist auf yaw_cap ≤ 0.3
+								# geklemmt, das Ruder bleibt der Helfer und dominiert nie.
 const RNP_OFF := 0.45           # Blende koordinierte Kurve -> Roll-and-Pull: Beginn (rad)
 const RNP_ON := 0.9             # ... voll Roll-and-Pull ab hier (rad)
 const RNP_ROLL_KP := 4.0        # Roll-and-Pull: Rollrate in die Zugebene (1/s)
@@ -99,13 +149,28 @@ const PITCH_RATE_TAB := [[20.0, 0.9], [60.0, 1.5], [120.0, 1.2], [250.0, 0.8]]
 const ROLL_RATE_TAB := [[15.0, 2.2], [60.0, 4.5], [140.0, 4.0], [250.0, 3.0]]
 const AIM_DEADZONE := 0.002     # innerer Totbereich (rad) — winzig, damit die Nase EXAKT zentriert
 const AIM_DEADZONE_SOFT := 0.008 # äußere Kante: bis hier wird der Fehler weich eingeblendet (kein Knick)
-const AIM_TRIM_I := 0.25        # Trim-Integrator (1/s): eliminiert den stationären Versatz zur Kreismitte
-const AIM_TRIM_MAX := 0.3       # Trim-Klemmung (Anti-Windup)
-const AIM_TRIM_BAND := 0.06     # NUR nahe am Ziel integrieren (sonst lädt er sich im Anflug
-								# auf und schiebt ÜBER den Punkt -> Überschieß-Quelle)
+const AIM_TRIM_I := 3.0         # Trim-Integrator auf dem RATENFEHLER (1 / (rad/s) / s): liefert
+								# den TRIMM-Ausschlag, den die Zelle zum HALTEN der Nase braucht und
+								# den das auth-Modell nicht kennt (gemessen -0.369 im Geradeausflug).
+								# Der langsamste Pol der geschlossenen Kette liegt damit bei
+								# INS_KP_V·I / (I + INS_KP_V·(1/auth.x + AIM_PITCH_RATE_P))
+								# = 7.5/15.1 = 0.5/s, der Versatz baut sich also mit ~2 s ab —
+								# nach 9 s sind von 1.743° noch 0.02° übrig (gemessen: 0.018°).
+								# Höher wäre möglich (Routh-Hurwitz ist für jedes I > 0 erfüllt),
+								# bringt aber nichts mehr und schöbe nur Rauschen in den Trimm.
+const AIM_TRIM_MAX := 0.9       # Trim-Klemmung. 0.3 reichten NICHT: das Spieler-Design braucht allein
+								# -0.37 Höhenruder, um im Geradeausflug nicht zu steigen (gemessen,
+								# tools/_mf_trimm.gd). 0.9 lässt dem P-Anteil immer 10 % Ruderweg für
+								# schnelle Ratenwechsel.
 const BANK_OFFSET_RATE := 2.2   # A/D-Bank-Offset-Verstellrate (rad/s) im Maus-Flug
 const AIM_ROLL_ACC := 6.0       # angenommene Roll-Winkelbeschleunigung (rad/s²) für die Roll-Planung
-const CAM_AIM_SMOOTH := 12.0    # Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp)
+# Kamera-Blickrichtungs-Glättung (wie Free-Look-Slerp). 12.5 statt 12.0, und das ist
+# eine Nachwirkung der Umstellung auf _glatt(): mit der alten Linearisierung
+# clampf(delta*12, 0, 1) lag die effektive Zeitkonstante bei 60 Hz bei 74.7 ms, also
+# unter der Messlatte von 80 ms — allerdings nur, weil die Naeherung zu weit zog.
+# Exponentiell gerechnet sind es exakt 1/12 = 83.3 ms und damit 4 % darueber.
+# 12.5 bringt sie auf 80.0 ms zurueck, ohne die Bildratenunabhaengigkeit aufzugeben.
+const CAM_AIM_SMOOTH := 12.5
 const CAM_LEAD := 0.65          # Geschwindigkeits-Vorhalt der Kamera (0..1): kompensiert den
 								# Lerp-Schleppfehler (~v/Rate) größtenteils -> ~35 % bleiben als
 								# sichtbares "Zieh"-Gefühl bei Speed (bei 100 m/s ~4-6 m extra)
@@ -635,15 +700,111 @@ func _physics_process(delta: float) -> void:
 		# und die Querruder schlugen links/rechts um ("Flugzeug gleicht sich dauernd
 		# selbst aus", gemessen 28-47 Umschläge + ±14-17° Pendeln in 8 s).
 		# Fix: BEDARF tiefpassen (Zitter mittelt sich zu null, echte Kurven bauen in
-		# ~0.4 s auf) + Kleinst-Gate (unterhalb echter Kurvenraten keine Bank).
+		# ~0.4 s auf) + Kleinst-Gate.
+		# KURS-Anteil des Fehlers = der Teil, der überhaupt eine Querlage braucht:
+		# der Drehvektor Nase->Marker ist axis_w·err_total, seine WELT-SENKRECHTE
+		# Komponente ist die Kursänderung. Rein senkrechte Fehler haben e_kurs = 0.
+		var e_kurs := axis_w.dot(Vector3.UP) * err_total
+		# KLEINST-GATE AUF DEN FEHLER statt auf die gefilterte Soll-Drehrate.
+		# Vorher: smoothstep(0.006, 0.018, |_wh_filt|). Im Endanflug ist _wh_filt
+		# = INS_KP_V·err, die Schwellen entsprachen damit 0.138° und 0.413° Fehler —
+		# der 0.2°-Akzeptanzring lag MITTEN in der Abschaltrampe (gemessen: bei 0.226°
+		# Restfehler stand das Gate auf 0.366, bei 0.164° auf 0.129, ab 0.099° auf 0.0).
+		# Genau dort, wo die Kennzahl misst, waren ~87 % der waagerechten Regelautorität
+		# abgeschaltet. Das Gate soll Maus-Mikrozittern unterdrücken, nicht das letzte
+		# halbe Grad; in Einheiten der Soll-DREHRATE kann es beides nicht unterscheiden.
+		# Jetzt in Einheiten des FEHLERS und mit Schwellen UNTER dem Ring: 0.05°/0.15°.
+		# Das Zittern selbst hält weiterhin die Totzonen-Hysterese von _aim_cmd (0.2°)
+		# und _soft_dead draußen — dieses Gate ist nur noch die letzte Sicherung.
 		_wh_filt = lerpf(_wh_filt, wh_eff, clampf(delta * 3.5, 0.0, 1.0))
-		var bank_need := _wh_filt * smoothstep(0.006, 0.018, absf(_wh_filt))
-		var target_bank := clampf(-atan(bank_need * v / 9.81) + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
+		var bank_need := _wh_filt * smoothstep(0.0009, 0.0026, absf(e_kurs))
+		# ROLL-AUSSTIEG PLANEN (Gegenstück zur Stopp-Planung des Nick-Kanals).
+		# Die Kurvengleichung atan(Ω·v/9.81) beantwortet nur die Frage "welche Querlage
+		# TRÄGT diese Drehrate" — nicht die Frage "kann ich sie rechtzeitig wieder
+		# loswerden". Bei Tempo ist sie brutal: mit INS_KP_V = 2.5 verlangen schon
+		# 1.6° Seitenfehler bei 140 m/s eine Querlage von 45°, ein 5°-Sprung 72°.
+		# Die Querlage muss am Ende aber WIEDER WEG, und während sie weggeht, dreht
+		# die Zelle weiter. GEMESSEN (tools/_fein_bank.gd, 5° seitlich, 143 m/s):
+		# bei t=1.01 s war der Fehler auf 0.12° herunter, die Querlage stand aber noch
+		# bei 48° und die Nase drehte mit 4.9°/s weiter -> 0.30° Überschwingen.
+		# DECKEL statt Abschaltung: die zulässige Querlage wächst LINEAR mit dem
+		# Restfehler, φ_max = e·BANK_AUS_RATE·v/9.81. Das ist die Umkehrung von
+		# "Kurs, den das Ausrollen noch verbraucht" = (9.81/v)·φ/rate. Bei Fehler null
+		# ist auch die erlaubte Querlage null — die Zelle liegt waagerecht, wenn die
+		# Nase ankommt. WARUM als Deckel und nicht als Faktor auf den Bedarf: ein
+		# Faktor, der auf null kollabiert, ist ein SPRUNG im Bank-Befehl und ließ die
+		# Querruder voll ausschlagen; der Deckel zieht die Querlage stetig mit dem
+		# Fehler herunter.
+		# BANK_AUS_RATE = 0.45 gemessen, nicht geschätzt: der Ausstieg besteht aus der
+		# Querruder-Umkehr (Rollrate durch null, ~0.4 s) und erst danach dem Abklingen
+		# mit ~3.5/s; über den ganzen Ausstieg von 50° auf 2° bleibt eine effektive
+		# Rate deutlich unter 1/s. Höher (0.70) kostete 3.2 % Überschwingen, niedriger
+		# (0.28) kostete 0.17 s Anstiegszeit; 0.45 ist das Minimum beider.
+		# Der Deckel gilt NUR für den FEHLER-Anteil. Wandert der Marker (Verfolgung),
+		# geht der Fehler nie auf null und die Querlage muss STEHEN BLEIBEN — die
+		# Ausroll-Planung wäre dort schlicht das falsche Modell. Der Vorhalt bekommt
+		# deshalb seine eigene Untergrenze aus derselben Kurvengleichung.
+		# GEMESSEN ohne diese Ausnahme (tools/mf_schlepp.gd): der Schleppfehler bei
+		# 50 % der Zellenrate stieg von 1.74° auf 2.87° und bei 80 % von 0.16° auf
+		# 7.82° — der Deckel drosselte die Dauerkurve auf 51° Querlage, obwohl 76°
+		# nötig waren. Mit der Ausnahme bleibt die Dauerkurve unangetastet.
+		var bank_ff := absf(atan(_aim_ff.y * v / 9.81))
+		var bank_cap := maxf(absf(e_kurs) * BANK_AUS_RATE * v / 9.81, bank_ff)
+		var target_bank := clampf(-atan(bank_need * v / 9.81), -bank_cap, bank_cap)
+		target_bank = clampf(target_bank + _bank_offset, -AIM_BANK_MAX, AIM_BANK_MAX)
+		# KURVEN-ZUG AUF DEN NICK-KANAL — die fehlende Hälfte von "bank-to-turn".
+		# Querlage allein dreht nicht. Eine koordinierte Kurve mit der Rate Ω bei
+		# Querlage φ verlangt die KÖRPER-Nickrate q = Ω·sin φ. Fehlt dieses Ziehen,
+		# hängt die Zelle nur schräg in der Luft und sackt, statt zu drehen.
+		# WARUM das Großkreis-Gesetz das nicht liefert: seine Achse ist Nase×Marker,
+		# also die KÜRZESTE Verbindung. Sobald der Nick-Kanal den Vertikalfehler
+		# ausgeregelt hat, liegt der Restfehler in der KÖRPER-Horizontalen; die Achse
+		# kippt dann mit der Querlage mit, und ihr waagerechter Anteil erzeugt im
+		# Nick-Kanal einen DRUCK, der den Kurvenzug fast exakt aufhebt.
+		# GEMESSEN (tools/_fein_quer.gd, Spieler-Design, 2° seitlich, 143 m/s, t=0.76 s,
+		# Querlage -44.5°): der senkrechte Anteil des Soll-Drehvektors steuert +0.0363 rad/s
+		# Nick bei, der waagerechte -0.0327 — übrig blieben +0.0036 statt der nötigen
+		# +0.0363. Ergebnis bei t=2.0 s: Querlage -23.9°, kommandiert 0.0285 rad/s,
+		# Nickrate wb.x = -0.0080 (die Zelle DRÜCKTE), erreichte Welt-Drehrate
+		# 0.0072 rad/s = 25 % der kommandierten. Die Querlage war dabei RICHTIG:
+		# g·tan(23.9°)/v = 0.0304 rad/s wären damit drin gewesen, mehr als kommandiert.
+		# Übrig blieb das Seitenruder, und dessen Ratentreue lag über den ganzen Vorgang
+		# bei 0.24-0.29 (Messlatte: 0.90) bei nur 0.02-0.05 von 1.0 Ruderweg — der Kanal
+		# war nicht am Anschlag, sondern strukturell der falsche: Gieren ist Schieben,
+		# nicht Kurvenfliegen.
+		# UNGEFILTERT (wh_eff statt bank_need): mit dem 3.5/s-Tiefpass und dem Gate hängt
+		# der Zug dem Bedarf 0.286 s nach und zieht über das Ziel hinaus — gemessen
+		# 24.5 % Überschwingen bei 5° seitlich gegenüber 2.4 % mit wh_eff.
+		# VORZEICHEN: wh_eff > 0 (Rechtskurve) erzeugt oben target_bank < 0, also
+		# sin(current_bank) < 0; -wh_eff·sin(bank) ist damit in BEIDEN Drehrichtungen
+		# ein ZUG und bei Querlage 0 exakt null.
+		# SELBSTABSCHALTEND: ohne Kurvenwunsch ist wh_eff = 0 und der Term verschwindet.
+		# Geradeausflug und der mit A/D gehaltene Bank-Offset (der nicht in wh_eff steckt)
+		# bleiben unberührt — gemessen mit tools/mf_ruhe.gd: Bias und Restunruhe
+		# unverändert (bias 0.003-0.022°, sd ≤ 0.012°).
+		# Er sitzt VOR dem AoA-/G-Limiter, kann also weiterhin nicht überziehen.
+		# ... ABER NUR SO VIEL ZUG, WIE DIE AKTUELLE QUERLAGE TRÄGT.
+		# q = Ω·sin φ ist die Bedingung der EINGESCHWUNGENEN Kurve. Während des
+		# Einrollens ist φ aber noch klein, und die Zelle kann bei dieser Querlage gar
+		# keine Rate Ω fliegen — sie kann nur g·tan φ/v. Mit der SOLL-Rate gerechnet
+		# wurde der Zug dort um ein Vielfaches überkommandiert: GEMESSEN
+		# (tools/_fein_bank.gd, 10° seitlich, t=0.51 s, Querlage 29.7°) 0.139 rad/s
+		# Zug gegen 0.019 rad/s, die die Querlage trägt — Faktor 7. Ergebnis war eine
+		# Nick-Exkursion von 3.9 g hinauf und 0.25 g hinunter, +9 m/s Steigen und
+		# danach ein stehender Vertikalfehler, dessen Korrektur den Kurvenzug wieder
+		# aufhob (Patt: d_pitch ≈ 0 bei 30° Querlage, die Zelle hing nur schräg).
+		# Deckel = die Rate, die diese Querlage koordiniert trägt. In der
+		# eingeschwungenen Kurve ist der Deckel per Definition inaktiv (dort gilt
+		# g·tan φ/v = Ω), er greift also NUR im Einrollen.
+		# GEMESSEN: Einschwingen 10° seitlich 5.36 s -> 4.54 s allein durch diesen Deckel.
+		var w_bank := 9.81 * absf(tan(clampf(current_bank, -AIM_BANK_MAX, AIM_BANK_MAX))) / v
+		var wh_pull := clampf(wh_eff, -w_bank, w_bank)
+		d_pitch = clampf(d_pitch - wh_pull * sin(current_bank), -pitch_max, pitch_max)
 		var dbank := wrapf(target_bank - current_bank, -PI, PI)
 		# Stopp-Planung sqrt(2·a·d) hat bei d=0 UNENDLICHE Steigung -> Grenzzyklus
 		# ums Bank-Ziel (Querruder schlugen permanent um). Lineares Segment nahe
 		# null (4.5/s) macht den Endanflug weich, sqrt bleibt für große Fehler.
-		var wr_coord := signf(dbank) * minf(roll_max, minf(sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)), absf(dbank) * 4.5))
+		var wr_coord := signf(dbank) * minf(minf(roll_max, ROLL_COORD_MAX), minf(sqrt(2.0 * AIM_ROLL_ACC * absf(dbank)), absf(dbank) * 4.5))
 		# "Pull fertig fliegen, DANN ausrollen": solange Vertikalfehler ansteht,
 		# die Zugebene halten (Rollen gedrosselt).
 		wr_coord *= 1.0 - 0.8 * clampf(absf(vert) / 0.45, 0.0, 1.0)
@@ -666,13 +827,130 @@ func _physics_process(delta: float) -> void:
 			d_pitch *= 1.0 - smoothstep(G_SOFT * g_lim, G_HARD * g_lim, gl)
 		elif d_pitch < 0.0 and gl < 0.0:
 			d_pitch *= 1.0 - smoothstep(G_SOFT * g_lim * G_NEG, G_HARD * g_lim * G_NEG, -gl)
-		# [F] innere Raten-Schleifen + Auto-Trim + Schiebewinkel-Gier (β -> 0, WT AosPid)
+		# [F] innere Raten-Schleifen + Trim-Integrator + Schiebewinkel-Gier (β -> 0, WT AosPid)
 		var roll_cmd := clampf((wr_des - wb.z) * AIM_ROLL_P, -1.0, 1.0)
-		if absf(vert) < AIM_TRIM_BAND and absf(wb.x) < 0.4 and aircraft.airspeed > 10.0:
-			_trim_pitch = clampf(_trim_pitch + vert * AIM_TRIM_I * delta, -AIM_TRIM_MAX, AIM_TRIM_MAX)
-		elif absf(vert) > 0.2:
-			_trim_pitch = move_toward(_trim_pitch, 0.0, 0.6 * delta)
-		var pitch_cmd := clampf((d_pitch - wb.x) * AIM_PITCH_RATE_P + _trim_pitch, -1.0, 1.0)
+		# VORSTEUERUNG statt reinem P — der größte Einzelverlust im Maus-Flug.
+		# AircraftBody stellt sich bei Höhenruder-Ausschlag u auf die Rate auth.x·u
+		# ein: Momentengleichgewicht (CTRL_PITCH+CTRL_PITCH_A·Fläche)·qfac·MOUSE_AUTH·u
+		# gegen DAMP_PITCH·apq·(0.35+qfac)·w — exakt die Formel, die _auth_rates()
+		# ohnehin jeden Tick ausrechnet. Der nötige Ausschlag ist damit DIREKT
+		# invertierbar: u_ff = d_pitch/auth.x.
+		# Ein reiner P-Regler muss den Ausschlag dagegen über den FEHLER erkaufen und
+		# bleibt zwangsläufig darunter. GEMESSEN (tools/mf_schlepp.gd, Spieler-Design,
+		# 140 m/s): kommandiert 0.253 rad/s, geflogen 0.145 rad/s = 43 % Droop, bei nur
+		# 0.16 von 1.0 Höhenruder — 84 % Ruderweg lagen brach. Die Nase deckelte
+		# dadurch bei 8.2 °/s, obwohl die Zelle 17.1 °/s dreht (Ausnutzung 0.48).
+		# Weil d_pitch schon auf pitch_max = auth.x·AUTH_HEADROOM geklemmt ist, bleibt
+		# |u_ff| ≤ AUTH_HEADROOM — der Rest des Ruderwegs ist die Reserve für den
+		# P-Anteil. Die Strecke liefert eher MEHR als das Modell sagt (Wetterfahne
+		# PITCH_STAB hilft in der Kurve mit), der P-Anteil muss also überwiegend
+		# ABZIEHEN — und dafür hat er immer vollen Weg.
+		# Am Ziel (d_pitch → 0) ist der Vorsteuer-Term exakt 0: die Ruhe-Kennzahlen
+		# (Bias, Restunruhe) bleiben unberührt, dies ist rein ein Kurven-/Zieh-Gewinn.
+		var pitch_ff := d_pitch / maxf(auth.x, 1e-3)
+		# TRIM-INTEGRATOR auf dem RATENFEHLER — ohne ihn bleibt ein STEHENDER Versatz.
+		# Vorsteuerung und P kennen nur das MODELL der Zelle. Was das Modell nicht kennt,
+		# ist der Ausschlag, den die Zelle zum bloßen GERADEAUSFLIEGEN braucht
+		# (Wetterfahne PITCH_STAB, Auftriebsmoment, Schubachse). GEMESSEN mit
+		# tools/_mf_bias_trace.gd (Spieler-Design, 140 m/s, Zeiger fest nach vorn):
+		# der Regler hält dauerhaft in_pitch = -0.3694, obwohl er gar nicht drehen will.
+		# Ohne Integrator muss dieser Ausschlag über den FEHLER erkauft werden, und der
+		# Sockel ist exakt ausrechenbar: dCmd/dErr = (1/auth.x + AIM_PITCH_RATE_P)·INS_KP_V
+		# = (3.36 + 1.5)·2.5 = 12.14 pro rad, also 0.3694/12.14 = 0.0304 rad = 1.743° —
+		# genau der gemessene Versatz (tools/mf_ruhe.gd: bias 1.743° in ALLEN Fällen,
+		# Körper h = 0.000°, v = -1.743°, also rein die Nickachse).
+		# Warum auf dem RATEN- und nicht auf dem WINKELfehler: der Ratenfehler ist der
+		# Eingang der INNEREN Schleife; der Integrator sitzt damit in der schnellen
+		# Kaskade, statt eine zweite Integration in die ohnehin schon integrierende
+		# Winkelschleife zu legen. Über die ganze Kette (Strecke τ ≈ 0.2 s, Vorsteuerung
+		# 1/auth.x, P = 1.5, außen INS_KP_V = 2.5) ist das Routh-Hurwitz-Kriterium für
+		# JEDES I > 0 erfüllt; der langsamste Pol liegt bei 0.5/s, also 2.0 s Abbau.
+		# Im Ziel ist der Ratenfehler exakt 0 (d_pitch → 0, wb.x → 0): der Integrator
+		# HÄLT dort seinen Wert — das IST der Trimm. Er rastet also ein, statt zu schwingen.
+		# EHRLICH DAZU: ganz umsonst ist er nicht. Die Restunruhe steigt von sd 0.0000°
+		# auf 0.008° (Spitze-Spitze 0.000° -> 0.034°), weil der Integrator einem
+		# WANDERNDEN Trimmbedarf nachläuft — im Prüfstand beschleunigt die Zelle über die
+		# Messdauer von 140 auf 154 m/s. Das ist kein Grenzzyklus (Amplitude bleibt über
+		# 5 s konstant) und liegt 6-fach unter dem Ziel von 0.05°; erkauft wird damit ein
+		# Bias von 1.743° auf 0.018°. Die alte Ruhe war die Ruhe einer Nase, die sauber
+		# still stand — 1.743° NEBEN dem Zeiger.
+		var w_err := d_pitch - wb.x
+		var pitch_raw := pitch_ff + w_err * AIM_PITCH_RATE_P + _trim_pitch
+		var pitch_cmd := clampf(pitch_raw, -1.0, 1.0)
+		# ANTI-WINDUP (bedingte Integration): nur laden, solange der Ruderweg nicht schon
+		# am Anschlag ist ODER der Fehler aus dem Anschlag HERAUS führt. Ohne das lädt
+		# sich der Trimm im großen Flick voll — die Vorsteuerung allein belegt dort schon
+		# AUTH_HEADROOM vom Weg — und schießt beim Einlaufen über. Genau das Durchziehen
+		# misst der Ruhe-Prüfstand als "durchzug".
+		# ZWEITES Tor: der Trimm gehört dem HALTE-Bereich, nicht dem Manöver. Nähert sich
+		# die Soll-Rate dem Autoritäts-Cap, wird der Integrator ausgeblendet.
+		# GRUND, gemessen mit tools/_mf_wind_trace.gd (Marker 0.35 rad/s, Dauerkurve):
+		# das auth-Modell UNTERSCHÄTZT diese Zelle. Bei in_pitch = 0.82 fliegt sie
+		# 0.327 rad/s, das Modell verspricht 0.298 pro Vollausschlag — 21 % Modellfehler.
+		# Vorsteuerung + P überkommandieren dadurch stationär (kommandiert 0.283 rad/s,
+		# geflogen 0.325) und die Kurve wird GRATIS schneller. Ein Integrator kennt das
+		# nicht: er liest die Übererfüllung als Fehler und trimmt sie weg — gemessen lief
+		# der Trimm auf -0.28, das Höhenruder von 0.91 auf 0.44, die Nickrate exakt
+		# zurück auf die kommandierten 0.283 und der Schleppfehler stieg von 36.7° auf
+		# 46.2°. Am Cap ist für ihn ohnehin nichts zu gewinnen (die Vorsteuerung belegt
+		# dort schon AUTH_HEADROOM des Ruderwegs), er kann dort nur wegnehmen.
+		# Der Ruhe-Fall liegt mit Soll-Rate 0.0008 gegen Cap 0.283 (0.3 %) tief im
+		# offenen Bereich; die Dauerkurve mit 97 % tief im geschlossenen.
+		# Bei geschlossenem Tor wird der Trimm GEHALTEN, nicht ausgewaschen — das ist der
+		# einzige Unterschied zur Vorrunde und der Grund, warum die kleinen Nick-Sprünge
+		# jetzt sauber einlaufen. Die alte Zeile fuhr _trim_pitch mit 1.0/s auf null.
+		# WAS DARAN FALSCH WAR (gemessen, tools/_fein_trimm2.gd, Spieler-Design, 140 m/s):
+		# das Tor schließt schon bei WINZIGEN Korrekturen. Beim 2°-Sprung hebt der Vorhalt
+		# die Soll-Rate für 60 ms auf den Cap (Stopp-Planung fordert 0.087 rad/s, Vorhalt
+		# legt seine 0.198 drauf, Summe klemmt bei 0.283) — das Höhenruder ging voll auf
+		# +1.00 und i_gate auf 0. Das Auswaschen räumte in dieser Zeit 0.115 vom gemessenen
+		# Halte-Ausschlag -0.315 weg, beim 10°-Sprung sogar den ganzen (Trimm exakt 0.000
+		# zwischen t=0.34 und t=0.54 s). Direkt danach braucht die Zelle diesen Ausschlag
+		# WIEDER, nur um nicht weiterzusteigen — der Integrator baut ihn aber über seinen
+		# 0.5/s-Pol in ~2 s auf. Solange lief die Nase weiter: reines LADUNGSDEFIZIT.
+		# Kennzeichen dafür, dass es kein proportionaler Effekt war: das ABSOLUTE
+		# Überschwingen war über alle Sprungweiten fast gleich (0.51 / 0.80 / 1.03 / 1.04°
+		# bei 2 / 5 / 10 / 15°), also unabhängig von der Sprunggröße.
+		# GEMESSEN mit tools/mf_fein.gd, nur diese Zeile geändert (senkrecht,
+		# Überschwingen und Zeit in den 0.2°-Gesamtring):
+		#    2°  25.5 % / 1.90 s  ->   7.0 % / 0.35 s
+		#    5°  16.0 % / 3.11 s  ->   0.0 % / 0.73 s
+		#   10°  10.3 % / 3.88 s  ->   0.0 % / 1.17 s
+		#   15°   6.9 % / 4.12 s  ->   0.0 % / 1.50 s
+		# Preis ist die Anstiegszeit, weil der gehaltene Trimm im Zug mitzieht statt
+		# wegzufallen: t90 senkrecht 0.72 -> 0.88 s bei 10° (Ziel 1.00 s).
+		# WARUM HALTEN UND NICHT AUSWASCHEN DAS PHYSIKALISCH RICHTIGE IST: -0.315 ist der
+		# Ausschlag für NULL Nickrate, nicht für null Zug. Diese Zelle steigt bei neutralem
+		# Höhenruder von selbst mit rund +0.110 rad/s (aus den Messwerten: 0 rad/s bei
+		# in_pitch -0.369, auth.x = 0.298 -> 0.298·0.369). Das auth-Modell kennt diesen
+		# Sockel nicht; die Vorsteuerung d_pitch/auth.x liefert nur den RATEN-Anteil
+		# OBENDRAUF. Wer den Sockel im Manöver wegnimmt, verschiebt die ganze Kennlinie:
+		# das Flugzeug fliegt dann schneller, als der Regler kommandiert hat, und die
+		# Stopp-Planung plant gegen eine Rate, die gar nicht fliegt.
+		# GEMESSEN (tools/_fein_treue.gd, Dauerkurve bei 130 % der Zellenrate):
+		#   ausgewaschen  kommandiert 0.283 -> geflogen 0.337 rad/s  RATENTREUE 1.19
+		#   gehalten      kommandiert 0.283 -> geflogen 0.288 rad/s  RATENTREUE 1.02
+		# EHRLICH DAZU — dieses ehrlichere Kommando kostet Dauerleistung, weil die
+		# 19 % Übererfüllung wegfallen. GEMESSEN mit dem SPIELER-Design:
+		#   tools/mf_design.gd  r90@200  t99 5.05 -> 5.66 s | h180@160 10.18 -> 11.64 s
+		#                       h135@200 t99 7.32 -> 8.64 s | r90@140   4.91 ->  4.84 s
+		#   tools/mf_schlepp.gd Sättigung 130 %: Nase 19.4 -> 16.9 °/s
+		#   tools/mf_track.gd   errMittel 32.3 -> 32.9°, splitS 34.4 -> 36.5°
+		# Alle Zielwerte bleiben erfüllt (90° <= 7.5 s, 180° <= 14 s, Sättigungs-Zuwachs
+		# 5.34 <= 5.85 °/s), und die Flicks werden dabei RUHIGER: Überschwingen 180°
+		# 1.4 -> 1.1°, Pendel-Umschläge 1 -> 0 in drei von vier Fällen.
+		# ACHTUNG bei der Gegenprobe mit tools/mousefly_test.gd: dort wird es SCHNELLER
+		# (rechts90 2.28 -> 2.25 s, hinten180 4.61 -> 4.56 s). Das ist kein Widerspruch,
+		# sondern die andere Zelle: jenes Testdesign hat ein Leitwerk und braucht deshalb
+		# kaum Halte-Trimm. Die Sekundenwerte des Spieler-Designs stehen in mf_design.
+		# WER DIE DAUERLEISTUNG ZURÜCKHOLEN WILL, muss an den Cap, nicht an den Trimm:
+		# pitch_max = auth.x·AUTH_HEADROOM unterschlägt, dass der Trimm einen Teil des
+		# Ruderwegs belegt und der Rest ASYMMETRISCH ist (bei Trimm -0.315 stehen zum
+		# Ziehen 1.315 Ruderweg zur Verfügung, zum Drücken 0.685). Das ist eine eigene
+		# Baustelle — sie fasst w_cap, Stopp-Planung und Vorhalt gleichzeitig an.
+		var i_gate := 1.0 - smoothstep(0.35, 0.70, absf(d_pitch) / maxf(pitch_max, 1e-3))
+		if i_gate > 0.0 and (absf(pitch_raw) < 1.0 or w_err * pitch_raw < 0.0):
+			_trim_pitch = clampf(_trim_pitch + w_err * AIM_TRIM_I * i_gate * delta, -AIM_TRIM_MAX, AIM_TRIM_MAX)
 		var v_b := b.transposed() * aircraft.linear_velocity
 		var beta := atan2(v_b.x, absf(v_b.z) + 0.6)
 		# Gier folgt der Gier-Komponente des Welt-Drehvektors (Raten-Tracking statt
@@ -1087,10 +1365,10 @@ func _process(delta: float) -> void:
 	if zoom_t > 0.0:
 		fov_target = lerpf(fov_target, FOV_ZOOM, zoom_t)
 	# Glättung im vertikalen FOV halten, dann ultrawide-bewusst anwenden (kein Fischauge auf 32:9).
-	_cam_vfov = lerpf(_cam_vfov, fov_target, clampf(delta * 2.5, 0.0, 1.0))
+	_cam_vfov = lerpf(_cam_vfov, fov_target, _glatt(2.5, delta))
 	ViewUtil.apply_vfov(camera, _cam_vfov)
 	# Mausrad-Zoom weich nachführen -> sanfte Distanz-Transition statt hartem Sprung pro Raste
-	cam_zoom = lerpf(cam_zoom, cam_zoom_target, clampf(delta * CAM_ZOOM_SMOOTH, 0.0, 1.0))
+	cam_zoom = lerpf(cam_zoom, cam_zoom_target, _glatt(CAM_ZOOM_SMOOTH, delta))
 	# INTERPOLIERTE Transform: das Flugzeug rendert seit physics_interpolation
 	# glatt mit Display-Rate — eine an der ROHEN 60-Hz-Physikposition verankerte
 	# Kamera ließe es relativ zur Kamera zittern (genau das gemeldete Beben).
@@ -1106,20 +1384,20 @@ func _process(delta: float) -> void:
 			_flook_basis = camera.global_transform.basis.orthonormalized()   # sanfter Einstieg aus aktueller Sicht
 		_flook_was = true
 		# Nur die ORIENTIERUNG glätten; die POSITION folgt dem (auch schnellen) Flieger STARR -> kein Lag.
-		_flook_basis = _flook_basis.slerp(b_target, clampf(delta * 12.0, 0.0, 1.0)).orthonormalized()
+		_flook_basis = _flook_basis.slerp(b_target, _glatt(12.0, delta)).orthonormalized()
 		camera.global_transform = Transform3D(_flook_basis, center + _flook_basis.z * (FREE_LOOK_DIST * cam_zoom))
 		_apply_cam_shake()
 		return
 	# Free-Look-Winkel sanft zurückstellen, wenn nicht (mehr) aktiv
 	_flook_was = false
-	flook_yaw = lerpf(flook_yaw, 0.0, clampf(delta * 5.0, 0.0, 1.0))
-	flook_pitch = lerpf(flook_pitch, 0.0, clampf(delta * 5.0, 0.0, 1.0))
+	flook_yaw = lerpf(flook_yaw, 0.0, _glatt(5.0, delta))
+	flook_pitch = lerpf(flook_pitch, 0.0, _glatt(5.0, delta))
 	if mouse_fly:
 		# Kamera blickt in die ZIELRICHTUNG (Maus), Flugzeug im Vordergrund -> du siehst,
 		# wohin du zeigst und wie die Nase nachzieht. Kein Zurückschwenken (Ziel bleibt stehen).
 		# WICHTIG: die Kamera folgt einer EIGENEN geglätteten Richtung (_cam_aim, 12/s wie
 		# Free-Look) — vorher ruckte das harte look_at entlang der rohen Maus bei jedem Tick.
-		_cam_aim = _cam_aim.lerp(_aim_dir(), clampf(delta * CAM_AIM_SMOOTH, 0.0, 1.0)).normalized()
+		_cam_aim = _cam_aim.lerp(_aim_dir(), _glatt(CAM_AIM_SMOOTH, delta)).normalized()
 		# Up-Referenz WEICH von Welt-UP auf Flugzeug-Up blenden, statt bei 0.97 hart zu
 		# flippen -> kein sichtbarer Horizont-Sprung beim Senkrechtziehen.
 		var upk := clampf((absf(_cam_aim.dot(Vector3.UP)) - UP_BLEND_LO) / (UP_BLEND_HI - UP_BLEND_LO), 0.0, 1.0)
@@ -1134,20 +1412,20 @@ func _process(delta: float) -> void:
 		# Geschwindigkeits-Vorhalt: der 8/s-Lerp hinkt sonst ~v/8 m hinterher (bei 100 m/s
 		# über 12 m extra Abstand!) -> Vorhalt hält die Distanz auch bei Highspeed stabil.
 		cam_pos += aircraft.linear_velocity * (CAM_LEAD / 8.0)
-		camera.global_position = camera.global_position.lerp(cam_pos, clampf(delta * 8.0, 0.0, 1.0))
+		camera.global_position = camera.global_position.lerp(cam_pos, _glatt(8.0, delta))
 		camera.look_at(t.origin + _cam_aim * 30.0 + Vector3.UP * cam_h, up_ref)
 		_apply_cam_shake()
 		return
 	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
 	_mouse_idle += delta
 	if _mouse_idle > LOOK_RECENTER:
-		var k := clampf(delta * 2.2, 0.0, 1.0)
+		var k := _glatt(2.2, delta)
 		look_yaw = lerpf(look_yaw, 0.0, k)
 		look_pitch = lerpf(look_pitch, 0.0, k)
 	var desired := t.origin + _cam_offset(t)
 	# Geschwindigkeits-Vorhalt (s.o.): hält den Verfolger-Abstand auch bei Highspeed stabil.
 	desired += aircraft.linear_velocity * (CAM_LEAD / 6.0)
-	camera.global_position = camera.global_position.lerp(desired, clamp(delta * 6.0, 0.0, 1.0))
+	camera.global_position = camera.global_position.lerp(desired, _glatt(6.0, delta))
 	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
 	_apply_cam_shake()
 
@@ -1155,6 +1433,28 @@ func _process(delta: float) -> void:
 # Kamera-Shake auslösen (Feuer/Aufprall) und anwenden (Positions- + Roll-Jitter, quadratisch).
 func add_shake(amount: float) -> void:
 	_cam_shake = minf(_cam_shake + amount, 1.4)
+
+
+## BILDRATENUNABHAENGIGER GLAETTUNGSFAKTOR.
+##
+## Ueberall im Kameracode stand vorher `clampf(delta * rate, 0, 1)`. Das ist die
+## Linearisierung von `1 - exp(-rate * delta)` und stimmt nur, solange delta klein ist.
+## Bei einem langen Frame zieht sie ZU WEIT: mit rate 6 und 60 ms Frame liefert die
+## Linearisierung 0.60 statt korrekt 0.45.
+##
+## GENAU DAS war das gemeldete "Flugzeug zittert kurz zurueck in der Kamera" beim
+## Nachladen: die Kamera ueberschwingt bei einem langen Frame nach vorn, also rutscht
+## das Flugzeug im Bild zur Kamera zurueck. Gerechnet (Verfolgerkamera, 170 m/s):
+##      Frame     linear (vorher)   exponentiell (jetzt)
+##       25 ms        -0.21 m            -0.09 m
+##       40 ms        -0.95 m            -0.40 m
+##       60 ms        -2.65 m            -1.03 m
+##      100 ms        -8.50 m            -2.83 m
+## Das beseitigt den Ruck nicht, wenn ein Frame wirklich lange dauert — der Flieger legt
+## in 60 ms nun einmal 10 m zurueck — aber es nimmt die UEBERREAKTION der Kamera heraus,
+## und die war zweieinhalb- bis dreimal so gross wie die Bewegung selbst.
+static func _glatt(rate: float, delta: float) -> float:
+	return 1.0 - exp(-rate * delta)
 
 
 func _apply_cam_shake() -> void:

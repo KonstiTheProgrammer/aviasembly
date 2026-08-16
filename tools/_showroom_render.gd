@@ -126,12 +126,26 @@ func _setup() -> void:
 	cam.fov = BuildController.PRAESENT_VFOV
 	var aspect := float(breite) / float(hoehe)
 	var vfov := deg_to_rad(cam.fov)
+	# yaw=/pitch= in Grad. Fuer die Abnahme eines Flugzeugs braucht es Seiten-, Drauf-
+	# und Frontansicht — aus der Standard-Dreiviertelansicht allein laesst sich eine
+	# Silhouette nicht gegen ein Vorbild pruefen.
 	var yaw := deg_to_rad(30.0)
 	var pitch := deg_to_rad(12.0)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("yaw="):
+			yaw = deg_to_rad(float(a.substr(4)))
+		elif a.begins_with("pitch="):
+			pitch = deg_to_rad(float(a.substr(6)))
 	var fokus: Vector3 = box.get_center() + Vector3(0, box.size.y * 0.18, 0)
 	var dir := Vector3(cos(pitch) * sin(yaw), sin(pitch), cos(pitch) * cos(yaw))
 	var dist: float = clamp(ViewUtil.fit_distance(box, vfov, aspect, dir,
 		BuildController.PRAESENT_FUELLUNG, 0.78), 3.0, 90.0)
+	# dist=<m> erzwingt einen Kameraabstand. Wofuer: der Bau-Modus laesst bis 110 m
+	# heraus (BuildController), und genau dort faellt auf, was in der Naheinstellung
+	# unsichtbar bleibt — frueher der Nebel, jetzt die Randaufloesung der Bodenplatte.
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("dist="):
+			dist = float(a.substr(5))
 	# ERST in den Baum, DANN positionieren: global_transform gibt es ausserhalb des
 	# Baums nicht, die Kamera waere sonst im Ursprung stehen geblieben.
 	# Test: Nahebene anheben -> mehr Tiefenpraezision. Wenn das Punktmuster damit
@@ -142,7 +156,10 @@ func _setup() -> void:
 	vp.add_child(cam)
 	# Modell nach links ruecken (Platz fuer Name/Kennwerte rechts)
 	var breite_welt: float = 2.0 * dist * tan(vfov * 0.5) * aspect
-	var ziel: Vector3 = fokus + Vector3.UP.cross(dir).normalized() * breite_welt * 0.11
+	var versatz := 0.11
+	if OS.get_cmdline_user_args().has("mittig"):
+		versatz = 0.0
+	var ziel: Vector3 = fokus + Vector3.UP.cross(dir).normalized() * breite_welt * versatz
 	cam.look_at_from_position(fokus + dir * dist, ziel, Vector3.UP)
 	print("Design: ", design_path, "  AABB=", box, "  Abstand=", "%.2f" % dist)
 
