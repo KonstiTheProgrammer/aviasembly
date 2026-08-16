@@ -88,17 +88,17 @@ func _baue_environment() -> Environment:
 	env.adjustment_saturation = 1.08
 	env.adjustment_brightness = 1.0
 
-	# Sehr dezenter Nebel: laesst Raster und Hintergrund ineinander laufen, damit am
-	# Rand der Bodenflaeche keine harte Horizontkante steht.
-	# Der Nebel ist hier KEIN Wettereffekt, sondern das Mittel gegen die harte
-	# Horizontkante: der beleuchtete Boden muss zum Rand hin in die Hintergrundfarbe
-	# laufen. Mit zu wenig Dichte stand vorher eine sichtbare Trennlinie im Bild.
-	env.fog_enabled = true
-	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = BG
-	env.fog_density = 0.0260
-	env.fog_sky_affect = 0.0
-	env.fog_aerial_perspective = 0.0
+	# KEIN NEBEL. Hier stand einer mit Dichte 0,026, und zwar nicht als Wettereffekt,
+	# sondern als Notbehelf gegen die harte Kante der 220-m-Bodenplatte: der beleuchtete
+	# Boden sollte zum Rand hin in die Hintergrundfarbe laufen.
+	# Der Preis war zu hoch. Nebel wirkt auf ALLES, was in der Tiefe steht, also auch auf
+	# das Flugzeug — und der Bau-Modus ist der einzige Ort, an dem man das Flugzeug genau
+	# ansehen will. Bei 0,026 exponentiell sind schon 20 m Abstand 40 Prozent Ueberdeckung;
+	# herausgezoomt verschwand das Modell fast vollstaendig im Petrol.
+	# Die Kante loest jetzt der Boden-Shader selbst auf (siehe blueprint_floor.gdshader):
+	# er blendet sich zum Rand hin in den Horizontton des Himmels. Das trifft genau die
+	# Flaeche, um die es ging, und laesst das Flugzeug in Ruhe.
+	env.fog_enabled = false
 
 	# Glow nur fuer wirklich helle Kanten (Auswahlkontur, UI-Akzente) — der hohe
 	# Schwellwert verhindert, dass die ganze Szene zu leuchten anfaengt.
@@ -175,10 +175,16 @@ func _baue_boden() -> void:
 	boden = MeshInstance3D.new()
 	boden.name = "BlueprintFloor"
 	var pm := PlaneMesh.new()
-	pm.size = Vector2(220, 220)
-	# Unterteilung, damit der Nebel ueber die Flaeche interpoliert statt zu kippen.
-	pm.subdivide_width = 8
-	pm.subdivide_depth = 8
+	# GROSS GENUG, DASS DIE KANTE NIE INS BILD KOMMT. Vorher 220 m — bei bis zu 110 m
+	# Kameraabstand (BuildController) lag die Kante mitten im Bild, und dagegen lief der
+	# Nebel, der auch das Flugzeug verschluckte. 3000 m schieben sie so dicht an den
+	# Horizont, dass sie unter einem Pixel bleibt: der Boden endet damit dort, wo ein
+	# Boden enden soll. Kosten: keine — es sind immer noch zwei Dreiecke, und die
+	# Rasterlinien blendet der Shader ohnehin nach Kameraabstand aus.
+	pm.size = Vector2(3000, 3000)
+	# Unterteilung ist seit dem Wegfall des Nebels ohne Funktion — eine Flaeche genuegt.
+	pm.subdivide_width = 0
+	pm.subdivide_depth = 0
 	boden.mesh = pm
 	boden.position = Vector3(0, -1.9, 0)
 	boden.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

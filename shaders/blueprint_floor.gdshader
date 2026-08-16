@@ -22,6 +22,17 @@ uniform float haupt_staerke : hint_range(0.0, 0.5) = 0.165;
 uniform float fade_start = 12.0;
 uniform float fade_ende = 58.0;
 uniform float rauheit : hint_range(0.0, 1.0) = 0.94;
+// KEINE RANDAUFLOESUNG HIER — und das ist eine bewusste Entscheidung, zweimal gegen die
+// naheliegende Loesung. Die Bodenplatte war frueher 220 m gross, ihre Kante stand als
+// harte Linie im Bild, und dagegen lief ein Environment-Nebel. Der ueberdeckte
+// zwangslaeufig auch das Flugzeug — im Bau-Modus ausgerechnet das, was man ansehen will.
+// Der erste Ersatzversuch war, die Platte in den Horizontton des Himmels auslaufen zu
+// lassen. Gerendert bei 110 m Kameraabstand (dem Maximum im Bau-Modus) war das
+// SCHLECHTER als der Nebel: der Himmel ist ein VERLAUF, eine feste Farbe trifft ihn nur
+// auf einer einzigen Hoehe, und dazwischen stand ein heller Bogen quer durchs Bild.
+// Jetzt ist die Platte einfach gross genug, dass ihre Kante nie ins Bild kommt (siehe
+// ShowroomStage._baue_boden). Damit endet der Boden dort, wo ein Boden enden soll: am
+// Horizont. Das kostet nichts — eine Flaeche bleibt eine Flaeche, egal wie gross.
 
 varying vec3 wpos;
 

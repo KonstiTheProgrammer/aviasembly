@@ -309,6 +309,36 @@ static func _build() -> void:
 		"metal": 0.45, "rough": 0.42,
 		"desc": "Dedizierter Me-262-Rumpf: dreieckiger Hai-Querschnitt, spitze Nase, flache Rahmen-Kanzel (Blender-Modell). Pfeilflügel + 2 Düsengondeln dran.",
 	})
+	# --- ME-262-RUMPFBAUSATZ, drei Module (tools/build_me262_kit.py) --------------------
+	# Anders als me262_body (ein Stueck) laesst sich der Rumpf hier zusammensetzen und
+	# dazwischen strecken. Die drei Teile kommen aus EINEM durchgehenden Laengsprofil, ihre
+	# Nahtquerschnitte sind derselbe Eintrag im Bauskript — nachgemessen ist die groesste
+	# Abweichung an beiden Naehten 0.00000.
+	# ANSCHLUSS: dieser Bausatz bringt seine EIGENEN Nahtmasse mit; er passt an sich
+	# selbst, nicht an das generische "fuselage" (das ist ein Kreis mit Radius 0.600).
+	# Ein Zwischenstueck laesst sich mit einem skalierten "fuselage" andeuten, buendig
+	# wird es dabei nicht.
+	_add({
+		"id": "me262_nose", "name": "Me-262-Nase", "category": CAT_BODY,
+		"mass": 110.0, "color": Color(0.64, 0.67, 0.69), "shape": "box",
+		"size": Vector3(1.26, 1.30, 2.20), "col_size": Vector3(1.18, 1.22, 2.16),
+		"metal": 0.45, "rough": 0.42,
+		"desc": "Vorderteil des Me-262-Rumpfes: spitz zulaufende Nase mit dreieckigem Hai-Querschnitt. Hinten bündig an der Cockpitsektion; Platz für die vier MK 108.",
+	})
+	_add({
+		"id": "me262_cockpit", "name": "Me-262-Cockpitsektion", "category": CAT_BODY,
+		"mass": 230.0, "color": Color(0.64, 0.67, 0.69), "shape": "box",
+		"size": Vector3(1.32, 1.58, 3.20), "col_size": Vector3(1.25, 1.32, 3.16),
+		"metal": 0.45, "rough": 0.42,
+		"desc": "Mittelstück des Me-262-Rumpfes: dreieckiger Hai-Querschnitt, nach hinten verjüngt, mit der langen flachen Rahmen-Kanzel weit vorn. Passt bündig zwischen Me-262-Nase und Me-262-Heck.",
+	})
+	_add({
+		"id": "me262_tail", "name": "Me-262-Heck", "category": CAT_BODY,
+		"mass": 95.0, "color": Color(0.64, 0.67, 0.69), "shape": "box",
+		"size": Vector3(0.85, 0.89, 2.80), "col_size": Vector3(0.80, 0.84, 2.76),
+		"metal": 0.45, "rough": 0.42,
+		"desc": "Hinterteil des Me-262-Rumpfes: verjüngt sich zum Leitwerksansatz. Vorne bündig an der Cockpitsektion — Seiten- und Höhenleitwerk kommen hier dran.",
+	})
 	# --- Modulare Jet-Rumpf-Abschnitte: jeder ist ein gelofteter Abschnitt mit GLEICHEM
 	#     Querschnitt (0.65 x 0.55) -> stoßbündig aneinander (kein Overlap, keine Naht). ---
 	_add({
