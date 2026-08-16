@@ -14,7 +14,9 @@ config/name="Aviassembly"
 config/description="Baue dein eigenes Flugzeug und fliege es! Ein 3D Plane Builder."
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
-config/icon="res://icon.svg"
+config/icon="res://icon.png"
+config/macos_native_icon="res://Aviassembly.icns"
+config/windows_native_icon="res://icon.png"
 
 [display]
 
@@ -30,9 +32,8 @@ theme/custom_font="res://fonts/TitilliumWeb-SemiBold.ttf"
 
 [physics]
 
-common/physics_interpolation=true
-
 3d/default_gravity=9.81
+common/physics_interpolation=true
 
 [rendering]
 

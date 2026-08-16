@@ -1,9 +1,25 @@
 ## SEED-BASIERTES TERRAIN: riesige, deterministische Low-Poly-Landschaft.
 ## FastNoiseLite-fBm-Höhenfeld, in CHUNKS um den Spieler gestreamt. Mesh +
 ## Trimesh-Kollision entstehen auf einem WORKER-THREAD (ein Chunk kostet
-## ~7.5 ms — auf dem Main-Thread riss das bei 120 fps jedes Mal den Frame:
-## sichtbares Zucken bei jedem Nachladen). Der Main-Thread instanziert nur
-## noch fertige Daten (<1 ms) und hängt sie ein.
+## gemessen 12,4 ms — auf dem Main-Thread riss das bei 120 fps jedes Mal den
+## Frame). Der Main-Thread hängt nur fertige Daten ein: 10 us je Chunk.
+##
+## WAS DEN NACHLADERUCK WIRKLICH VERURSACHT HAT (gemessen mit
+## tools/_ruck_check.gd, 2700 Frames Reiseflug — NICHT das Einhängen, wie
+## lange vermutet). Streaming-Zeit am Main-Thread je Frame:
+##                       vorher      nachher
+##   Mittel              1377 us      294 us
+##   p99                 5314 us     1152 us
+##   schlimmster Frame   8143 us     3237 us
+##   Frames über 4 ms       112           0
+## Die drei Ursachen, jede an ihrer Stelle ausführlich belegt:
+##   1. mesh.create_trimesh_shape() im Worker — ein synchroner Rückruf in den
+##      Renderer, der obendrein beim Beenden zuverlässig verklemmte.
+##   2. Zwei Pflegeschleifen, die JEDEN Frame über ALLES liefen (siehe
+##      PFLEGE_SCHEIBEN und _chunks_pflegen).
+##   3. Der BVH-Aufbau der Kollisionsform (siehe KOLL_SCHRITT).
+## Und ein Fehler, der KEIN Ruckeln war, sondern fehlende Bäume: ein `return`
+## in _process übersprang das Nachziehen der Bepflanzung (siehe dort).
 ## Flatshading mit Höhen-/Hangfarben über Vertex-Colors (Sand/Gras/Fels/
 ## Schnee), FLUGPLÄTZE werden ins Gelände EINGEEBNET (Höhe -> exakt 0 im
 ## Innenradius, weicher Übergang außen). Nahe dem Ursprung sanfte Wiesen,
@@ -36,16 +52,83 @@ const FLORA_FADE_END := 2900.0
 # Bild (59 %) und stellt 5,46 von 7,35 Mio Primitiven (74 %).
 # 1100 m ist so gewaehlt, dass die Umschaltung hinter der Strecke liegt, auf der man
 # einen einzelnen Baum ueberhaupt als Baum erkennt.
-const FLORA_GROB_AB := 1100.0
+const FLORA_GROB_AB := 1700.0
 # Anteil der Pflanzen, der jenseits davon noch gezeichnet wird. Die Transformationen
 # stehen in zufaelliger Reihenfolge im Puffer, ein Praefix ist also eine gleichmaessige
 # Stichprobe der Flaeche — deshalb genuegt visible_instance_count und es muss nichts
 # neu gebaut werden.
-const FLORA_GROB_ANTEIL := 0.55
+const FLORA_GROB_ANTEIL := 0.75
 # Zeitbudget je Frame fuer das Nachziehen aufgeschobener Flora (Mikrosekunden).
 # 1200 us ist rund ein Vierzehntel eines 60-Hz-Frames: genug, damit ein Chunk in wenigen
 # Frames vollstaendig bestueckt ist, wenig genug, um im Bild nicht aufzufallen.
 const FLORA_BUDGET_US := 1200.0
+# Hoechstens so viele Flora-MultiMeshes je Frame einhaengen — Stueckzahl-Deckel ZUSAETZLICH
+# zum Zeitbudget, weil ein einzelner Eintrag es weit ueberschreiten kann (siehe dort).
+const FLORA_PRO_FRAME := 2
+
+# --- KOLLISIONSRADIUS ------------------------------------------------------------------
+# Nur Chunks innerhalb dieses Radius bekommen einen Physikkoerper. Vorher bekam JEDER
+# geladene Chunk einen: bei VIEW_DIST 3800 m sind das rund 364 Chunks zu je 4608
+# Kollisionsdreiecken, also ueber 1,6 Millionen Dreiecke in der Physikwelt — fuer ein
+# Flugzeug, das nur in seiner unmittelbaren Umgebung ueberhaupt etwas beruehren kann.
+# 1200 m sind reichlich bemessen: selbst mit 170 m/s dauert es sieben Sekunden bis dorthin,
+# und das Nachladen schafft rund 20 Chunks je Sekunde. Die Flaeche schrumpft damit auf
+# (1200/3800)^2 = 10 Prozent.
+const KOLLISIONS_DIST := 1200.0
+# --- KOLLISIONSRASTER -------------------------------------------------------------------
+# Nur jeder KOLL_SCHRITT-te Punkt des Hoehenrasters geht in die Kollisionsflaeche. Das
+# Sichtnetz bleibt fein (48x48 a 8 m), die Physik bekommt 24x24 a 16 m.
+# WARUM: der BVH-Aufbau der Form ist der letzte grosse Posten im Nachladeruck, und er
+# haengt an der Dreieckszahl. Er laesst sich NICHT auf den Worker verlagern — gemessen
+# kostet dort set_faces() 0 us, Godot stellt die Daten also nur ein und baut den Baum erst,
+# wenn die Form an einen Koerper geht. Das passiert zwangslaeufig am Main-Thread.
+# WAS ES KOSTET (tools/_koll_fehler.gd, Abweichung der Kollisionsflaeche vom sichtbaren
+# Boden, fuenf Gebiete von der Kueste bis ins Gebirge):
+#   Schritt   Dreiecke   Fehler im Mittel   schlimmster Punkt   am Flugplatz
+#      1        4608          0.00 m              0.00 m           0.00 m
+#      2        1152          0.10 m              5.89 m           0.04 m
+#      3         512          0.22 m              7.54 m           0.07 m
+#      4         288          0.32 m              8.80 m           0.11 m
+# Schritt 2 ist der Knick: vier Mal weniger Dreiecke fuer zehn Zentimeter. Entscheidend
+# ist die letzte Spalte — der Flugplatz ist eingeebnet, dort sind alle vier Eckwerte
+# gleich, und die grobe Flaeche trifft ihn exakt. Am LANDEN aendert sich also nichts.
+# Die grossen Einzelfehler stehen im zerklueftetsten Huegelland; dort faellt ein halber
+# Flugzeugdurchmesser nicht auf, weil man da ohnehin nicht aufsetzt.
+const KOLL_SCHRITT := 2
+
+# --- RUNDGANG ---------------------------------------------------------------------------
+# Physikkoerper und Flora-Sparstufe haengen beide nur am ABSTAND eines Chunks zum Spieler.
+# Beide wurden frueher jeden Frame ueber den ganzen Bestand geprueft — und genau das war,
+# entgegen der naheliegenden Vermutung, der Nachladeruck. GEMESSEN ueber 2700 Frames
+# Reiseflug (170 m/s, 400 m Hoehe, tools/_ruck_check.gd):
+#     Abschnitt        Mittel je Frame   schlimmster Frame
+#     Flora-Sparstufe        963 us            5863 us
+#     Kollisionspflege       329 us            4167 us
+#     Chunk einhaengen         5 us              61 us
+# Das EINHAENGEN eines Chunks kostet also nichts mehr; die beiden Pflegelaeufe kosteten
+# alles. Drei Gruende, alle behoben:
+#   1. Die Flora lief ueber JEDE MultiMeshInstance (bis zu 4000) statt ueber jeden Chunk
+#      (364) — obwohl alle Pflanzen eines Chunks denselben Abstand haben.
+#   2. Sie las dabei mmi.global_position, was die Welttransformation neu ausrechnet, und
+#      die Kollisionspflege fragte has_node("Kollision") — eine Suche ueber einen Pfadnamen.
+#      Jetzt: eine Zahl aus der Chunkmitte und ein Merker am Knoten.
+#   3. Ueberquerten viele Chunks dieselbe Grenze im selben Frame, kippten sie alle
+#      gleichzeitig. Der Rundgang laeuft jetzt in Scheiben, und Physikkoerper entstehen
+#      gedeckelt.
+# Ein voller Rundgang dauert damit sechs Frames = 0,1 s = 17 m Flug. Die naechste Grenze
+# liegt 1200 m entfernt; spaeter als noetig kommt hier nichts.
+const PFLEGE_SCHEIBEN := 6
+# Hoechstens so viele Physikkoerper je Frame einfuegen. Einer kostet rund 0,4 ms — der
+# Deckel haelt die Spitze bei 0,8 ms, und 2 je Frame sind 120 je Sekunde gegenueber den
+# rund 9, die beim Ueberqueren einer Chunkzelle wirklich anfallen.
+const PFLEGE_BAU_PRO_FRAME := 2
+# Hoechstens so viele Chunks duerfen je Frame ihre Flora-Sparstufe wechseln (siehe dort).
+const PFLEGE_STUFE_PRO_FRAME := 1
+# Totbaender. Ohne sie kippt ein Chunk, der genau auf der Grenze liegt, bei jedem
+# Rundgang hin und her — und jedes Kippen kostet einen Physik-Einfuegevorgang bzw. einen
+# Netzwechsel an der MultiMesh.
+const KOLL_HYSTERESE := 90.0
+const FLORA_HYSTERESE := 120.0
 # GEMESSEN (1280x720, VSync aus, Reiseflug 400 m ueber Land, Blick in die Ferne):
 #                       Bildzeit   Primitive
 #   ohne Sparstufen     7,86 ms    7.354.668
@@ -54,10 +137,20 @@ const FLORA_BUDGET_US := 1200.0
 # ACHTUNG BEIM MESSEN: mit VSync sieht man davon NICHTS. Alle Faelle lagen dann auf
 # exakt 8,33 ms, also 1/120 s. Wer hier nachmisst, schaltet VSync zuerst ab.
 # Bewuchs-Raster: gesampelt wird auf dem Mesh-Hoehenraster (8 m). Erwartete Baeume je
-# Zelle bei voller Walddichte -> 1.6 / 64 m^2 = rund 6 m Standabstand (geschlossener
-# Kronendach-Look von oben, Kronen sind 5-6 m breit).
-const FLORA_PER_CELL := 1.6
-const FLORA_MAX_H := 64.0       # Baumgrenze (darueber faerbt das Terrain ohnehin Fels)
+# Zelle bei voller Walddichte. 2.3 / 64 m^2 sind rund 5,3 m Standabstand — dichter als die
+# vorigen 1.6 (6,3 m), der Wald schliesst sich also staerker.
+# NICHT AM FERNFELD SPAREN — das war ein Fehlgriff. Erst stand FLORA_GROB_ANTEIL bei 0.45,
+# um die hoehere Dichte gegenzurechnen. Beim Ueberfliegen einer Insel liegt aber praktisch
+# die GANZE Insel jenseits von FLORA_GROB_AB, also im ausgeduennten Bereich: der Wald sah
+# dadurch duenner aus als vor der Verdichtung, obwohl im Nahfeld mehr Baeume standen.
+# Gespart wird stattdessen ueber die grobe Meshfassung, die dort ohnehin greift.
+const FLORA_PER_CELL := 2.3
+# Baumgrenze. 64 m war viel zu tief: die Vulkaninsel IST ein Berg, ihr Hang liegt fast
+# vollstaendig darueber — im Ueberflug stand der Wald deshalb nur als schmaler gruener Ring
+# am Strand, der ganze Kegel war kahl braun. Genau das las sich als "zu wenig Baeume".
+# 230 m laesst den Wald die Flanken hochwachsen und haelt nur die Kuppen frei, so wie in
+# den Referenzbildern: bewaldete Haenge, felsiger Gipfel.
+const FLORA_MAX_H := 230.0
 # Untergrenze. NICHT 0.8 wie frueher: gemessen liegen 47.9 % der Flaeche im 8x8-km-Feld
 # um den Spawn zwischen -4.4 m (Ende der Sandfarbe) und 0.8 m — flaches, GRUENES Tiefland,
 # das die alte Schwelle komplett ausgesperrt hat. Genau das war die kahle Ebene. Der
@@ -75,7 +168,15 @@ const CLEAR_CAP := 620.0        # groesster Freihalte-Radius um eine KREIS-Zone 
 const FREI_INNEN := 20.0
 const FREI_AUSSEN := 50.0
 const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionsebene hin)
-const MAX_ATTACH_PER_FRAME := 1 # fertige Chunks je Frame einhängen (Physik-Insert kostet)
+# Fertige Chunks je Frame einhaengen. Stand lange auf 1, begruendet mit den Kosten des
+# Physik-Einfuegens — das stimmt nicht mehr: Kollisionskoerper entstehen inzwischen im
+# Rundgang und nicht mehr hier (frisch gelieferte Chunks liegen am Sichtrand, weit
+# jenseits von KOLLISIONS_DIST). Gemessen kostet ein Einhaengen noch 5 us.
+# 1 je Frame waren 60 je Sekunde und lagen damit UNTER dem, was der Worker liefert
+# (gemessen 80,9 je Sekunde, siehe tools/_worker_takt.gd) — nach einem Schwall staute
+# sich also _done auf. 3 je Frame raeumen den Schwall ab, ohne die Spitze zu erhoehen;
+# bei 6 stieg der schlimmste Frame von 3,9 auf 6,7 ms.
+const MAX_ATTACH_PER_FRAME := 3
 
 var seed_value := 1337
 var airfields: Array = []       # [{pos: Vector3, r_flat, r_blend, y?(Zielhöhe, default 0)}]
@@ -92,9 +193,14 @@ var _flora: Dictionary = {}     # Art -> Mesh (aus models/world_trees.glb, siebe
 var _mesh_conifer: ArrayMesh    # Low-Poly-Tanne (Fallback, falls das glb fehlt)
 var _mesh_leaf: ArrayMesh       # Low-Poly-Laubbaum
 var _mesh_rock: ArrayMesh       # Low-Poly-Felsblock
-var _flora_mmis: Array = []     # alle Flora-MultiMeshes, fuer _flora_stufen
 var _grob_cache := {}           # Quellmesh -> vereinfachte Fassung
+# Rundgang: Schluessel der laufenden Runde und wie weit sie gediehen ist (_chunks_pflegen).
+var _pflege_keys: Array = []
+var _pflege_i := 0
 var _flora_warteschlange: Array = []   # Flora, die noch eingehaengt werden muss
+# Laufende Werte der Baumweite — von Main.grafik_anwenden ueber setze_baumweite gesetzt.
+var _flora_dist := FLORA_DIST
+var _flora_grob_ab := FLORA_GROB_AB
 var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
 var _flora_mat: ShaderMaterial  # wie _mat, zusätzlich Entfernungs-Schrumpfen
 
@@ -120,6 +226,22 @@ var _mutex: Mutex
 var _jobs: Array = []           # Keys für den Worker (nahe zuerst)
 var _done: Array = []           # fertige {key, mesh, shape}
 var _exit := false
+
+# --- MESSHILFE -------------------------------------------------------------------------
+## Ausgeschaltet kostet das je Abschnitt einen Bool-Test. Angeschaltet summiert `profil`
+## die Mikrosekunden der einzelnen Streaming-Abschnitte im laufenden Frame; wer misst,
+## leert es am Frameanfang selbst. Nur tools/_ruck_check.gd schaltet es an.
+## WOFUER: der Ruck beim Nachladen ist nicht EIN Posten, sondern die Summe aus Einhaengen,
+## Physik-Einfuegen, Abbauen ferner Chunks und Flora-Nachzug. Ohne Aufschluesselung
+## optimiert man den falschen davon — genau das ist hier schon zweimal passiert.
+var profil_an := false
+var profil := {}
+
+
+## Zeit seit t0 auf einen Abschnitt buchen. Kein Effekt, wenn nicht gemessen wird.
+func _pz(abschnitt: String, t0: int) -> void:
+	if profil_an:
+		profil[abschnitt] = float(profil.get(abschnitt, 0.0)) + float(Time.get_ticks_usec() - t0)
 
 
 func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array = []) -> void:
@@ -631,10 +753,9 @@ func setze_sonne(richtung: Vector3) -> void:
 
 
 func update_center(world_pos: Vector3) -> void:
-	_flora_stufen(world_pos)
-	# Weggefallene Chunks aus dem Register werfen, sonst waechst es unbegrenzt.
-	if _flora_mmis.size() > 4000:
-		_flora_mmis = _flora_mmis.filter(func(e): return is_instance_valid(e["mmi"]))
+	var t_k := Time.get_ticks_usec() if profil_an else 0
+	_chunks_pflegen(world_pos)
+	_pz("pflege", t_k)
 	_last_pos = world_pos
 	# Wasser folgt dem Spieler (riesige Platte, aber endlich). Das WELLENMUSTER folgt
 	# NICHT mit: water.gdshader tastet die Weltposition des Fragments ab, nicht die UV
@@ -646,6 +767,7 @@ func update_center(world_pos: Vector3) -> void:
 	if cc == _last_cc:
 		return   # gleiche Zelle -> Lade-Plan unverändert (kein Scan pro Frame)
 	_last_cc = cc
+	var t_p := Time.get_ticks_usec() if profil_an else 0
 	var r := int(ceil(VIEW_DIST / CHUNK))
 	var want := {}
 	var new_jobs: Array = []
@@ -664,6 +786,7 @@ func update_center(world_pos: Vector3) -> void:
 			_chunks[key].queue_free()
 			_chunks.erase(key)
 	if new_jobs.is_empty():
+		_pz("plan", t_p)
 		return
 	# nahe zuerst bauen
 	var pc := Vector2(world_pos.x, world_pos.z)
@@ -674,6 +797,7 @@ func update_center(world_pos: Vector3) -> void:
 	_mutex.unlock()
 	for i in new_jobs.size():
 		_sem.post()
+	_pz("plan", t_p)
 
 
 func _chunk_center(key: Vector2i) -> Vector2:
@@ -710,32 +834,155 @@ func _process(_delta: float) -> void:
 		var item_v: Variant = _done.pop_front() if not _done.is_empty() else null
 		_mutex.unlock()
 		if item_v == null:
-			return
+			# BREAK, NICHT RETURN. Hier stand ein return, und das war der Grund, warum
+			# Baeume verspaetet oder gar nicht kamen: der Ausstieg uebersprang das
+			# _flora_nachziehen() am Ende der Funktion. Die Bepflanzung lief damit NUR in
+			# Frames, in denen auch ein Chunk fertig geworden war — zwischen zwei Schueben
+			# stand die Warteschlange still, und sobald der Spieler anhielt oder alle
+			# Chunks geliefert waren, blieb sie fuer immer stehen.
+			# Nachgewiesen mit tools/_flora_live.gd: mit return und drei Chunks je Frame
+			# kamen 0 von 326 195 Pflanzen in der Szene an.
+			break
 		var item: Dictionary = item_v
 		var key: Vector2i = item["key"]
 		_pending.erase(key)
 		# inzwischen außer Reichweite? -> verwerfen (wird bei Bedarf neu geplant)
 		if _chunks.has(key) or _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
 			continue
+		var t_a := Time.get_ticks_usec() if profil_an else 0
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
 			item.get("rocks", []))
+		_pz("attach", t_a)
+	var t_n := Time.get_ticks_usec() if profil_an else 0
 	_flora_nachziehen()
+	_pz("flora_nachzug", t_n)
 
 
 ## Haengt aufgeschobene Flora nach, gedeckelt durch ein Zeitbudget statt durch eine feste
 ## Anzahl: die Arten unterscheiden sich um mehr als das Zehnfache in der Pflanzenzahl, ein
 ## Stueckzaehler wuerde also mal zu wenig und mal zu viel zulassen.
+## Baut den Physikkoerper eines Chunks nach.
+func _kollision_bauen(node: Node3D) -> void:
+	if bool(node.get_meta("koll", false)) or not node.has_meta("shape"):
+		return
+	var body := StaticBody3D.new()
+	body.name = "Kollision"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	# ACHTUNG, HIER LIEGT DER GANZE PREIS: diese eine Zuweisung kostete gemessen 174 von
+	# 198 ms der ganzen Kollisionsarbeit, mit Spitzen ueber 7 ms. Godot baut den BVH der
+	# Form erst hier, beim ersten Kontakt mit einem Koerper — nicht schon bei set_faces().
+	# Deshalb KOLL_SCHRITT (weniger Dreiecke) und PFLEGE_BAU_PRO_FRAME (nicht mehrere
+	# gleichzeitig). Wer hier etwas aendert, misst mit tools/_ruck_check.gd nach.
+	cs.shape = node.get_meta("shape")
+	body.add_child(cs)
+	node.add_child(body)
+	# Merker statt has_node(): die Pfadsuche lief frueher je Chunk und Frame.
+	node.set_meta("koll", true)
+
+
+## DER RUNDGANG. Haelt zwei Dinge am Abstand des Chunks zum Spieler fest:
+##   * den Physikkoerper — nur der Nahbereich braucht einen (siehe KOLLISIONS_DIST),
+##   * die Flora-Sparstufe — ab _flora_grob_ab genuegt die grobe Fassung.
+## Beides hing frueher an je einer eigenen Schleife, die JEDEN Frame ueber ALLES lief.
+## Die Begruendung fuer den Umbau und die Messwerte stehen bei PFLEGE_SCHEIBEN.
+##
+## Der Abstand wird EINMAL JE CHUNK bestimmt, nicht je Pflanze: alle MultiMeshes eines
+## Chunks sitzen im selben Knoten und haben damit denselben Abstand. Das allein sind
+## 364 Rechnungen statt bis zu 4000.
+func _chunks_pflegen(mitte: Vector3) -> void:
+	var m := Vector2(mitte.x, mitte.z)
+	# Neue Runde? Dann die Schluesselliste einmal festhalten. Waehrend einer Runde darf
+	# sich _chunks aendern — verschwundene Schluessel faengt die Pruefung unten ab.
+	if _pflege_i >= _pflege_keys.size():
+		_pflege_keys = _chunks.keys()
+		_pflege_i = 0
+	if _pflege_keys.is_empty():
+		return
+	var rest := maxi(1, int(ceil(float(_pflege_keys.size()) / float(PFLEGE_SCHEIBEN))))
+	var gebaut := 0
+	var gekippt := 0
+	# Quadrate vergleichen spart je Chunk eine Wurzel.
+	var koll_ein := KOLLISIONS_DIST * KOLLISIONS_DIST
+	var koll_aus := (KOLLISIONS_DIST + KOLL_HYSTERESE) * (KOLLISIONS_DIST + KOLL_HYSTERESE)
+	var grob_ein := (_flora_grob_ab + FLORA_HYSTERESE) * (_flora_grob_ab + FLORA_HYSTERESE)
+	var grob_aus := _flora_grob_ab * _flora_grob_ab
+	while rest > 0 and _pflege_i < _pflege_keys.size():
+		var key: Vector2i = _pflege_keys[_pflege_i]
+		_pflege_i += 1
+		rest -= 1
+		var roh: Variant = _chunks.get(key)
+		# FALLE: erst pruefen, dann typisieren. Eine typisierte Zuweisung prueft beim
+		# Zuweisen selbst auf ein lebendes Objekt und bricht bei einem abgeraeumten Knoten
+		# mit "Trying to assign invalid previously freed instance" ab — der Abbruch beendet
+		# die Schleife, und alles dahinter bliebe stehen.
+		if roh == null or not is_instance_valid(roh):
+			continue
+		var node: Node3D = roh
+		var d2 := _chunk_center(key).distance_squared_to(m)
+		# --- Physikkoerper ---
+		var hat: bool = node.get_meta("koll", false)
+		if not hat:
+			if d2 <= koll_ein and gebaut < PFLEGE_BAU_PRO_FRAME:
+				var t_kb := Time.get_ticks_usec() if profil_an else 0
+				_kollision_bauen(node)
+				_pz("p_koll_bau", t_kb)
+				gebaut += 1
+		elif d2 > koll_aus:
+			var kn := node.get_node_or_null("Kollision")
+			if kn != null:
+				kn.queue_free()
+			node.set_meta("koll", false)
+		# --- Flora-Sparstufe ---
+		var liste: Array = node.get_meta("flora_mmis", [])
+		if liste.is_empty():
+			continue
+		var fern: bool = node.get_meta("fern", false)
+		var soll := fern
+		if fern and d2 < grob_aus:
+			soll = false
+		elif not fern and d2 > grob_ein:
+			soll = true
+		if soll == fern:
+			continue
+		# DECKEL. Ein Sparstufenwechsel tauscht das Netz an rund sieben MultiMeshes und
+		# kostet mit echtem Renderer 2,6 ms je Chunk; kippten drei Chunks im selben Frame,
+		# waren es 7,7 ms. Headless kostet dasselbe 2 us — deshalb ist das lange
+		# unentdeckt geblieben.
+		if gekippt >= PFLEGE_STUFE_PRO_FRAME:
+			continue
+		gekippt += 1
+		node.set_meta("fern", soll)
+		var t_fl := Time.get_ticks_usec() if profil_an else 0
+		for e in liste:
+			var rmmi: Variant = e["mmi"]
+			if not is_instance_valid(rmmi):
+				continue
+			var mm: MultiMesh = (rmmi as MultiMeshInstance3D).multimesh
+			mm.mesh = e["grob"] if soll else e["voll"]
+			mm.visible_instance_count = int(int(e["n"]) * FLORA_GROB_ANTEIL) if soll else -1
+		_pz("p_flora_stufe", t_fl)
+
+
 func _flora_nachziehen() -> void:
 	if _flora_warteschlange.is_empty():
 		return
 	var t0 := Time.get_ticks_usec()
+	var getan := 0
 	while not _flora_warteschlange.is_empty():
 		var e: Dictionary = _flora_warteschlange.pop_front()
 		var n: Variant = e["node"]
 		# Der Chunk kann laengst wieder abgebaut sein — dann faellt seine Flora weg.
 		if is_instance_valid(n):
 			_attach_multi(n, e["mesh"], e["xfs"])
-		if float(Time.get_ticks_usec() - t0) > FLORA_BUDGET_US:
+			getan += 1
+		# STUECKZAHL VOR ZEITBUDGET. Das Budget allein genuegt nicht: es wird NACH einem
+		# Eintrag geprueft, und ein einzelner kostet mit echtem Renderer bis zu 3,7 ms
+		# (das add_child der MultiMeshInstance beim RenderingServer, gemessen 898 us im
+		# Mittel). Ein Frame konnte so 8,2 ms verschlucken, obwohl 1200 us erlaubt waren.
+		# Zwei je Frame sind 120 je Sekunde — der Bedarf im Reiseflug liegt bei rund 63.
+		if getan >= FLORA_PRO_FRAME or float(Time.get_ticks_usec() - t0) > FLORA_BUDGET_US:
 			return
 
 
@@ -782,13 +1029,20 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	mi.mesh = mesh
 	mi.material_override = _mat
 	node.add_child(mi)
-	var body := StaticBody3D.new()
-	body.collision_layer = 1
-	body.collision_mask = 0
-	var cs := CollisionShape3D.new()
-	cs.shape = shape
-	body.add_child(cs)
-	node.add_child(body)
+	# Die Form wird am Knoten hinterlegt und der Koerper erst gebaut, wenn der Chunk nahe
+	# genug ist (siehe _chunks_pflegen). Beim Spawn und in den Renderwerkzeugen ist der
+	# Chunk ohnehin sofort nah, der Koerper entsteht also im selben Frame.
+	node.set_meta("shape", shape)
+	node.set_meta("key", key)
+	var d := _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z))
+	# Sparstufe schon hier festlegen: ein frisch eingehaengter Chunk liegt fast immer am
+	# Rand der Sichtweite, also jenseits von _flora_grob_ab. Ohne das stuende er bis zum
+	# naechsten Rundgang in voller Aufloesung — und _attach_multi richtet sich danach.
+	node.set_meta("fern", d > _flora_grob_ab)
+	if d <= KOLLISIONS_DIST:
+		var t_kb := Time.get_ticks_usec() if profil_an else 0
+		_kollision_bauen(node)
+		_pz("kollision_bau", t_kb)
 	add_child(node)
 	_chunks[key] = node
 	# FLORA NICHT IM SELBEN FRAME. Gemessen kostet das Einhaengen eines Land-Chunks
@@ -805,47 +1059,65 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 		_flora_warteschlange.append({"node": node, "mesh": _mesh_rock, "xfs": rocks})
 
 
-## Setzt je Flora-MultiMesh die passende Sparstufe. Laeuft beim Umzentrieren, nicht
-## jeden Frame: die Entfernung eines Chunks aendert sich nur langsam, und der Wechsel
-## faellt hinter 1,1 km ohnehin nicht auf.
-## FALLE, in die diese Schleife dreimal getreten ist: die Gueltigkeitspruefung muss VOR
-## der typisierten Zuweisung stehen. `var mmi: MultiMeshInstance3D = e["mmi"]` prueft beim
-## Zuweisen selbst, ob der Wert noch ein lebendes Objekt der Klasse ist — bei einem per
-## queue_free() abgeraeumten Chunk ist er das nicht, und Godot bricht mit
-## "Trying to assign invalid previously freed instance" ab, BEVOR is_instance_valid()
-## ueberhaupt drankommt. Der Fehler feuerte bei JEDEM update_center (gemessen: bei allen
-## vier Abnahmestellungen), und weil der Abbruch die Schleife beendet, blieben ALLE
-## dahinter liegenden MultiMeshes auf ihrer alten Sparstufe stehen.
-## Deshalb: erst untypisiert holen, pruefen, dann typisieren.
-func _flora_stufen(mitte: Vector3) -> void:
-	for e in _flora_mmis:
-		var roh: Variant = e["mmi"]
-		if not is_instance_valid(roh):
+## Baumweite umschalten: 0 = nah, 1 = normal, 2 = weit. Wirkt sofort auf alle vorhandenen
+## Flora-MultiMeshes und auf alle, die danach entstehen.
+## Laeuft aus dem Einstellungsmenue, also einmal — hier darf der volle Durchlauf sein.
+func setze_baumweite(stufe: int) -> void:
+	match clampi(stufe, 0, 2):
+		0:
+			_flora_dist = FLORA_DIST * 0.55
+			_flora_grob_ab = FLORA_GROB_AB * 0.55
+		2:
+			_flora_dist = FLORA_DIST * 1.35
+			_flora_grob_ab = FLORA_GROB_AB * 1.35
+		_:
+			_flora_dist = FLORA_DIST
+			_flora_grob_ab = FLORA_GROB_AB
+	var m := Vector2(_last_pos.x, _last_pos.z)
+	for key in _chunks:
+		var roh: Variant = _chunks.get(key)
+		if roh == null or not is_instance_valid(roh):
 			continue
-		var mmi: MultiMeshInstance3D = roh
-		var fern: bool = mmi.global_position.distance_to(mitte) > FLORA_GROB_AB
-		if bool(e["fern"]) == fern:
+		var node: Node3D = roh
+		var liste: Array = node.get_meta("flora_mmis", [])
+		if liste.is_empty():
 			continue
-		e["fern"] = fern
-		var mm: MultiMesh = mmi.multimesh
-		mm.mesh = e["grob"] if fern else e["voll"]
-		mm.visible_instance_count = int(e["n"] * FLORA_GROB_ANTEIL) if fern else -1
+		# Der Grenzabstand hat sich verschoben — Stufe hier direkt neu setzen, statt auf
+		# den naechsten Rundgang zu warten.
+		var fern := _chunk_center(key).distance_to(m) > _flora_grob_ab
+		node.set_meta("fern", fern)
+		for e in liste:
+			var rmmi: Variant = e["mmi"]
+			if not is_instance_valid(rmmi):
+				continue
+			var mmi: MultiMeshInstance3D = rmmi
+			mmi.visibility_range_end = _flora_dist
+			var mm: MultiMesh = mmi.multimesh
+			mm.mesh = e["grob"] if fern else e["voll"]
+			mm.visible_instance_count = int(int(e["n"]) * FLORA_GROB_ANTEIL) if fern else -1
 
 
 ## Wandelt eine Liste von Transformationen in den Rohpuffer einer MultiMesh um.
 ## TRANSFORM_3D erwartet je Instanz ZWOELF Fliesskommazahlen: die Basis zeilenweise,
 ## jede Zeile gefolgt vom zugehoerigen Verschiebungsanteil.
-static func _xf_puffer(xfs: Array) -> PackedFloat32Array:
+static func _xf_puffer(xfs: Array, huelle: Array = []) -> PackedFloat32Array:
 	var buf := PackedFloat32Array()
 	buf.resize(xfs.size() * 12)
 	var k := 0
+	var lo := Vector3(INF, INF, INF)
+	var hi := Vector3(-INF, -INF, -INF)
 	for xf: Transform3D in xfs:
+		lo = lo.min(xf.origin)
+		hi = hi.max(xf.origin)
 		var b := xf.basis
 		var o := xf.origin
 		buf[k] = b.x.x; buf[k+1] = b.y.x; buf[k+2] = b.z.x; buf[k+3] = o.x
 		buf[k+4] = b.x.y; buf[k+5] = b.y.y; buf[k+6] = b.z.y; buf[k+7] = o.y
 		buf[k+8] = b.x.z; buf[k+9] = b.y.z; buf[k+10] = b.z.z; buf[k+11] = o.z
 		k += 12
+	if not huelle.is_empty():
+		huelle[0] = lo
+		huelle[1] = hi
 	return buf
 
 
@@ -861,24 +1133,75 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 	# Einzelaufrufe im selben Frame, in dem der Chunk eingehaengt wird — genau der Frame,
 	# in dem ohnehin schon der Physikkoerper eingefuegt wird. set_buffer() uebergibt
 	# stattdessen den fertigen Rohpuffer am Stueck.
-	mm.set_buffer(_xf_puffer(xfs))
+	var huelle := [Vector3.ZERO, Vector3.ZERO]
+	mm.set_buffer(_xf_puffer(xfs, huelle))
+	# EIGENE HUELLBOX SETZEN. Ohne sie rechnet Godot die Box beim Einhaengen und bei
+	# JEDEM Netzwechsel ueber alle Instanzen neu — gemessen mit echtem Renderer kostete
+	# das Einhaengen einer Flora-MultiMesh bis zu 13,7 ms und ein Sparstufenwechsel je
+	# Chunk 3,8 ms. Headless faellt das nicht auf; dort ist es hundertmal billiger.
+	# Die Box hier ist gratis: die Schleife in _xf_puffer laeuft ohnehin ueber alle
+	# Transformationen. Grosszuegig aufgeweitet um die Groesse einer Pflanze.
+	var lo: Vector3 = huelle[0] - Vector3(6.0, 1.0, 6.0)
+	var hi: Vector3 = huelle[1] + Vector3(6.0, 14.0, 6.0)
+	mm.custom_aabb = AABB(lo, hi - lo)
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	mmi.material_override = _flora_mat
 	# Harter Schnitt erst dort, wo der Shader die Instanzen laengst auf Groesse 0
 	# gefahren hat (FLORA_FADE_END + halbe Chunk-Diagonale) -> nichts poppt.
-	mmi.visibility_range_end = FLORA_DIST
+	mmi.visibility_range_end = _flora_dist
 	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 	parent.add_child(mmi)
-	# Fuer _flora_stufen merken. Die grobe Fassung wird je Quellmesh EINMAL gebaut und
+	# Fuer _chunks_pflegen merken. Die grobe Fassung wird je Quellmesh EINMAL gebaut und
 	# dann von allen Chunks geteilt.
 	if not _grob_cache.has(mesh):
 		_grob_cache[mesh] = _grobe_fassung(mesh)
-	_flora_mmis.append({"mmi": mmi, "voll": mesh, "grob": _grob_cache[mesh],
-		"n": xfs.size(), "fern": false})
+	# AM CHUNK-KNOTEN, nicht in einer globalen Liste. Damit gilt der Abstand des Chunks
+	# fuer alle seine MultiMeshes gemeinsam (siehe _chunks_pflegen), und abgeraeumte
+	# Eintraege koennen sich gar nicht erst ansammeln: mit dem Chunk geht auch seine
+	# Liste. Die frueher globale Liste musste bei 4000 Eintraegen durchgefiltert werden.
+	var liste: Array = parent.get_meta("flora_mmis", [])
+	liste.append({"mmi": mmi, "voll": mesh, "grob": _grob_cache[mesh], "n": xfs.size()})
+	parent.set_meta("flora_mmis", liste)
+	# Neu eingehaengte MultiMeshes uebernehmen die Stufe, die der Chunk schon hat —
+	# sonst stuende ein ferner Chunk kurz in voller Aufloesung da.
+	if bool(parent.get_meta("fern", false)):
+		mm.mesh = _grob_cache[mesh]
+		mm.visible_instance_count = int(xfs.size() * FLORA_GROB_ANTEIL)
 
 
 # Mesh + Kollision für einen Chunk bauen (läuft im Worker ODER synchron beim Spawn).
+## WALDANTEIL AN EINEM PUNKT, 0 bis 1 — dieselbe Regel, nach der auch die echten Baeume
+## gesetzt werden (Waldrauschen, Baumgrenze, Hangneigung, Biom, freigehaltene Flaechen).
+##
+## WOFUER: echte Baeume gibt es nur in den gestreamten Chunks, also 3,8 km um den Spieler.
+## Alles darueber hinaus traegt die Fernschuerze, und die hatte gar keinen Bewuchs — der
+## Wald wanderte deshalb mit dem Spieler mit und die Insel lag jenseits davon kahl da.
+## Zehntausende Chunks bis 20 km zu streamen kommt nicht in Frage. Stattdessen faerbt die
+## Schuerze ihre Dreiecke nach diesem Wert ein: aus der Entfernung, aus der man sie
+## ueberhaupt sieht, ist ein Wald ohnehin nur eine dunkelgruene Flaeche. Das kostet KEIN
+## einziges zusaetzliches Dreieck und keinen Zeichenaufruf.
+func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
+	if h < FLORA_MIN_H or h > FLORA_MAX_H:
+		return 0.0
+	# ny ist der Aufwaerts-Anteil der Flaechennormale; daraus die Neigung wie im Chunk.
+	var slope := (1.0 - clampf(ny, 0.0, 1.0)) * 12.0
+	var edge := _open_ground(x, z) \
+		* smoothstep(FLORA_MIN_H, FLORA_FULL_H, h) \
+		* (1.0 - smoothstep(46.0, FLORA_MAX_H, h)) \
+		* (1.0 - smoothstep(2.8, 4.6, slope))
+	if edge <= 0.005:
+		return 0.0
+	var dens := smoothstep(-0.28, 0.30, _forest.get_noise_2d(x, z))
+	dens = dens * dens
+	match biome_at(x, z):
+		Biome.HEIDE:
+			dens *= 0.30
+		Biome.WUESTE:
+			dens *= 0.05
+	return clampf(dens * edge, 0.0, 1.0)
+
+
 func _make_chunk_data(key: Vector2i) -> Dictionary:
 	var ox := float(key.x) * CHUNK
 	var oz := float(key.y) * CHUNK
@@ -1045,8 +1368,62 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 				if not flora.has(art):
 					flora[art] = []
 				flora[art].append(xf)
-	return {"mesh": mesh, "shape": mesh.create_trimesh_shape(),
-		"flora": flora, "rocks": rocks}
+	# KOLLISION: WEITER ALS DREIECKSNETZ — HeightMapShape3D wurde geprueft und ist hier
+	# LANGSAMER. Die Idee lag nahe (hs ist genau das 49x49-Raster, aus dem auch das Netz
+	# entsteht, ein Hoehenfeld braucht keinen BVH), aber gemessen stieg das Einhaengen von
+	# 3,40 auf 7,01 ms im Mittel und die Spitze von 10,92 auf 32,84 ms. Der Grund duerfte
+	# die noetige nicht-uniforme Skalierung sein: HeightMapShape3D rechnet in ZELLEN, eine
+	# Zelle ist eine Einheit, also muss die Form um die Rasterweite 8 gestreckt werden —
+	# und Godot baut sie dabei offenbar neu auf. Wer es erneut versucht, misst zuerst.
+	# Der grosse Hebel liegt ohnehin woanders, siehe KOLLISIONS_DIST.
+	#
+	# NIEMALS mesh.create_trimesh_shape() — das stand hier und war die schlimmste Bremse
+	# im ganzen Streaming. Godot baut die Form dort nicht aus dem, was im Speicher liegt,
+	# sondern ruft Mesh::generate_triangle_mesh() -> RenderingServer.mesh_surface_get_arrays().
+	# Das ist ein SYNCHRONER RUECKRUF IN DEN RENDERER: der Worker-Thread stellt den Befehl in
+	# die Renderer-Warteschlange und legt sich schlafen, bis der Renderer die Netzdaten
+	# zurueckgibt — je Chunk einmal, mit einem Rueckweg der 13 824 Eckpunkte aus dem
+	# Grafikspeicher holt. Belegt mit einem Stack-Sample: der Worker hing in
+	# Mesh::create_trimesh_shape -> mesh_surface_get_arrays -> condition_variable::wait.
+	# Zwei Folgen hatte das:
+	#   1. RUCK. Der Renderer muss dafuer die Pipeline einholen, mitten im Bild.
+	#   2. DEADLOCK BEIM BEENDEN. _exit_tree wartet auf den Worker (wait_to_finish), der
+	#      Worker wartet auf den Renderer, den nur der Main-Thread bedient — und der steht
+	#      im wait_to_finish. Der Prozess blieb dann fuer immer haengen.
+	# Die Eckpunkte liegen ohnehin schon vor, sie werden oben beim Netzbau mitgeschrieben.
+	# ConcavePolygonShape3D.set_faces() geht direkt an die Physik und fasst den Renderer
+	# nicht an.
+	# KOLLISIONSFLAECHE aus DEMSELBEN Hoehenraster, aber nur jedem KOLL_SCHRITT-ten Punkt.
+	# Eigene Schleife statt im Netzbau mitgeschrieben, weil die Weite eine andere ist.
+	# Ganzzahlig gewollt: 48 / 2 = 24 geht glatt auf. Wer KOLL_SCHRITT aendert, waehlt
+	# einen Teiler von CELLS — sonst bliebe am Chunkrand ein Streifen ohne Kollision.
+	@warning_ignore("integer_division")
+	var kc := CELLS / KOLL_SCHRITT
+	var kstep := step * float(KOLL_SCHRITT)
+	var faces := PackedVector3Array()
+	faces.resize(kc * kc * 6)
+	var fi := 0
+	for j in kc:
+		for i in kc:
+			var gi := i * KOLL_SCHRITT
+			var gj := j * KOLL_SCHRITT
+			var x0 := ox + float(gi) * step
+			var z0 := oz + float(gj) * step
+			var k00 := hs[gj * (CELLS + 1) + gi]
+			var k10 := hs[gj * (CELLS + 1) + gi + KOLL_SCHRITT]
+			var k01 := hs[(gj + KOLL_SCHRITT) * (CELLS + 1) + gi]
+			var k11 := hs[(gj + KOLL_SCHRITT) * (CELLS + 1) + gi + KOLL_SCHRITT]
+			var p00 := Vector3(x0, k00, z0)
+			var p10 := Vector3(x0 + kstep, k10, z0)
+			var p01 := Vector3(x0, k01, z0 + kstep)
+			var p11 := Vector3(x0 + kstep, k11, z0 + kstep)
+			# Gleiche Wicklung und gleiche Diagonale wie im Sichtnetz.
+			faces[fi] = p00; faces[fi + 1] = p10; faces[fi + 2] = p11
+			faces[fi + 3] = p00; faces[fi + 4] = p11; faces[fi + 5] = p01
+			fi += 6
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks}
 
 
 ## Wie frei ist die Stelle fuer Bewuchs? 0 = eingeebneter Flugplatz/Plateau (auf der
@@ -1232,7 +1609,7 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 ## LOD-Stufen und lod_bias 1.0 bis 0.2 aenderte sich die Primitivzahl von 7.354.668 auf
 ## 7.346.396 — ein Promille. Godot waehlt fuer eine MultiMesh keine LOD-Stufe aus; die
 ## Stufen liegen zwar im Mesh, werden aber nie benutzt. Also muss das Mesh SELBST
-## getauscht werden, und genau das macht _flora_stufen() je Chunk.
+## getauscht werden, und genau das macht _chunks_pflegen() je Chunk.
 static func _grobe_fassung(quelle: Mesh) -> Mesh:
 	if quelle == null or quelle.get_surface_count() == 0:
 		return quelle
@@ -1243,11 +1620,30 @@ static func _grobe_fassung(quelle: Mesh) -> Mesh:
 	var raus := ArrayMesh.new()
 	for si in quelle.get_surface_count():
 		var arr := quelle.surface_get_arrays(si)
+		# NICHT JEDES MESH IST INDIZIERT. Die prozeduralen Felsen kommen ohne Indexliste
+		# aus dem SurfaceTool, arr[ARRAY_INDEX] ist dort null — die typisierte Zuweisung
+		# brach damit beim Weltaufbau ab. Meine Pruefung hatte nur die Baum-GLB angesehen,
+		# und die ist indiziert.
+		var roh_idx: Variant = arr[Mesh.ARRAY_INDEX]
+		var voll: PackedInt32Array = roh_idx if roh_idx != null else PackedInt32Array()
 		var n := im.get_surface_lod_count(si)
-		if n > 0:
-			# Die letzte Stufe ist die groebste. Sie teilt sich die Eckenliste mit der
-			# Vollfassung, es aendert sich nur die Reihenfolge der Dreiecke.
-			arr[Mesh.ARRAY_INDEX] = im.get_surface_lod_indices(si, n - 1)
+		if n > 0 and voll.size() > 0:
+			# NICHT BLIND DIE GROEBSTE STUFE NEHMEN.
+			# Symptom war: ueber dem Boden schwebten Baumkronen ohne Stamm, anderswo
+			# standen nackte Staemme. Ursache ist NICHT, dass Stamm und Krone getrennte
+			# Teilflaechen waeren — sie liegen in derselben (jeder Baum hat genau eine).
+			# Der Vereinfacher wirft schlicht den duennen Stamm zuerst weg, weil er von
+			# allen Dreiecken am wenigsten zur Silhouette beitraegt. Gemessen: Birke fiel
+			# von 272 auf 70 Dreiecke, Busch von 128 auf 32 — dabei geht der Stamm drauf.
+			# Deshalb die groebste Stufe nehmen, die noch die HAELFTE behaelt. Der Verlust
+			# ist klein: von sieben Baumarten dezimieren ohnehin nur zwei ueberhaupt, die
+			# uebrigen liefern auf jeder Stufe dieselbe Dreieckszahl.
+			var mind: int = maxi(int(voll.size() * 0.5), 12)
+			for stufe in range(n - 1, -1, -1):
+				var idx: PackedInt32Array = im.get_surface_lod_indices(si, stufe)
+				if idx.size() >= mind:
+					arr[Mesh.ARRAY_INDEX] = idx
+					break
 		raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return raus
 

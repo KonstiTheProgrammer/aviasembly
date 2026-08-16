@@ -94,6 +94,9 @@ const FERN_WELT := 18500.0
 const FERN_BIAS := 14.0
 # Tiefe der Nahfeld-Absenkung: mehr als der hoechste Berg (230 m), damit die grobe Lage
 # im Nahbereich garantiert unter dem Boden verschwindet.
+# Farbe, in die der Fernwald einfaerbt. Dunkler und kaelter als das Gras: ein Nadelwald
+# aus der Entfernung ist praktisch ein dunkelgruener Filz, kein saftiges Gruen.
+const FERN_WALD := Color(0.115, 0.235, 0.135)
 const FERN_TIEF := 480.0
 # Rampe der Nahfeld-Absenkung. FERN_FERN ist KEIN Geschmackswert, sondern die Grenze,
 # bis zu der TerrainWorld garantiert Chunks stehen hat: es haelt Chunkmitten bis
@@ -124,6 +127,7 @@ var airfields: Array = []
 var world_env: WorldEnvironment
 var terrain: TerrainWorld           # seed-basierte Landschaft (Chunks um den Spieler)
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
+var sonne_licht: DirectionalLight3D # die Flugsonne — Grafikeinstellungen greifen darauf zu
 var env_sky: Environment
 var env_blueprint: Environment
 var world_map: WorldMap             # KARTE (Taste M im Flug), Bild kommt aus dem Thread
@@ -353,6 +357,7 @@ func _setup_world() -> void:
 	# dass der Schatten FARBIG bleibt und trotzdem klar liest.
 	sun.shadow_opacity = 0.62
 	sky_lights.add_child(sun)
+	sonne_licht = sun
 	# Fuelllicht von unten/hinten. Es bekommt bewusst KEINE Schatten (es soll aufhellen,
 	# nicht ein zweites Schattenbild dazulegen) und wurde von 0.32 auf 0.24 gedaempft:
 	# solange die Sonne schattenlos war, musste es die Formen retten — jetzt uebernimmt
@@ -589,9 +594,55 @@ func _setup_world() -> void:
 					mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	# Die Kumulusdecke bleibt unter dem alten Namen erreichbar — Werkzeuge greifen darauf.
 	cloud_field = cloud_fields[0]
+	# Gespeicherte Grafikeinstellungen anwenden. MUSS nach dem Wolkenaufbau stehen: die
+	# Funktion schaltet Schattenwurf und Sichtbarkeit der Lagen, die es vorher nicht gibt.
+	grafik_anwenden()
 
 	# Der Blueprint-Boden gehoert jetzt zu ShowroomStage und wird mit der Buehne
 	# geschaltet (frueher ein eigenes MeshInstance3D mit hellem Inline-Shader).
+
+
+## Traegt ALLE Grafikeinstellungen aus dem Spielstand in die Szene.
+##
+## EINE Stelle fuer alles: die Werte wirken auf Licht, Wolken, Flora und Viewport, und
+## jede haette sonst ihre eigene Anwendungsstelle mit eigener Vergesslichkeit. So genuegt
+## ein Aufruf — beim Weltaufbau und nach jeder Aenderung im Menue.
+func grafik_anwenden() -> void:
+	# SONNENSCHATTEN. Groesster Einzelposten der Flugansicht: gemessen 6,4 von 20,45 ms
+	# bei vollem Sichtring, also rund ein Drittel der Bildzeit.
+	if sonne_licht != null and is_instance_valid(sonne_licht):
+		sonne_licht.shadow_enabled = game.gfx_sonnenschatten
+
+	# WOLKENSCHATTEN. Sie sind die staerkste Erdung, die eine Flugwelt hat — kosten aber
+	# je Wolke einen Durchgang durch die Schattenkaskaden. Getrennt schaltbar, damit man
+	# die Bodenschatten behalten kann, ohne die Wolken zu bezahlen.
+	for i in cloud_fields.size():
+		var feld: Node3D = cloud_fields[i]
+		if feld == null or not is_instance_valid(feld):
+			continue
+		# Nur die unteren Lagen werfen ueberhaupt (siehe Aufbau) — die oberen liegen
+		# jenseits der Schattenreichweite.
+		var wirft: bool = game.gfx_wolkenschatten \
+			and CloudField.TYPEN[WOLKEN_LAGEN[i]]["layer_y"] <= 1200.0
+		for w in feld.get_children():
+			var mi := w as GeometryInstance3D
+			if mi != null:
+				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if wirft \
+					else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# WOLKENLAGEN: 0 = keine, 1 = nur die Kumulusdecke, 2 = alle vier.
+		feld.visible = game.gfx_wolkenlagen >= 2 or (game.gfx_wolkenlagen == 1 and i == 0)
+
+	# BAUMWEITE. Die Flora war gemessen 4,65 von 7,86 ms je Bild, also 59 Prozent — hier
+	# liegt der groesste Regler des ganzen Spiels.
+	if terrain != null and is_instance_valid(terrain):
+		terrain.setze_baumweite(game.gfx_baumweite)
+
+	# AUFLOESUNG. Bei 70 Prozent wird ein Viertel weniger Flaeche berechnet und wieder
+	# hochskaliert; das trifft ALLES, auch den bildfuellenden Himmel.
+	var vp := get_viewport()
+	if vp != null:
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = clampf(float(game.gfx_aufloesung) / 100.0, 0.5, 1.0)
 
 
 ## Haelt die Wolkendecke um den Spieler herum geschlossen. Die eigentliche Arbeit macht
@@ -798,6 +849,15 @@ func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 	var nn := (b - a).cross(c - a).normalized()
 	var cen := (a + b + c) / 3.0
 	var col := terrain._face_color(cen, absf(nn.y))
+	# WALD AUF DER GANZEN INSEL, ohne ein einziges zusaetzliches Dreieck. Echte Baeume gibt
+	# es nur in den gestreamten Chunks (3,8 km um den Spieler); die Schuerze reicht bis
+	# 20 km und war bisher unbewaldet, der Wald wanderte also mit dem Spieler mit. Aus
+	# dieser Entfernung ist ein Wald ohnehin nur eine dunkelgruene Flaeche — genau die wird
+	# hier eingefaerbt, nach DERSELBEN Regel, die auch die echten Baeume setzt. Der
+	# Uebergang an der Chunkgrenze faellt nicht auf, weil dort dieselbe Regel gilt.
+	var w := terrain.wald_anteil(cen.x, cen.z, cen.y, absf(nn.y))
+	if w > 0.0:
+		col = col.lerp(FERN_WALD, clampf(w * 0.85, 0.0, 0.85))
 	col.a = clampf(0.25 + cen.y / 60.0, 0.25, 1.0)
 	st.set_color(col)
 	st.add_vertex(a)
@@ -2750,6 +2810,62 @@ func _build_pause_overlay() -> void:
 	srow.add_child(sminus)
 	srow.add_child(sval)
 	srow.add_child(splus)
+	# --- GRAFIK ------------------------------------------------------------------------
+	# Aufklappbar, damit das Pausenmenue nicht zur Wand wird. Jede Zeile nennt ihre
+	# Wirkung: eine Einstellung, deren Preis man nicht kennt, stellt niemand um.
+	var g_auf := Button.new()
+	g_auf.text = "Grafik ▾"
+	v.add_child(g_auf)
+	var gbox := VBoxContainer.new()
+	gbox.add_theme_constant_override("separation", 6)
+	gbox.visible = false
+	v.add_child(gbox)
+	g_auf.pressed.connect(func():
+		gbox.visible = not gbox.visible
+		g_auf.text = "Grafik ▴" if gbox.visible else "Grafik ▾")
+
+	# Ein Umschalter mit fester Beschriftungsbreite, damit die Knoepfe untereinander stehen.
+	var schalter := func(titel: String, hinweis: String, texte: Array,
+			lies: Callable, schreib: Callable) -> void:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		gbox.add_child(row)
+		var l := _lbl(titel, 14, Color(0.80, 0.88, 1.0))
+		l.custom_minimum_size = Vector2(186, 0)
+		row.add_child(l)
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(96, 0)
+		b.text = String(texte[clampi(int(lies.call()), 0, texte.size() - 1)])
+		b.pressed.connect(func():
+			var neu: int = (int(lies.call()) + 1) % texte.size()
+			schreib.call(neu)
+			b.text = String(texte[neu])
+			grafik_anwenden()
+			game.save())
+		row.add_child(b)
+		gbox.add_child(_lbl(hinweis, 11, Color(0.55, 0.66, 0.78)))
+
+	schalter.call("Wolkenschatten", "Wolken werfen Schatten auf den Boden — die staerkste Erdung der Flugwelt.",
+		["aus", "an"],
+		func(): return 1 if game.gfx_wolkenschatten else 0,
+		func(n): game.gfx_wolkenschatten = n == 1)
+	schalter.call("Schlagschatten", "Groesster Einzelposten: gemessen rund ein Drittel der Bildzeit.",
+		["aus", "an"],
+		func(): return 1 if game.gfx_sonnenschatten else 0,
+		func(n): game.gfx_sonnenschatten = n == 1)
+	schalter.call("Baumweite", "Wie weit echte Baeume stehen. Flora ist gemessen 59 % der Bildzeit.",
+		["nah", "normal", "weit"],
+		func(): return game.gfx_baumweite,
+		func(n): game.gfx_baumweite = n)
+	schalter.call("Wolkenschichten", "Keine, nur die Kumulusdecke, oder alle vier Hoehen.",
+		["keine", "nur Kumulus", "alle"],
+		func(): return game.gfx_wolkenlagen,
+		func(n): game.gfx_wolkenlagen = n)
+	schalter.call("Aufloesung", "Rechnet das Bild kleiner und skaliert hoch. Trifft alles, auch den Himmel.",
+		["70 %", "85 %", "100 %"],
+		func(): return {70: 0, 85: 1, 100: 2}.get(game.gfx_aufloesung, 2),
+		func(n): game.gfx_aufloesung = [70, 85, 100][n])
+
 	var b_hangar := Button.new()
 	b_hangar.text = "Zum Hangar"
 	b_hangar.pressed.connect(_pause_to_hangar)
@@ -3186,7 +3302,8 @@ func _part_stats_text(p: Dictionary) -> String:
 	if p.get("is_wing", false) and p.get("area", 0.0) > 0.0:
 		lines.append("Fläche: %.1f m²  ·  Auftrieb ×%.2f" % [p["area"], p.get("lift", 1.0)])
 	if p.get("thrust", 0.0) > 0.0:
-		lines.append("Schub: %d N%s" % [int(p["thrust"]), ("  (Jet)" if p.get("jet", false) else "")])
+		var thrust_type: String = "  (Rakete)" if p.get("rocket_engine", false) else ("  (Jet)" if p.get("jet", false) else "")
+		lines.append("Schub: %d N%s" % [int(p["thrust"]), thrust_type])
 	if p.get("gear_capacity", 0.0) > 0.0:
 		lines.append("Traglast: %d kg" % int(p["gear_capacity"]))
 	if String(p.get("weapon", "")) != "":

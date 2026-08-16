@@ -63,7 +63,13 @@ func _run() -> void:
 		"  Wolken=", _count_clouds())
 
 	var t0 := Time.get_ticks_msec()
+	var nur: PackedStringArray = []
+	for a in ua:
+		if String(a).begins_with("nur="):
+			nur = String(a).substr(4).split(",")
 	for s in _shots:
+		if nur.size() > 0 and not nur.has(String(s[0])):
+			continue
 		await _shoot(String(s[0]), s[1], s[2])
 	print("Gesamt %.1f s fuer %d Shots" % [(Time.get_ticks_msec() - t0) / 1000.0, _shots.size()])
 

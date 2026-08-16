@@ -25,6 +25,15 @@ var mouse_sens := 1.0                # Maus-Flug-Empfindlichkeit (0.5–2.0), Pa
 var world_seed: int = 0              # Seed der Terrain-Map (0 = beim ersten Start würfeln)
 var g_protect := true                # G-Schutz (H): Flügel reißen nicht ab (persistiert)
 
+# --- GRAFIK (Einstellungen im Pausenmenue) ---------------------------------------------
+# Alle Werte wirken sofort und werden gespeichert. Die Vorgaben sind der Zustand, den das
+# Spiel vor dem Menue hatte — wer nichts umstellt, sieht also genau dasselbe wie bisher.
+var gfx_wolkenschatten := true       # werfen die Wolken Schatten auf den Boden
+var gfx_sonnenschatten := true       # Schlagschatten ueberhaupt (groesster Einzelposten)
+var gfx_baumweite := 1               # 0 = nah, 1 = normal, 2 = weit
+var gfx_wolkenlagen := 2             # 0 = keine, 1 = nur Kumulus, 2 = alle vier
+var gfx_aufloesung := 100            # Renderskalierung in Prozent (100/85/70)
+
 signal changed()   # Geld/Unlock/Upgrade hat sich geändert
 
 
@@ -142,6 +151,11 @@ func save() -> void:
 		"mouse_sens": mouse_sens,
 		"world_seed": world_seed,
 		"g_protect": g_protect,
+		"gfx_wolkenschatten": gfx_wolkenschatten,
+		"gfx_sonnenschatten": gfx_sonnenschatten,
+		"gfx_baumweite": gfx_baumweite,
+		"gfx_wolkenlagen": gfx_wolkenlagen,
+		"gfx_aufloesung": gfx_aufloesung,
 	}))
 	f.close()
 
@@ -167,6 +181,11 @@ func load_state() -> void:
 	mouse_sens = clampf(float(data.get("mouse_sens", 1.0)), 0.5, 2.0)
 	world_seed = int(data.get("world_seed", 0))
 	g_protect = bool(data.get("g_protect", true))
+	gfx_wolkenschatten = bool(data.get("gfx_wolkenschatten", true))
+	gfx_sonnenschatten = bool(data.get("gfx_sonnenschatten", true))
+	gfx_baumweite = clampi(int(data.get("gfx_baumweite", 1)), 0, 2)
+	gfx_wolkenlagen = clampi(int(data.get("gfx_wolkenlagen", 2)), 0, 2)
+	gfx_aufloesung = clampi(int(data.get("gfx_aufloesung", 100)), 50, 100)
 	var up = data.get("upgrades", {})
 	for k in ["thrust", "wing", "light"]:
 		upgrades[k] = int(up.get(k, 0))
