@@ -1541,8 +1541,28 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 			return Color(0.24, 0.21, 0.20).lerp(Color(0.38, 0.25, 0.20), vt)
 	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die GIPFEL weiß,
 	# breite FELS-Flanken darunter (sonst wird der Berg ein weißer Klumpen).
+	# SCHNEE NUR AUF FLACHEN PARTIEN. Hier stand ein einziges flaches Weiss fuer alles
+	# ueber 188 m. Solange der hoechste Berg der Karte 230 m hatte, war das ein schmaler
+	# Gipfelsaum. Mit dem Hochgebirge im Nordwesten (bis 660 m) sind es 470 Hoehenmeter am
+	# Stueck, und die Kette las sich als Marshmallow — genau das, wovor der Kommentar eine
+	# Zeile darunter warnt.
+	# Echter Schnee bleibt auf einer steilen Wand nicht liegen. Die Schwelle 0.48/0.66
+	# liegt bewusst FLACHER als die 0.70 der Felsregel weiter unten: auf maessig geneigtem
+	# Grund haelt sich Schnee noch, an der Wand nicht mehr. Damit bekommt die Kette dunkle
+	# Felsflanken und weisse Schultern statt einer geschlossenen weissen Decke.
 	if cen.y > 188.0:
-		return Color(0.87, 0.88, 0.91)        # Schnee NUR auf den höchsten Gipfeln (gebrochenes Weiß)
+		# Der Hang allein reicht NICHT als Kriterium, das war der erste Versuch: die
+		# Kegel des Hochgebirges sind 660 m hoch bei 1900 m Radius, also 19 Grad geneigt —
+		# darauf liegt auch in echt Schnee, und die Kette blieb weiss. Massgeblich ist
+		# die HOEHE UEBER DER SCHNEEGRENZE, der Hang moduliert nur.
+		# Der Schnee blendet deshalb erst ueber 240 Hoehenmeter voll ein. Damit bekommt
+		# jeder Berg ein breites Felsband unter der Schneekappe, und der Anteil waechst
+		# mit der Berghoehe: die alten 205-m-Kuppen bleiben fast schneefrei, die 660er
+		# Gipfel tragen eine echte Kappe.
+		var fels_hoch := Color(0.42, 0.39, 0.37).lerp(Color(0.60, 0.58, 0.56),
+			clampf((cen.y - 188.0) / 340.0, 0.0, 1.0))
+		var anteil := smoothstep(188.0, 428.0, cen.y) * smoothstep(0.72, 0.90, ny)
+		return fels_hoch.lerp(Color(0.87, 0.88, 0.91), anteil)
 	if cen.y > 160.0 and ny > 0.5:
 		return Color(0.56, 0.53, 0.53).lerp(Color(0.87, 0.88, 0.91),
 			clampf((cen.y - 160.0) / 28.0, 0.0, 1.0))   # schmaler Schnee-Übergang (mehr Fels sichtbar)

@@ -37,6 +37,12 @@ var _shots: Array = [
 	["vulkan", Vector3(11800, 780, -4750), Vector3(11800, 120, -5600)],  # Vulkaninsel von Norden
 	["canyon", Vector3(-6300, 120, 1300), Vector3(-4900, 20, 3100)],     # IN die Schlucht
 	["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)], # Schlucht von oben
+	# HOCHGEBIRGE im Nordwesten mit dem Bergflugplatz ADLERHORST auf dem Sattel.
+	# Der Grat laeuft von (-9600,-4400) nach Suedosten; Kamera quer dazu, damit die
+	# Kette als Kette zu sehen ist und nicht als einzelner Huegel.
+	["gebirge", Vector3(-4200, 900, -4200), Vector3(-7300, 380, -6900)],
+	["adlerhorst", Vector3(-5900, 520, -6100), Vector3(-6870, 340, -7130)],
+	["adlerhorst_anflug", Vector3(-5450, 400, -5700), Vector3(-6870, 340, -7130)],
 ]
 
 
