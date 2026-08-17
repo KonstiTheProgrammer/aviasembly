@@ -47,6 +47,10 @@ var _shots: Array = [
 	["tal_platz", Vector3(-6900, 260, -8100), Vector3(-5598, 90, -9446)],    # kurz vor der Bahn
 	["tal_oben", Vector3(-9600, 1750, -4800), Vector3(-5598, 90, -9446)],    # ueber dem Kamm
 	["tal_quer", Vector3(-2400, 900, -8600), Vector3(-6600, 200, -8000)],    # Ketten von aussen
+	# Felsentor bei Talachse 3600 -> rund (-8790,-5341); Bergsee bei 5000 -> (-7930,-6447).
+	["tal_tor", Vector3(-9900, 190, -3900), Vector3(-8790, 120, -5341)],     # aufs Tor zu
+	["tal_tor_nah", Vector3(-9250, 150, -4650), Vector3(-8500, 130, -5700)], # kurz davor
+	["tal_see", Vector3(-8800, 320, -5600), Vector3(-7930, 78, -6447)],      # Bergsee
 ]
 
 

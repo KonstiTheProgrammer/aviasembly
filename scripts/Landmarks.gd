@@ -651,3 +651,114 @@ static func build_wreck(parent: Node3D, pos2: Vector2, heading := 0.8) -> void:
 	mast.rotation.x = 0.9                                                 # abgeknickt
 	node.add_child(mast)
 	_box(mast, Vector3(0, 4.0, 0), Vector3(0.5, 8.0, 0.5), rust)
+
+
+# --- FELSENTOR ------------------------------------------------------------------------
+# Ein freistehender Felsbogen, durch den man hindurchfliegt. Steht am Eingang des Hochtals
+# und ist das einzige Wahrzeichen mit KOLLISION.
+#
+# WARUM ALS EIGENE GEOMETRIE UND NICHT ALS GELAENDE: TerrainWorld.height_at liefert genau
+# EINE Hoehe je Punkt. Ein Bogen braucht an derselben Stelle zwei Flaechen uebereinander —
+# Boden und Torbogen. Ein Hoehenfeld kann das grundsaetzlich nicht, egal wie man die
+# Massive stellt. Deshalb ein Mesh.
+#
+# WARUM MIT KOLLISION, anders als alle anderen Wahrzeichen hier: durch massiven Fels
+# hindurchzufliegen sieht kaputt aus, und das Tor soll eine Mutprobe sein, kein Poster.
+# Die Kollisionsflaeche kommt aus DENSELBEN Dreiecken wie das Sichtnetz — nicht aus einer
+# vereinfachten Huelle, sonst schlaegt man in der Toroeffnung gegen unsichtbares Zeug.
+#
+# spannweite = Abstand der beiden Bogenfuesse, hoehe = Scheitel ueber der Fusslinie.
+static func build_felsentor(parent: Node3D, mitte: Vector3, spannweite: float,
+		hoehe: float, breite: float, yaw: float, seed_v := 7731) -> Node3D:
+	var node := Node3D.new()
+	node.name = "Felsentor"
+	node.position = mitte
+	node.rotation.y = yaw
+	parent.add_child(node)
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_v
+	# Querschnitt des Bogenbands, normiert. Kantig statt rund — es ist Fels, kein Rohr.
+	var QS := [Vector2(1.0, 0.35), Vector2(0.62, 0.95), Vector2(-0.62, 0.95),
+		Vector2(-1.0, 0.35), Vector2(-0.86, -0.6), Vector2(0.0, -1.0), Vector2(0.86, -0.6)]
+	var SEG := 26
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)                    # Flatshading wie das uebrige Gelaende
+	var ringe: Array = []
+	for i in SEG + 1:
+		var u := lerpf(-1.0, 1.0, float(i) / float(SEG))
+		# Scheitel FLACHER als ein Kreisbogen (Exponent unter 0.5 macht ihn spitz, ueber
+		# 0.5 rund) — natuerliche Felsboegen sind oben breit und flach.
+		var y := hoehe * pow(maxf(1.0 - u * u, 0.0), 0.62)
+		var x := u * spannweite * 0.5
+		# Band unten dick, oben duenn: so traegt es optisch und wirkt nicht wie ein Rohr.
+		var dick := lerpf(hoehe * 0.30, hoehe * 0.115, 1.0 - absf(u))
+		var br := breite * lerpf(1.0, 0.72, 1.0 - absf(u))
+		# Unregelmaessigkeit, damit es nicht wie ein Bauwerk aussieht. Fester Seed ->
+		# dieselbe Form bei jedem Start.
+		var wack := 1.0 + rng.randf_range(-0.16, 0.16)
+		var ring: Array[Vector3] = []
+		for q: Vector2 in QS:
+			ring.append(Vector3(x + q.y * dick * 0.22 * wack,
+				y + q.y * dick * wack, q.x * br * 0.5))
+		ringe.append(ring)
+	# Mittellinie je Ring — daraus ergibt sich, welche Seite AUSSEN ist.
+	var achsen: Array[Vector3] = []
+	for r: Array in ringe:
+		var m := Vector3.ZERO
+		for v: Vector3 in r:
+			m += v
+		achsen.append(m / float(r.size()))
+	var flaechen := PackedVector3Array()
+	for i in SEG:
+		var a: Array = ringe[i]
+		var b: Array = ringe[i + 1]
+		var achse: Vector3 = (achsen[i] + achsen[i + 1]) * 0.5
+		for j in QS.size():
+			var j2 := (j + 1) % QS.size()
+			for tri in [[a[j], a[j2], b[j2]], [a[j], b[j2], b[j]]]:
+				var p0: Vector3 = tri[0]
+				var p1: Vector3 = tri[1]
+				var p2: Vector3 = tri[2]
+				var n := (p1 - p0).cross(p2 - p0).normalized()
+				# WICKLUNG SELBST KORRIGIEREN statt sie zu raten. Zeigt die Normale zur
+				# Mittellinie des Bandes statt von ihr weg, ist das Dreieck verkehrt herum;
+				# dann wird getauscht. Ohne das rendert der ganze Bogen schwarz — die
+				# Flaechen werden zwar gezeichnet, aber von der falschen Seite beleuchtet.
+				# Welche Reihenfolge stimmt, haengt am Umlaufsinn des Querschnitts UND an
+				# der Laufrichtung ueber den Bogen; von Hand ist das eine Ratefrage.
+				if n.dot(((p0 + p1 + p2) / 3.0) - achse) < 0.0:
+					var t := p1
+					p1 = p2
+					p2 = t
+					n = -n
+				st.add_vertex(p0); st.add_vertex(p1); st.add_vertex(p2)
+				flaechen.append(p0); flaechen.append(p1); flaechen.append(p2)
+	# Normalen aus der Wicklung berechnen lassen, statt sie von Hand zu setzen. Die
+	# Wicklung ist oben bereits selbstkorrigierend — damit gibt es nur noch EINE Quelle
+	# fuer die Orientierung statt zweier, die sich widersprechen koennen.
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	# Dieselbe Felsfarbe wie das Hochgebirge oberhalb der Baumgrenze.
+	mi.material_override = _mat(Color(0.52, 0.48, 0.44), 0.94)
+	node.add_child(mi)
+
+	# Beide Fuesse in den Boden setzen, damit der Bogen nicht in der Luft endet.
+	var fuss := _mat(Color(0.47, 0.43, 0.39), 0.94)
+	for sx in [-1.0, 1.0]:
+		_box(node, Vector3(sx * spannweite * 0.5, -hoehe * 0.22, 0.0),
+			Vector3(hoehe * 0.34, hoehe * 0.5, breite * 0.9), fuss)
+
+	var body := StaticBody3D.new()
+	body.name = "Kollision"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(flaechen)
+	cs.shape = shape
+	body.add_child(cs)
+	node.add_child(body)
+	return node

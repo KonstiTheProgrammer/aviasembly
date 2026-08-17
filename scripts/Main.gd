@@ -120,6 +120,14 @@ const TAL_BREITE := 2700.0
 # Platz schliesst die Querkette das Tal ab — man muss also drehen und wieder hinaus.
 const ADLERHORST_LAENGS := 8800.0
 const ADLERHORST_HOEHE := 90.0
+# FELSENTOR am Taleingang: Position auf der Talachse. Weit genug drinnen, dass man schon
+# zwischen den Waenden fliegt, weit genug vor dem Platz fuer einen langen Endanflug.
+const TOR_LAENGS := 3600.0
+# BERGSEE zwischen Tor und Flugplatz. surf ist der Wasserspiegel; das Becken gaebt sich
+# selbst (TerrainWorld senkt den Grund auf surf - 4).
+const SEE_LAENGS := 5000.0
+const SEE_R := 420.0
+const SEE_SPIEGEL := 78.0
 
 const FERN_NAH := 2300.0
 const FERN_FERN := 3300.0
@@ -480,6 +488,11 @@ func _setup_world() -> void:
 	var village_pos := Vector3(2550, 120, 1650)   # Bergdorf-Plateau (Schelf am Massiv)
 	flat_zones.append({"pos": town_pos, "r_flat": 360.0, "r_blend": 760.0})
 	flat_zones.append({"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0})  # See-Umfeld flach
+	# Ufer des Bergsees: ohne die Flachzone schneidet das Becken schraeg in den Talhang und
+	# der See haengt sichtbar in der Boeschung.
+	var see_fz := _tal_punkt(SEE_LAENGS)
+	flat_zones.append({"pos": Vector3(see_fz.x, 0.0, see_fz.y),
+		"r_flat": SEE_R * 1.15, "r_blend": SEE_R * 2.4, "y": SEE_SPIEGEL + 6.0})
 	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
 	flat_zones.append({"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0})
 	# --- NEUE VIERTEL aus den Blender-Gebaeuden (scripts/CityBuilder.gd) ---------------
@@ -494,8 +507,12 @@ func _setup_world() -> void:
 	flat_zones.append({"pos": dorf_pos, "r_flat": 260.0, "r_blend": 620.0})
 	flat_zones.append({"pos": burg_pos, "r_flat": 160.0, "r_blend": 420.0, "y": 78.0})
 	flat_zones.append({"pos": mil_pos, "r_flat": 200.0, "r_blend": 480.0})
+	var see_p := _tal_punkt(SEE_LAENGS)
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0},
-		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0}]   # Canyon-Endsee
+		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0},   # Canyon-Endsee
+		# BERGSEE im Hochtal. Liegt zwischen Felsentor und Flugplatz und ist beim Anflug
+		# der Punkt, an dem man weiss, dass die Bahn gleich kommt.
+		{"pos": Vector3(see_p.x, 0.0, see_p.y), "r": SEE_R, "surf": SEE_SPIEGEL}]
 	# Erzwungene Formen: Bergmassiv (Bergdorf/Flussquelle) + VULKANINSEL + ARCHIPEL
 	# draußen im Ozean als Ausflugsziele (Insel-Typ fällt am Rand unter den Meeresspiegel
 	# -> echte Küsten mit Türkis-Schelf, egal welcher Seed).
@@ -596,6 +613,13 @@ func _setup_world() -> void:
 			CityBuilder.build(fly_world, terrain, ap, CityBuilder.plan_flugplatz(),
 				"Flugplatzbauten_" + String(af["name"]), hd)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
+	# FELSENTOR am Eingang des Hochtals. Der Bogen steht QUER zur Talachse, man fliegt also
+	# beim Einflug hindurch. Die Fusslinie liegt auf der Gelaendehoehe an der Stelle —
+	# nicht auf einem geratenen Wert, sonst haengt das Tor in der Luft oder steckt im Hang.
+	var tor_p := _tal_punkt(TOR_LAENGS)
+	var tor_y := terrain.height_at(tor_p.x, tor_p.y)
+	Landmarks.build_felsentor(fly_world, Vector3(tor_p.x, tor_y, tor_p.y),
+		520.0, 260.0, 70.0, atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
 	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.
@@ -4187,6 +4211,11 @@ func _adlerhorst_pos() -> Vector3:
 	return Vector3(p.x, ADLERHORST_HOEHE, p.y)
 
 
+## Punkt auf der Talachse — fuer Tor und See, damit beide nicht neben dem Tal landen.
+func _tal_punkt(laengs: float) -> Vector2:
+	return TAL_START + TAL_RICHTUNG * laengs
+
+
 ## DAS HOCHTAL im Nordwesten — zwei parallele Ketten mit einem Tal dazwischen, und im
 ## Tal der Flugplatz ADLERHORST.
 ##
@@ -4222,6 +4251,14 @@ func _hochgebirge() -> Array:
 			var p := TAL_START + TAL_RICHTUNG * laengs + quer * seite * TAL_BREITE
 			out.append({"pos": Vector3(p.x, 0.0, p.y), "r": 2600.0, "peak": float(gipfel[i]),
 				"schaerfe": 0.85, "grat": 3.2})
+	# TORPFEILER am Taleingang: zwei niedrige Vorspruenge beidseits der Achse, aus denen
+	# das Felsentor wachsen kann. Sie duerfen die Durchfahrt NICHT schliessen — mit 380 m
+	# Radius bei 300 m Achsabstand traegt jeder auf der Achse nur 260 * (1 - 300/380) = 55 m
+	# bei, also weniger als der Talboden dort, und max() laesst den Durchgang offen.
+	for sq: float in [-1.0, 1.0]:
+		var tp: Vector2 = TAL_START + TAL_RICHTUNG * TOR_LAENGS + quer * sq * 300.0
+		out.append({"pos": Vector3(tp.x, 0.0, tp.y), "r": 380.0, "peak": 260.0,
+			"schaerfe": 0.85, "grat": 3.2})
 	# QUERKETTE am hinteren Ende: macht das Tal zur Sackgasse. Sie steht 1,6 km hinter dem
 	# Flugplatz — weit genug, um nach dem Aufsetzen noch auszurollen und zu drehen.
 	for j in range(-1, 2):
