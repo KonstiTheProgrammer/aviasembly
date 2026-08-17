@@ -616,7 +616,7 @@ func _physics_process(delta: float) -> void:
 		_aim_ff = _aim_ff.lerp(aim_w, clampf(delta * 8.0, 0.0, 1.0))
 		# [C] Fehlerzerlegung im Körpersystem (Nase = -Z)
 		var e := b.transposed() * _aim_cmd
-		var horiz := _soft_dead(atan2(e.x, -e.z))             # +rechts, ±π hinten
+		var _horiz := _soft_dead(atan2(e.x, -e.z))             # +rechts, ±π hinten
 		var vert := _soft_dead(atan2(e.y, sqrt(e.x * e.x + e.z * e.z)))  # +oben
 		var err_total := acos(clampf(-e.z, -1.0, 1.0))        # Gesamtfehler 0..π
 		var wb := b.transposed() * aircraft.angular_velocity

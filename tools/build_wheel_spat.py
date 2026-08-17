@@ -31,8 +31,17 @@
 import bpy, bmesh, math
 from math import radians
 from mathutils import Vector
+import os
 
-OUT = "/Users/konstantinkanzler/Projects/aviasembly/models/wheel_spat.glb"
+# PROJEKTWURZEL AUS DEM SKRIPTORT statt eines absoluten Pfads. Hier standen fest
+# verdrahtete Pfade, und zehn Skripte zeigten noch auf die alte Projektkopie unter
+# ~/Downloads/aviasembly — sie schrieben ihr Modell also dorthin, wo das Spiel es nicht
+# mehr laedt. Der Fehler faellt nicht auf: Blender meldet einen erfolgreichen Export,
+# im Spiel aendert sich nur nichts.
+PROJEKT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+OUT = os.path.join(PROJEKT, "models/wheel_spat.glb")
 
 Z_AXLE = -0.775
 R_TIRE = 0.175          # -> Aufstandspunkt z = -0.950

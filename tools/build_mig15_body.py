@@ -3,6 +3,15 @@
 ##   /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/build_mig15_body.py
 ## Achsen (glTF +Y up): Blender X->Godot X, Blender Z->Godot Y(oben), +Y->Godot -Z (Nase vorne).
 import bpy, bmesh, math
+import os
+
+# PROJEKTWURZEL AUS DEM SKRIPTORT statt eines absoluten Pfads. Hier standen fest
+# verdrahtete Pfade, und zehn Skripte zeigten noch auf die alte Projektkopie unter
+# ~/Downloads/aviasembly — sie schrieben ihr Modell also dorthin, wo das Spiel es nicht
+# mehr laedt. Der Fehler faellt nicht auf: Blender meldet einen erfolgreichen Export,
+# im Spiel aendert sich nur nichts.
+PROJEKT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 for o in list(bpy.data.objects): bpy.data.objects.remove(o, do_unlink=True)
 for me in list(bpy.data.meshes): bpy.data.meshes.remove(me)
 for mt in list(bpy.data.materials): bpy.data.materials.remove(mt)
@@ -81,7 +90,7 @@ for p in me.polygons: p.use_smooth = True
 co = bpy.data.objects.new("Canopy", me); bpy.context.scene.collection.objects.link(co)
 co.data.materials.append(MG); co.data.materials.append(MF)
 
-PATH = "/Users/konstantinkanzler/Downloads/aviasembly/models/mig15_body.glb"
+PATH = os.path.join(PROJEKT, "models/mig15_body.glb")
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.export_scene.gltf(filepath=PATH, export_format='GLB', use_selection=True, export_yup=True, export_apply=True)
 print("EXPORTED", PATH)

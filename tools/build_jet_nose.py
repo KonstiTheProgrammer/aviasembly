@@ -5,6 +5,15 @@
 ##   /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/build_jet_nose.py
 ## Achsen (glTF +Y up): Blender X->Godot X, Z->Godot Y(oben), +Y->Godot -Z (Nase vorne).
 import bpy, bmesh, math
+import os
+
+# PROJEKTWURZEL AUS DEM SKRIPTORT statt eines absoluten Pfads. Hier standen fest
+# verdrahtete Pfade, und zehn Skripte zeigten noch auf die alte Projektkopie unter
+# ~/Downloads/aviasembly — sie schrieben ihr Modell also dorthin, wo das Spiel es nicht
+# mehr laedt. Der Fehler faellt nicht auf: Blender meldet einen erfolgreichen Export,
+# im Spiel aendert sich nur nichts.
+PROJEKT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 for o in list(bpy.data.objects): bpy.data.objects.remove(o, do_unlink=True)
 for me in list(bpy.data.meshes): bpy.data.meshes.remove(me)
 for mt in list(bpy.data.materials): bpy.data.materials.remove(mt)
@@ -73,7 +82,7 @@ ob.data.materials.append(MB); ob.data.materials.append(MD)
 # Etwas Glättung für hochwertige, runde Lippe
 mod = ob.modifiers.new("bevel", 'BEVEL'); mod.width = 0.012; mod.segments = 2
 
-PATH = "/Users/konstantinkanzler/Downloads/aviasembly/models/jet_nose.glb"
+PATH = os.path.join(PROJEKT, "models/jet_nose.glb")
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.export_scene.gltf(filepath=PATH, export_format='GLB', use_selection=True, export_yup=True, export_apply=True)
 print("EXPORTED", PATH)

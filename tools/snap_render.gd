@@ -8,7 +8,10 @@ extends SceneTree
 
 var frame := 0
 var vp: SubViewport
-var out_path := "/Users/konstantinkanzler/Downloads/aviasembly/tools/render_out.png"
+# Ausgabe ueber res:// statt ueber einen absoluten Pfad — der zeigte auf die alte
+# Projektkopie unter ~/Downloads/aviasembly und schrieb das Bild dorthin, wo es niemand
+# sucht. globalize_path macht daraus den echten Ort des LAUFENDEN Projekts.
+var out_path := ProjectSettings.globalize_path("res://tools/render_out.png")
 var design_path := "res://designs/fokker_dr1.json"
 var angle := "34"
 

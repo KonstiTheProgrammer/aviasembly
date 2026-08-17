@@ -160,7 +160,6 @@ var paint_picker: ColorPickerButton # freie Farbwahl (Farbrad/RGB/Hex)
 var pipette_btn: Button             # Pipette an/aus
 var part_buttons: Dictionary = {}
 var _part_group: ButtonGroup       # exklusive Auswahl der Teil-Kacheln
-var _cat_open: Dictionary = {}     # Kategorie -> auf-/zugeklappt
 
 # Wirtschaft / Modi
 var game: GameState
@@ -893,6 +892,16 @@ func _exit_tree() -> void:
 	if _fern_thread != null and _fern_thread.is_started():
 		_fern_thread.wait_to_finish()
 		_fern_thread = null
+	# DER KARTEN-THREAD GENAUSO. Auf ihn wurde bisher NUR in _on_map_image_ready
+	# gewartet — also erst, wenn er sein Bild geliefert hat. Endet das Spiel vorher
+	# (Beenden im Hangar, Absturz einer Sitzung, jeder Testlauf mit --quit), wird das
+	# Thread-Objekt zerstoert, ohne dass jemand darauf gewartet hat. Godot meldet dann
+	# "A Thread object is being destroyed without its completion having been realized"
+	# und laesst Objekte im ObjectDB zurueck. Schlimmer als die Meldung ist die Ursache:
+	# der Thread liest waehrenddessen `terrain`, das gerade abgeraeumt wird.
+	if _map_thread != null and _map_thread.is_started():
+		_map_thread.wait_to_finish()
+		_map_thread = null
 
 
 func _flat_mat(c: Color, rough: float) -> StandardMaterial3D:

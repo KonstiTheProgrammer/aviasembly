@@ -318,6 +318,10 @@ static func _build() -> void:
 	# selbst, nicht an das generische "fuselage" (das ist ein Kreis mit Radius 0.600).
 	# Ein Zwischenstueck laesst sich mit einem skalierten "fuselage" andeuten, buendig
 	# wird es dabei nicht.
+	# WER HIER MASSE AENDERT, MISST NACH — und zwar nicht am Feld `size` unten, das ist
+	# nur die Huellbox und sagt weder etwas ueber die Lage des Ursprungs noch ueber die
+	# Form des Querschnitts. Die Randkurve eines Rumpfteils liest tools/_querschnitt.gd
+	# als Zahlen aus, den Spalt zweier zusammengesetzter Teile misst tools/_naht_check.gd.
 	_add({
 		"id": "me262_nose", "name": "Me-262-Nase", "category": CAT_BODY,
 		"mass": 110.0, "color": Color(0.64, 0.67, 0.69), "shape": "box",

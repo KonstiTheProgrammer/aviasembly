@@ -6,6 +6,15 @@
 ## Achsen (glTF +Y up): Blender X->Godot X (Radachse), Blender Z->Godot Y(oben), +Y->Godot -Z(vorne).
 import bpy, math
 from math import radians
+import os
+
+# PROJEKTWURZEL AUS DEM SKRIPTORT statt eines absoluten Pfads. Hier standen fest
+# verdrahtete Pfade, und zehn Skripte zeigten noch auf die alte Projektkopie unter
+# ~/Downloads/aviasembly — sie schrieben ihr Modell also dorthin, wo das Spiel es nicht
+# mehr laedt. Der Fehler faellt nicht auf: Blender meldet einen erfolgreichen Export,
+# im Spiel aendert sich nur nichts.
+PROJEKT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 for o in list(bpy.data.objects): bpy.data.objects.remove(o, do_unlink=True)
 for m in list(bpy.data.meshes): bpy.data.meshes.remove(m)
 for mt in list(bpy.data.materials): bpy.data.materials.remove(mt)
@@ -58,7 +67,7 @@ leg = bpy.context.active_object; leg.name = "Leg"
 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 bpy.ops.object.shade_smooth()
 
-PATH = "/Users/konstantinkanzler/Downloads/aviasembly/models/wheel_jet.glb"
+PATH = os.path.join(PROJEKT, "models/wheel_jet.glb")
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.export_scene.gltf(filepath=PATH, export_format='GLB', use_selection=True, export_yup=True, export_apply=True)
 print("EXPORTED", PATH)

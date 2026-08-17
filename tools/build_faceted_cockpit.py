@@ -7,11 +7,20 @@ glTF conversion therefore produces the Aviassembly convention X width, Y up,
 
 import bpy
 from mathutils import Vector
+import os
+
+# PROJEKTWURZEL AUS DEM SKRIPTORT statt eines absoluten Pfads. Hier standen fest
+# verdrahtete Pfade, und zehn Skripte zeigten noch auf die alte Projektkopie unter
+# ~/Downloads/aviasembly — sie schrieben ihr Modell also dorthin, wo das Spiel es nicht
+# mehr laedt. Der Fehler faellt nicht auf: Blender meldet einen erfolgreichen Export,
+# im Spiel aendert sich nur nichts.
+PROJEKT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-BLEND_PATH = "/Users/konstantinkanzler/Projects/aviasembly/blender_lib/cockpit_faceted_transport.blend"
-GLB_PATH = "/Users/konstantinkanzler/Projects/aviasembly/models/cockpit_faceted_transport.glb"
-PREVIEW_PATH = "/Users/konstantinkanzler/Projects/aviasembly/blender_lib/cockpit_faceted_transport_preview.png"
+
+BLEND_PATH = os.path.join(PROJEKT, "blender_lib/cockpit_faceted_transport.blend")
+GLB_PATH = os.path.join(PROJEKT, "models/cockpit_faceted_transport.glb")
+PREVIEW_PATH = os.path.join(PROJEKT, "blender_lib/cockpit_faceted_transport_preview.png")
 
 
 def clear_scene():

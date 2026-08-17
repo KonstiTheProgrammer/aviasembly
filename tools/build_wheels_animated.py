@@ -24,9 +24,18 @@
 #     Kein "Slider": diese drei haben kein Oleo zum Teleskopieren (Gummiseil-Federung
 #     beim Doppeldecker), die Beine bleiben in sich starr.
 import bpy
+import os
 
-SRC = "/Users/konstantinkanzler/Projects/aviasembly/tools/wheels_animated.blend"
-OUT = "/Users/konstantinkanzler/Projects/aviasembly/models/"
+# PROJEKTWURZEL AUS DEM SKRIPTORT statt eines absoluten Pfads. Hier standen fest
+# verdrahtete Pfade, und zehn Skripte zeigten noch auf die alte Projektkopie unter
+# ~/Downloads/aviasembly — sie schrieben ihr Modell also dorthin, wo das Spiel es nicht
+# mehr laedt. Der Fehler faellt nicht auf: Blender meldet einen erfolgreichen Export,
+# im Spiel aendert sich nur nichts.
+PROJEKT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+SRC = os.path.join(PROJEKT, "tools/wheels_animated.blend")
+OUT = os.path.join(PROJEKT, "models/")
 
 bpy.ops.wm.open_mainfile(filepath=SRC)
 sc = bpy.data.scenes["Wheels"]

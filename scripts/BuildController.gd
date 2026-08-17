@@ -101,7 +101,6 @@ var _drag_origin0 := Vector3.ZERO
 var _drag_taper0 := 1.0           # Enden-Drag: Taper-Wert des Endes beim Greifen
 var _drag_corner := 0            # gezogene Klotz-Ecke (0..7)
 var _drag_shift0 := Vector2.ZERO  # Enden-Versatz beim Greifen
-var _drag_ebene0 := Vector3.ZERO  # Startpunkt in der Querschnittsebene
 const SHIFT_MAX := 0.9            # feste Spanne: +-90 % der Querschnittsgroesse
 var _drag_half := 1.0             # Enden-Drag: halbe Höhe (Sensitivität)
 var _moving_sel := false          # ausgewähltes Teil per Body-Drag verschieben
@@ -1289,7 +1288,7 @@ func _update_handles() -> void:
 	var off: Vector3 = PartCatalog.col_offset(p) * psc
 	var half_v := bs * psc * 0.5
 	var halves := [half_v.x, half_v.y, half_v.z]
-	var radius := maxf(maxf(half_v.x, half_v.y), half_v.z) + RING_MARGIN
+	var _radius := maxf(maxf(half_v.x, half_v.y), half_v.z) + RING_MARGIN
 	# Halter ans Hüllenzentrum. Bewegen: Identitäts-Basis (global zur Welt). Drehen: Teil-Basis
 	# -> die Ringe drehen mit dem Objekt mit (lokal ausgerichtet).
 	if is_instance_valid(_gizmo_root):

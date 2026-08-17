@@ -1,6 +1,6 @@
 # Blender-Vorschau: rekonstruiert ein Aviassembly-Design (JSON) als Proxy-Formen
 # in echten Godot-Koordinaten (Y oben, -Z vorne) und rendert es.
-# Nutzung in Blender: exec(open('/Users/konstantinkanzler/Downloads/aviasembly/tools/preview.py').read())
+# Nutzung in Blender: exec(open('<projekt>/tools/preview.py').read())
 #   build_preview('/Users/.../designs/fokker_dr1.json'); view('front')   dann render_viewport_to_path
 import bpy, bmesh, math, mathutils, json
 TAU = math.tau
