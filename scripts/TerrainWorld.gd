@@ -1586,41 +1586,39 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 				and Vector2(cen.x - ms["pos"].x, cen.z - ms["pos"].z).length() < float(ms["r"]) * 1.05:
 			var vt := clampf((cen.y - 26.0) / maxf(float(ms["peak"]) - 26.0, 1.0), 0.0, 1.0)
 			return Color(0.24, 0.21, 0.20).lerp(Color(0.38, 0.25, 0.20), vt)
-	# Schnee + Fels kommen aus HÖHE/HANG (in jedem Biom): nur die GIPFEL weiß,
-	# breite FELS-Flanken darunter (sonst wird der Berg ein weißer Klumpen).
-	# SCHNEE NUR AUF FLACHEN PARTIEN. Hier stand ein einziges flaches Weiss fuer alles
-	# ueber 188 m. Solange der hoechste Berg der Karte 230 m hatte, war das ein schmaler
-	# Gipfelsaum. Mit dem Hochgebirge im Nordwesten (bis 660 m) sind es 470 Hoehenmeter am
-	# Stueck, und die Kette las sich als Marshmallow — genau das, wovor der Kommentar eine
-	# Zeile darunter warnt.
-	# Echter Schnee bleibt auf einer steilen Wand nicht liegen. Die Schwelle 0.48/0.66
-	# liegt bewusst FLACHER als die 0.70 der Felsregel weiter unten: auf maessig geneigtem
-	# Grund haelt sich Schnee noch, an der Wand nicht mehr. Damit bekommt die Kette dunkle
-	# Felsflanken und weisse Schultern statt einer geschlossenen weissen Decke.
+	# --- FELS UND SCHNEE, DURCHGEHEND OHNE STUFE -----------------------------------
+	# Hier standen ZWEI getrennte Zweige mit harten Grenzen bei 160 und 188 m. Der untere
+	# blendete zwischen 160 und 188 m auf flachem Grund bis fast auf Schneeweiss hoch, der
+	# obere fing darueber wieder bei dunklem Fels an. Solange 188 m die Bergspitze war, war
+	# das ein schmaler Gipfelsaum. Mit Bergen bis 1250 m ist es eine WEISSE HOEHENLINIE
+	# quer durch jeden Hang — genau der Strich, der gemeldet wurde.
+	# GESUCHT HABE ICH IHN ZUERST AN DER FALSCHEN STELLE: Fernschuerze, Wasserplatte und
+	# Wolken einzeln ausgeblendet, der Strich blieb in allen drei Bildern stehen. Er kam
+	# aus dem Gelaende selbst.
+	# Jetzt EINE durchgehende Felsrampe ueber die ganze Hoehe und EIN Schneeanteil, der
+	# nach Hoehe einblendet und vom Hang moduliert wird. Keine Sprungstelle mehr.
+	var fels := Color(0.35, 0.31, 0.27).lerp(Color(0.56, 0.52, 0.46),
+		clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
+	if cen.y > 142.0:
+		# Weiter aufhellen, statt bei 142 m stehenzubleiben — die Fortsetzung setzt genau
+		# auf dem Endwert der ersten Rampe auf, deshalb entsteht kein Sprung.
+		fels = fels.lerp(Color(0.62, 0.60, 0.58), clampf((cen.y - 142.0) / 400.0, 0.0, 1.0))
+	# SCHNEE. Massgeblich ist die Hoehe UEBER der Schneegrenze, der Hang moduliert nur.
+	# Der Hang allein reicht NICHT: die Kegel des Hochgebirges sind bei 2600 m Radius rund
+	# 25 Grad geneigt, darauf liegt auch in echt Schnee — mit reinem Hangkriterium blieb
+	# die ganze Kette weiss.
+	var schnee := smoothstep(188.0, 428.0, cen.y) * smoothstep(0.72, 0.90, ny)
+	if schnee > 0.001:
+		fels = fels.lerp(Color(0.87, 0.88, 0.91), schnee)
 	if cen.y > 188.0:
-		# Der Hang allein reicht NICHT als Kriterium, das war der erste Versuch: die
-		# Kegel des Hochgebirges sind 660 m hoch bei 1900 m Radius, also 19 Grad geneigt —
-		# darauf liegt auch in echt Schnee, und die Kette blieb weiss. Massgeblich ist
-		# die HOEHE UEBER DER SCHNEEGRENZE, der Hang moduliert nur.
-		# Der Schnee blendet deshalb erst ueber 240 Hoehenmeter voll ein. Damit bekommt
-		# jeder Berg ein breites Felsband unter der Schneekappe, und der Anteil waechst
-		# mit der Berghoehe: die alten 205-m-Kuppen bleiben fast schneefrei, die 660er
-		# Gipfel tragen eine echte Kappe.
-		var fels_hoch := Color(0.42, 0.39, 0.37).lerp(Color(0.60, 0.58, 0.56),
-			clampf((cen.y - 188.0) / 340.0, 0.0, 1.0))
-		var anteil := smoothstep(188.0, 428.0, cen.y) * smoothstep(0.72, 0.90, ny)
-		return fels_hoch.lerp(Color(0.87, 0.88, 0.91), anteil)
-	if cen.y > 160.0 and ny > 0.5:
-		return Color(0.56, 0.53, 0.53).lerp(Color(0.87, 0.88, 0.91),
-			clampf((cen.y - 160.0) / 28.0, 0.0, 1.0))   # schmaler Schnee-Übergang (mehr Fels sichtbar)
+		return fels
+
 	# FELS UND BODEN UEBERBLENDEN statt hart umschalten. Hier stand
 	#     if cen.y > 52.0 or ny < 0.70: return fels
 	# also eine Stufenfunktion — und im Bild lag um jeden Berg ein scharf gezeichneter
 	# brauner Ring, am deutlichsten am neuen Hochgebirge, wo er quer durch den Wald lief.
 	# Der Anteil kommt jetzt aus zwei weichen Rampen (Hoehe ODER Steilheit, das Maximum
 	# gewinnt) und wird ueber die Grundfarbe geblendet.
-	var fels := Color(0.35, 0.31, 0.27).lerp(Color(0.56, 0.52, 0.46),
-		clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
 	# Die Rampen liegen ENG um die alten harten Schwellen (52 m und 0.70): der Uebergang
 	# soll weich werden, die FLAECHE aber gleich bleiben. Der erste Versuch nahm 38-66 m
 	# und 0.80-0.62 — damit bekam jede sanft geneigte Wiese am Bergfuss einen Braunstich,

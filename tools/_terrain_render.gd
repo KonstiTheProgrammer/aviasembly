@@ -145,6 +145,24 @@ func _shoot(name: String, pos: Vector3, target: Vector3) -> void:
 	# Erneut, nicht nur einmal beim Aufbau: Main haengt die Karte erst ein, wenn der
 	# Hintergrund-Thread ihr Bild geliefert hat — die CanvasLayer entsteht also spaeter.
 	_hide_overlays(main)
+	# ohne_schuerze: Fernschuerze ausblenden, um zu entscheiden, ob ein Artefakt aus ihr
+	# kommt oder aus den Chunks. MUSS HIER STEHEN, nicht beim Start: die Schuerze entsteht
+	# auf einem Thread und wird per call_deferred eingehaengt — beim Start ist fern_root
+	# noch leer, und ein Schalter dort bleibt wirkungslos (genau darauf bin ich
+	# hereingefallen: beide Vergleichsbilder waren identisch).
+	var schalter := OS.get_cmdline_user_args()
+	if schalter.has("ohne_schuerze") and main.fern_root != null:
+		main.fern_root.visible = false
+	# Weitere Verdaechtige einzeln abschaltbar: horizontale Ebenen, die das Gelaende
+	# durchdringen koennen (Wasserplatte des Terrains, Wolkendecke, Seen/Fluesse).
+	if schalter.has("ohne_wasser"):
+		for n in terrain.get_children():
+			if n is MeshInstance3D:
+				(n as MeshInstance3D).visible = false
+	if schalter.has("ohne_wolken"):
+		for n in main.fly_world.get_children():
+			if String(n.name).begins_with("Cloud") or String(n.name).begins_with("Wolken"):
+				(n as Node3D).visible = false
 	cam.look_at_from_position(pos, target, Vector3.UP)
 	# Die Welt so hinstellen, wie sie fuer einen Spieler AN DIESER STELLE aussieht:
 	# update_center schiebt die Wasserplatte des Terrains mit und wirft Chunks jenseits
