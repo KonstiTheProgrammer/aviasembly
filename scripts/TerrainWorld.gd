@@ -181,8 +181,26 @@ const MAX_ATTACH_PER_FRAME := 3
 var seed_value := 1337
 var airfields: Array = []       # [{pos: Vector3, r_flat, r_blend, y?(Zielhöhe, default 0)}]
 var lakes: Array = []           # [{pos: Vector3, r: float, surf: float}] Inland-Seen
+var _flora_wasser_h := 34.0     # bis zu dieser Hoehe lohnt die Wasserpruefung der Flora
 var rivers: Array = []          # kuratierte Fluss-Splines (siehe _prepare_rivers)
 var massifs: Array = []         # [{pos: Vector3, r: float, peak: float}] erzwungene Berge
+# TALKORRIDOR des Hochtals: {start, richtung, laenge, halbbreite: PackedFloat32Array}.
+# Nur die ALMWIESE in _face_color liest ihn — das Hoehenfeld nicht. Warum es ihn gibt,
+# steht bei TAL_WIESE_HUB.
+var tal: Dictionary = {}
+var _tal_boden := PackedFloat32Array()   # gemessene Talbodenhoehe je Stuetzstelle
+# Breitenprofil AUSGEPACKT. Es steht als PackedFloat32Array in tal["halbbreite"], und ein
+# `PackedFloat32Array(tal["halbbreite"])` je Abfrage waere eine Kopie JE DREIECK.
+var _tal_hb := PackedFloat32Array()
+var _tal_mitte := Vector2.ZERO           # Vorfilter: Mittelpunkt des Korridors ...
+var _tal_reich2 := 0.0                   # ... und sein Umkreis, quadriert
+# SCHUTTHALDEN der Wahrzeichen (heute nur die des Felsentors). Umrisse aus
+# Landmarks.tor_halde_zone; MAIN SETZT SIE VOR setup(). Wo Blockschutt liegt, waechst
+# nichts und es gibt auch keine Almwiese — vorher wusste die Bepflanzung nichts von der
+# Halde und schickte ihren Wald mitten hindurch (63 Prozent Gruen im Fussbereich gegen
+# 6 Prozent im Referenzbild).
+var schutthalden: Array = []
+var _halde_masken: Array = []            # daraus vorgerechnete Masken, siehe _halden_bauen
 var _noise: FastNoiseLite
 var _patch: FastNoiseLite       # Sekundär-Rauschen für Gras-Flecken
 var _forest: FastNoiseLite      # grobes Rauschen: wo stehen WÄLDER (Cluster)
@@ -244,23 +262,36 @@ func _pz(abschnitt: String, t0: int) -> void:
 		profil[abschnitt] = float(profil.get(abschnitt, 0.0)) + float(Time.get_ticks_usec() - t0)
 
 
-func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array = []) -> void:
+func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array = [],
+		tlk: Dictionary = {}) -> void:
 	seed_value = seedv
 	airfields = afs
+	tal = tlk
 	# Rechteck-Zonen einmal vorbereiten: Drehung des Platzes und ein Umkreis fuer den
 	# Vorfilter. _open_ground laeuft je DREIECK (4608 pro Chunk) ueber alle zwoelf Zonen —
 	# dort darf kein cos/sin und keine Wurzel mehr stehen, die sich hier sparen laesst.
 	for af in airfields:
-		if not af.has("rects"):
+		# "quer_faktor" braucht dieselbe Drehung wie die Rechtecke — deshalb hier mit
+		# durchgereicht, auch wenn eine Zone gar keine Rechtecke hat.
+		if not af.has("rects") and not af.has("quer_faktor"):
 			continue
 		var hd := float(af.get("heading", 0.0))
 		af["_cos"] = cos(hd)
 		af["_sin"] = sin(hd)
+		if not af.has("rects"):
+			continue
 		var rmax := 0.0
 		for r in af["rects"]:
 			rmax = maxf(rmax, Vector2(absf(r[0]) + r[2], absf(r[1]) + r[3]).length())
 		af["_rmax"] = rmax + FREI_AUSSEN
 	lakes = lks
+	# Seen mit "form_achse" bekommen den gelappten Umriss (siehe _see_umriss_bauen). Die
+	# Tabelle entsteht EINMAL hier — height_at und _build_lake_water lesen danach beide
+	# nur noch daraus ab, koennen sich also nicht mehr auseinanderentwickeln.
+	for lk in lakes:
+		if lk.has("form_achse"):
+			_see_umriss_bauen(lk)
+		_flora_wasser_h = maxf(_flora_wasser_h, float(lk["surf"]) + 1.0)
 	massifs = mss
 	_prepare_rivers(rvs)
 	_noise = FastNoiseLite.new()
@@ -294,6 +325,10 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_biome = FastNoiseLite.new()
 	_biome.seed = seedv * 31 + 13
 	_biome.frequency = 1.0 / 3200.0
+	# ERST HIER, nicht weiter oben: _talboden_bauen ruft height_at, und das braucht
+	# saemtliche Rauschquellen. Ein Aufruf vor _biome lieferte lauter Nullen.
+	_talboden_bauen()
+	_halden_bauen()
 	_mesh_conifer = _build_conifer_mesh()
 	_mesh_leaf = _build_leaf_mesh()
 	_mesh_rock = _build_rock_mesh()
@@ -357,6 +392,10 @@ void fragment() {
 	# das DREI verschiedene Wasser-Looks in einer Welt.
 	for lk in lakes:
 		_build_lake_water(lk)
+	# ERST DIE SEEBAECHE EINPASSEN, DANN IHR WASSERBAND BAUEN. Andersherum lag das Band auf
+	# der Hoehe, die in der Liste stand — bei den beiden Seebaechen ist das eine Null, also
+	# tief unter dem Gelaende. Im Bild fehlten sie damit vollstaendig.
+	_seebaeche_einpassen()
 	# Fluss-Wasserflächen (Ribbons entlang der Splines)
 	for rv in rivers:
 		_build_river_water(rv)
@@ -434,10 +473,30 @@ func height_at(x: float, z: float) -> float:
 		var dx := x - mp.x
 		var dz := z - mp.z
 		var typ := String(ms.get("type", "berg"))
-		var reichweite := mr * (1.0 if typ == "berg" else 1.9)
+		var dehn := float(ms.get("dehnung", 1.0))
+		# REICHWEITE MUSS BEIDE RICHTUNGEN DER ELLIPSE ABDECKEN. Hier stand
+		# maxf(dehn, 1.0), und das war falsch: bei einer Dehnung UNTER 1 streckt sich das
+		# Massiv quer zur Drallachse und reicht bis mr/dehn. Der Vorfilter schnitt es dann
+		# bei mr kreisrund ab — im Bild eine senkrechte, 8 m gerasterte Wand mitten im
+		# Hang, die aussah wie eine eingestuerzte Schlucht.
+		var reichweite := mr * (1.0 if typ == "berg" else 1.9) * maxf(dehn, 1.0 / dehn)
 		if dx * dx + dz * dz > reichweite * reichweite:
 			continue
 		var md := sqrt(dx * dx + dz * dz)
+		# GEDREHTE ELLIPSE STATT KREIS. Der Fussabdruck war bei jedem Massiv rund, und
+		# damit sah jeder Berg von oben gleich aus — der wirksamste Hebel gegen
+		# "die schauen alle gleich aus" ist die Grundrissform, nicht die Hoehe.
+		# dehnung 1.0 laesst alles wie vorher; alle vorhandenen Massive haben keinen Wert
+		# und bleiben unveraendert.
+		if dehn != 1.0:
+			var dr := float(ms.get("drall", 0.0))
+			var cc := cos(dr)
+			var ss := sin(dr)
+			var rx := dx * cc + dz * ss
+			var rz := -dx * ss + dz * cc
+			md = sqrt((rx / dehn) * (rx / dehn) + (rz * dehn) * (rz * dehn))
+			if md > mr:
+				continue
 		# UNTERWASSER-SCHELF fuer Inseln und Vulkane (tuerkiser Ring). Er reicht bewusst
 		# UEBER den Kegelradius hinaus und laeuft dort aus.
 		# WARUM AUSSERHALB: frueher endete der Kegel am Rand bei der Konstanten SEA_Y - 9,
@@ -453,7 +512,16 @@ func height_at(x: float, z: float) -> float:
 		var cone := 1.0 - smoothstep(0.0, mr, md)
 		if cone > 0.0:
 			# craggy: breite Ridge-Form + hochfrequente Grat-Details -> Bergform statt Kuppel
-			var crag := clampf(_ridge.get_noise_2d(x * 2.4, z * 2.4) * 0.5 + 0.5, 0.0, 1.0)
+			# GRATRAUSCHEN JE MASSIV EIGEN. Hier stand fuer JEDEN Berg dieselbe Frequenz
+			# 2.4 und derselbe Ursprung — alle Berge trugen damit dasselbe Rippenmuster,
+			# nur an anderer Stelle abgetastet. "nz_frq" aendert die Feinheit der Rippen
+			# (kleiner = grobe breite Grate, groesser = zerklueftet), "nz_off" verschiebt
+			# das Muster, sodass zwei Berge mit gleicher Frequenz trotzdem verschieden
+			# aussehen. Ohne beide Werte bleibt es exakt wie vorher.
+			var frq := float(ms.get("nz_frq", 2.4))
+			var off := float(ms.get("nz_off", 0.0))
+			var crag := clampf(_ridge.get_noise_2d((x + off) * frq, (z + off) * frq)
+				* 0.5 + 0.5, 0.0, 1.0)
 			# SPITZE STATT KUPPE. cone = 1 - smoothstep(0, r, d) hat am Mittelpunkt die
 			# Steigung NULL — deshalb endet jedes Massiv oben in einer runden Kuppe, egal
 			# wie hoch es ist. Fuer einen spitzen Gipfel braucht es ein Profil, das im
@@ -508,9 +576,25 @@ func height_at(x: float, z: float) -> float:
 		h = lerpf(h, SEA_Y + (h - SEA_Y) * 0.45, shelf_k)
 	# Flugplätze/Plateaus einebnen: im Innenradius exakt auf Zielhöhe y (default 0),
 	# außen weich zum Gelände überblenden. (Bergdorf nutzt y>0 -> Hochplateau.)
+	# "quer_faktor" macht aus dem Kreis eine ELLIPSE laengs der Bahn — nur ADLERHORST
+	# nutzt das. Begruendung dort (Main._build_world, siehe QUERFAKTOR).
 	for af in airfields:
 		var ap: Vector3 = af["pos"]
-		var ad := Vector2(x - ap.x, z - ap.z).length()
+		var adx := x - ap.x
+		var adz := z - ap.z
+		var ad := sqrt(adx * adx + adz * adz)
+		# Vorfilter: jenseits von r_blend ist smoothstep 1 und lerpf die Identitaet. Der
+		# Kreisradius ist nie groesser als der elliptische, der Abbruch ist also exakt und
+		# spart in der Regel gleich die ganze Ellipsenrechnung.
+		if ad >= float(af["r_blend"]):
+			continue
+		var qf: float = af.get("quer_faktor", 0.0)
+		if qf > 0.0:
+			var c: float = af["_cos"]
+			var s: float = af["_sin"]
+			var al := adx * s + adz * c          # laengs der Bahn (Weltrichtung sin/cos)
+			var qu := (adx * c - adz * s) / qf   # quer dazu, gestaucht -> reicht kuerzer
+			ad = sqrt(al * al + qu * qu)
 		var ty: float = af.get("y", 0.0)
 		h = lerpf(ty, h, smoothstep(float(af["r_flat"]), float(af["r_blend"]), ad))
 	# Inland-Seen: Becken in den (bereits flachen) Grund graben, Boden bleibt über
@@ -518,7 +602,56 @@ func height_at(x: float, z: float) -> float:
 	for lk in lakes:
 		var lp: Vector3 = lk["pos"]
 		var lr: float = lk["r"]
-		var ld := Vector2(x - lp.x, z - lp.z).length()
+		var ldx := x - lp.x
+		var ldz := z - lp.z
+		if lk.has("_rad"):
+			# BERGSEE mit gelapptem Umriss. Die Uferlinie liegt EXAKT auf dem
+			# Tabellenradius: innen ist die Hoehe gesetzt (Mischanteil 0), aussen wird ueber
+			# SEE_UFERBAND ins gewachsene Gelaende geblendet. Der Umriss haengt damit nicht
+			# mehr davon ab, wie hoch das Umfeld zufaellig steht — beim alten Becken
+			# entschied genau das (Flachzone gegen Rauschen) ueber die Uferlinie, und
+			# heraus kam eine Scheibe mit ausgefranstem Rand.
+			# Reichweite ist jetzt der WALL, nicht mehr das schmale Uferband: bis
+			# SEE_WALL_ENDE hinter der Uferlinie rechnet der See am Gelaende mit.
+			var rmax: float = float(lk["_rmax"]) + SEE_WALL_ENDE
+			if absf(ldx) > rmax or absf(ldz) > rmax:
+				continue
+			var ld2 := sqrt(ldx * ldx + ldz * ldz)
+			if ld2 > rmax:
+				continue
+			var ach: Vector2 = lk["_achse"]
+			var lu := ldx * ach.x + ldz * ach.y      # laengs der Talachse
+			var lv := ldx * ach.y - ldz * ach.x      # quer dazu
+			var uw := _see_umriss(lk, atan2(lv, lu))
+			var rr: float = uw.x
+			var hang: float = uw.y
+			var wsp: float = float(lk["surf"])
+			if ld2 <= rr:
+				var tief := minf(hang * (rr - ld2), _see_mulde(lu / lr, lv / lr))
+				# Feine Unruhe auf dem Grund. Ohne sie faerbt der Wasser-Shader die Tiefe in
+				# sauberen konzentrischen Baendern — von oben sah der See aus wie eine
+				# Hoehenlinienkarte. Am Ufer auf null gezogen (die letzten 70 m), damit die
+				# Uferlinie exakt auf dem Tabellenradius bleibt und das Wassernetz weiter passt.
+				tief += 0.55 * _patch.get_noise_2d(x * 0.32, z * 0.32) \
+					* minf(1.0, (rr - ld2) / 70.0)
+				# INNEN GILT NUR DIE FORMEL. Dadurch liegt die Uferlinie exakt auf dem
+				# Tabellenradius, egal wie das Gelaende ringsum steht — und genau daran
+				# haengt die gemessene Rundheit.
+				h = wsp - maxf(tief, 0.0)
+			else:
+				# AUSSEN: Beckenrand. Der Wall steht fuer sich, das gewachsene Gelaende darf
+				# nur ANHEBEN und blendet ueber SEE_NATURBAND ein. Ohne diese Einblendung
+				# stuende an der Uferlinie eine senkrechte Wand — der Talboden liegt hier
+				# stellenweise 60 m ueber dem Spiegel.
+				# DASS NUR ANGEHOBEN WIRD, ist die Dichtigkeitsgarantie: bis rund 275 m
+				# hinter dem Ufer ist das Wallprofil positiv, also liegt dort ein
+				# GESCHLOSSENER Ring ueber dem Spiegel, ganz gleich, was das Gelaende macht.
+				var ua := ld2 - rr                     # Abstand hinter der Uferlinie
+				var wall := wsp + _see_wallprofil(ua, hang, uw.z, uw.w)
+				h = lerpf(wall, maxf(wall, h),
+					smoothstep(0.0, lerpf(SEE_NATURBAND, SEE_SCHARTE_BAND, uw.w), ua))
+			continue
+		var ld := Vector2(ldx, ldz).length()
 		var bowl := 1.0 - smoothstep(lr * 0.55, lr, ld)   # 1 Mitte .. 0 Rand
 		if bowl > 0.0:
 			var floor_y: float = float(lk["surf"]) - 4.0
@@ -537,8 +670,10 @@ func _river_carve(x: float, z: float, h: float) -> float:
 		if x < rv["minx"] or x > rv["maxx"] or z < rv["minz"] or z > rv["maxz"]:
 			continue
 		var pts: PackedVector3Array = rv["pts"]
+		var tal_breiten: PackedFloat32Array = rv["tal"]
 		var best_d2 := INF
 		var best_surf := 0.0
+		var best_tal := 0.0
 		for i in range(pts.size() - 1):
 			var a := pts[i]
 			var b := pts[i + 1]
@@ -552,8 +687,9 @@ func _river_carve(x: float, z: float, h: float) -> float:
 			if dd < best_d2:
 				best_d2 = dd
 				best_surf = lerpf(a.y, b.y, t)   # Wasserhöhe an dieser Stelle
+				best_tal = lerpf(tal_breiten[i], tal_breiten[i + 1], t)
 		var dist := sqrt(best_d2)
-		var valley: float = rv["valley"]
+		var valley: float = best_tal
 		if dist < valley:
 			var w: float = rv["w"]
 			# BETT NICHT UEBER DIE VOLLE BREITE FLACH, sondern zur Mitte hin tief.
@@ -569,12 +705,24 @@ func _river_carve(x: float, z: float, h: float) -> float:
 			# schneidet die Uferlinie erst unter waterline (0,30 m) — die Kante waere
 			# sichtbar geblieben.
 			var mitte := 1.0 - smoothstep(w * 0.40, w * 0.88, dist)
-			var bed := best_surf - float(rv["depth"]) * mitte
+			var bed: float = best_surf - float(rv["depth"]) * mitte
 			# ROBUST (seed-unabhängig): Bett auf bed senken, Ufer steigen auf
 			# mind. Wasserhöhe+1 (nie unter Wasser -> kein schwebendes Wasser),
 			# außen ins natürliche Gelände blenden. Gesetzt, nicht nur min().
 			var k := smoothstep(w, valley, dist)        # 0 Bett .. 1 Talrand
 			var bank := maxf(best_surf + 1.2, h)        # Ufer immer über dem Wasser
+			# EINSCHNITT DECKELN. Im Bett galt bisher h = bed, und bed kommt ALLEIN aus der
+			# Spline: das Gelaende wurde dort auf die Wasserhoehe heruntergerissen, egal wie
+			# hoch es ringsum stand. Laeuft eine Spline ueber eine Flanke, die 200 m ueber
+			# ihrem Wasser liegt, schneidet ein 9 m breiter Bach eine 200-m-Schlucht mit
+			# senkrechten Waenden. Genau das ist im Hochtal passiert — gemessen 201,7 m
+			# Sprung auf 8 m Rasterweite, und ohne Fluesse blieben davon 49,8 m uebrig.
+			# "max_tief" begrenzt, wie weit unter das VORHANDENE Gelaende der Bach graben
+			# darf. Ohne den Wert bleibt alles wie bisher — der Westcanyon lebt davon, tief
+			# einzuschneiden, und darf nicht gedeckelt werden.
+			var mt: float = float(rv.get("max_tief", 0.0))
+			if mt > 0.0:
+				bed = maxf(bed, h - mt)
 			h = lerpf(bed, bank, k)
 	return h
 
@@ -594,14 +742,554 @@ func _prepare_rivers(rvs: Array) -> void:
 			minx = minf(minx, p.x); maxx = maxf(maxx, p.x)
 			minz = minf(minz, p.z); maxz = maxf(maxz, p.z)
 		var valley: float = rv.get("valley", 60.0)
+		# TALBAND JE STUETZPUNKT statt eine Zahl je Fluss. Gebraucht wird das nur am
+		# Abfluss des Bergsees: dort muss das Band an der QUELLE schmal sein. _river_carve
+		# zieht naemlich im ganzen Band die Ufer auf Wasserhoehe + 1,2 m und dazwischen
+		# hinunter zum Bett — ein 70-m-Band reicht also 70 m um den ersten Stuetzpunkt
+		# herum und wuerde die Schwelle des Sees aufschneiden. Der erste Punkt musste
+		# deshalb 70 m hinter die Schwelle, und im Bild fing der Bach sichtbar erst weit
+		# neben dem See an. Mit "tal_quelle" faengt er schmal an und weitet sich ueber
+		# "tal_lauf" Meter auf die volle Breite — die Klamm entsteht dort, wo sie hingehoert.
+		var tal_breiten := PackedFloat32Array()
+		var tq: float = rv.get("tal_quelle", valley)
+		var tl: float = maxf(float(rv.get("tal_lauf", 1.0)), 1.0)
+		var lauf := 0.0
+		for i in pts.size():
+			if i > 0:
+				lauf += Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length()
+			tal_breiten.append(lerpf(tq, valley, clampf(lauf / tl, 0.0, 1.0)))
 		var m := valley + 6.0
-		rivers.append({"pts": pts, "w": rv.get("w", 14.0), "valley": valley,
-			"depth": rv.get("depth", 4.0),
+		# max_tief MUSS MIT. Diese Funktion baut ein NEUES Woerterbuch; alles, was hier
+		# nicht aufgefuehrt ist, kommt in _river_carve nie an. Genau daran ist der Deckel
+		# gegen den 200-m-Einschnitt zuerst wirkungslos verpufft.
+		rivers.append({"pts": pts, "w": rv.get("w", 14.0), "valley": valley, "tal": tal_breiten,
+			"depth": rv.get("depth", 4.0), "max_tief": rv.get("max_tief", 0.0),
+			# 1 = Zufluss des Bergsees, -1 = Abfluss. Ihre Hoehen stehen NICHT in der Liste,
+			# sondern werden von seebaeche_einpassen() am Gelaende abgelesen.
+			"seebach": int(rv.get("seebach", 0)),
 			"minx": minx - m, "maxx": maxx + m, "minz": minz - m, "maxz": maxz + m})
+
+
+## BAECHE DES BERGSEES AN DAS GELAENDE ANLEGEN. Laeuft einmal aus setup(), nachdem die
+## Rauschgeneratoren stehen und bevor die Wasserbaender gebaut werden.
+##
+## WARUM ZUR LAUFZEIT UND NICHT ALS FESTE ZAHLEN IN DER FLUSSLISTE: _river_carve SETZT die
+## Hoehe (h = lerp(bett, ufer, k)) und zieht das Ufer auf mindestens Wasserhoehe + 1,2 m
+## hoch. Eine Spline UEBER dem Gelaende schuettet damit einen DAMM auf, eine weit darunter
+## graebt eine SCHLUCHT. Beides ist hier schon passiert: die Zahlen in der Datei waren an
+## ein Hochtal angepasst, das es nach der naechsten Aenderung an den Talketten nicht mehr
+## gab (gemessen liegt der Talboden am See je nach Richtung zwischen 41 und 230 m).
+## Abgelesen wird OHNE die Fluesse (rivers voruebergehend leer): sonst liest die Anpassung
+## ihr eigenes Bett wieder ein und graebt sich bei jedem Start ein Stueck tiefer.
+func _seebaeche_einpassen() -> void:
+	var see: Dictionary = {}
+	for lk in lakes:
+		if lk.has("_rad"):
+			see = lk
+			break
+	if see.is_empty():
+		return
+	var wsp: float = float(see["surf"])
+	var lp: Vector3 = see["pos"]
+	var ach: Vector2 = see["_achse"]
+	var alle := rivers
+	rivers = []
+	for rv in alle:
+		var art: int = int(rv.get("seebach", 0))
+		if art == 0:
+			continue
+		var pts: PackedVector3Array = rv["pts"]
+		var tiefe: float = float(rv["depth"])
+		var n := pts.size()
+		if art > 0:
+			# ZUFLUSS: die Muendung ist der LETZTE Punkt, angepasst wird flussAUFwaerts.
+			# Ihr Bett liegt GENAU auf dem Spiegel, keinen Zentimeter darunter — ein
+			# tieferes Bett am Ufer zapft den See an, und die Flutfuellung von
+			# tools/_see_form.gd liefe den Bach hinauf und maesse ihn als Seeflaeche mit.
+			var p0 := pts[n - 1]
+			p0.y = wsp + tiefe + 0.2
+			pts[n - 1] = p0
+			for i in range(n - 2, -1, -1):
+				var p := pts[i]
+				# Mindestgefaelle nach oben, damit der Bach nirgends bergauf fliesst; sonst
+				# liegt er 1,2 m unter dem Gelaende, gilt also ein flaches Bett.
+				var l := Vector2(p.x - pts[i + 1].x, p.z - pts[i + 1].z).length()
+				p.y = maxf(pts[i + 1].y + SEE_BACH_STEIGUNG * l, height_at(p.x, p.z) - 1.2)
+				pts[i] = p
+		else:
+			# ABFLUSS: Quelle ist der ERSTE Punkt, angepasst wird flussABwaerts.
+			# HOECHSTENS SPIEGELHOEHE (er kommt aus dem See), aber wenn der Boden hinter der
+			# Schwelle schon tiefer liegt, dann DORT hinein. Vorher stand hier nur die erste
+			# Haelfte, und weil der Boden hinter der Schwelle rund 2 m unter dem Spiegel
+			# liegt, schuettete _river_carve dem Bach einen Damm unter das Bett: gemessen lag
+			# er auf den ersten 275 m 1 bis 2 m UEBER dem Seespiegel und floss bergauf.
+			var q0 := pts[0]
+			q0.y = minf(wsp + tiefe + 0.2, height_at(q0.x, q0.z) - 0.35)
+			pts[0] = q0
+			for i in range(1, n):
+				var p := pts[i]
+				# GEFAELLE JE METER, nicht je Stuetzstelle. Mit einem festen Betrag je Punkt
+				# (0,4 m) blieb der Bach ueber 1000 m fast waagerecht stehen, waehrend das
+				# Gelaende ringsum 30 m hoeher lag — im Bild war das ein schnurgerader,
+				# schwarzer Schlitz quer durch die Talstufe. Mit 3,5 % faellt er so schnell,
+				# wie ein Wildbach faellt, und schneidet nur noch die Schwelle an.
+				var l := Vector2(p.x - pts[i - 1].x, p.z - pts[i - 1].z).length()
+				p.y = minf(pts[i - 1].y - SEE_BACH_GEFAELLE * l, height_at(p.x, p.z) - 0.7)
+				# SCHWELLE: auf ihr darf das Bett nicht unter den Spiegel fallen, sonst
+				# schneidet der Abfluss den Beckenrand auf und laesst den See ab.
+				# HIER STAND SEE_WALL_BREITE * 1.4, also 294 m — und das war zu viel: ueber
+				# diese ganze Strecke wurde das Bett auf Spiegelhoehe HOCHgeklemmt, obwohl
+				# der Boden darunter faellt. Genau daraus wurde der Damm. Die Schwelle ist
+				# nur noch die Scharte selbst (SEE_SCHARTE_SILL), und der erste Stuetzpunkt
+				# liegt ohnehin dahinter — der Zweig ist eine Bremse fuer den naechsten, der
+				# die Punktliste in Main verschiebt, kein Bestandteil der Form.
+				var dx := p.x - lp.x
+				var dz := p.z - lp.z
+				var u := dx * ach.x + dz * ach.y
+				var v := dx * ach.y - dz * ach.x
+				if sqrt(dx * dx + dz * dz) - _see_umriss(see, atan2(v, u)).x \
+						< SEE_SCHARTE_SILL:
+					p.y = maxf(p.y, wsp + tiefe + 0.2)
+				pts[i] = p
+		rv["pts"] = pts
+	rivers = alle
 
 
 const LAKE_SEG := 192      # Richtungen (Bogenschritt am Rand: 5.7 m bei r=175)
 const LAKE_RINGS := 10     # Ringe Mittelpunkt -> Rand (Vorrat fuer die Gerstner-Runde)
+
+# --- GELAPPTER SEEUMRISS (Bergsee im Hochtal) ------------------------------------------
+# Der Umriss stand bisher an ZWEI Stellen: das Becken in height_at und das Wassernetz in
+# _build_lake_water. Beide rechneten mit demselben Kreisradius r — sobald einer davon eine
+# Bucht bekommt, passt das Wasser nicht mehr ins Becken. Deshalb wird die Uferlinie hier
+# EINMAL in eine Tabelle gerechnet; beide Seiten lesen nur noch ab (_see_umriss).
+# Nur Seen mit dem Schluessel "form_achse" bekommen sie — Stadtsee und Canyonsee bleiben
+# unveraendert rund.
+const SEE_TABELLE := 720   # Eintraege der Umrisstabelle (0,5 Grad; Fehler der Sehne < 1 m)
+# Uferband, ueber das nach AUSSEN ins gewachsene Gelaende geblendet wird. In METERN, nicht
+# als Anteil von R: der schmale Arm ist bei gleichem Anteil sonst von einem viel breiteren
+# Ufersaum umgeben als das Hauptbecken.
+const SEE_UFERBAND := 140.0
+# --- BECKENRAND -----------------------------------------------------------------------
+# Der See hing vorher an einer PLATTE: eine Flachzone von 790 m Radius hob sein ganzes
+# Umfeld auf Spiegel + 6 m, damit er nicht ins Tal auslaeuft. Gemessen war das rundum ein
+# 517 m breiter, ebener, KAHLER Saum — kahl, weil jede Flachzone in _open_ground zugleich
+# eine Freihaltezone ist (gemessen: Bewuchs 0 bis 620 m, voll erst ab 1147 m). Auf 84 m
+# Hoehe liegt sie ausserdem ueber der Felsschwelle von _face_color (45..59 m), also war
+# sie auch noch braun. Im Bild lag der See als Pfuetze auf einer Pfanne.
+# Jetzt traegt sich der See SELBST: ausserhalb der Uferlinie steigt ein Wall, der dem
+# gelappten Umriss folgt, und in ihn hinein blendet das gewachsene Gelaende. Der Wall ist
+# nur dort ueberhaupt zu sehen, wo der Talboden unter ihm liegt (maxf) — sonst steht der
+# Berghang unveraendert bis ans Wasser. Gemessen liegt der Talboden hier auf 41..230 m
+# (Mittel 116 m), der See auf 78 m: fast rundum gewinnt das Gelaende, der Wall dichtet nur
+# die zwei flachen Richtungen ab.
+const SEE_WALL_BREITE := 210.0   # Uferabstand des Kamms
+const SEE_WALL_ENDE := 560.0     # ab hier ist der Wall rechnerisch weg -> Gelaende pur
+const SEE_WALL_FALL := 300.0     # wie tief er hinter dem Kamm rechnerisch faellt
+const SEE_NATURBAND := 240.0     # Strecke, ueber die das Gelaende von aussen einblendet
+# HIER STAND DIE ALMWIESE (SEE_WIESE_HUB / SEE_WIESE_WEITE). Sie haengt jetzt am
+# TALKORRIDOR statt am Uferabstand — Begruendung bei TAL_WIESE_HUB.
+# ERZWUNGENES Gefaelle des Abflusses (0,8 %) und MINDESTanstieg des Zuflusses (0,6 %),
+# jeweils in Metern je Meter Lauflaenge. Beide sind klein, und zwar aus demselben Grund:
+# jeder Meter, den ein Bach ueber dem Boden verlangt, ist ein aufgeschuetteter Damm, und
+# jeder Meter darunter ein Einschnitt (_river_carve SETZT die Hoehe). Das Gefaelle ist
+# also nur die MINDESTneigung; das eigentliche Profil kommt aus dem Gelaende
+# (min mit height_at - 0,7).
+# HIER STANDEN 2,5 %. Auf der jetzigen Strecke — sie bleibt bis 1000 m hinter dem See
+# zwischen 76 und 82 m, siehe SEE_ABFLUSS_GRAD — haetten 2,5 % das Bett bis dahin 14 m
+# unter den Boden gezogen, also eine 14 m tiefe Rinne quer durch einen fast ebenen
+# Talboden gegraben. Mit 0,8 % sind es rund 4 m.
+const SEE_BACH_GEFAELLE := 0.008
+const SEE_BACH_STEIGUNG := 0.006
+
+
+## Gauss-Glocke ueber dem Winkel, kuerzeste Richtung (der Sprung bei +-PI faellt weg).
+func _winkelglocke(a: float, mitte: float, breite: float) -> float:
+	var d := wrapf(a - mitte, -PI, PI) / breite
+	return exp(-d * d)
+
+
+## UMRISSFAKTOR des Bergsees: Radius geteilt durch r, ueber dem Winkel a.
+## a = 0 zeigt talaufwaerts (zum Flugplatz), a = +PI/2 quer dazu.
+##
+## Die Form ist die des Referenzbildes und besteht aus vier Teilen:
+##   1. eine laengs gestreckte Grundellipse (1.05 zu 0.72) — der See liegt IM Tal,
+##   2. eine Enge bei +-90 Grad: von beiden Ufern schieben sich Landzungen herein und
+##      schnueren den See fast durch (die beiden Glocken sind ungleich stark, sonst steht
+##      dort eine saubere Sanduhr),
+##   3. ein schmaler ARM nach hinten (Glocke bei 0 Grad, nur 10 Grad breit) — er allein
+##      bringt den groessten Teil der Rundheit,
+##   4. vier Kaps und Buchten am Hauptbecken.
+## Darueber liegen drei kleine Harmonische; sie kerben das Ufer, ohne die Form zu aendern.
+##
+## WARUM DIESE ZAHLEN: tools/_see_form.gd misst Rundheit = Umfang^2/(4*PI*Flaeche), und
+## das Werkzeug ist an analytischen Formen kalibriert — eine blosse Delle bringt 1.09, zwei
+## verschmolzene Kreise 1.36. Ueber die geforderten 1.4 kommt man nur mit Enge UND Arm.
+## Diese Kurve liegt rechnerisch (Umfangsintegral) bei 2.14.
+##
+## DER GROESSTE RADIUS IST EIN HARTES BUDGET, nicht Geschmack: er betraegt 1.84, der See
+## reicht mit Uferband also 1.84 * r + 140 m hinaus, und SO WEIT muss die Flachzone des
+## Sees reichen. Der Talboden liegt hier naemlich auf rund 0 m — der See steht 78 m
+## darueber und haelt sich allein an der Flachzone. Ragt er darueber hinaus, laeuft er ins
+## Tal aus: gemessen mit rmax = 2.35 * 420 lief die Flutfuellung von _see_form.gd bis an
+## den Fensterrand und meldete 1,05 km2 Flaeche und 80 m Tiefe.
+func _see_umriss_faktor(a: float) -> float:
+	# GRUNDFORM IST EIN EI, KEINE ELLIPSE. Hier stand eine Ellipse 1.05 zu 0.72, also
+	# vorn und hinten gleich breit — und genau daraus wurde der Vorwurf "spiegelsymmetrischer
+	# Schmetterling quer zum Tal". Nachgemessen war er berechtigt: die Halbbreite lag bei
+	# u = -0.5 wie bei u = +0.5 bei 0.71 r, die beiden Becken waren gleich gross, und im
+	# Grundriss stand eine saubere Sanduhr. Ein Trogsee sieht anders aus — vorn das grosse
+	# Hauptbecken, dahinter ein langer, stetig schmaler werdender Schwanz.
+	# Deshalb haengen beide Halbachsen am Vorzeichen von cos(a): talABwaerts (cos < 0) ist
+	# der See lang und breit, talAUFwaerts kurz und schmal. Der Uebergang ist ein smoothstep
+	# ueber cos(a) und kein Umschalten — an der Nahtstelle stuende sonst ein Knick, und ein
+	# Knick in der Uferlinie ist im Wassernetz eine gerade Kante ueber 190 m.
+	# Gemessen (Umfangsintegral): 1215 zu 482 m, also 2,5 zu 1 statt vorher 2,05 zu 1.
+	var eg := smoothstep(-0.35, 0.35, cos(a))
+	var ce := cos(a) / lerpf(1.40, 1.20, eg)
+	var se := sin(a) / lerpf(0.58, 0.43, eg)
+	var v := 1.0 / sqrt(ce * ce + se * se)
+	# Enge in der Mitte. maxf faengt ab, dass die beiden Glocken den Radius auf null
+	# druecken und der See dort in zwei Teile zerfaellt.
+	# DIE BEIDEN SEITEN SIND JETZT SEHR VERSCHIEDEN (0.34 gegen 0.62). Vorher standen dort
+	# 0.56 und 0.50, also praktisch dasselbe — und von oben war der See dadurch eine
+	# Sanduhr mit vier gleichen Fluegeln, ein Schmetterling. Im Referenzbild schiebt sich
+	# die Enge von EINER Seite herein: von der flachen, wo ein Schuttfaecher in den See
+	# waechst. Die steile Felsflanke (+90 Grad) bleibt eine fast gerade Uferlinie.
+	v *= maxf(1.0 - 0.34 * _winkelglocke(a, 1.5708, 0.4363)
+		- 0.62 * _winkelglocke(a, -1.5708, 0.3665), 0.18)
+	v += 0.72 * _winkelglocke(a, 0.0, 0.1745)          # schmaler Arm nach hinten
+	# Der Arm ist als Polarfunktion zwangslaeufig ein Keil. Diese kleine Glocke daneben
+	# knickt ihn aus der Achse, sonst steht dort ein sauberes gleichschenkliges Dreieck.
+	v += 0.16 * _winkelglocke(a, 0.1571, 0.0873)
+	# DIE DREI BREITEN LAPPEN SIND MIT DER EIFORM HERUNTERGEGANGEN (0.30/0.22/0.20 auf
+	# 0.24/0.17/0.14). Sie stehen alle quer zur Talachse, und mit den alten Amplituden waere
+	# der See zwar laenger, aber genauso breit geblieben — die Streckung waere in den Lappen
+	# wieder verpufft. Die KERBEN (Kaps, Haken, Landzunge) bleiben unveraendert: sie kosten
+	# keine Breite und tragen die Rundheit.
+	v += 0.24 * _winkelglocke(a, 2.6529, 0.3840)       # runde Bucht
+	v -= 0.20 * _winkelglocke(a, 3.5779, 0.2618)       # Kap dazwischen
+	# HAKEN-KAP bei 202 Grad: eine SCHMALE, TIEFE Kerbe im Radius, also eine Landzunge, die
+	# 100 m weit ins Wasser sticht — im Referenzbild das praegendste Merkmal des Ufers und
+	# das, was hier gefehlt hat (das Ufer war ueberall glatt-konvex, die Rundheit kam allein
+	# aus Taille und Arm). Die Bucht 10 Grad daneben kruemmt sie: ohne die zweite Glocke
+	# steht dort ein gleichschenkliges Dreieck statt eines Hakens.
+	# WARUM DIE ZUNGE VON SELBST EIN KIESHAKEN WIRD: sie liegt ausserhalb der Uferlinie,
+	# also traegt sie das Wallprofil — auf dieser Seite (sin a < 0) sind das 4 m Randhoehe
+	# und ein flacher Uferhang, die Zunge steht damit nur ein bis zwei Meter ueber dem
+	# Wasser und faellt genau in das Hoehenband, in dem _face_color den Kiessaum faerbt.
+	# Breite 0.085 rad ist die Untergrenze: das Wassernetz hat 192 Richtungen (1,9 Grad),
+	# schmaler als rund 5 Grad kann es die Form nicht mehr zeichnen.
+	v -= 0.24 * _winkelglocke(a, 3.5255, 0.0850)       # Haken-Kap
+	v += 0.13 * _winkelglocke(a, 3.7000, 0.0750)       # Bucht dahinter
+	v += 0.17 * _winkelglocke(a, 4.1539, 0.3316)       # breiter Lappen
+	v -= 0.13 * _winkelglocke(a, 2.0595, 0.2269)       # zweites Kap
+	v += 0.14 * _winkelglocke(a, 5.2360, 0.2967)       # Lappen an der Flachseite
+	v -= 0.14 * _winkelglocke(a, 5.6723, 0.2269)       # Landzunge davor
+	# ABFLUSSBUCHT bei 151 Grad, also GENAU auf der Scharte (SEE_ABFLUSS_GRAD). Sie ist
+	# schmaler als die Scharte (0.075 gegen 0.11 rad), damit ihr ganzes Ufer schon im
+	# Schwellenprofil liegt und nicht halb im hohen Wall.
+	# WOZU: zwischen Uferlinie und Bachkopf liegen zwangslaeufig rund 40 m Kiesbank —
+	# _river_carve senkt den Boden bis w Meter neben der Spline auf Wasserhoehe, naeher darf
+	# der Bach der Schwelle nicht kommen (Rechnung bei SEE_SCHARTE_BANK). Mit der Bucht zieht
+	# das WASSER dem Bach 56 m entgegen, statt dass die Bank ihn vom See wegschiebt. Sie ist
+	# flach (nur Grundtiefe, siehe _see_mulde), das Tuerkis laeuft also als Trichter auf die
+	# Schwelle zu: See -> Trichter -> Schotter -> Bach, ohne Bruch dazwischen.
+	v += 0.165 * _winkelglocke(a, 2.6354, 0.0750)      # Abflussbucht auf der Scharte
+	v += 0.030 * cos(7.0 * a + 1.1) + 0.022 * cos(11.0 * a + 2.3) \
+		+ 0.014 * cos(17.0 * a + 0.4)
+	return maxf(v, 0.12)
+
+
+## UFERHANG in Metern Tiefe je Meter Uferabstand, ueber dem Winkel.
+## Die Breite des tuerkisen Saums ist NICHTS ANDERES als 2 m geteilt durch diesen Wert —
+## der Wasser-Shader faerbt allein nach Tiefe. Eine neue Farbe braucht es dafuer nicht.
+## Absichtlich EINSEITIG: an der Felsflanke (a nahe +90 Grad) faellt das Ufer steil ab und
+## der Saum verschwindet fast (0.48 -> 4,2 m), auf der Flachseite laeuft er weit aus
+## (0.030 -> 67 m). Ein rundum gleich breiter Saum war genau das, was den alten See wie
+## eine ausgestanzte Scheibe aussehen liess.
+## HIER STAND 0.042 + 0.26 (6,7 bis 48 m). Der Unterschied war im Bild nicht zu sehen —
+## nachgemessen liegt das daran, dass der Saum am flachen Ufer ohnehin an der Grundtiefe
+## haengt (SEE_GRUNDTIEFE 1,8 m, also unter der 2-m-Grenze der Faerbung) und die 48 m
+## damit gar nicht erreicht wurden. Was fehlte, war die STEILE Seite: 6,7 m sind bei 8 m
+## Netzweite noch immer eine volle Dreiecksreihe Tuerkis. Mit 4,2 m verschwindet sie.
+func _see_uferhang(a: float) -> float:
+	return 0.030 + 0.45 * pow(clampf(sin(a), 0.0, 1.0), 1.4)
+
+
+## HOEHE DES BECKENRANDES ueber dem Wasserspiegel, ueber dem Winkel.
+## Ungleich, aber KLEIN: ein rundum gleich hoher Rand ist ein Kraterrand, ein hoher Rand
+## ist ein Damm. Die Abwechslung soll aus dem Gelaende kommen (height_at nimmt das
+## Maximum), nicht aus dieser Formel.
+##
+## HIER STAND 12 + 22 * sin, also 12 bis 34 m. Das war zu viel und ist der Grund, warum
+## zwischen See und Abflussbach ein bewaldeter Ruecken stand: gemessen (tools/_see_pass.gd,
+## Gelaende ohne See und ohne Fluesse) faellt der Boden suedoestlich des Sees schon 100 m
+## hinter der Uferlinie auf 56 bis 75 m ab — dort gewinnt nicht das Gelaende das Maximum,
+## sondern der Wall, und er stand als bis zu 35 m hoher, 350 m breiter Ringwall um den See.
+## Mit 4 bis 13 m bleibt ein Uferwall, wie ihn eine Moraene macht, und dahinter faellt das
+## Gelaende sofort wieder frei ab.
+##
+## HIER STAND, das Gelaende dichte den See fast von allein ab und die niedrigste
+## natuerliche Schwelle liege 53 m ueber dem Spiegel. Das galt fuer ein frueheres Hochtal.
+## Nachgemessen (tools/_see_pass.gd) stimmt es nur noch nach Nordwesten; nach Suedosten
+## faellt der Boden auf 56 bis 75 m, also bis 22 m UNTER den Spiegel. Dort ist der Rand
+## eine Moraene, kein Berghang — und genau deshalb muss er niedrig bleiben.
+##
+## --- DIE SCHARTE, ueber die der See abfliesst ------------------------------------------
+## HIER STAND 161 GRAD, UND DAS WAR DIE FALSCHE RICHTUNG. Gemessen mit tools/_see_pass.gd
+## (Dijkstra auf dem gewachsenen Gelaende, Kosten = HOECHSTE Zelle des Weges statt Summe —
+## also genau der Pass, den auch Wasser suchen wuerde):
+##   * ueber 161 Grad kostet der Weg ins Tal 88.9 m, also 10,9 m ueber dem Spiegel, und er
+##     faellt dabei zuerst in eine Mulde auf 70 m. Ein Bachbett darf nie ueber dem Boden
+##     liegen (_river_carve wuerde sonst einen Damm aufschuetten), die Mulde zieht es also
+##     mit — und der naechste Riegel muss dann 20 m tief angeschnitten werden.
+##   * ueber 151 Grad kostet er 75,4 m und liegt damit 2,6 m UNTER dem Spiegel: von der
+##     Scharte bis zur Talstufe faellt der gewachsene Boden ohne einen einzigen Gegenhang.
+##     Der Bach muss dort gar nichts anschneiden, er liegt einfach in der Rinne.
+## Deshalb 151 Grad. Die Zahl ist gemessen, nicht gewaehlt; wer am Hochtal etwas aendert,
+## laesst _see_pass.gd noch einmal laufen (Aufruf im Kopf der Datei) und danach
+## tools/_see_abfluss.gd, das Schwelle und Laengsprofil des Baches nachmisst.
+##
+## DIE SCHWELLE IST DAS, WAS DEN WASSERSTAND FESTLEGT — sie darf nicht unter den Spiegel.
+## Deshalb ist das Scharten-Profil die ersten SEE_SCHARTE_SILL Meter POSITIV: solange
+## beide Zweige der Einblendung in height_at (Wall und max(Wall, Gelaende)) ueber dem
+## Spiegel liegen, ist der Ring dicht, ganz gleich was das Gelaende darunter macht. Erst
+## dahinter faellt es. 12 m Schwelle sind drei Rasterzellen der Flutfuellung in
+## tools/_see_form.gd — genug, dass sie nicht durchsickert und den halben Talboden als
+## Seeflaeche zaehlt, und kurz genug, dass die Schwelle im Bild ein Ufersaum bleibt und
+## keine Terrasse. 24 m waren als flacher Grasstreifen zwischen See und Bach zu sehen.
+const SEE_ABFLUSS_GRAD := 151.0   # Richtung, in der der See ueberlaeuft (siehe Main)
+const SEE_SCHARTE_BREITE := 0.11  # halbe Winkelbreite der Scharte (rad) -> rund 45 m Gasse
+const SEE_SCHARTE_KAMM := 0.60    # Hoehe der Schwelle ueber dem Spiegel
+const SEE_SCHARTE_SILL := 16.0    # Laenge der Schwelle hinter der Uferlinie
+# --- DIE KIESBANK HINTER DER SCHWELLE ---------------------------------------------------
+# HIER FIEL DIE RINNE DIREKT HINTER DER SCHWELLE MIT 60 PROZENT AB, und das war der Grund,
+# warum der Abfluss NICHT am See hing. Gemessen (tools/_see_abfluss.gd) lag der erste
+# Stuetzpunkt des Baches 34 m hinter der Uferlinie auf 64,6 m — 13,4 m UNTER dem Spiegel.
+# Naeher heran ging er nicht: _river_carve senkt den Boden im Umkreis w auf Wasserhoehe,
+# ein Bachkopf dicht am Ufer haette also die Schwelle aufgeschnitten und den See abgelassen.
+# Und tiefer als der Boden durfte er nicht liegen, sonst schuettet _river_carve einen Damm.
+# Zwischen Wasserlinie und Bachanfang standen damit 34 m trockener Hang mit 40 Prozent
+# Gefaelle — im Bild grasgruen, und das blaue Band setzte dahinter aus dem Nichts ein.
+#
+# Der Fehler war die 60-Prozent-Rinne, nicht der Abstand. Ein See laeuft nicht ueber eine
+# Klippe aus, sondern ueber eine KIESBANK: erst SEE_SCHARTE_SILL Meter Schwelle knapp
+# ueber dem Spiegel, dann SEE_SCHARTE_BANK Meter mit sanftem Gefaelle (die Bank, auf der
+# der Bach anfaengt), und ERST DAHINTER die Steilstufe. Auf der Bank liegt der Bachkopf
+# jetzt 1 bis 2 m unter dem Spiegel statt 13 m, und beide Wasserflaechen stehen praktisch
+# auf einer Ebene.
+# Rechnerisch bleibt der Boden bis SILL + KAMM/FALL_BANK = 16 + 8 = 24 m ueber dem
+# Spiegel. DAS IST DAS BUDGET FUER DEN BACHKOPF: _river_carve senkt bis w Meter neben der
+# Spline auf Wasserhoehe, der erste Stuetzpunkt muss also mindestens 24 + w hinter der
+# Uferlinie liegen (siehe Main, Abflussliste). Wer eine der beiden Zahlen aendert, laesst
+# tools/_see_form.gd laufen: sickert die Schwelle durch, meldet es sofort die halbe
+# Talsohle als Seeflaeche.
+const SEE_SCHARTE_BANK := 40.0      # Laenge der Kiesbank hinter der Schwelle
+const SEE_SCHARTE_FALL_BANK := 0.075
+# 0.60 = 60 Prozent Gefaelle, und das ist Absicht: unter rund 4,6 m Hoehenunterschied je
+# 8-m-Zelle pflanzt die Flora noch Baeume (siehe die Hangschranke dort). Mit einer durchweg
+# sanften Rinne stand im Bild ein bewaldeter Gruenhang zwischen See und Bach. Auf der
+# Kiesbank ist das jetzt unkritisch: sie liegt innerhalb von _rmax und unter Spiegel + 0,8,
+# und _submerged sperrt dort ohnehin jeden Baum. Ab der Steilstufe bleibt es bei 60 Prozent.
+const SEE_SCHARTE_FALL := 0.60
+# In der Scharte blendet das gewachsene Gelaende viel frueher ein als sonst (45 statt
+# 240 m). WARUM: die Einblendung mischt den WALL mit max(Wall, Gelaende) — reicht sie
+# weit, dann zieht ein abfallendes Scharten-Profil das Gelaende auf 240 m Laenge mit nach
+# unten, und aus der Gasse wird ein 20 m tiefer Graben quer durch den Hang. Mit 45 m steht
+# hinter der Schwelle sofort wieder der gewachsene Boden.
+# HIER STANDEN 45 M, ALSO WENIGER, ALS DIE KIESBANK LANG IST (16 + 40 = 56 m). Dahinter
+# gilt max(Wall, Gelaende); die Bank blieb zwar stehen, weil das gewachsene Gelaende hier
+# steil faellt, aber ein Buckel im Rauschen haette sie durchstossen und den Bachkopf auf
+# einen Riegel gesetzt. 60 m decken sie ganz ab. Die Warnung oben gilt weiter — massgeblich
+# ist das GEFAELLE des Profils, nicht die Laenge: die Bank faellt auf 40 m um 3 m.
+const SEE_SCHARTE_BAND := 60.0
+# --- DAS DELTA, ueber das der See gespeist wird ----------------------------------------
+# DERSELBE FEHLER WIE BEIM ABFLUSS, nur am anderen Ende: der Zuflussbach endete 81 m hinter
+# der Uferlinie, und dazwischen stand der Beckenrand mit 8,1 m Hoehe (_see_wandhoehe bei
+# 27 Grad). Im Bild verschwand der Bach im Wald und der See hatte sichtbar keinen Speiser.
+# Ein Bergsee bekommt sein Wasser aber ueber einen SCHUTTFAECHER: eine flache, kiesige
+# Ebene knapp ueber dem Spiegel, ueber die der Bach in mehreren Rinnen ins Becken laeuft.
+# Genau das ist diese Kerbe — der Rand faellt im Zuflusssektor von 8,1 m auf 0,9 m ab.
+# 0,9 m UND NICHT NULL: der Ring muss geschlossen ueber dem Spiegel bleiben, sonst laeuft
+# der See hier aus (und die Flutfuellung von tools/_see_form.gd mit ihm). Das Bett des
+# Baches liegt mit Spiegel + 0,2 m selbst noch darueber, schneidet also nur eine flache
+# Rinne in das Delta, ohne den Ring zu oeffnen.
+const SEE_ZUFLUSS_GRAD := 27.0    # Richtung, aus der der Zuflussbach kommt (siehe Main)
+const SEE_ZUFLUSS_BREITE := 0.16  # halbe Winkelbreite des Deltas (rad) -> rund 95 m Front
+# 0,45 M UND NICHT 0,9 — DIE ZAHL HAENGT AN DER FLORA, nicht an der Optik. _submerged
+# sperrt Bewuchs bis Spiegel + 0,8 m. Mit 0,9 m lag das Delta 0,1 m DARUEBER, und im Bild
+# stand ein geschlossener Fichtenwald auf dem Schuttfaecher: der Zuflussbach verschwand
+# darin und der See sah wieder aus, als haette er keinen Speiser. Mit 0,45 m ist der
+# Faecher kahl. Nach unten ist die Zahl durch die Dichtigkeit begrenzt — unter dem Spiegel
+# laeuft der See hier aus. Dieselbe Rechnung steht beim Abfluss hinter SEE_SCHARTE_KAMM
+# (0,60 m), und deshalb ist auch die Kiesbank dort baumfrei.
+const SEE_DELTA_KAMM := 0.45      # Hoehe des Deltas ueber dem Spiegel
+
+
+## Wie stark die Scharte an dieser Stelle wirkt (0 = voller Wall, 1 = Schwelle).
+func _see_scharte(a: float) -> float:
+	return _winkelglocke(a, deg_to_rad(SEE_ABFLUSS_GRAD), SEE_SCHARTE_BREITE)
+
+
+func _see_wandhoehe(a: float) -> float:
+	# Der Beckenrand, und im Zuflusssektor stattdessen das flache Delta. lerpf statt einer
+	# Subtraktion: so ist die Kerbe unabhaengig davon, wie hoch der Rand ringsum steht.
+	return lerpf(4.0 + 9.0 * clampf(sin(a), 0.0, 1.0), SEE_DELTA_KAMM,
+		_winkelglocke(a, deg_to_rad(SEE_ZUFLUSS_GRAD), SEE_ZUFLUSS_BREITE))
+
+
+## WALLPROFIL ueber dem Uferabstand d (0 = Uferlinie), in Metern ueber dem Spiegel.
+##
+## Faengt mit dem UFERHANG an: die Untiefe laeuft dadurch stufenlos ueber die Wasserlinie
+## hinaus weiter, und der Kiessaum von _face_color liegt auf derselben Neigung wie der
+## Seegrund davor. Bis SEE_WALL_BREITE steigt es auf wh.
+##
+## DANACH FAELLT ES RECHNERISCH WEIT UNTER NULL, und das ist kein Schoenheitsfehler,
+## sondern der Trick: height_at nimmt das Maximum aus Wall und gewachsenem Gelaende. Ein
+## Wall, der nur auf null zurueckginge, wuerde den Talboden ringsum auf Seehoehe halten —
+## also wieder die Platte, nur mit weicherem Rand. Weit negativ verliert er das Maximum
+## von selbst, und draussen steht exakt das unveraenderte Gelaende.
+##
+## In der Scharte (sch = 1) gilt stattdessen das Schwellenprofil: Schwelle knapp ueber dem
+## Spiegel, dann eine Rinne bergab, die das Maximum schnell an das Gelaende verliert.
+func _see_wallprofil(d: float, hang: float, wh: float, sch: float) -> float:
+	var auf := maxf(smoothstep(0.0, SEE_WALL_BREITE, d), minf(hang * d / wh, 1.0))
+	var wall := wh * auf - SEE_WALL_FALL * smoothstep(SEE_WALL_BREITE, SEE_WALL_ENDE, d)
+	if sch <= 0.001:
+		return wall
+	# DREI ABSCHNITTE: Schwelle (waagerecht, ueber dem Spiegel), Kiesbank (sanft), Steilstufe.
+	# Als Summe zweier abgeschnittener Rampen geschrieben, damit das Profil stetig bleibt —
+	# eine Fallunterscheidung haette an den Knicken je eine Stufe hinterlassen, und im
+	# Hoehenfeld ist jede Stufe eine sichtbare Dreieckskante.
+	var rinne := SEE_SCHARTE_KAMM * minf(hang * d / SEE_SCHARTE_KAMM, 1.0) \
+		- SEE_SCHARTE_FALL_BANK * maxf(d - SEE_SCHARTE_SILL, 0.0) \
+		- (SEE_SCHARTE_FALL - SEE_SCHARTE_FALL_BANK) \
+			* maxf(d - SEE_SCHARTE_SILL - SEE_SCHARTE_BANK, 0.0)
+	return lerpf(wall, rinne, sch)
+
+
+## Umrisstabelle eines Sees fuellen. Danach traegt lk die Schluessel _rad (Radius je
+## Winkel), _hang (Uferhang je Winkel), _wall (Randhoehe je Winkel), _achse
+## (Laengsrichtung) und _rmax.
+func _see_umriss_bauen(lk: Dictionary) -> void:
+	var ach: Vector2 = Vector2(lk["form_achse"]).normalized()
+	var r0: float = float(lk["r"])
+	var rad := PackedFloat32Array()
+	var hang := PackedFloat32Array()
+	var wall := PackedFloat32Array()
+	var sch := PackedFloat32Array()
+	rad.resize(SEE_TABELLE)
+	hang.resize(SEE_TABELLE)
+	wall.resize(SEE_TABELLE)
+	sch.resize(SEE_TABELLE)
+	var rmax := 0.0
+	for i in SEE_TABELLE:
+		var a := TAU * float(i) / float(SEE_TABELLE)
+		var r := r0 * _see_umriss_faktor(a)
+		rad[i] = r
+		hang[i] = _see_uferhang(a)
+		wall[i] = _see_wandhoehe(a)
+		sch[i] = _see_scharte(a)
+		rmax = maxf(rmax, r)
+	lk["_rad"] = rad
+	lk["_hang"] = hang
+	lk["_wall"] = wall
+	lk["_scharte"] = sch
+	lk["_achse"] = ach
+	lk["_rmax"] = rmax
+
+
+## Tabelle ablesen: Vector4(Uferradius, Uferhang, Randhoehe, Schartenanteil) fuer a.
+## Linear zwischen zwei Eintraegen — bei 0,5 Grad Schritt bleibt der Fehler unter 1 m.
+func _see_umriss(lk: Dictionary, a: float) -> Vector4:
+	var rad: PackedFloat32Array = lk["_rad"]
+	var hang: PackedFloat32Array = lk["_hang"]
+	var wall: PackedFloat32Array = lk["_wall"]
+	var sch: PackedFloat32Array = lk["_scharte"]
+	var t := a / TAU * float(SEE_TABELLE)
+	var i := int(floor(t))
+	var f := t - float(i)
+	i = ((i % SEE_TABELLE) + SEE_TABELLE) % SEE_TABELLE
+	var j := (i + 1) % SEE_TABELLE
+	return Vector4(lerpf(rad[i], rad[j], f), lerpf(hang[i], hang[j], f),
+		lerpf(wall[i], wall[j], f), lerpf(sch[i], sch[j], f))
+
+
+## TIEFE des Bergsees an einer Stelle (Laengs/Quer in Vielfachen von r, gemessen vom
+## Seemittelpunkt), begrenzt durch den Uferhang.
+##
+## WARUM NICHT EINFACH TIEFE = HANG * UFERABSTAND: der "Uferabstand" waere hier der
+## RADIALE (R - Abstand zur Mitte). Im schmalen Arm ist der gross — das echte Ufer liegt
+## aber seitlich, keine 60 m entfernt. Der Arm waere damit 15 m tief geworden statt zu
+## einer Untiefe mit Kiesbaenken.
+## HIER STANDEN ZWEI ELLIPSOIDE MULDEN (SEE_MULDE1/2), und von oben war genau das zu
+## sehen: zwei saubere, dunkelblaue OVALE in einer tuerkisen Pfanne, dazwischen eine breite
+## helle Schneise. Zwei Ovale sind keine Seetiefe, sondern zwei gezeichnete Flecken — im
+## Referenzbild ist das Tiefwasser EIN zusammenhaengender Koerper, und seine Form folgt dem
+## Ufer statt einer eigenen Achse.
+##
+## Jetzt gibt es stattdessen eine TIEFENLINIE (Thalweg): einen Streckenzug durch den See,
+## an dem je Stuetzpunkt die groesste Tiefe steht. Die Tiefe faellt mit dem Abstand ZUR
+## LINIE, nicht zu einem Mittelpunkt — damit ist das Tiefwasser per Konstruktion
+## zusammenhaengend, und weil die Linie mitknickt (quer von -0,22 ueber +0,10 zurueck auf
+## +0,06), ist es eine gekruemmte Niere und kein Oval.
+## Die Tiefen sind die des Referenzbildes: tief im vorderen Hauptbecken, duenn und flach in
+## der Enge, wieder etwas tiefer im hinteren Becken, und im Arm nur noch Grundtiefe. Der
+## Arm bleibt damit von selbst eine tuerkise Untiefe mit Kiesbaenken.
+##
+## KOORDINATEN in Vielfachen von r, im Achsensystem des Sees: x laengs (positiv
+## talaufwaerts, zum Arm), y quer, z die groesste Tiefe dort in Metern.
+## Das Minimum mit hang * (R - ld) in height_at sorgt dafuer, dass die Tiefe an der
+## Uferlinie EXAKT null wird; ohne das stuende dort eine Stufe. Es kappt auch, wo der Trog
+## breiter waere als der See — in der Enge zum Beispiel.
+const SEE_GRUNDTIEFE := 1.8      # Arm, Enge, Buchten (unter 2 m -> tuerkis)
+## Die Stuetzpunkte sind ABGETASTET, nicht geschaetzt: fuer u von -1.3 bis 1.9 wurde die
+## Uferlinie geschnitten und die Mitte zwischen den beiden Ufern genommen. Deshalb wandert
+## y von +0.20 im Hauptbecken ueber -0.08 vor der Enge zurueck auf 0 — der See ist dort
+## wirklich so aus der Achse gebogen. Wer den Umriss aendert, tastet das neu ab.
+## w ist die halbe Breite des Trogs an dieser Stelle, ebenfalls in Vielfachen von r.
+## SIE MUSS MITWANDERN, und das war der zweite Anlauf wert: mit EINER Breite fuer den
+## ganzen See lag das Tiefwasser als gleich breites Band schraeg ueber dem Becken — im Bild
+## ein dunkler Kanal, kein Seegrund. Jetzt ist der Trog im Hauptbecken fast so breit wie
+## das Becken selbst (0.36 gegen 0.61 Halbbreite) und in der Enge nur noch ein Faden. Das
+## Tiefwasser wird damit eine Linse, deren Rand dem Ufer folgt — genau das, was am
+## Referenzbild anders war.
+const SEE_TIEFENLINIE: Array[Vector4] = [
+	Vector4(-1.28, 0.12, 2.0, 0.12),
+	Vector4(-1.05, 0.20, 8.0, 0.21),
+	Vector4(-0.72, 0.06, 12.5, 0.34),   # tiefste Stelle des Hauptbeckens
+	Vector4(-0.50, -0.02, 12.5, 0.36),
+	Vector4(-0.28, -0.08, 10.0, 0.32),
+	Vector4(-0.08, -0.02, 6.0, 0.21),
+	Vector4(0.06, 0.02, 3.2, 0.11),     # Enge: das Tiefwasser wird hier zum Faden
+	Vector4(0.35, -0.05, 5.5, 0.21),    # hinteres Becken
+	Vector4(0.75, 0.01, 2.0, 0.13),
+	Vector4(1.20, 0.02, 0.6, 0.09),     # Arm: nur noch Grundtiefe
+]
+# Die innersten 15 Prozent der Trogbreite bleiben flach — ohne diese Sohle laeuft die Tiefe
+# auf einen Grat zu, und der Shader zeichnet daraus eine dunkle Linie laengs durch den See.
+const SEE_TIEFENSOHLE := 0.15
+
+
+func _see_mulde(lu: float, lv: float) -> float:
+	var tief := 0.0
+	for i in range(SEE_TIEFENLINIE.size() - 1):
+		var a: Vector4 = SEE_TIEFENLINIE[i]
+		var b: Vector4 = SEE_TIEFENLINIE[i + 1]
+		var dx := b.x - a.x
+		var dy := b.y - a.y
+		var l2 := dx * dx + dy * dy
+		var t := 0.0 if l2 < 1e-9 else clampf(((lu - a.x) * dx + (lv - a.y) * dy) / l2, 0.0, 1.0)
+		var qx := lu - (a.x + dx * t)
+		var qy := lv - (a.y + dy * t)
+		var d := sqrt(qx * qx + qy * qy)
+		var hb := lerpf(a.w, b.w, t)
+		# maxf ueber die Abschnitte: an einem Knick greifen zwei Abschnitte, und die Summe
+		# waere dort eine Beule.
+		tief = maxf(tief, lerpf(a.z, b.z, t)
+			* (1.0 - smoothstep(hb * SEE_TIEFENSOHLE, hb, d)))
+	return SEE_GRUNDTIEFE + tief
 
 ## Wasserflaeche eines Inlandsees: GESCHLOSSENES RINGGITTER UEBER DAS GANZE BECKEN.
 ##
@@ -638,13 +1326,27 @@ func _build_lake_water(lk: Dictionary) -> void:
 	# Ringe vorberechnen. COLOR.a blendet den aeussersten Ring aus: wo der Beckenrand
 	# ausnahmsweise noch im Wasser liegt (See 1, Canyonseite: 1.0 m Tiefe bei r), endet
 	# die Flaeche sonst mit einer harten Linie. Innen ist COLOR.a = 1.
+	# GELAPPTER UMRISS: der Randradius kommt je Richtung aus DERSELBEN Tabelle, aus der
+	# auch height_at das Becken graebt (_see_umriss). Bis 1.02 hinaus, damit die Netzkante
+	# sicher hinter der Uferlinie liegt — der Shader schneidet sie ueber die Tiefe.
+	var geformt := lk.has("_rad")
+	var ach: Vector2 = lk["_achse"] if geformt else Vector2(1.0, 0.0)
 	var rings: Array = []
 	for j in range(LAKE_RINGS + 1):
-		var rr := lr * float(j) / float(LAKE_RINGS)
+		var frac := float(j) / float(LAKE_RINGS)
 		var fade := 1.0 - smoothstep(float(LAKE_RINGS - 1), float(LAKE_RINGS), float(j))
 		var ring := PackedVector3Array()
 		for i in LAKE_SEG:
 			var a := TAU * float(i) / float(LAKE_SEG)
+			var rr := lr * frac
+			if geformt:
+				rr = _see_umriss(lk, a).x * frac * 1.02
+				# a ist der LOKALE Winkel um die Talachse — genau der, mit dem height_at
+				# die Tabelle abfragt. Deshalb hier in dieselbe Basis zurueckdrehen.
+				var cu := cos(a) * rr
+				var cv := sin(a) * rr
+				ring.append(Vector3(cu * ach.x + cv * ach.y, 0.0, cu * ach.y - cv * ach.x))
+				continue
 			ring.append(Vector3(cos(a) * rr, 0.0, sin(a) * rr))
 		rings.append({"p": ring, "a": fade})
 	# Der Shader laeuft mit cull_disabled und setzt NORMAL selbst — die Wickelrichtung
@@ -675,7 +1377,30 @@ func _build_lake_water(lk: Dictionary) -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.position = Vector3(lp.x, surf, lp.z)
-	mi.material_override = _water_mat(SEE)
+	var wm := _water_mat(SEE)
+	if geformt:
+		# NUR DER BERGSEE. depth_fade 3.0 stammt aus der Zeit, als jedes Becken pauschal 4 m
+		# tief war (surf - 4). Dieses hier ist bis 15 m tief, und mit 3 m Blendstrecke war
+		# alles jenseits von 1,4 m Tiefe schon volles deep_col: der tuerkise Verlauf fand auf
+		# den letzten Metern vor dem Ufer statt und war im Bild nur ein milchiger Ring ueber
+		# dem hellen Kies. Mit 9 m spannt sich der Verlauf ueber den ganzen Uferschelf —
+		# shallow bis mid liegt bei 0 bis 4 m Tiefe, das sind am flachen Ufer (Uferhang
+		# 0.042) rund 95 m Breite, an der Felsflanke (0.30) 13 m. Der Saum wird dadurch von
+		# selbst ungleich breit, ohne eine einzige neue Farbe.
+		# Stadtsee und Canyonsee behalten 3.0 — sie sind weiter nur 4 m tief.
+		wm.set_shader_parameter("depth_fade", 9.0)
+		# UND DIE UNTIEFE MUSS FARBE HABEN. alpha_shallow 0.40 heisst: in den Untiefen sieht
+		# man zu 60 % den Grund. Das ist am Meeresschelf richtig, hier war es der Grund fuer
+		# den milchigen Ring — der Kies darunter ist die hellste Flaeche des Tals. Mit 0.68
+		# steht ueber dem Schelf Wasser statt Dunst; der Kies scheint noch durch, gibt dem
+		# Tuerkis aber nur seine Helligkeit und nicht mehr seine Farbe.
+		wm.set_shader_parameter("alpha_shallow", 0.68)
+		# Kraeftigeres Tuerkis fuer den Schelf und ein tiefes Petrol dahinter. Der alte
+		# shallow_col (0.30/0.63/0.60) war ein Graugruen — auf 40 % Deckung blieb davon
+		# nichts uebrig.
+		wm.set_shader_parameter("shallow_col", Color(0.22, 0.74, 0.70))
+		wm.set_shader_parameter("mid_col", Color(0.07, 0.52, 0.62))
+	mi.material_override = wm
 	add_child(mi)
 
 
@@ -733,6 +1458,9 @@ func _water_mat(typ: int) -> ShaderMaterial:
 		# 3,0 m statt 6,5: das Becken ist nur 4 m tief (surf-4 in height_at). Mit einem
 		# Verlauf ueber 6,5 m blieb der ganze See in der hellen Uferfarbe stehen und sah
 		# aus wie eine graue Pfuetze statt wie ein See.
+		# GILT NUR NOCH FUER STADT- UND CANYONSEE. Der Bergsee hat einen gelappten Umriss
+		# und bis 15 m Tiefe; _build_lake_water ueberschreibt depth_fade, alpha_shallow und
+		# die beiden Wasserfarben fuer ihn (Begruendung dort).
 		m.set_shader_parameter("depth_fade", 3.0)
 		m.set_shader_parameter("foam_band", 0.5)
 		m.set_shader_parameter("waterline", 0.20)
@@ -1331,7 +2059,13 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			# --- BEWUCHS ---
 			if hc < FLORA_MIN_H or hc > FLORA_MAX_H:
 				continue   # Strand/Wasser bzw. ueber der Baumgrenze
-			if hc < 34.0 and _submerged(cx, cz, hc, river_chunk):
+			# DIE SCHRANKE MUSS DEN HOECHSTEN SEE KENNEN. Hier stand fest "hc < 34.0", und
+			# der Bergsee liegt auf 78 m: seine Wanne fiel komplett durch die Pruefung, und
+			# sobald seine Flachzone weg war (die als Freihaltezone alles unterdrueckt hat),
+			# stand im Bild ein geschlossener Nadelwald IM See. Fuer die Fluesse bleibt es
+			# bei 34 m — ihre Splines reichen bis 112 m hinauf, und ein Bachbett muss keine
+			# Baumsperre ueber das halbe Bergland ziehen.
+			if hc < _flora_wasser_h and _submerged(cx, cz, hc, river_chunk and hc < 34.0):
 				continue   # See- und Flussbett: nicht unter Wasser pflanzen
 			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
 			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.
@@ -1488,8 +2222,15 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 ## Jetzt: Abstand zum RAND der bebauten Rechtecke (Bahn, Rollweg/Vorfeld, bei den
 ## Aussenfeldern zusaetzlich die Blender-Bauten). Kreise bleiben fuer Stadt, Dorf,
 ## Leuchtturm & Co. — die sind rund, dort war der Kreis nie das Problem.
+## SCHUTTHALDEN HAENGEN SEIT DIESER RUNDE HIER MIT DRIN und nicht in einer eigenen
+## Sperre: die Frage "waechst hier etwas" ist dieselbe, und _open_ground sperrt schon
+## heute Baeume UND Felsbrocken in einem Zug. Auf einer Blockhalde steht kein Grashalm —
+## gemessen waren es bei uns 63 Prozent Gruen im Fussbereich des Felsentors gegen
+## 5.7 Prozent im Referenzbild.
 func _open_ground(x: float, z: float) -> float:
-	var k := 1.0
+	var k := _halde_frei(x, z)
+	if k <= 0.0:
+		return 0.0
 	for af in airfields:
 		var ap: Vector3 = af["pos"]
 		var dx := x - ap.x
@@ -1538,7 +2279,10 @@ func _open_ground(x: float, z: float) -> float:
 func _submerged(x: float, z: float, h: float, check_rivers: bool) -> bool:
 	for lk in lakes:
 		var lp: Vector3 = lk["pos"]
-		if Vector2(x - lp.x, z - lp.z).length() < float(lk["r"]) and h < float(lk["surf"]) + 0.8:
+		# _rmax statt r beim gelappten Bergsee: sein Arm reicht weit ueber r hinaus, und
+		# mit dem alten Kreis waere dort Wald auf dem Seegrund gewachsen.
+		var rr: float = float(lk.get("_rmax", lk["r"]))
+		if Vector2(x - lp.x, z - lp.z).length() < rr and h < float(lk["surf"]) + 0.8:
 			return true
 	if not check_rivers:
 		return false
@@ -1574,11 +2318,306 @@ func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 	st.add_vertex(c)
 
 
+# --- ALMWIESE IM HOCHTAL ---------------------------------------------------------------
+# Der Fels beginnt weltweit bei 45 bis 59 m Hoehe. Der Boden des Hochtals liegt gemessen
+# auf 41 bis 235 m, der Bergsee mit seinem Spiegel auf 78 m — das ganze Tal steht also
+# MITTEN IM FELSBAND und war beige. Im Bild war das eine Schotterpfanne, in der Baeume
+# standen: die Bepflanzung waechst bis 230 m (FLORA_MAX_H), der Boden unter ihr war ab
+# 59 m Fels. Genau dieser Widerspruch ist der Unterschied zum Referenzbild, auf dem der
+# Talboden von der Wasserlinie bis an den Wandfuss gruen ist.
+#
+# VORIGE FASSUNG UND WARUM SIE FALSCH WAR: die Felsschwelle wanderte um SEE_WIESE_HUB
+# nach oben, gemessen am Abstand zur UFERLINIE DES SEES. Damit war das Gruen per
+# Konstruktion eine Kreisscheibe um den See, und das Rauschen auf der Grenze machte daraus
+# nur ein ausgefranstes Halsband. Gemessen (tools/_krit_seering.gd) reichte es im Mittel
+# 146 m hinter das Ufer, und 700 m dahinter lag Gelaende auf 71 m — SIEBEN METER UNTER dem
+# Seespiegel — in Felsfarbe. Ein flacher Talboden, tiefer als der See, und trotzdem
+# Geroell, nur weil er ausserhalb eines Radius lag.
+#
+# JETZT: die Schwelle haengt an der LAGE IM TALKORRIDOR (Achse aus Main, TAL_START /
+# TAL_RICHTUNG) und an der HOEHE UEBER DEM GEMESSENEN TALBODEN (_tal_boden). Alles im
+# Korridor bis TAL_WIESE_VOLL ueber dem Talboden bekommt den vollen Hub, bis
+# TAL_WIESE_AUS laeuft er auf null. Der See spielt dabei gar keine Rolle mehr.
+# Wo das Gruen endet, entscheidet damit das GELAENDE: an der Flanke steigt es rasch aus
+# dem Band heraus, und dort uebernimmt ohnehin das Steilheitskriterium (ny) — der Saum
+# liegt am Wandfuss, wie im Referenzbild, und folgt jeder Rinne und jedem Sporn.
+#
+# DIE ZAHLEN: 150 m Hub schiebt die Schwelle von 45..59 auf 195..209 m. Zusammen mit der
+# Ausblendung liegt die Gruengrenze rund 110 bis 120 m ueber dem Talboden, also bei etwa
+# 190 m Hoehe — genau dort, wo auch die Bepflanzung duenn wird (46 m an, 230 m aus). Ueber
+# der Grenze faengt der Schnee erst bei 188 m an einzublenden und ist bei 195 m mit 0.01
+# unsichtbar; es entsteht also kein weisser Saum.
+const TAL_WIESE_HUB := 150.0
+const TAL_WIESE_VOLL := 60.0     # bis so viel ueber dem Talboden gilt der volle Hub
+const TAL_WIESE_AUS := 300.0     # ab so viel ueber dem Talboden ist er weg
+# ZWISCHEN VOLL UND AUS LIEGEN 240 M, UND DAS IST KEINE BEQUEMLICHKEIT. Der Hub faellt mit
+# der Hoehe, die Felsschwelle laeuft der Hoehe also entgegen: aus der 14 m breiten
+# Felsrampe (45..59) wird eine wirksame Rampe von 14 / (1 + HUB * 1.5 / (AUS - VOLL)).
+# Mit den ersten Zahlen (90/220) waren das 5,3 Hoehenmeter — auf der Flanke eine Kante
+# von anderthalb Netzzellen, und im Bild lag dort eine schnurgerade, treppige Linie quer
+# durch beide Haenge. Mit 60/300 sind es 7,2 m, und das Rauschen darf mitreden.
+# Rauschen auf der HOEHE, nicht auf einem Abstand: die Grenze soll mit dem Hang verzahnen.
+# In ZWEI Groessen — 214 m fuer die grossen Zungen und Buchten der Waldgrenze, 60 m fuer
+# den ausgefransten Rand. Eine einzelne Groesse sah aus wie mit dem Pinsel gewellt.
+const TAL_WIESE_RAUSCH := 34.0
+const TAL_WIESE_RAUSCH2 := 13.0
+const TAL_WIESE_ENDE := 500.0    # Ausblendung an Taleingang und Talschluss
+const TAL_PROBEN := 64           # Stuetzstellen des Talbodenprofils (rund 180 m Abstand)
+
+
+## TALBODENPROFIL messen: je Stuetzstelle neun Proben quer ueber den Korridor, davon die
+## ZWEITNIEDRIGSTE. Nicht die niedrigste — die faengt das Flussbett (bis 7 m eingeschnitten)
+## oder den Seegrund; nicht den Mittelwert — der zieht die Flanken mit herein und haette das
+## Profil um ueber hundert Meter zu hoch gelegt. Danach ein Dreiertiefpass, damit einzelne
+## Kuppen keine Stufe in die Gruengrenze schneiden.
+## LAEUFT EINMAL BEIM AUFBAU (64 * 9 = 576 height_at-Aufrufe, unter 10 ms) — in _face_color
+## waere jede einzelne Probe verboten teuer.
+func _talboden_bauen() -> void:
+	_tal_boden = PackedFloat32Array()
+	_tal_hb = PackedFloat32Array()
+	if tal.is_empty():
+		return
+	_tal_hb = PackedFloat32Array(tal["halbbreite"])
+	var st: Vector2 = tal["start"]
+	var ri: Vector2 = Vector2(tal["richtung"]).normalized()
+	var qu := Vector2(ri.y, -ri.x)
+	var lg: float = float(tal["laenge"])
+	var roh := PackedFloat32Array()
+	for i in TAL_PROBEN:
+		var l := lg * float(i) / float(TAL_PROBEN - 1)
+		var hb := _tal_halbbreite(l)
+		var probe: Array[float] = []
+		for k in range(-4, 5):
+			var p := st + ri * l + qu * (hb * 0.09 * float(k))
+			probe.append(height_at(p.x, p.y))
+		probe.sort()
+		roh.append(probe[1])
+	for i in TAL_PROBEN:
+		_tal_boden.append(0.25 * roh[maxi(i - 1, 0)] + 0.5 * roh[i]
+			+ 0.25 * roh[mini(i + 1, TAL_PROBEN - 1)])
+	# Vorfilter fuer _tal_wiese: ein Umkreis um den ganzen Korridor. _face_color laeuft je
+	# DREIECK ueber die ganze Welt — draussen darf nur EIN Abstandsquadrat anfallen.
+	var hbmax := 0.0
+	for w in _tal_hb:
+		hbmax = maxf(hbmax, w)
+	_tal_mitte = st + ri * (lg * 0.5)
+	# 2 * hbmax, weil die seitliche Ausblendung bis zum doppelten Kammabstand reicht. Ein
+	# zu kleiner Umkreis waere kein Sparfilter mehr, sondern eine zweite, KREISRUNDE Grenze
+	# der Wiese — genau die Sorte gemalter Kante, die hier abgeschafft werden soll.
+	var reich := lg * 0.5 + 2.0 * hbmax + TAL_WIESE_ENDE
+	_tal_reich2 = reich * reich
+
+
+## Halbe Korridorbreite an der Stelle "laengs". Das PROFIL KOMMT AUS MAIN (Stuetzstellen
+## gleichen Abstands), nicht aus einer hier nachgebauten Formel: die Keilform des Tals
+## gehoert Main, und eine zweite Kopie waere beim naechsten Umbau still falsch geworden.
+func _tal_halbbreite(laengs: float) -> float:
+	var n := _tal_hb.size()
+	if n == 0:
+		return 0.0
+	if n == 1:
+		return _tal_hb[0]
+	var t := clampf(laengs / float(tal["laenge"]), 0.0, 1.0) * float(n - 1)
+	var i := mini(int(t), n - 2)
+	return lerpf(_tal_hb[i], _tal_hb[i + 1], t - float(i))
+
+
+# --- SCHUTTHALDEN ----------------------------------------------------------------------
+# Maschenweite der vorgerechneten Haldenmaske. Der Umriss traegt ein Randrauschen mit rund
+# 120 m Wellenlaenge; 10 m loesen das mehr als auf.
+const HALDE_GITTER := 10.0
+# 0 = blanke Halde (kein Baum, kein Stein, keine Wiese), 1 = normales Gelaende. Die
+# Schwellen liegen auf der Haldendichte aus Landmarks.tor_halde_zone.
+# DIE SPERRE MUSS BEI 0.02 SCHON VOLL SEIN, denn dort liegt der AEUSSERSTE Block (siehe
+# _tor_halde). Der erste Versuch nahm -0.05 .. 0.12, und damit war die Stelle, an der der
+# letzte Block liegt, noch zu 63 Prozent Wiese: im Bild sassen am Rand der Schuerze
+# einzelne helle Quader auf gruenem Gras — genau der Befund, den die Halde beseitigen
+# soll. Jetzt ist bei 0.04 alles kahl, und der Uebergang liegt mit -0.12 komplett
+# AUSSERHALB der Ellipse, also im Gras und nicht auf dem Fels.
+const HALDE_VON := -0.12
+const HALDE_BIS := 0.04
+
+
+## MASKE EINMAL VORRECHNEN statt je Dreieck die Dichtefunktion aufzurufen. _open_ground
+## laeuft 4608-mal je Chunk, _face_color genauso; eine Callable mit Noise-Abfrage darin
+## waere genau die Sorte teurer Sonderfall, vor der der Kopf von _face_color warnt. Eine
+## 167x167-Maske sind 110 kB und je Abfrage eine bilineare Interpolation.
+## Die FORM kommt aus Landmarks (tor_halde_zone) — hier wird sie nur abgetastet.
+func _halden_bauen() -> void:
+	_halde_masken = []
+	for hz in schutthalden:
+		var reich := float(hz["reich"])
+		var roh: Callable = hz["roh"]
+		var n := int(2.0 * reich / HALDE_GITTER) + 1
+		var g := PackedFloat32Array()
+		g.resize(n * n)
+		for j in n:
+			for i in n:
+				var lx := -reich + float(i) * HALDE_GITTER
+				var lz := -reich + float(j) * HALDE_GITTER
+				g[j * n + i] = 1.0 - smoothstep(HALDE_VON, HALDE_BIS,
+					float(roh.call(lx, lz)))
+		_halde_masken.append({"x": float(hz["x"]), "z": float(hz["z"]),
+			"cos": float(hz["cos"]), "sin": float(hz["sin"]),
+			"reich": reich, "r2": 2.0 * reich * reich, "n": n, "g": g})
+
+
+## Wie frei ist die Stelle von Blockschutt? 1 = normales Gelaende, 0 = blanke Halde.
+## Ausserhalb kostet das ein Abstandsquadrat je Halde — mehr darf es nicht sein, die
+## Funktion haengt an _open_ground und damit an jedem Gelaendedreieck der ganzen Welt.
+func _halde_frei(x: float, z: float) -> float:
+	var k := 1.0
+	for hm in _halde_masken:
+		var dx := x - float(hm["x"])
+		var dz := z - float(hm["z"])
+		if dx * dx + dz * dz >= float(hm["r2"]):
+			continue
+		# In das Torsystem drehen (dort liegt die Maske). Dieselbe Umkehr wie bei den
+		# Flugplatz-Rechtecken oben: Landmarks dreht mit Basis(UP, yaw), also ist
+		# lx = cos*dx - sin*dz.
+		var co: float = hm["cos"]
+		var si: float = hm["sin"]
+		var reich: float = hm["reich"]
+		var n: int = hm["n"]
+		var fx := (co * dx - si * dz + reich) / HALDE_GITTER
+		var fz := (si * dx + co * dz + reich) / HALDE_GITTER
+		if fx < 0.0 or fz < 0.0 or fx >= float(n - 1) or fz >= float(n - 1):
+			continue
+		var i := int(fx)
+		var j := int(fz)
+		var u := fx - float(i)
+		var v := fz - float(j)
+		var g: PackedFloat32Array = hm["g"]
+		var a := lerpf(g[j * n + i], g[j * n + i + 1], u)
+		var b := lerpf(g[(j + 1) * n + i], g[(j + 1) * n + i + 1], u)
+		k = minf(k, lerpf(a, b, v))
+	return k
+
+
+## WIESENANTEIL an einer Stelle: 1 = voller Hub der Felsschwelle, 0 = Weltregel.
+## ny ist der Kosinus der Hangneigung (1 = eben) — dieselbe Zahl, mit der _face_color den
+## Fels ueber die Steilheit einblendet.
+func _tal_wiese(cen: Vector3, ny: float) -> float:
+	if _tal_boden.is_empty():
+		return 0.0
+	var mx := cen.x - _tal_mitte.x
+	var mz := cen.z - _tal_mitte.y
+	if mx * mx + mz * mz > _tal_reich2:
+		return 0.0
+	var st: Vector2 = tal["start"]
+	var ri: Vector2 = Vector2(tal["richtung"]).normalized()
+	var ex := cen.x - st.x
+	var ez := cen.z - st.y
+	var lg: float = float(tal["laenge"])
+	var l := ex * ri.x + ez * ri.y
+	if l < -TAL_WIESE_ENDE or l > lg + TAL_WIESE_ENDE:
+		return 0.0
+	var q := absf(ex * ri.y - ez * ri.x)
+	var hb := _tal_halbbreite(l)
+	# SEITLICHE AUSBLENDUNG ERST WEIT HINTER DEM KAMM (1,0 bis 2,0 Kammabstaende).
+	# ERSTER VERSUCH WAR 0.80 BIS 1.05, und das war im Bild sofort zu sehen: eine
+	# schnurgerade, treppige Kante laengs der Talachse quer durch beide Flanken, weil dort
+	# unten noch Gelaende unter der Wiesenschwelle liegt und die Grenze allein von der
+	# Rechnung kam. Zwischen 1,0 und 2,0 Kammabstaenden (am Talmund 2480 bis 4960 m, am
+	# Talschluss 2110 bis 4220 m — die Halbbreite ist ein Keil, siehe Main._tal_halbbreite)
+	# steht dagegen ueberall der Kamm selbst — die Massive haben 2200 m Radius und bis
+	# 1250 m Gipfel, und die Gipfel steigen zum Talschluss monoton an,
+	# das Gelaende ist dort laengst ueber der Schwelle, und die Ausblendung kann gar nichts
+	# mehr faerben. Sie bleibt trotzdem stehen: sie ist die Garantie, dass ausserhalb des
+	# Hochtals keine einzige Flaeche die Farbe wechselt.
+	var seit := 1.0 - smoothstep(hb, hb * 2.0, q)
+	if seit <= 0.0:
+		return 0.0
+	seit *= smoothstep(-TAL_WIESE_ENDE, 0.0, l) * (1.0 - smoothstep(lg, lg + TAL_WIESE_ENDE, l))
+	# HANG: die Alm hoert am STEILHANG auf, nicht auf einer Hoehenlinie. Ohne diesen Faktor
+	# lief die Gruengrenze quer ueber Rippen und Rinnen hinweg, als waere sie gezeichnet;
+	# mit ihm folgt sie der Form des Hangs, und aus jeder Felsrippe waechst Geroell in die
+	# Wiese hinein. 0.78 bis 0.92 sind rund 39 bis 23 Grad. Der Sockel von 0.30 muss
+	# bleiben: sonst verliert ein steiles Ufer direkt am Wasser die Wiese und der See
+	# stuende wieder in einem grauen Rand.
+	var hang := 0.30 + 0.70 * smoothstep(0.78, 0.92, ny)
+	var t := clampf(l / lg, 0.0, 1.0) * float(TAL_PROBEN - 1)
+	var i := mini(int(t), TAL_PROBEN - 2)
+	var boden := lerpf(_tal_boden[i], _tal_boden[i + 1], t - float(i))
+	# DIE BEIDEN RAUSCHABFRAGEN SIND DER TEURE TEIL dieser Funktion, und die Funktion laeuft
+	# je DREIECK. Sie koennen die Hoehe um hoechstens RAUSCH + RAUSCH2 verschieben — wer
+	# weiter als das von der Blendzone entfernt liegt, bekommt sein Ergebnis ohne sie. Das
+	# trifft fast alles: den ganzen Talboden (voll) und die ganze Flanke darueber (null).
+	var streu := TAL_WIESE_RAUSCH + TAL_WIESE_RAUSCH2
+	if cen.y < boden + TAL_WIESE_VOLL - streu:
+		return seit * hang
+	if cen.y > boden + TAL_WIESE_AUS + streu:
+		return 0.0
+	var hh := cen.y + TAL_WIESE_RAUSCH * _patch.get_noise_2d(cen.x * 0.28, cen.z * 0.28) \
+		+ TAL_WIESE_RAUSCH2 * _patch.get_noise_2d(cen.z + 900.0, cen.x - 400.0)
+	return seit * hang * (1.0 - smoothstep(boden + TAL_WIESE_VOLL, boden + TAL_WIESE_AUS, hh))
+
+
 func _face_color(cen: Vector3, ny: float) -> Color:
 	# GEDÄMPFTE, erdig-pastellige Low-Poly-Palette (Aviassembly-Look): Sage-Grün,
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	if cen.y < SEA_Y + 1.6:
 		return Color(0.93, 0.85, 0.62)        # heller, warmer Sandstrand/Ufer
+	# --- BERGSEE: KIESSAUM ------------------------------------------------------------
+	# Die ALMWIESE stand frueher in dieser Schleife und hing am Uferabstand. Sie ist
+	# umgezogen (_tal_wiese, weiter oben) — hier bleibt nur der Kies, und der GEHOERT ans
+	# Ufer.
+	# ZUERST DER ABSTAND (nur Quadrate, keine Wurzel): die Funktion laeuft je DREIECK,
+	# 4608-mal pro Chunk ueber die ganze Welt, und fast immer liegt die Stelle draussen.
+	var kies := 0.0
+	for lk in lakes:
+		if not lk.has("_rad"):
+			continue
+		var lp: Vector3 = lk["pos"]
+		var kx := cen.x - lp.x
+		var kz := cen.z - lp.z
+		var kr: float = float(lk["_rmax"]) + 120.0
+		var kd2 := kx * kx + kz * kz
+		if kd2 > kr * kr:
+			continue
+		var wsp: float = float(lk["surf"])
+		if cen.y > wsp + 4.0 or cen.y < wsp - 6.0:
+			continue
+		# ABSTAND ZUR UFERLINIE, nicht zum Seemittelpunkt. Ohne das faerbte sich auch das
+		# Bachbett des Abflusses hell — es liegt im selben Hoehenband und im selben Umkreis,
+		# und im Bild lief ein leuchtender Streifen schnurgerade vom See talabwaerts.
+		var ach: Vector2 = lk["_achse"]
+		var uw := _see_umriss(lk, atan2(kx * ach.y - kz * ach.x, kx * ach.x + kz * ach.y))
+		var ds := sqrt(kd2) - uw.x
+		# KIESSAUM: heller Schotter AN DER WASSERLINIE — ein Strand, kein Beckengrund.
+		# ER REICHTE VORHER BIS 6 M UNTER WASSER, also am flachen Ufer 143 m weit ins
+		# Becken hinein, und genau das war der Befund der Kritik: der Untiefensaum las sich
+		# als milchig-cremeweisser Ring statt als tuerkises Band. Ursache war nicht die
+		# Wasserfarbe, sondern der Grund darunter — bei alpha_shallow schaut man in den
+		# Untiefen zu ueber der Haelfte auf den Boden, und der war weiss.
+		# Jetzt liegt er zwischen 1,6 m Tiefe und 3 m ueber dem Spiegel. Das Wasser bekommt
+		# seine Untiefen zurueck, der Strand bleibt der hellste Fleck des Talbodens.
+		# NUR AM FLACHEN UFER. Ohne die Kopplung an den Uferhang lag der helle Saum als
+		# gleichmaessig breiter Ring rund um den See — bei 8 m Netzweite ist das eine
+		# Dreiecksreihe, und im Bild sah der See aus wie ein Planschbecken mit gemaltem Rand.
+		# Am steilen Ufer durchlaeuft das Gelaende dasselbe Hoehenband auf 8 m Grundriss,
+		# der Saum darf dort also gar nicht erst anfangen.
+		# An allen Enden ausblenden, sonst steht eine gezeichnete Hoehenlinie im Bild.
+		# IN DER SCHARTE GILT DER STEILHANG-VORBEHALT NICHT, und der aeussere Saum reicht
+		# weiter. WARUM: der Abfluss liegt bei 151 Grad, dort ist der Uferhang 0.19 — ueber
+		# der Schranke, also blieb die Kiesbank hinter der Schwelle GRUEN. Genau das war der
+		# Befund: tuerkise Uferkante, dann Gras, dann faengt das blaue Band an. Ein See
+		# laeuft aber ueber Schotter aus, nicht ueber eine Wiese. maxf statt Multiplikation,
+		# damit die Scharte den Vorbehalt aufhebt statt ihn zu daempfen, und die aeussere
+		# Ausblendung wandert mit der Gasse von 32/52 auf 62/86 m — das deckt Schwelle und
+		# Bank (16 + 40 m) ganz ab, am Zufluss den Schuttfaecher.
+		# "offen" ist der Anteil, mit dem der Beckenrand hier eine Gasse ist: die Scharte des
+		# Abflusses (uw.w) ODER das Delta des Zuflusses. Das Delta hat keinen eigenen Kanal in
+		# der Umrisstabelle und braucht auch keinen — es ist an der niedrigen RANDHOEHE
+		# eindeutig zu erkennen (0,9 m gegen sonst mindestens 4 m, siehe _see_wandhoehe).
+		var offen := maxf(uw.w, 1.0 - smoothstep(1.4, 3.0, uw.z))
+		var kaus := lerpf(32.0, 62.0, offen)
+		if ds > -60.0 and ds < kaus + 24.0:
+			kies = smoothstep(wsp - 1.6, wsp - 0.5, cen.y) \
+				* (1.0 - smoothstep(wsp + 1.4, wsp + 3.2, cen.y)) \
+				* smoothstep(-60.0, -42.0, ds) * (1.0 - smoothstep(kaus, kaus + 24.0, ds)) \
+				* maxf(1.0 - smoothstep(0.07, 0.16, uw.y), offen)
+		break
 	# VULKAN-Flanken: dunkler Basalt statt Schnee/Fels (sonst weisser Marshmallow-Kegel);
 	# zum Gipfel leicht roetlich verwitterte Schlacke. Unterer Gruenguertel bleibt normal.
 	for ms in massifs:
@@ -1604,9 +2643,9 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 		# auf dem Endwert der ersten Rampe auf, deshalb entsteht kein Sprung.
 		fels = fels.lerp(Color(0.62, 0.60, 0.58), clampf((cen.y - 142.0) / 400.0, 0.0, 1.0))
 	# SCHNEE. Massgeblich ist die Hoehe UEBER der Schneegrenze, der Hang moduliert nur.
-	# Der Hang allein reicht NICHT: die Kegel des Hochgebirges sind bei 2600 m Radius rund
-	# 25 Grad geneigt, darauf liegt auch in echt Schnee — mit reinem Hangkriterium blieb
-	# die ganze Kette weiss.
+	# Der Hang allein reicht NICHT: die Kegel des Hochgebirges sind bei 2200 m Radius und
+	# 1250 m Gipfel rund 30 Grad geneigt, darauf liegt auch in echt Schnee — mit reinem
+	# Hangkriterium blieb die ganze Kette weiss.
 	var schnee := smoothstep(188.0, 428.0, cen.y) * smoothstep(0.72, 0.90, ny)
 	if schnee > 0.001:
 		fels = fels.lerp(Color(0.87, 0.88, 0.91), schnee)
@@ -1623,13 +2662,37 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# soll weich werden, die FLAECHE aber gleich bleiben. Der erste Versuch nahm 38-66 m
 	# und 0.80-0.62 — damit bekam jede sanft geneigte Wiese am Bergfuss einen Braunstich,
 	# und im Bild war das Vorland vor dem Hochgebirge nicht mehr gruen.
-	var fels_anteil := maxf(smoothstep(45.0, 59.0, cen.y), smoothstep(0.745, 0.655, ny))
+	# Die Hoehenschwelle wandert IM HOCHTAL nach oben (siehe ALMWIESE bei TAL_WIESE_HUB).
+	# Die STEILHEIT bleibt unberuehrt: eine senkrechte Wand am Wasser ist auch dort Fels,
+	# und genau daran endet das Gruen am Wandfuss.
+	# UNTER EINER SCHUTTHALDE GILT WIEDER DIE WELTREGEL. Der Wiesenhub schiebt die
+	# Felsschwelle im Hochtal um 150 m nach oben; ohne diesen Faktor lag unter der Halde
+	# also GRUENER Boden, und ueberall, wo eine Gelaendekuppe durch die Felsdecke stiess
+	# oder der Rand der Decke ausfranste, blitzte Wiese zwischen den Bloecken durch. Das
+	# ist KEINE Sonderfarbe fuer ein Wahrzeichen: hier faellt nur eine Sonderregel weg,
+	# uebrig bleibt der ganz normale Hochgebirgsfels der Weltregel.
+	var wiese := _tal_wiese(cen, ny) * _halde_frei(cen.x, cen.z)
+	var hub := TAL_WIESE_HUB * wiese
+	var fels_anteil := maxf(smoothstep(45.0 + hub, 59.0 + hub, cen.y),
+		smoothstep(0.745, 0.655, ny))
+	var c: Color
 	if fels_anteil > 0.998:
-		return fels
-	var boden := _boden_farbe(cen)
-	if fels_anteil < 0.002:
-		return boden
-	return boden.lerp(fels, fels_anteil)
+		c = fels
+	else:
+		# ERST AB 30 BIS 48 M wird die Biomfarbe zur Alm verschoben. Darunter aendert der
+		# Wiesenhub ohnehin nichts (die Felsschwelle liegt bei 45 m), eine Farbverschiebung
+		# waere dort also folgenlos — und sie hatte eine Nebenwirkung: am Taleingang liegt
+		# WUESTE auf -4 bis 21 m, und dort pflanzt _make_chunk_data Palmen. Gruener Boden mit
+		# Palmen darauf ist genau der Widerspruch zwischen Farbe und Bewuchs, den die
+		# Almwiese eigentlich aufloest.
+		var boden := _boden_farbe(cen, wiese * smoothstep(30.0, 48.0, cen.y))
+		c = boden if fels_anteil < 0.002 else boden.lerp(fels, fels_anteil)
+	if kies > 0.002:
+		# 0.6 -> 0.82 und ein waermerer Ton: mit dem alten Wert lag der Kies als Hauch auf
+		# dem Wiesengruen und war im Bild schlicht nicht zu finden. Im Referenzbild ist der
+		# Strand die HELLSTE Flaeche des ganzen Talbodens.
+		c = c.lerp(Color(0.80, 0.77, 0.70), kies * 0.82)
+	return c
 
 
 ## GRUNDFARBE OHNE FELS: Wiese, Wald, Wueste, Heide je nach Biom.
@@ -1641,7 +2704,15 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 ## KOSTET NICHTS EXTRA: _face_color ruft das nur, wenn der Felsanteil unter 1 liegt, also
 ## nur im schmalen Uebergangsband und nicht auf der ganzen Bergflanke. Das ist wichtig —
 ## die Funktion laeuft je DREIECK, also 4608-mal pro Chunk.
-func _boden_farbe(cen: Vector3) -> Color:
+## ALPIN: Anteil, mit dem die BIOMFARBE zur Alm hin verschoben wird (dieselbe Zahl wie der
+## Wiesenhub, siehe TAL_WIESE_HUB). Das grosse Biomrauschen laeuft ueber 3,2 km, das Hochtal
+## ist 11,4 km lang — es kreuzt also zwangslaeufig Wueste und Heide. Gemessen liegt am
+## Taleingang WUESTE, und solange der Fels darueber lag, fiel das nicht auf. Mit der Almwiese
+## scheint _boden_farbe durch, und aus dem Talboden waere eine Sandzunge geworden: mitten im
+## Hochgebirge, zwischen Schneegipfeln, in 0.88/0.79/0.55.
+## Deshalb wird im Korridor auf die WALD/WIESE-Variante geblendet — nicht hart umgeschaltet,
+## sonst stuende an der Biomgrenze eine Kante quer durch das Tal.
+func _boden_farbe(cen: Vector3, alpin: float = 0.0) -> Color:
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	# WALDBODEN: exakt dieselbe Dichte-Formel wie die Bepflanzung in _make_chunk_data,
 	# also faerbt sich der Boden GENAU dort dunkel, wo auch Baeume stehen. Zwei Gewinne:
@@ -1653,15 +2724,30 @@ func _boden_farbe(cen: Vector3) -> Color:
 	var wald := smoothstep(-0.28, 0.30, _forest.get_noise_2d(cen.x, cen.z))
 	wald = wald * wald * smoothstep(FLORA_MIN_H, FLORA_FULL_H, cen.y) \
 		* (1.0 - smoothstep(46.0, FLORA_MAX_H, cen.y)) * _open_ground(cen.x, cen.z)
+	# Wald/Wiese: SATTES Wiesen-Grün, nur wenige dezente Flecken (kein blasses Mint mehr)
+	var g1 := Color(0.40, 0.61, 0.28)  # frisches, sattes Wiesen-Grün
+	var g2 := Color(0.28, 0.49, 0.23)  # tieferes Grün
+	var wc := g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
+	if t < -0.55:
+		wc = Color(0.50, 0.52, 0.40)   # seltener erdiger Fleck
+	elif t > 0.55:
+		wc = Color(0.62, 0.62, 0.44)   # seltener trockener Gras-Fleck
+	wc = wc.lerp(Color(0.15, 0.29, 0.16), wald * 0.62)
+	# Im Hochtal gilt ab hier NUR NOCH diese Wiese — der Umweg ueber das Biom entfaellt,
+	# und damit auch dessen Kosten.
+	if alpin > 0.998:
+		return wc
+	var bc := wc
 	match biome_at(cen.x, cen.z):
 		Biome.WUESTE:
 			# Wüste: warme Sand-/Dünentöne, Erd-/Felsbänder dazwischen
 			if t < -0.35:
-				return Color(0.80, 0.66, 0.46) # feuchter/schattiger Sand
-			if t > 0.45:
-				return Color(0.72, 0.60, 0.45) # Geröll-/Erdfleck
-			return Color(0.91, 0.82, 0.58).lerp(Color(0.86, 0.76, 0.52),
-				clampf(t * 0.6 + 0.5, 0.0, 1.0))
+				bc = Color(0.80, 0.66, 0.46) # feuchter/schattiger Sand
+			elif t > 0.45:
+				bc = Color(0.72, 0.60, 0.45) # Geröll-/Erdfleck
+			else:
+				bc = Color(0.91, 0.82, 0.58).lerp(Color(0.86, 0.76, 0.52),
+					clampf(t * 0.6 + 0.5, 0.0, 1.0))
 		Biome.HEIDE:
 			# Heide/Herbst: staubiges Rosé/Ocker
 			var hc := Color(0.74, 0.68, 0.50).lerp(Color(0.66, 0.58, 0.50),
@@ -1671,17 +2757,8 @@ func _boden_farbe(cen: Vector3) -> Color:
 			elif t > 0.45:
 				hc = Color(0.80, 0.72, 0.50)   # Ocker-Gras
 			# Heide traegt nur 30 % der Walddichte -> auch nur ein Hauch Waldboden
-			return hc.lerp(Color(0.44, 0.44, 0.31), wald * 0.30)
-		_:
-			# Wald/Wiese: SATTES Wiesen-Grün, nur wenige dezente Flecken (kein blasses Mint mehr)
-			var g1 := Color(0.40, 0.61, 0.28)  # frisches, sattes Wiesen-Grün
-			var g2 := Color(0.28, 0.49, 0.23)  # tieferes Grün
-			var wc := g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
-			if t < -0.55:
-				wc = Color(0.50, 0.52, 0.40)   # seltener erdiger Fleck
-			elif t > 0.55:
-				wc = Color(0.62, 0.62, 0.44)   # seltener trockener Gras-Fleck
-			return wc.lerp(Color(0.15, 0.29, 0.16), wald * 0.62)
+			bc = hc.lerp(Color(0.44, 0.44, 0.31), wald * 0.30)
+	return bc if alpin < 0.002 else bc.lerp(wc, alpin)
 
 
 # Baumarten aus models/world_trees.glb (tools/build_baeume.py). Die Meshes tragen

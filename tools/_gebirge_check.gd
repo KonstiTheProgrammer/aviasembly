@@ -25,7 +25,9 @@ func _process(_d: float) -> bool:
 	var AH_HOEHE: float = K["ADLERHORST_HOEHE"]
 	var start: Vector2 = K["TAL_START"]
 	var dir: Vector2 = K["TAL_RICHTUNG"]
-	var breite: float = K["TAL_BREITE"]
+	# TAL_BREITE wird hier ABSICHTLICH nicht mehr gelesen: seit das Tal keilfoermig ist,
+	# gibt es keine eine Talbreite mehr, sondern _tal_halbbreite(laengs). Wer die Form
+	# messen will, nimmt tools/_tal_keil.gd — hier geht es nur um Grat, Platz und Korridor.
 
 	print("=== HOEHENPROFIL LAENGS DER TALACHSE (alle 200 m) ===")
 	var minh := 9e9

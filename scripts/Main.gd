@@ -106,15 +106,94 @@ const FERN_TIEF := 480.0
 # diagonale ab, die der Spieler seit dem letzten update_center zurueckgelegt haben
 # kann (543 m) -> 3370 m. Darunter bleiben wir mit 3300 m.
 # --- DAS HOCHTAL und der Flugplatz ADLERHORST darin ----------------------------------
-# Ein Tal zwischen ZWEI parallelen Ketten, nicht mehr ein Sattel auf einem Grat. Alle
+# Ein KEILFOERMIGES Tal zwischen zwei Ketten, nicht mehr ein Sattel auf einem Grat. Alle
 # Werte hier: die Talachse, an der beide Ketten und der Flugplatz haengen. Sie gehen an
 # vier Stellen ein (beide Ketten, der Platz, seine Einebnungszone) — deshalb einmal.
 const TAL_START := Vector2(-11000.0, -2500.0)
 const TAL_RICHTUNG := Vector2(0.6139, -0.7893)
 const TAL_LAENGE := 11400.0
-# Abstand jeder Kette von der Talachse. Zusammen 5,4 km Kammabstand; nach Abzug der
-# Flanken bleiben rund 2 km Talboden.
-const TAL_BREITE := 2700.0
+# Abstand jeder Kette von der Talachse, VORN am Taleingang und HINTEN am Talschluss. Das
+# Tal ist ein Keil, kein Kanal: dazwischen wird linear interpoliert (_tal_halbbreite).
+# Urzustand: jedes Kettenmassiv hing am selben Wert 2700, die Kaemme liefen also exakt
+# parallel; gemessene Talbodenbreite 1725 m bei 500, 1425 bei 3000, 1350 bei 6500,
+# 1375 bei 8000, 875 bei 9500 — nach hinten eher weiter statt enger.
+#
+# DIE FALLE, IN DIE DIE ERSTE KEILFASSUNG GELAUFEN IST: sie stand auf 3600 / 2200 und kam
+# damit auf ein Verhaeltnis von 1,94 : 1 — aber 94 Prozent davon waren AUFWEITEN VORN.
+# Gemessen 3350 m Boden bei 500 m und 2550 bei 3000 statt 1725 / 1425; das Tal war an
+# jeder Stelle bis 6500 m BREITER als der Urzustand, im Mittel 2042 statt 1350 m. Ein
+# Keil, der durch Verbreitern entsteht, ist kein Keil. Die Verjuengung muss deshalb aus
+# dem ZUSAMMENZIEHEN HINTEN kommen, und das Mittel muss unter dem Urzustand bleiben.
+#
+# WARUM DIESE ZWEI ZAHLEN. Der Talboden (Gelaende unter 200 m) endet nicht am Massiv-
+# mittelpunkt, sondern rund 0,77 * r davor — bei r = 2200 also 1690 m weiter innen. Die
+# halbe Bodenbreite ist damit etwa Halbbreite - 1690, reagiert also SEHR empfindlich:
+# 100 m an der Halbbreite sind 200 m Boden.
+# NACH UNTEN begrenzt der Talschluss. Gemessen (Reihe GEWACHSEN, also ohne Flachzonen)
+# bleiben bei 8000 m noch 950 m Boden und bei 8500 m 875 m; ab 8800 m greift der Fuss der
+# Querkette auf die Achse und der gewachsene Boden geht auf null. ADLERHORST steht damit
+# ohnehin in einer Einebnung — aber das Vorfeld reicht quer bis x = 432 m (FP_RECHTECKE
+# plus Bausatz), und je schmaler das gewachsene Tal dort ist, desto tiefer schneidet
+# diese Einebnung. Bei 2110 und der jetzigen Zone (520/620) steht der gewachsene Fels an
+# der Platzmitte auf 238 m und 100 m daneben auf 232 m — also 148 bzw. 142 m Aushub,
+# gleich viel wie mit der alten, weiteren Zone. Deutlich enger als 2110 wuerde daraus ein
+# Steinbruch neben der Bahn.
+# NACH OBEN begrenzt der Urzustand: 2480 gibt vorn 1650 m Boden und bleibt damit unter
+# den 1725 m von damals. Groesser waere wieder Aufweiten statt Verjuengen.
+#
+# WARUM 2480 / 2110 UND NICHT MEHR 2380 / 2030. Die vorige Fassung hatte die Verjuengung
+# an der falschen Stelle: gemessen (tools/_krit_keil.gd) 1317 m Mittel vorn gegen 886 m
+# hinten, aber der GANZE Abfall lag in den ersten 3,5 km. Ueber laengs 4000..8750 —
+# 55 Prozent der Tallaenge und genau der Endanflug — stand der Boden bei 950 / 975 / 950 /
+# 850 / 850 / 1025 m, also ein parallelwandiger Kanal mit einer Aufweitung am Schluss.
+# Der Grund war nicht die Spanne, sondern ihre STEIGUNG: 350 m Halbbreite auf TAL_LAENGE
+# 11400 verteilt sind 30,7 m je km, und davon wurden nur die ersten 81 Prozent ueberhaupt
+# benutzt (siehe TAL_KEIL_LAENGE). Jetzt sind es 370 m auf 9200 m = 40,2 m je km, also
+# 31 Prozent mehr Verjuengung je Kilometer, und sie laeuft bis zum Talschluss durch.
+const TAL_BREITE := 2480.0
+const TAL_BREITE_HINTEN := 2110.0
+# UEBER WELCHE LAENGE der Keil interpoliert. NICHT TAL_LAENGE — das Tal ist laenger
+# gerechnet als es existiert: gemessen endet der zusammenhaengende Talboden bei laengs
+# 9250 m (725 m Boden), bei 9500 m greift der Fuss der Querkette auf die Achse und es
+# gibt gar keinen Boden mehr. Mit TAL_LAENGE = 11400 als Nenner wurden nur 81 Prozent
+# der Rampe je benutzt, am Talschluss stand 2096 statt 2030 m Halbbreite — 66 m
+# Halbbreite oder rund 130 m Boden wurden verschenkt, und zwar genau dort, wo das Tal
+# am engsten sein soll.
+#
+# WER DEN KEIL NACHMISST, FINDET BEI LAENGS 3500 EINEN EINBRUCH und darf ihn nicht fuer
+# einen Messfehler halten: der Talboden geht dort von rund 700 auf 300 m herunter und bei
+# 4000 m wieder auf 625 m hoch. Das ist die groesste Einzelunstetigkeit der ganzen Reihe,
+# und sie gehoert NICHT zur Kette, sondern zum FELSENTOR — es ist der Fuss seiner
+# Felsrippe (siehe _hochgebirge, "rippe"), die bei TOR_LAENGS = 3600 quer ins Tal
+# hineinsteht. Sie soll dort sein: das Tor sitzt in einer Engstelle. Wer sie
+# "wegoptimiert", nimmt dem Tor den Fels, in dem das Loch steckt.
+const TAL_KEIL_LAENGE := 9200.0
+# Radius der Kettenmassive und ihr Laengsabstand. Die beiden gehoeren zusammen: der
+# Abstand ist die HAELFTE des Radius, und nur so wird aus der Kette ein durchgehender Grat
+# statt einer Perlenschnur (Begruendung bei _hochgebirge).
+# VON 2600 AUF 2200 HERUNTER. Der Radius ist der zweite Hebel neben der Halbbreite: bei
+# gleicher Gipfelhoehe steht die Flanke steiler (1150 m auf 2200 statt auf 2600), und der
+# Fuss liegt 310 m weiter innen, sodass dieselbe Halbbreite mehr freien Talboden laesst.
+# Der alte Wert gab am Talquerschnitt bei 3000 m im Mittel 22 Grad Flankenneigung — bei
+# 2500 m Bodenbreite davor liest sich das als Becken, nicht als Tal.
+const TAL_KETTE_R := 2200.0
+const TAL_KETTE_ABSTAND := 1100.0
+# LAENGSVERSATZ DER BEIDEN KETTEN GEGENEINANDER — die halbe Massivteilung.
+# WOGEGEN ER HILFT: die Kaemme sind aus Kegeln gebaut, der Talboden ist zwischen zwei
+# Massiven also breiter als vor einem. Standen beide Ketten auf DENSELBEN Laengspositionen,
+# addierten sich diese Ausbuchtungen zu einer Schwebung: gemessen 1575 / 1350 / 1525 /
+# 1250 m Boden bei 500 / 1000 / 1500 / 2000 m — das Tal wurde auf dem Weg nach innen
+# fuenfmal wieder breiter. Um eine halbe Teilung versetzt fallen die Ausbuchtungen der
+# einen Seite auf die Engstellen der anderen: 1475 / 1425 / 1425 / 1300 m, und die Summe
+# aller AUFWEITUNGEN auf dem Weg nach innen (500..8500 m, ohne die Engstelle 3500 m, die
+# der Torschulter gehoert) geht von 475 auf 150 m zurueck.
+# ES WIRD DAVON NICHTS BREITER: das Mittel ueber 500..8500 m bleibt bei 1120 m (1122 vor,
+# 1118 nach dem Versatz), der Taleingang wird sogar 100 m schmaler. Der Preis steht im
+# Verhaeltnis vorn zu hinten — es liest sich als 1.64 : 1 statt 1.80 : 1, weil die alten
+# 1575 m gar keine Talbreite waren, sondern der hoechste Punkt der Schwebung.
+# DER LAENGSABSTAND IN DER KETTE AENDERT SICH NICHT: verschoben wird die ganze Kette,
+# nicht einzelne Massive — Abstand/Radius bleibt 0.500 auf beiden Seiten.
+const TAL_KETTE_VERSATZ := 550.0
 # Wo im Tal der Platz liegt (Abstand vom Talanfang) und auf welcher Hoehe.
 # Weit hinten im Tal: der Anflug geht die ganze Laenge durch die Schlucht, und hinter dem
 # Platz schliesst die Querkette das Tal ab — man muss also drehen und wieder hinaus.
@@ -123,10 +202,33 @@ const ADLERHORST_HOEHE := 90.0
 # FELSENTOR am Taleingang: Position auf der Talachse. Weit genug drinnen, dass man schon
 # zwischen den Waenden fliegt, weit genug vor dem Platz fuer einen langen Endanflug.
 const TOR_LAENGS := 3600.0
-# BERGSEE zwischen Tor und Flugplatz. surf ist der Wasserspiegel; das Becken gaebt sich
-# selbst (TerrainWorld senkt den Grund auf surf - 4).
+# Breitenmass und Seed des Felsentors. ALS KONSTANTEN, weil sie an ZWEI Stellen gebraucht
+# werden: beim Bau des Wahrzeichens und schon vorher beim Anmelden seiner Schutthalde beim
+# Gelaende (die sperrt dort Bewuchs und Almwiese). Zwei Zahlenpaare waeren beim naechsten
+# Umbau still auseinandergelaufen, und die Sperre haette dann neben der Halde gelegen.
+const TOR_SPANN := 520.0
+const TOR_SEED := 7731
+# BERGSEE zwischen Tor und Flugplatz. surf ist der Wasserspiegel, SEE_R nur noch der
+# MASSSTAB des gelappten Umrisses (TerrainWorld._see_umriss_faktor) — der Arm reicht bis
+# 1,93 * SEE_R, quer bleiben rund 0,67 * SEE_R.
+# SEE_R WAR 420 UND MUSSTE HERUNTER: der Umriss ist laenger als der alte Kreis, und mit
+# 420 haette der Arm 913 m weit gereicht — quer durchs halbe Tal.
+# 340 AUF 360 ZURUECK, weil die Grundform vom Kreis zum EI geworden ist (Begruendung dort:
+# der See war im Grundriss ein spiegelsymmetrischer Schmetterling quer zum Tal). Das Ei ist
+# schmaler, und bei gleichem Massstab waere der See auf 260 000 m2 geschrumpft. Mit 360
+# bleibt er bei 313 000 m2, also praktisch so gross wie vorher — nur eben 1215 zu 482 m
+# statt 1043 zu 510 m.
+# DER SEE BRAUCHT KEINE FLACHZONE MEHR. Hier standen SEE_UFERZONE (790 m) und
+# SEE_UFERBLEND (1270 m): eine Platte auf Spiegel + 6 m, die ihn davor bewahren sollte,
+# ins Tal auszulaufen. Sie war zweimal falsch. Erstens war die Begruendung falsch — der
+# Talboden ist hier NICHT auf 0 m (das war laengs 3000 und 6500 gemessen, also vor und
+# hinter dem See), sondern auf 41 bis 230 m, Mittel 116 m: der See liegt in einer
+# gewachsenen Mulde und stand nie auf einem Sockel. Zweitens ist jede Flachzone in
+# TerrainWorld._open_ground zugleich eine FREIHALTEZONE, hier gemessen 0 Bewuchs bis
+# 620 m und voll erst ab 1147 m — daher der kahle braune Ring auf allen Bildern.
+# Dicht ist der See jetzt ueber den Beckenrand (TerrainWorld.SEE_WALL_*).
 const SEE_LAENGS := 5000.0
-const SEE_R := 420.0
+const SEE_R := 360.0
 const SEE_SPIEGEL := 78.0
 
 const FERN_NAH := 2300.0
@@ -477,8 +579,62 @@ func _setup_world() -> void:
 			fz["y"] = ay
 			# Engere Zone als bei den anderen Aussenfeldern: mit 1200 m Ausblendung reichte
 			# sie bis in die Nachbargipfel und haette den 660er auf 562 m gedrueckt.
-			fz["r_flat"] = 700.0
-			fz["r_blend"] = 1050.0
+			# VON 700/1050 UEBER 630/780 AUF 520/620 HERUNTER. Die Zone liegt an der
+			# TIEFSTEN Stelle des Tals und war dort trotzdem die WEITESTE: gemessen
+			# (tools/_krit_keil.gd) 1025 m Talboden bei laengs 8750 m gegen 850..900 m an
+			# der engsten Stelle davor — +21 Prozent genau dort, wo der Talschluss sein
+			# soll. Gewachsen sind an derselben Stelle nur 50 m Boden; die ganze Aufweitung
+			# ist die Einebnung.
+			#
+			# WAS DIE ZONE WIRKLICH BRAUCHT — und das ist WENIGER, als die alten Radien
+			# vorgaben. Bindend sind drei Punkte, alle in Platz-Koordinaten:
+			#   * die Bahnflaeche, ueber die tools/_gebirge_check.gd die Unebenheit misst:
+			#     eine KREISSCHEIBE mit 450 m Radius. Sie ist die harte Bedingung.
+			#   * das Bahnende bei (0, 470) — (RWY_LEN + 40) / 2.
+			#   * die weiteste Ecke des Blender-Bausatzes bei (432, -110).
+			# Der Umkreis all dessen ist rund 470 m, nicht 630. Die 630 kamen allein daher,
+			# dass der Querfaktor 0.72 die 450 m Bahnbreite auf 450 / 0.72 = 625 aufblies.
+			# JETZT ANDERSHERUM: Querfaktor 0.88 und r_flat 520. Quer bleiben 0.88 * 520 =
+			# 458 m flach (die 450 m der Bahnflaeche mit 8 m Rand), laengs 520 m (Bahnende
+			# mit 50 m Rand), und die Bausatzecke liegt elliptisch bei 502 m, also 18 m
+			# innerhalb — dieselbe Reserve wie vorher. Die Linse ist damit LAENGS 110 m
+			# kuerzer geworden, ohne quer schmaler zu werden.
+			# NICHT WEITER HERUNTER: bei r_flat 500 liegt die Bausatzecke ausserhalb, bei
+			# Querfaktor ueber 0.90 reicht die Ausblendung auf die Bahn und die Unebenheit
+			# ist nicht mehr 0.000 m.
+			#
+			# WARUM 620 UND NICHT WENIGER: r_blend - r_flat ist die Boeschung, quer also
+			# 0.88 * 100 = 88 m statt vorher 0.72 * 150 = 108 m. Sie wird davon NICHT
+			# steiler, obwohl sie kuerzer ist — die Zone hebt weniger Material aus, also
+			# muss die Boeschung auch weniger Hoehe ueberwinden. Gemessen quer bei 8800 m
+			# in 100-m-Schritten ueber der Fusslinie 90 m (tools/_tal_keil.gd):
+			#   vorher  90 90 90 90 90 158 313  -> steilste Stufe 57 Grad
+			#   jetzt   90 90 90 90 90 168 304  -> steilste Stufe 54 Grad
+			# DAS IST TROTZDEM DER ABWAEGUNGSPUNKT: jeder weitere Meter, den die Boeschung
+			# kuerzer wird, nimmt zwei Meter Talbodenbreite am Platz weg und stellt die Wand
+			# neben dem Vorfeld steiler. Ab rund 72 Grad steht dort eine Steinbruchwand.
+			# Der Talboden kann hier ohnehin nie unter 2 * 458 = 916 m: das Plateau selbst
+			# liegt auf 90 m und zaehlt in jeder Messung als Talboden. 916 m ist die harte
+			# Untergrenze, die die Bahnflaeche vorgibt — naeher ist ohne kuerzere Bahn nicht
+			# heranzukommen.
+			fz["r_flat"] = 520.0
+			fz["r_blend"] = 620.0
+			# QUERFAKTOR — die Einebnung ist hier eine ELLIPSE laengs der Bahn, kein Kreis.
+			# WARUM: der Kreis mit 1050 m Ausblendung liegt im engsten Teil des Tals und
+			# hat den Talboden dort auf 1725 m aufgeweitet, obwohl der Fels nur 1040 m
+			# frei laesst. In der Aufsicht war das ein exakter Kreis mitten im Keil, und
+			# gemessen war der tiefste Punkt des Tals damit der WEITESTE — genau das
+			# Gegenteil der Absicht.
+			# 0.88 QUER: quer flach gebraucht werden 450 m (die Bahnflaeche, an der die
+			# Unebenheit gemessen wird) — mehr nicht. Der Querfaktor ist deshalb NICHT der
+			# Hebel, um die Zone schmaler zu bekommen: quer_faktor * r_flat muss rund 455
+			# bleiben, egal wie man die beiden aufteilt. Er ist der Hebel, um sie LAENGS
+			# kuerzer zu bekommen — je groesser er ist, desto kleiner darf r_flat sein und
+			# desto weniger weit reicht die Linse ins Tal hinein.
+			# GEGENPROBE ZUR ALTEN FASSUNG (0.72 / 630 / 780): dieselbe Bahnbreite, aber die
+			# Linse reichte laengs bis 8800 + 780 = 9580 m, also bis in den Talschluss, den
+			# die Querkette ab 9250 m dichtmacht. Jetzt endet sie bei 9420 m.
+			fz["quer_faktor"] = 0.88
 		flat_zones.append(fz)
 	# --- WAHRZEICHEN/POIs: Stadt mit See + Leuchtturm + BERGDORF am FLUSS (Stufe 3) ---
 	var town_pos := Vector3(1400, 0, 750)
@@ -488,11 +644,10 @@ func _setup_world() -> void:
 	var village_pos := Vector3(2550, 120, 1650)   # Bergdorf-Plateau (Schelf am Massiv)
 	flat_zones.append({"pos": town_pos, "r_flat": 360.0, "r_blend": 760.0})
 	flat_zones.append({"pos": lake_pos, "r_flat": 230.0, "r_blend": 520.0})  # See-Umfeld flach
-	# Ufer des Bergsees: ohne die Flachzone schneidet das Becken schraeg in den Talhang und
-	# der See haengt sichtbar in der Boeschung.
-	var see_fz := _tal_punkt(SEE_LAENGS)
-	flat_zones.append({"pos": Vector3(see_fz.x, 0.0, see_fz.y),
-		"r_flat": SEE_R * 1.15, "r_blend": SEE_R * 2.4, "y": SEE_SPIEGEL + 6.0})
+	# HIER STAND DIE FLACHZONE DES BERGSEES. Sie ist ersatzlos weg — Begruendung und
+	# Messwerte oben bei SEE_LAENGS. Das Becken schneidet trotzdem nicht schraeg in den
+	# Talhang: innerhalb der Uferlinie rechnet height_at nur noch mit der Umrissformel,
+	# und nach aussen uebernimmt der Beckenrand.
 	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
 	flat_zones.append({"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0})
 	# --- NEUE VIERTEL aus den Blender-Gebaeuden (scripts/CityBuilder.gd) ---------------
@@ -512,7 +667,13 @@ func _setup_world() -> void:
 		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0},   # Canyon-Endsee
 		# BERGSEE im Hochtal. Liegt zwischen Felsentor und Flugplatz und ist beim Anflug
 		# der Punkt, an dem man weiss, dass die Bahn gleich kommt.
-		{"pos": Vector3(see_p.x, 0.0, see_p.y), "r": SEE_R, "surf": SEE_SPIEGEL}]
+		# "form_achse" schaltet den GELAPPTEN Umriss ein (TerrainWorld._see_umriss_bauen):
+		# Enge in der Mitte, schmaler Arm talaufwaerts, Buchten am Hauptbecken. SEE_R ist
+		# damit nur noch der Massstab — der Arm reicht bis 2,35 * SEE_R hinaus.
+		# Die Achse zeigt talaufwaerts zum Flugplatz. An ihr haengt, wo Arm und Enge liegen
+		# und welche Seite die steile Felsflanke mit dem schmalen Tuerkissaum ist.
+		{"pos": Vector3(see_p.x, 0.0, see_p.y), "r": SEE_R, "surf": SEE_SPIEGEL,
+			"form_achse": TAL_RICHTUNG}]
 	# Erzwungene Formen: Bergmassiv (Bergdorf/Flussquelle) + VULKANINSEL + ARCHIPEL
 	# draußen im Ozean als Ausflugsziele (Insel-Typ fällt am Rand unter den Meeresspiegel
 	# -> echte Küsten mit Türkis-Schelf, egal welcher Seed).
@@ -552,8 +713,128 @@ func _setup_world() -> void:
 			Vector3(1900, 35, 1320), Vector3(1710, 20, 1210), Vector3(1560, 8, 1130),
 			Vector3(1460, 1, 1075), Vector3(1430, -1, 1030),
 		],
+	}, {
+		# ZUFLUSS DES BERGSEES: Wildbach von der steilen Felsflanke herunter in den ARM.
+		#
+		# DIE HOEHEN IN DER LISTE SIND NULLEN UND BLEIBEN ES. Sie kommen aus
+		# TerrainWorld.seebaeche_einpassen(), das sie nach dem Aufbau am Gelaende abliest —
+		# "seebach": 1 markiert den Bach dafuer. Hier standen frueher zwoelf von Hand
+		# abgelesene Werte (266, 208, 166, ...), und die waren beim naechsten Eingriff ins
+		# Hochtal wertlos: _river_carve SETZT die Hoehe, eine Spline ueber dem Gelaende
+		# schuettet also einen Damm auf und eine darunter graebt eine Schlucht.
+		# DIE RICHTUNG IST WIEDER GEMESSEN. Der alte Lauf schwenkte am Ende auf die Talachse
+		# und muendete in die Spitze des Arms — dort steht aber der Riegel, der das Becken
+		# talaufwaerts abschliesst: gemessen 101 m bei 0 Grad und 122 bis 128 m bei 12 bis
+		# 15 Grad, waehrend der Bach dahinter in einer Senke auf 96 m lag. Er musste also
+		# ueber einen Buckel und stand gemessen 13,4 m ueber dem Boden — ein Damm quer durch
+		# den Hang. Im Sektor 22 bis 34 Grad faellt das Gelaende dagegen von 240 m bei
+		# 1400 m Abstand bis 93 m bei 600 m LUECKENLOS ab; dort liegt der Bach von selbst.
+		# Schmaler als die anderen Fluesse (w 9 statt 13) und mit engem Talband: valley 26
+		# haelt den Uferwall des Carves aus dem See heraus. Die Muendung steht deshalb 81 m
+		# hinter der Uferlinie — naeher wuerde sie den Seegrund auf Wasserhoehe + 1,2 m
+		# anheben und ein Stueck Ufer wegnehmen.
+		# DIE MUENDUNG IST VON 400 AUF 312 M GEWANDERT, und beides hat einen eigenen Grund.
+		# Erstens der Umriss: mit der Eiform liegt das Ufer bei 27 Grad auf 279 statt 319 m,
+		# die alten 400 m waeren 121 m NEBEN dem See gewesen. Zweitens stand dort ein
+		# 8,1 m hoher Beckenrand zwischen Bach und Wasser — im Bild endete der Zufluss im
+		# Wald, und der See hatte sichtbar keinen Speiser. Der Rand hat jetzt eine Kerbe
+		# (TerrainWorld.SEE_ZUFLUSS_GRAD, Delta auf Spiegel + 0,9 m), und die Muendung steht
+		# 33 m hinter der Uferlinie darauf.
+		# NAEHER GEHT NICHT: _river_carve zieht im Talband (valley 26) die Ufer auf
+		# Wasserhoehe + 1,2 m, ein Stueck Seeufer waere sonst zugeschuettet.
+		# depth 0.9 statt 1.3: die Muendung liegt per Formel auf Spiegel + Tiefe + 0,2 m
+		# (seebaeche_einpassen — flacher darf sie nicht, sonst zapft das Bett den See an).
+		# Jeder Meter Tiefe hebt damit den Wasserspiegel des Baches an der Muendung um einen
+		# Meter UEBER den See. Mit 0,9 m ist die Stufe 1,1 m und liest sich als Delta; mit
+		# 1,3 m waren es 1,5 m und der Bach stand sichtbar ueber dem See.
+		"w": 9.0, "valley": 26.0, "depth": 0.9, "seebach": 1, "max_tief": 14.0,
+		# Die Punkte stehen bewusst DICHT und mit wechselndem Winkel: mit sechs Stuetzstellen
+		# lief der Bach im Bild als Lineal quer ueber die Flanke.
+		"pts": [
+			_see_punkt(35.0, 1500.0, 0.0), _see_punkt(34.0, 1370.0, 0.0),
+			_see_punkt(33.0, 1240.0, 0.0), _see_punkt(32.0, 1120.0, 0.0),
+			_see_punkt(31.0, 1010.0, 0.0), _see_punkt(30.0, 900.0, 0.0),
+			_see_punkt(29.0, 800.0, 0.0), _see_punkt(28.0, 700.0, 0.0),
+			_see_punkt(27.0, 600.0, 0.0), _see_punkt(27.0, 495.0, 0.0),
+			_see_punkt(27.5, 430.0, 0.0), _see_punkt(27.0, 380.0, 0.0),
+			_see_punkt(26.5, 345.0, 0.0), _see_punkt(27.0, 312.0, 0.0),
+		],
+	}, {
+		# ABFLUSS DES BERGSEES: ueber die Scharte im Beckenrand und die Talstufe hinunter.
+		#
+		# DIE LINIE IST GEMESSEN, NICHT GEZEICHNET. tools/_see_pass.gd sucht auf dem
+		# GEWACHSENEN Gelaende (ohne See, ohne Fluesse) den Weg vom Ufer ins Tal, dessen
+		# HOECHSTER Punkt am niedrigsten liegt — Dijkstra mit max() statt Summe, also genau
+		# das, was auch Wasser tut. Ergebnis ab der Scharte (140 Grad, siehe
+		# TerrainWorld.SEE_ABFLUSS_GRAD): der Flaschenhals liegt bei 75,4 m und damit 2,6 m
+		# UNTER dem Seespiegel. Der Bach muss also gar nichts anschneiden — suedoestlich des
+		# Sees zieht eine gewachsene Rinne (56 bis 75 m) im Bogen von 146 auf 173 Grad, und
+		# die Punkte hier liegen darin. Deshalb wandert der Winkel mit dem Abstand.
+		# Die alte Linie ging bei 161 Grad aus dem Becken und musste dafuer erst eine Mulde
+		# hinab und dann einen Riegel von 88,9 m anschneiden, also 20 m tief graben.
+		#
+		# Hoehen wieder aus seebaeche_einpassen() ("seebach": -1, flussabwaerts gerechnet).
+		#
+		# valley 70: der Bach durchschneidet weiter unten eine Stufe, und mit einem engen
+		# Talband stand das als senkrechter Schlitz im Gelaende. 70 m macht daraus eine
+		# Klamm mit geneigten Waenden.
+		# tal_quelle 13 UND DER ERSTE PUNKT 28 M HINTER DER UFERLINIE sind die Rechnung aus
+		# TerrainWorld.SEE_SCHARTE_BANK: der Boden bleibt hinter der Uferlinie 24 m lang ueber
+		# dem Spiegel (Schwelle 16 m plus Kamm 0,60 m bei 7,5 Prozent Bankgefaelle), und so
+		# weit muss der Bach wegbleiben, sonst senkt _river_carve die Schwelle auf Wasserhoehe
+		# und laesst den See ab. _river_carve greift bis "w" neben der Spline mit voller Tiefe,
+		# der Bachkopf senkt den Boden also erst 28 - 10 = 18 m hinter der Uferlinie. Gemessen
+		# (tools/_see_abfluss.gd) bleibt damit ein geschlossener Riegel von 18 m ueber dem
+		# Spiegel stehen, und tools/_see_form.gd meldet bei Schrittweite 2, 4 und 8 m
+		# dieselbe Flaeche — die Schwelle ist also ein echter Damm und kein Rasterartefakt.
+		# tal_quelle MUSS GROESSER ALS w SEIN: _river_carve rechnet k = smoothstep(w, tal, d),
+		# und mit tal < w liefert smoothstep eine umgekehrte Rampe.
+		# HIER STANDEN 470 M UND 18 M TALBAND, und der Bach hing trotzdem nicht am See: nicht
+		# wegen des Abstands, sondern wegen der Fallhoehe. Gemessen lag sein erster Punkt auf
+		# 64,6 m, also 13,4 m UNTER dem Spiegel, weil die Rinne dahinter mit 60 Prozent abfiel.
+		# Mit der Kiesbank sind es rund 1,3 m — die zwei Wasserflaechen stehen praktisch auf
+		# einer Ebene, und die Abflussbucht (TerrainWorld._see_umriss_faktor) schiebt das
+		# Tuerkis noch 56 m auf die Schwelle zu.
+		# Die Punkte auf den ersten 120 m stehen dicht: ueber die Kante der Talstufe zieht die
+		# Spline sonst eine Sehne, und _river_carve haengt das Wasserband an die Sehne statt
+		# an den Hang — im Bild eine schwebende Rampe.
+		"w": 10.0, "valley": 70.0, "tal_quelle": 13.0, "tal_lauf": 260.0,
+		"depth": 1.4, "seebach": -1, "max_tief": 14.0,
+		"pts": [
+			_see_punkt(151.0, 536.0, 0.0), _see_punkt(151.2, 546.0, 0.0),
+			_see_punkt(151.5, 554.0, 0.0), _see_punkt(151.8, 562.0, 0.0),
+			_see_punkt(152.2, 570.0, 0.0), _see_punkt(152.6, 582.0, 0.0),
+			_see_punkt(153.2, 598.0, 0.0), _see_punkt(154.0, 620.0, 0.0),
+			_see_punkt(155.0, 645.0, 0.0), _see_punkt(157.0, 668.0, 0.0),
+			_see_punkt(159.0, 685.0, 0.0), _see_punkt(160.0, 725.0, 0.0),
+			_see_punkt(161.0, 775.0, 0.0), _see_punkt(162.0, 820.0, 0.0),
+			_see_punkt(164.0, 865.0, 0.0), _see_punkt(166.0, 895.0, 0.0),
+			_see_punkt(167.5, 940.0, 0.0), _see_punkt(168.0, 1000.0, 0.0),
+			_see_punkt(168.3, 1060.0, 0.0), _see_punkt(170.0, 1115.0, 0.0),
+			_see_punkt(172.0, 1150.0, 0.0), _see_punkt(173.5, 1200.0, 0.0),
+			_see_punkt(173.5, 1320.0, 0.0), _see_punkt(173.5, 1450.0, 0.0),
+			_see_punkt(173.5, 1600.0, 0.0),
+		],
 	}]
-	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs)
+	# TALKORRIDOR fuer die ALMWIESE (TerrainWorld._tal_wiese): die Felsschwelle der
+	# Gelaendefarbe wandert im Hochtal nach oben, damit der Talboden gruen ist statt beige.
+	# DAS BREITENPROFIL WIRD ABGETASTET UND UEBERGEBEN, nicht drueben nachgebaut: die
+	# Keilform steht in _tal_halbbreite und gehoert hierher; eine zweite Kopie in
+	# TerrainWorld waere beim naechsten Umbau still falsch geworden.
+	var tal_hb := PackedFloat32Array()
+	for i in 33:
+		tal_hb.append(_tal_halbbreite(TAL_LAENGE * float(i) / 32.0))
+	# SCHUTTHALDE DES FELSENTORS ANMELDEN — VOR setup(). Ueber ihr waechst nichts und es
+	# gibt keine Almwiese. Das Wahrzeichen selbst entsteht erst weiter unten (es braucht
+	# die Gelaendehoehe, die es ohne setup() nicht gibt), aber der Chunk-Worker laeuft ab
+	# setup(), und die ersten Kacheln am Tor waeren sonst schon bepflanzt gewesen.
+	# Die Form kommt aus Landmarks; build_felsentor holt sich unten dieselbe Zone.
+	var tor_q := _tal_punkt(TOR_LAENGS)
+	terrain.schutthalden = [Landmarks.tor_halde_zone(tor_q.x, tor_q.y,
+		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y), TOR_SPANN, TOR_SEED)]
+	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs,
+		{"start": TAL_START, "richtung": TAL_RICHTUNG, "laenge": TAL_LAENGE,
+			"halbbreite": tal_hb})
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	# KARTE: Bild im Hintergrund-Thread generieren (~100k height_at-Samples, kein Startup-Ruckler;
@@ -618,8 +899,14 @@ func _setup_world() -> void:
 	# nicht auf einem geratenen Wert, sonst haengt das Tor in der Luft oder steckt im Hang.
 	var tor_p := _tal_punkt(TOR_LAENGS)
 	var tor_y := terrain.height_at(tor_p.x, tor_p.y)
+	# hoehe ist die LICHTE Hoehe des Lochs; die Felsnadel darueber kommt noch obendrauf
+	# (55 Prozent, Gesamthoehe also rund 650 m). 420 statt der frueheren 260, weil die
+	# Oeffnung hoeher als breit sein soll — mit 260 war sie 328 x 224 m, also andersherum;
+	# gemessen sind es jetzt 226 x 388 m (tools/_tor_form.gd).
+	# terrain wird fuer die Schutthalde gebraucht: Felsdecke und Bloecke liegen auf dem
+	# echten Hang, der zur dicken Seite hin um ueber 400 m ansteigt.
 	Landmarks.build_felsentor(fly_world, Vector3(tor_p.x, tor_y, tor_p.y),
-		520.0, 260.0, 70.0, atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
+		TOR_SPANN, 420.0, 105.0, atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y), TOR_SEED, terrain)
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
 	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.
@@ -4216,13 +4503,64 @@ func _tal_punkt(laengs: float) -> Vector2:
 	return TAL_START + TAL_RICHTUNG * laengs
 
 
-## DAS HOCHTAL im Nordwesten — zwei parallele Ketten mit einem Tal dazwischen, und im
+## Punkt im Umfeld des BERGSEES, in dessen eigenen Polarkoordinaten: Winkel 0 zeigt
+## talaufwaerts (dorthin, wo der Arm liegt), +90 Grad zur steilen Felsflanke.
+## Dieselbe Basis, mit der TerrainWorld._see_umriss die Uferlinie abfragt — so lassen sich
+## Zu- und Abfluss auf Buchten und Arm beziehen, ohne Weltkoordinaten abzutippen.
+func _see_punkt(grad: float, abstand: float, hoehe: float) -> Vector3:
+	var a := deg_to_rad(grad)
+	var quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
+	var p := _tal_punkt(SEE_LAENGS) + (TAL_RICHTUNG * cos(a) + quer * sin(a)) * abstand
+	return Vector3(p.x, hoehe, p.y)
+
+
+## HALBER KAMMABSTAND an der Stelle "laengs" — die eine Stelle, an der die Keilform steht.
+## Linear, weil das Referenzbild eine stetige Verjuengung zeigt und keine einzelne
+## Engstelle: vorn faehrt man in ein weites Becken ein, hinter dem Flugplatz laeuft das
+## Tal in den Schneegipfeln aus.
+##
+## WARUM LINEAR UND NICHT "VORN FLACH, HINTEN STEIL". Naheliegend waere, die Verjuengung
+## dorthin zu legen, wo man fliegt (laengs 3000..9000), und den Talmund gleich breit zu
+## lassen. Das geht NICHT, weil das hintere Ende eine harte Untergrenze hat: die
+## Bahnflaeche von ADLERHORST ist eine Kreisscheibe mit 450 m Radius auf 90 m Hoehe, und
+## die zaehlt in jeder Bodenmessung als Talboden. Unter 2 * 458 = 916 m kommt das Tal bei
+## laengs 8800 also nie (siehe die Einebnungszone in _build_world). Wer hinten staerker
+## zusammenzieht, macht damit nicht das Tal enger, sondern nur die Flachzone auffaelliger.
+## Die Verjuengung muss deshalb ueber die GANZE Laenge gleichmaessig laufen.
+##
+## Gemessen mit tools/_krit_keil.gd (zusammenhaengender Talboden unter 200 m, 25-m-Raster,
+## Reihe wie im Spiel — Flachzonen also drin):
+##   laengs        500  3000  4250  5000  6000  7000  8000  8500  8750
+##   vorige       1425  1200  1075   975   950   850   850   925  1025
+##   jetzt        1675  1325  1200  1100  1025   900   900   875  1025
+## Vorher lag der gesamte Abfall in den ersten 3,5 km: ueber 4000..8750 schwankte der
+## Boden um 850..1075 m ohne Richtung, und der TIEFSTE Punkt des Tals war mit 1025 m die
+## WEITESTE Stelle des hinteren Tals. Jetzt faellt er von 1200 m hinter dem Tor auf 875 m
+## am Talschluss durch — 27 Prozent ueber die Strecke, auf der man den Endanflug fliegt.
+## Uebrig bleibt die Linse von ADLERHORST bei 8750 m (1025 m): sie ist die oben genannte
+## Untergrenze plus 88 m Boeschung und laesst sich nicht wegrechnen, nur kuerzer machen.
+## NICHT AN 5000 UND 8800 IN DER REIHE "GEBAUT" MESSEN, wenn man die KETTEN pruefen will:
+## dort liegt die Flachzone von ADLERHORST, die den Boden auf ihren eigenen Radius
+## aufweitet. Dafuer hat tools/_tal_keil.gd die Reihe GEWACHSEN.
+func _tal_halbbreite(laengs: float) -> float:
+	return lerpf(TAL_BREITE, TAL_BREITE_HINTEN, clampf(laengs / TAL_KEIL_LAENGE, 0.0, 1.0))
+
+
+## DAS HOCHTAL im Nordwesten — zwei Ketten mit einem KEILFOERMIGEN Tal dazwischen, und im
 ## Tal der Flugplatz ADLERHORST.
 ##
 ## FORM: die Massive selbst koennen nur ANHEBEN (max in height_at), ein Tal laesst sich
 ## also nicht graben. Es entsteht als der Raum, den man FREILAESST — zwei Kaemme im
-## Abstand 2 * TAL_BREITE, dazwischen bleibt das Grundgelaende stehen. Am hinteren Ende
-## schliesst eine Querkette das Tal ab, sodass es eine Sackgasse ist.
+## Abstand 2 * _tal_halbbreite(laengs), dazwischen bleibt das Grundgelaende stehen. Der
+## Abstand nimmt nach hinten ab (2480 -> 2110 halbseitig ueber 9200 m), das Tal verjuengt
+## sich also zur Tiefe hin. Am hinteren Ende schliesst eine Querkette das Tal ab, sodass
+## es eine Sackgasse ist.
+##
+## DER KEIL STECKT ABER NUR ZUR HAELFTE IN DIESEM ABSTAND. Was man aus dem Cockpit sieht,
+## ist nicht der Talboden, sondern die Hoehenlinie auf Augenhoehe, und die liegt bei
+## r * (1 - h / peak) vom Massivmittelpunkt — sie haengt also genauso an der GIPFELHOEHE
+## wie an der Sollinie. Beide Hebel muessen in dieselbe Richtung zeigen, sonst hebt der
+## eine den anderen auf; die Begruendung und die Messwerte stehen unten bei "kaemme".
 ##
 ## ABSTAND DER MASSIVE UNTEREINANDER: rund die HAELFTE ihres Radius, nicht ein ganzer.
 ## Die Kegelform ist cone = 1 - smoothstep(0, r, d), und smoothstep faellt in der Mitte
@@ -4233,39 +4571,187 @@ func _tal_punkt(laengs: float) -> Vector2:
 ## HOEHEN bis 1250 m. Der bisher hoechste Punkt der Karte war der Vulkan mit 230 m; die
 ## erste Fassung dieser Kette ging bis 650 m. Oberhalb von 230 m waechst nichts mehr
 ## (FLORA_MAX_H), der Schnee blendet ueber 240 Hoehenmeter ein — die Kaemme sind damit
-## kahler Fels mit weissen Gipfeln, das Tal darunter gruen.
+## kahler Fels mit weissen Gipfeln, das Tal darunter gruen. Die 1250 m stehen NICHT
+## irgendwo in der Kette, sondern am Talschluss: beide Ketten steigen monoton dorthin.
 func _hochgebirge() -> Array:
 	var quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)   # senkrecht zur Talachse
 	var out: Array = []
-	# Gipfelhoehen je Kette, von vorn nach hinten. Bewusst UNGLEICH und gegeneinander
-	# versetzt: gleiche Hoehen auf beiden Seiten laesen das Tal wie einen Kanal aussehen.
+	# Gipfelhoehen je Kette, von vorn nach hinten.
+	# ELF STATT NEUN JE KETTE, weil der Laengsabstand mit dem Radius von 1300 auf 1100 m
+	# heruntergegangen ist (TAL_KETTE_ABSTAND). 11 * 1100 deckt dieselben 11 km ab.
+	#
+	# DIESE LISTE IST DER ZWEITE HEBEL DES KEILS, UND ER IST DER STAERKERE.
+	# Die Sollinie _tal_halbbreite verengt das Tal um 370 m je Seite. Die Hoehenlinie h
+	# eines geraden Kegels liegt aber bei r * (1 - h / peak) vom Mittelpunkt — bei
+	# r = 2200 verschiebt schon der Unterschied zwischen 850 und 1250 m Gipfel die
+	# 800-m-Linie um 2200 * (0.36 - 0.06) = 663 m. Die Gipfelliste bewegt die SICHTBARE
+	# Kante also fast doppelt so weit wie die Sollinie.
+	#
+	# WAS HIER VORHER STAND UND WARUM ES DEN KEIL AUFGEHOBEN HAT: die Hoehen sprangen
+	# innerhalb einer Kette zwischen 850 und 1250 m und FIELEN nach hinten ab (Kette +1
+	# endete auf 980/850, Kette -1 auf 1140/830). Am Talschluss standen damit die
+	# NIEDRIGSTEN Waende, und dort lag die 800-m-Linie am weitesten aussen: gemessen
+	# (tools/_tal_kammkeil.gd) 1450/1575 m bei laengs 7000, aber 2075/1750 bei 8000 —
+	# das Tal wurde oben nach hinten BREITER. Der Boden verjuengte sich (1.58 : 1), die
+	# Silhouette, die man aus dem Cockpit sieht, nicht (H800 1.46 : 1 mit 4275 m
+	# Aufweitung an 14 Stellen). Das ist genau umgekehrt zum Referenzbild, in dem das
+	# Tal in die hoechsten, verschneiten Gipfel hineinlaeuft.
+	#
+	# JETZT: beide Ketten steigen MONOTON zum Talschluss und laufen dort in die 1250 m
+	# aus. Der Streubereich innerhalb einer Kette ist damit weg — die Ungleichheit der
+	# beiden Talseiten kommt jetzt SYSTEMATISCH statt zufaellig: Kette -1 liegt auf ihrer
+	# ganzen Laenge rund 50 bis 70 m ueber Kette +1 und ist damit durchgehend die
+	# steilere, dominante Flanke, so wie im Referenzbild die rechte. Zufaelliges Auf und
+	# Ab braucht es dafuer nicht: der Faktor (0.68 + 0.32 * rdg) in TerrainWorld streut
+	# jeden Gipfel ohnehin um -32 Prozent, gemessen stehen von 1250 m nominal zwischen
+	# 850 und 1100 m im Gelaende.
+	# DER TALMUND BLEIBT NIEDRIG (860/910). Das ist eine bewusste Abwaegung, und sie hat
+	# einen Preis, der hier stehen bleibt, damit ihn niemand fuer einen Fehler haelt:
+	# niedrigere Gipfel vorn heissen flachere Kegel vorn, und der Talboden am Mund wird
+	# dadurch breiter — gemessen (tools/_tal_keil.gd, Reihe GEWACHSEN) 1800 statt 1725 m
+	# an der breitesten Stelle der ersten 3 km. Dagegen steht: der MITTELWERT ueber
+	# 500..9500 m bleibt bei 1080 m (vorher 1076 m), das Tal ist also nirgends im Mittel
+	# breiter geworden, und die Verjuengung geht von 1.82 auf 2.12 : 1 hoch.
+	# WARUM DER PREIS SICH LOHNT: haelt man den Mund hoch (Rampe erst ab 1000 m), wandert
+	# die 600-m-Hoehenlinie vorn um rund 120 m je Seite nach INNEN und das Keilmass auf
+	# dieser Linie faellt von 1.43 auf rund 1.33 : 1 zurueck — also fast auf den Zustand,
+	# den diese Runde beheben sollte. Der sichtbare Keil steckt zum groesseren Teil im
+	# NIEDRIGEN MUND, nicht in den hohen Gipfeln hinten.
+	# Gemessen mit tools/_tal_kammkeil.gd, vorher -> nachher:
+	#   Talboden  H200:  1.58 -> 1.75 : 1
+	#   400-m-Linie:     1.34 -> 1.48 : 1
+	#   600-m-Linie:     1.30 -> 1.43 : 1, und sie oeffnet sich nicht mehr nach hinten
+	#                    (vorher mitte 2486 / hinten 2558 m, jetzt 2567 / 2394 m)
+	#   hoechster Kamm:  vorn 931 / hinten 983 m  ->  vorn 880 / hinten 1072 m
 	var kaemme := [
-		[1.0, [880.0, 1010.0, 1140.0, 1250.0, 1180.0, 1090.0, 1210.0, 950.0, 860.0]],
-		[-1.0, [900.0, 1060.0, 1190.0, 1120.0, 1240.0, 1160.0, 1000.0, 1080.0, 840.0]],
+		[1.0, [860.0, 925.0, 990.0, 1050.0, 1105.0, 1150.0, 1190.0, 1220.0, 1245.0,
+			1250.0, 1250.0]],
+		[-1.0, [910.0, 980.0, 1045.0, 1105.0, 1155.0, 1200.0, 1230.0, 1250.0, 1250.0,
+			1250.0, 1250.0]],
 	]
 	for k in kaemme:
 		var seite: float = k[0]
 		var gipfel: Array = k[1]
+		# LAENGSVERSATZ: die nordoestliche Kette (seite -1, die landeinwaerts stehende)
+		# sitzt eine halbe Massivteilung weiter vorn, damit ihre Ausbuchtungen auf die
+		# Engstellen der Gegenseite fallen. Begruendung und Messwerte bei
+		# TAL_KETTE_VERSATZ. Nach VORN und nicht nach hinten, weil das erste Massiv damit
+		# bei laengs -550 m steht und dort noch tief im Land liegt (Radius 9.5 km); die
+		# seewaertige Kette bleibt unangetastet, ihre Kuestenlage aendert sich also nicht.
+		var kette_off := 0.0 if seite > 0.0 else -TAL_KETTE_VERSATZ
 		for i in gipfel.size():
-			var laengs := float(i) * 1300.0
-			var p := TAL_START + TAL_RICHTUNG * laengs + quer * seite * TAL_BREITE
-			out.append({"pos": Vector3(p.x, 0.0, p.y), "r": 2600.0, "peak": float(gipfel[i]),
-				"schaerfe": 0.85, "grat": 3.2})
-	# TORPFEILER am Taleingang: zwei niedrige Vorspruenge beidseits der Achse, aus denen
-	# das Felsentor wachsen kann. Sie duerfen die Durchfahrt NICHT schliessen — mit 380 m
-	# Radius bei 300 m Achsabstand traegt jeder auf der Achse nur 260 * (1 - 300/380) = 55 m
-	# bei, also weniger als der Talboden dort, und max() laesst den Durchgang offen.
-	for sq: float in [-1.0, 1.0]:
-		var tp: Vector2 = TAL_START + TAL_RICHTUNG * TOR_LAENGS + quer * sq * 300.0
-		out.append({"pos": Vector3(tp.x, 0.0, tp.y), "r": 380.0, "peak": 260.0,
-			"schaerfe": 0.85, "grat": 3.2})
+			var laengs := float(i) * TAL_KETTE_ABSTAND + kette_off
+			# KEIL: die Halbbreite haengt an der Laengsposition, nicht mehr an einer
+			# Konstanten. Der Laengsabstand der Massive bleibt bei 1100 m — der Versatz
+			# quer dazu betraegt 370 m ueber 9200 m, also 44 m je Schritt, und aus 1100 m
+			# Abstand werden dadurch sqrt(1100^2 + 44^2) = 1101 m. Das Verhaeltnis zum
+			# Radius bleibt damit bei 0.50 und die Kette ein Grat (tools/_tal_keil.gd
+			# meldet 0.500 auf beiden Seiten).
+			var p := TAL_START + TAL_RICHTUNG * laengs \
+				+ quer * seite * _tal_halbbreite(laengs)
+			# JEDER BERG EIN EIGENER. Vorher trugen alle 18 Massive der beiden Ketten
+			# dieselben vier Werte — gleiche Schaerfe, gleiche Gratstaerke, runder
+			# Fussabdruck, dasselbe Rauschmuster. Sie unterschieden sich nur in Hoehe und
+			# Ort, und genau deshalb sahen sie aus wie Kopien voneinander.
+			# Die Streuung kommt aus einem festen Wuerfel je Berg, NICHT aus randf():
+			# die Welt muss bei jedem Start dieselbe sein. Der Index geht in den Seed,
+			# damit Nachbarn nie zufaellig gleich ausfallen.
+			var wuerfel := RandomNumberGenerator.new()
+			wuerfel.seed = hash(Vector2i(int(seite), i)) ^ 0x5EED_BE46
+			# schaerfe: 0.45 gibt eine breite Schulter, 0.98 eine Nadel.
+			var schaerfe := wuerfel.randf_range(0.45, 0.98)
+			# grat: wie stark die Rippen und Rinnen ausgepraegt sind.
+			var grat := wuerfel.randf_range(1.6, 4.6)
+			# nz_frq: Feinheit der Rippen. Klein = wenige breite Grate, gross = zerklueftet.
+			var frq := wuerfel.randf_range(1.3, 4.2)
+			# dehnung/drall: gedrehte Ellipse als Grundriss. Der staerkste Hebel ueberhaupt —
+			# ein 1.6-fach gestreckter Berg liest sich voellig anders als ein Kegel.
+			var dehnung := wuerfel.randf_range(0.72, 1.55)
+			out.append({"pos": Vector3(p.x, 0.0, p.y), "r": TAL_KETTE_R,
+				"peak": float(gipfel[i]), "schaerfe": schaerfe, "grat": grat,
+				"nz_frq": frq, "nz_off": wuerfel.randf_range(-9000.0, 9000.0),
+				"dehnung": dehnung, "drall": wuerfel.randf_range(0.0, PI)})
+	# DIE FELSRIPPE am Taleingang: der Fels, in dem das Felsentor als LOCH sitzt.
+	#
+	# HIER STANDEN NACHEINANDER SCHON ZWEI FALSCHE FASSUNGEN:
+	#  1. zwei gleiche Kegel (r 380, peak 260, je 300 m links und rechts der Achse) — im
+	#     Bild zwei ununterscheidbare, glatte Sandduenen mit einem Reifen dazwischen.
+	#  2. Schulter (470 m aussen, r 560, peak 520) plus eine Rippe erst bei 980 m. Die
+	#     Rippe stand damit GANZ AUSSERHALB des Bildausschnitts, den tools/_tor_form.gd
+	#     rastert (lo.x - 400 .. hi.x + 400, also etwa +-760 m), und zwischen Schulter und
+	#     Rippe klaffte auf Scheitelhoehe ein rund 300 m breiter Himmelspalt. Gemessen:
+	#     "hoechstes Gelaende quer zur Torachse 467 m" bei 654 m Scheitel, "seitlich
+	#     angebunden: links nein, rechts nein". Im Bild: ein Stapelturm VOR einem Sattel.
+	#
+	# JETZT EINE EINZIGE, DOMINANTE FELSMASSE dicht am Tor, dahinter zwei Massive, die sie
+	# an die Talkette anschliessen. quer ist das lokale +X des Tors (build_felsentor dreht
+	# mit atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y)); bei +X steht das dicke Bein, dort also
+	# die Rippe. Gegenueber bleibt nur ein niedriger Sporn — die Ungleichheit der beiden
+	# Seiten ist der Kern der Form.
+	#
+	# DIE ZWEI ZAHLEN, AN DENEN DIE RIPPE HAENGT, sind Abstand und Radius, nicht der
+	# Gipfel: mit schaerfe ~ 1 ist das Profil der GERADE Kegel peak * (1 - d/r), und der
+	# Fuss liegt damit exakt bei (Abstand - r).
+	#  * Fuss bei 120 m quer zur Achse (700 - 580): dort steht schon das dicke Bein
+	#    (Innenkante 0.19 * 520 = 99 m). Die lichte Weite des Tors liegt also GANZ vor dem
+	#    Rippenfuss und kann von ihm nicht zugehen — auf der Talachse selbst ist der
+	#    Beitrag null (d = 700 > r = 580).
+	#  * Gipfel 1080 m bei 700 m Abstand: das Gelaende steigt mit rund 1.3 m je Meter an
+	#    und steht 700 m neben dem Tor rund 900 m hoch — ueber dem 654 m hohen Scheitel.
+	#    Genau das misst _tor_form.gd als "hoechstes Gelaende quer zur Torachse", und
+	#    genau das ist der Unterschied zwischen Rippe mit Loch und freistehendem Reifen.
+	# Der Faktor (0.68 + 0.32 * rdg) in TerrainWorld streut die Hoehe um -20 Prozent; die
+	# 1080 sind deshalb mit Reserve gewaehlt und nicht knapp auf 654 gerechnet.
+	#
+	# grat 5.0 ist die beidseitige Gratamplitude (crag - 0.5) * 30 * (grat - 1). Sie
+	# zerlegt die Kegelflanke in Rippen und Rinnen — ohne sie waere auch diese Masse
+	# wieder eine glatte Duene.
+	var tor_m: Vector2 = TAL_START + TAL_RICHTUNG * TOR_LAENGS
+	var rippe: Vector2 = tor_m + quer * 700.0 + TAL_RICHTUNG * 40.0
+	out.append({"pos": Vector3(rippe.x, 0.0, rippe.y), "r": 580.0, "peak": 1080.0,
+		"schaerfe": 0.96, "grat": 5.0})
+	# ANSCHLUSS AN DIE TALKETTE. Ohne diese beiden staende die Rippe als einzelner Zahn im
+	# Tal. Abstand zum Vorgaenger jeweils rund die HAELFTE des Radius (420/610 = 0.69 und
+	# 380/600 = 0.63) — die Regel aus dem Kopfkommentar, sonst wird aus dem Grat eine
+	# Perlenschnur. Beide liegen mit ihrem Fuss (1120 - 640 = 480 bzw. 1520 - 700 = 820 m)
+	# weit ausserhalb der Durchfahrt.
+	var rippe2: Vector2 = tor_m + quer * 1120.0 - TAL_RICHTUNG * 60.0
+	out.append({"pos": Vector3(rippe2.x, 0.0, rippe2.y), "r": 640.0, "peak": 1200.0,
+		"schaerfe": 0.92, "grat": 4.5})
+	var rippe3: Vector2 = tor_m + quer * 1520.0 + TAL_RICHTUNG * 90.0
+	out.append({"pos": Vector3(rippe3.x, 0.0, rippe3.y), "r": 700.0, "peak": 1150.0,
+		"schaerfe": 0.90, "grat": 4.0})
+	# Gegenueber nur ein Sporn — er nimmt die schlanke Saeule auf, die dort einsticht.
+	# Er darf NICHT so hoch werden wie die Rippe: ein zweiter Berg machte daraus wieder
+	# ein Tor zwischen zwei gleichen Kegeln.
+	# 400 statt 360 m aussen und r 400 statt 380: sein Fuss liegt damit auf der Talachse
+	# (400 - 400 = 0) statt 20 m davor. Vorher hob er die Achse selbst um rund 20 m an und
+	# schob die lichte Hoehe des Tors nach oben.
+	var sporn: Vector2 = tor_m - quer * 400.0
+	out.append({"pos": Vector3(sporn.x, 0.0, sporn.y), "r": 400.0, "peak": 330.0,
+		"schaerfe": 0.95, "grat": 4.0})
 	# QUERKETTE am hinteren Ende: macht das Tal zur Sackgasse. Sie steht 1,6 km hinter dem
 	# Flugplatz — weit genug, um nach dem Aufsetzen noch auszurollen und zu drehen.
+	#
+	# DIE AEUSSEREN BEIDEN STEHEN HOEHER ALS DIE MITTLERE, UND DAS IST DER PUNKT.
+	# Mit einheitlich 980 m schloss das Tal in einer Kuppe, die NIEDRIGER war als die
+	# Seitenketten daneben (dort jetzt 1250 m): im Bild (tal_anflug) endete das Tal in einem
+	# braunen Huegel unter der Schneegrenze, waehrend links und rechts weisse Waende
+	# standen. Im Referenzbild schliesst das Tal in den HOECHSTEN, verschneiten Gipfeln.
+	#
+	# WARUM DIE MITTLERE TROTZDEM NIEDRIGER BLEIBT: sie ist die einzige der drei, die nah
+	# genug an ADLERHORST steht, um dort Gelaende zu machen — 1600 m Abstand bei r 2300
+	# geben rund 230 m gewachsenen Fels auf der Platzmitte, und genau so viel muss die
+	# Einebnung wieder abtragen. Jeder Meter hier ist ein Meter tieferer Steinbruch neben
+	# der Bahn. Die aeusseren beiden liegen mit sqrt(1600^2 + 1500^2) = 2193 m schon fast am
+	# Kegelrand und tragen auf der Platzmitte nur rund 33 m bei; 1250 statt 980 kosten dort
+	# also 9 m, geben aber die weissen Gipfel am Talschluss.
+	var quer_gipfel := [1250.0, 1080.0, 1250.0]
 	for j in range(-1, 2):
 		var p := TAL_START + TAL_RICHTUNG * (ADLERHORST_LAENGS + 1600.0) \
 			+ quer * float(j) * 1500.0
-		out.append({"pos": Vector3(p.x, 0.0, p.y), "r": 2300.0, "peak": 980.0,
-			"schaerfe": 0.85, "grat": 3.2})
+		out.append({"pos": Vector3(p.x, 0.0, p.y), "r": 2300.0,
+			"peak": float(quer_gipfel[j + 1]), "schaerfe": 0.85, "grat": 3.2})
 	return out
 
 
