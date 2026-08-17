@@ -438,10 +438,41 @@ func height_at(x: float, z: float) -> float:
 		if cone > 0.0:
 			# craggy: breite Ridge-Form + hochfrequente Grat-Details -> Bergform statt Kuppel
 			var crag := clampf(_ridge.get_noise_2d(x * 2.4, z * 2.4) * 0.5 + 0.5, 0.0, 1.0)
+			# SPITZE STATT KUPPE. cone = 1 - smoothstep(0, r, d) hat am Mittelpunkt die
+			# Steigung NULL — deshalb endet jedes Massiv oben in einer runden Kuppe, egal
+			# wie hoch es ist. Fuer einen spitzen Gipfel braucht es ein Profil, das im
+			# Zentrum eine echte Steigung hat.
+			# Der GERADE Kegel 1 - d/r leistet genau das: im Zentrum hat er eine echte
+			# Steigung (spitzer Gipfel), und auf halbem Radius liefert er 0.5 — denselben
+			# Wert wie smoothstep. Der Berg wird also oben spitzer, ohne unten breiter zu
+			# werden.
+			# ERST PROBIERT UND VERWORFEN: pow(1 - d/r, 0.75). Der Exponent unter 1 macht
+			# die Flanke VOLLER (0.595 statt 0.5 auf halbem Radius). Im Bild hob das den
+			# ganzen Bergfuss an, das Vorland rutschte ueber die Felsschwelle und die
+			# gruene Wiese vor dem Gebirge wurde braun.
+			# "schaerfe" 0 = wie bisher, 1 = ganz spitz. Ohne den Wert aendert sich an
+			# allen vorhandenen Massiven (Vulkan, Inseln, Canyonflanken) nichts.
 			var s := smoothstep(0.0, 1.0, cone)
+			var sch := float(ms.get("schaerfe", 0.0))
+			if sch > 0.0:
+				s = lerpf(s, clampf(1.0 - md / mr, 0.0, 1.0), sch)
 			if typ == "berg":
 				var top := float(ms["peak"]) * s * (0.68 + 0.32 * rdg)
 				top += s * crag * 30.0
+				# GRAT-AMPLITUDE, BEIDSEITIG. Der Vorgabewert 30 m gibt einer 200-m-Kuppe
+				# eine feine Struktur, auf einem 660-m-Berg verschwindet er. "grat" legt
+				# fuer das Hochgebirge kraeftige Rippen und Rinnen darueber.
+				# WICHTIG IST DAS VORZEICHEN: crag liegt zwischen 0 und 1, addiert also
+				# IMMER. Einfach hochzuskalieren hob deshalb die ganze Mittelflanke an —
+				# bei Faktor 3.2 um bis zu 48 m — und schob das Vorland ueber die
+				# Felsschwelle, sodass die gruene Wiese vor dem Gebirge braun wurde.
+				# (crag - 0.5) ist um null zentriert: es schneidet ebenso viel Material
+				# weg, wie es auftraegt. Die Silhouette wird zackig, die mittlere Hoehe
+				# bleibt. Der Zusatz greift nur ueber dem Vorgabewert 1.0, alle
+				# vorhandenen Massive bleiben damit unveraendert.
+				var grat := float(ms.get("grat", 1.0))
+				if grat > 1.0:
+					top += s * (crag - 0.5) * 30.0 * (grat - 1.0)
 				h = maxf(h, top)
 			else:
 				# INSEL/VULKAN: Rand fällt UNTER den Meeresspiegel -> echte Küste rundum.
@@ -1566,10 +1597,37 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	if cen.y > 160.0 and ny > 0.5:
 		return Color(0.56, 0.53, 0.53).lerp(Color(0.87, 0.88, 0.91),
 			clampf((cen.y - 160.0) / 28.0, 0.0, 1.0))   # schmaler Schnee-Übergang (mehr Fels sichtbar)
-	if cen.y > 52.0 or ny < 0.70:
-		# Fels: satt grau-braun (nicht pastell-weiß); etwas heller in der Höhe für Bergform
-		return Color(0.35, 0.31, 0.27).lerp(Color(0.56, 0.52, 0.46),
-			clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
+	# FELS UND BODEN UEBERBLENDEN statt hart umschalten. Hier stand
+	#     if cen.y > 52.0 or ny < 0.70: return fels
+	# also eine Stufenfunktion — und im Bild lag um jeden Berg ein scharf gezeichneter
+	# brauner Ring, am deutlichsten am neuen Hochgebirge, wo er quer durch den Wald lief.
+	# Der Anteil kommt jetzt aus zwei weichen Rampen (Hoehe ODER Steilheit, das Maximum
+	# gewinnt) und wird ueber die Grundfarbe geblendet.
+	var fels := Color(0.35, 0.31, 0.27).lerp(Color(0.56, 0.52, 0.46),
+		clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
+	# Die Rampen liegen ENG um die alten harten Schwellen (52 m und 0.70): der Uebergang
+	# soll weich werden, die FLAECHE aber gleich bleiben. Der erste Versuch nahm 38-66 m
+	# und 0.80-0.62 — damit bekam jede sanft geneigte Wiese am Bergfuss einen Braunstich,
+	# und im Bild war das Vorland vor dem Hochgebirge nicht mehr gruen.
+	var fels_anteil := maxf(smoothstep(45.0, 59.0, cen.y), smoothstep(0.745, 0.655, ny))
+	if fels_anteil > 0.998:
+		return fels
+	var boden := _boden_farbe(cen)
+	if fels_anteil < 0.002:
+		return boden
+	return boden.lerp(fels, fels_anteil)
+
+
+## GRUNDFARBE OHNE FELS: Wiese, Wald, Wueste, Heide je nach Biom.
+##
+## Aus _face_color herausgeloest, damit sich Boden und Fels UEBERBLENDEN lassen. Vorher
+## schaltete _face_color bei genau 52 m Hoehe bzw. 0.70 Hangneigung hart um, und im Bild
+## lag um jeden Berg ein scharf gezeichneter brauner Ring — am neuen Hochgebirge lief er
+## quer durch den Wald.
+## KOSTET NICHTS EXTRA: _face_color ruft das nur, wenn der Felsanteil unter 1 liegt, also
+## nur im schmalen Uebergangsband und nicht auf der ganzen Bergflanke. Das ist wichtig —
+## die Funktion laeuft je DREIECK, also 4608-mal pro Chunk.
+func _boden_farbe(cen: Vector3) -> Color:
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	# WALDBODEN: exakt dieselbe Dichte-Formel wie die Bepflanzung in _make_chunk_data,
 	# also faerbt sich der Boden GENAU dort dunkel, wo auch Baeume stehen. Zwei Gewinne:
@@ -1630,6 +1688,7 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 ## 7.346.396 — ein Promille. Godot waehlt fuer eine MultiMesh keine LOD-Stufe aus; die
 ## Stufen liegen zwar im Mesh, werden aber nie benutzt. Also muss das Mesh SELBST
 ## getauscht werden, und genau das macht _chunks_pflegen() je Chunk.
+
 static func _grobe_fassung(quelle: Mesh) -> Mesh:
 	if quelle == null or quelle.get_surface_count() == 0:
 		return quelle

@@ -4211,7 +4211,10 @@ func _hochgebirge() -> Array:
 	var out: Array = []
 	for e in kette:
 		var p := start + richtung * float(e[0])
-		out.append({"pos": Vector3(p.x, 0.0, p.y), "r": float(e[2]), "peak": float(e[1])})
+		# schaerfe/grat gibt es NUR hier: spitze Gipfel und kraeftige Rippen sind das,
+		# was diese Kette von den runden Kuppen der uebrigen Karte unterscheidet.
+		out.append({"pos": Vector3(p.x, 0.0, p.y), "r": float(e[2]), "peak": float(e[1]),
+			"schaerfe": 0.85, "grat": 3.2})
 	# TRAEGER UNTER DEM PLATEAU. Ohne ihn saesse der Platz auf dem, was die beiden
 	# Nachbargipfel aus 950 m Entfernung noch beitragen — gerechnet 238 bis 350 m, also
 	# stark vom Gratrauschen abhaengig. Ein eigenes flaches Massiv gibt dem Plateau einen
