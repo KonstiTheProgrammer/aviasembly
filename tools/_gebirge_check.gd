@@ -23,10 +23,11 @@ func _process(_d: float) -> bool:
 	var K: Dictionary = main.get_script().get_script_constant_map()
 	var AH_LAENGS: float = K["ADLERHORST_LAENGS"]
 	var AH_HOEHE: float = K["ADLERHORST_HOEHE"]
-	var start := Vector2(-9600.0, -4400.0)
-	var dir := Vector2(0.7071, -0.7071)
+	var start: Vector2 = K["TAL_START"]
+	var dir: Vector2 = K["TAL_RICHTUNG"]
+	var breite: float = K["TAL_BREITE"]
 
-	print("=== HOEHENPROFIL LAENGS DES GRATS (alle 200 m) ===")
+	print("=== HOEHENPROFIL LAENGS DER TALACHSE (alle 200 m) ===")
 	var minh := 9e9
 	var maxh := -9e9
 	for i in range(0, 41):
@@ -38,7 +39,19 @@ func _process(_d: float) -> bool:
 		var balken := "#".repeat(int(h / 20.0))
 		var mark := "  <- ADLERHORST" if absf(d - AH_LAENGS) < 100.0 else ""
 		print("  %4.0f m  %4.0f m  %s%s" % [d, h, balken, mark])
-	print("  Grat: tiefster Punkt %.0f m, hoechster %.0f m" % [minh, maxh])
+	print("  Talboden: tiefster Punkt %.0f m, hoechster %.0f m" % [minh, maxh])
+	# QUERSCHNITT: wie hoch stehen die Waende links und rechts, und wie breit ist der Boden?
+	print("\n=== TALQUERSCHNITT (quer zur Achse, an drei Stellen) ===")
+	var quer := Vector2(dir.y, -dir.x)
+	for laengs: float in [3000.0, 6000.0, float(K["ADLERHORST_LAENGS"])]:
+		var mitte: Vector2 = start + dir * float(laengs)
+		var zeile := "  bei %5.0f m: " % laengs
+		for q in range(-9, 10):
+			var h := tw.height_at(mitte.x + quer.x * float(q) * 400.0,
+				mitte.y + quer.y * float(q) * 400.0)
+			zeile += "%4d" % int(h)
+		print(zeile)
+	print("  (Spalten: -3600 m bis +3600 m quer zur Achse in 400-m-Schritten)")
 
 	# --- Plateau ---
 	var fp: Vector3 = main._adlerhorst_pos()

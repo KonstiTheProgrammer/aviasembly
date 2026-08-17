@@ -404,7 +404,13 @@ func height_at(x: float, z: float) -> float:
 	# Vor den Massiven angewandt -> erzwungene Inseln/Vulkan draußen bleiben bestehen (max).
 	var ang := atan2(z, x)
 	var rvar := _biome.get_noise_2d(cos(ang) * 900.0, sin(ang) * 900.0)
-	var r_coast := 12800.0 + rvar * 2400.0
+	# INSELGROESSE. War 12800 +- 2400 (Kueste bei 10.4 bis 15.2 km). Fuer das Hochtal im
+	# Nordwesten reicht das nicht: dessen suedwestliche Kette laege bei 14.5 km und damit
+	# im Meer. 18000 gibt eine Kueste bei 15.6 bis 20.4 km, also knapp die doppelte
+	# Landflaeche.
+	# MITZIEHEN MUSS MAN ZWEI DINGE, sonst hoert die Welt vor ihrer eigenen Kueste auf:
+	# Main.FERN_WELT (Reichweite der Fernschuerze) und WorldMap.WORLD_R (Kartenausschnitt).
+	var r_coast := 18000.0 + rvar * 2400.0
 	var fall := smoothstep(r_coast - 1400.0, r_coast + 800.0, d)
 	if fall > 0.0:
 		h = lerpf(h, SEA_Y - 18.0, fall)
@@ -419,9 +425,19 @@ func height_at(x: float, z: float) -> float:
 	# seed-unabhängig. Nur anheben (max) -> stören das übrige Gelände nie.
 	for ms in massifs:
 		var mp: Vector3 = ms["pos"]
-		var md := Vector2(x - mp.x, z - mp.z).length()
 		var mr := float(ms["r"])
+		# FRUEH RAUS, BEVOR IRGENDETWAS GERECHNET WIRD. Diese Schleife laeuft fuer JEDE
+		# Hoehenprobe ueber ALLE Massive — bei 2401 Proben je Chunk und inzwischen ueber
+		# vierzig Massiven sind das 100 000 Durchlaeufe pro Chunk. Die allermeisten Proben
+		# liegen ausserhalb jedes einzelnen Massivs.
+		# Der Schelf von Inseln und Vulkanen reicht bis 1.9 * r, ein Berg nur bis r.
+		var dx := x - mp.x
+		var dz := z - mp.z
 		var typ := String(ms.get("type", "berg"))
+		var reichweite := mr * (1.0 if typ == "berg" else 1.9)
+		if dx * dx + dz * dz > reichweite * reichweite:
+			continue
+		var md := sqrt(dx * dx + dz * dz)
 		# UNTERWASSER-SCHELF fuer Inseln und Vulkane (tuerkiser Ring). Er reicht bewusst
 		# UEBER den Kegelradius hinaus und laeuft dort aus.
 		# WARUM AUSSERHALB: frueher endete der Kegel am Rand bei der Konstanten SEA_Y - 9,

@@ -11,7 +11,7 @@ extends Control
 ## HUD dahinter), kraeftiges Abdunkeln, 2-km-Grid, Massstabsbalken, Kompass-Buchstaben,
 ## Marker mit dunkler Kontur + Schattentext.
 
-const WORLD_R := 17000.0       # halbe Kartenbreite in Weltmetern (Insel ~15 km + Rand)
+const WORLD_R := 22000.0       # halbe Kartenbreite in Weltmetern (Insel bis 20,4 km + Rand)
 const F_BOLD := preload("res://fonts/TitilliumWeb-Bold.ttf")
 const F_SEMI := preload("res://fonts/TitilliumWeb-SemiBold.ttf")
 

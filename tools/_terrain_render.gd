@@ -40,9 +40,13 @@ var _shots: Array = [
 	# HOCHGEBIRGE im Nordwesten mit dem Bergflugplatz ADLERHORST auf dem Sattel.
 	# Der Grat laeuft von (-9600,-4400) nach Suedosten; Kamera quer dazu, damit die
 	# Kette als Kette zu sehen ist und nicht als einzelner Huegel.
-	["gebirge", Vector3(-4200, 900, -4200), Vector3(-7300, 380, -6900)],
-	["adlerhorst", Vector3(-5900, 520, -6100), Vector3(-6870, 340, -7130)],
-	["adlerhorst_anflug", Vector3(-5450, 400, -5700), Vector3(-6870, 340, -7130)],
+	# HOCHTAL im Nordwesten: zwei Ketten bis 1250 m, dazwischen das Tal mit ADLERHORST.
+	# Die Talachse laeuft von (-11000,-2500) mit Richtung (0.6139,-0.7893); der Platz liegt
+	# bei 8800 m auf der Achse, also rund (-5598,-9446).
+	["tal_anflug", Vector3(-8700, 420, -5400), Vector3(-5598, 90, -9446)],   # den Talgrund hinein
+	["tal_platz", Vector3(-6900, 260, -8100), Vector3(-5598, 90, -9446)],    # kurz vor der Bahn
+	["tal_oben", Vector3(-9600, 1750, -4800), Vector3(-5598, 90, -9446)],    # ueber dem Kamm
+	["tal_quer", Vector3(-2400, 900, -8600), Vector3(-6600, 200, -8000)],    # Ketten von aussen
 ]
 
 

@@ -84,9 +84,11 @@ const FERN_ZELLE := 64.0
 # Kantenlaenge einer Schuerzen-Kachel (24 Zellen). Groesser = weniger Draw-Calls, aber
 # groebere Sichtbarkeits-Auslese; 1536 m = vier Chunkbreiten hat sich als Mitte ergeben.
 const FERN_KACHEL := 1536.0
-# Halbe Kantenlaenge des abgesuchten Weltausschnitts. GEMESSEN: das entfernteste Land
-# dieses Seeds liegt bei 17,7 km (200x200-Raster ueber +-22 km), 18,5 km deckt es ab.
-const FERN_WELT := 18500.0
+# Halbe Kantenlaenge des abgesuchten Weltausschnitts. Muss den Kuestenradius aus
+# TerrainWorld.height_at abdecken (18000 +- 2400, also bis 20,4 km) plus den Auslauf.
+# Vorher standen hier 18500 fuer die kleinere Insel; die neue haette jenseits davon
+# einfach aufgehoert.
+const FERN_WELT := 23000.0
 # Grundabsenkung im Ueberlappbereich. GEMESSEN an 40 000 Landproben: das echte 8-m-Gelaende
 # liegt gegenueber der 64-m-Interpolation im schlechtesten Fall 44 m tiefer, aber schon
 # bei 12 m sind 99,9 % erfasst. 14 m halten die Schuerze also praktisch ueberall unter
@@ -103,12 +105,21 @@ const FERN_TIEF := 480.0
 # VIEW_DIST+CHUNK = 4184 m, davon halbe Chunkdiagonale (271 m) und die volle Zell-
 # diagonale ab, die der Spieler seit dem letzten update_center zurueckgelegt haben
 # kann (543 m) -> 3370 m. Darunter bleiben wir mit 3300 m.
-# --- ADLERHORST, der Flugplatz im Hochgebirge ---------------------------------------
-# Position auf dem Grat (Abstand vom Kettenanfang) und Hoehe des Plateaus. Beide Werte
-# gehen an DREI Stellen ein: in den Traeger unter dem Plateau (_hochgebirge), in den
-# Flugplatzeintrag und in die Einebnungszone. Deshalb stehen sie hier einmal.
-const ADLERHORST_LAENGS := 3860.0
-const ADLERHORST_HOEHE := 340.0
+# --- DAS HOCHTAL und der Flugplatz ADLERHORST darin ----------------------------------
+# Ein Tal zwischen ZWEI parallelen Ketten, nicht mehr ein Sattel auf einem Grat. Alle
+# Werte hier: die Talachse, an der beide Ketten und der Flugplatz haengen. Sie gehen an
+# vier Stellen ein (beide Ketten, der Platz, seine Einebnungszone) — deshalb einmal.
+const TAL_START := Vector2(-11000.0, -2500.0)
+const TAL_RICHTUNG := Vector2(0.6139, -0.7893)
+const TAL_LAENGE := 11400.0
+# Abstand jeder Kette von der Talachse. Zusammen 5,4 km Kammabstand; nach Abzug der
+# Flanken bleiben rund 2 km Talboden.
+const TAL_BREITE := 2700.0
+# Wo im Tal der Platz liegt (Abstand vom Talanfang) und auf welcher Hoehe.
+# Weit hinten im Tal: der Anflug geht die ganze Laenge durch die Schlucht, und hinter dem
+# Platz schliesst die Querkette das Tal ab — man muss also drehen und wieder hinaus.
+const ADLERHORST_LAENGS := 8800.0
+const ADLERHORST_HOEHE := 90.0
 
 const FERN_NAH := 2300.0
 const FERN_FERN := 3300.0
@@ -408,15 +419,12 @@ func _setup_world() -> void:
 		# Sattel im Hochgebirge. Die y-Komponente traegt die Plateauhoehe; _build_airfield
 		# setzt den ganzen Platz darauf, und die Einebnungszone unten zieht das Gelaende
 		# auf denselben Wert.
-		# DER KURS LAEUFT QUER ZUM GRAT, nicht laengs. Nachgemessen mit
-		# tools/_gebirge_check.gd stehen laengs des Grats die beiden Nachbargipfel:
-		# 320 m ueber dem Platz in 1700 m und 297 m in 1300 m Entfernung. Eine Bahn in
-		# diese Richtung haette bei jedem Start gegen eine Wand gezeigt. Quer dazu faellt
-		# das Gelaende auf beiden Seiten ab — man startet ins Leere und landet bergauf,
-		# so wie es eine echte Gebirgspiste macht.
-		# +0.7854 statt -0.7854: die Bahn laeuft im lokalen Z, die Weltrichtung ist also
-		# (sin(kurs), cos(kurs)) — bei -45 Grad zeigt das genau auf den Grat.
-		{"name": "ADLERHORST", "pos": _adlerhorst_pos(), "heading": 0.7854,
+		# DER KURS LAEUFT LAENGS DES TALS und wird aus der Talachse GERECHNET, nicht
+		# hingeschrieben. Nachgemessen mit tools/_gebirge_check.gd stehen die Waende bis
+		# 762 m ueber dem Platz; quer zum Tal zu starten verlangte 17,9 Grad Steigwinkel.
+		# Laengs ist die eine Richtung frei (Talausgang), die andere fuehrt auf die
+		# Querkette zu — man startet also talauswaerts und dreht draussen.
+		{"name": "ADLERHORST", "pos": _adlerhorst_pos(), "heading": _adlerhorst_kurs(),
 			"color": Color(0.80, 0.86, 0.95)},
 	]
 
@@ -4164,63 +4172,63 @@ func _on_hud_changed(d: Dictionary) -> void:
 			land_label.add_theme_color_override("font_color", Color(0.5, 1, 0.6))
 
 
-## DAS HOCHGEBIRGE im Nordwesten — die hoechste Kette der Karte, mit dem Flugplatz
-## ADLERHORST auf einem Sattel mittendrin.
-##
-## AUFBAU: eine Kette einzelner Massive laengs einer Geraden. Der Abstand ist NICHT frei
-## waehlbar, sondern muss rund die HAELFTE des Radius betragen. Grund ist die Kegelform in
-## TerrainWorld.height_at: cone = 1 - smoothstep(0, r, d), und smoothstep faellt in der
-## Mitte steil ab. Bei Abstand = r beruehren sich zwei Massive nur an der Basis und man
-## bekommt eine Perlenkette einzelner Kuppeln; bei Abstand = r/2 liegt der Sattel
-## dazwischen noch bei rund 93 Prozent der Gipfelhoehe, und daraus wird ein durchgehender
-## Grat. Die vorhandene Canyon-Kette weiter suedlich macht es mit r=750 und 850-990 m
-## Abstand genau falsch herum — die ist deshalb auch als Reihe von Huegeln gedacht.
-##
-## DIE LUECKE IN DER MITTE ist Absicht: dort sitzt der Flugplatz. Waeren die Nachbarn im
-## Normalabstand, wuerde ihre Einebnungszone (r_blend) die Gipfel mit herunterziehen —
-## gerechnet haette ein r_blend von 1150 m den 660-m-Gipfel auf 562 m gedrueckt. Mit 1900 m
-## Luecke bleibt der Grat stehen und der Platz liegt trotzdem eingekesselt.
-##
-## HOEHEN: die Kette geht bis 700 m. Zum Vergleich liegt der bisher hoechste Punkt der
-## Karte (Vulkan) bei 230 m. Oberhalb von 230 m waechst nichts mehr (FLORA_MAX_H) und ab
-## 188 m liegt Schnee — die Kette ist also von selbst kahler Fels mit weissen Gipfeln.
-## Weltposition des Bergflugplatzes — aus derselben Geraden wie die Kette gerechnet,
-## damit Platz und Grat nicht auseinanderlaufen koennen.
+## Weltposition des Talflugplatzes — aus derselben Achse gerechnet wie die beiden Ketten,
+## damit Platz und Tal nicht auseinanderlaufen koennen.
+## Bahnkurs des Talflugplatzes: laengs der Talachse, in Richtung AUSGANG.
+## Die Bahn laeuft im lokalen Z des Platzes, ihre Weltrichtung ist also (sin k, cos k).
+## Gesucht ist k mit (sin k, cos k) = -TAL_RICHTUNG, denn -TAL_RICHTUNG zeigt vom Platz
+## zurueck zum offenen Talanfang.
+func _adlerhorst_kurs() -> float:
+	return atan2(-TAL_RICHTUNG.x, -TAL_RICHTUNG.y)
+
+
 func _adlerhorst_pos() -> Vector3:
-	var p := Vector2(-9600.0, -4400.0) + Vector2(0.7071, -0.7071) * ADLERHORST_LAENGS
+	var p := TAL_START + TAL_RICHTUNG * ADLERHORST_LAENGS
 	return Vector3(p.x, ADLERHORST_HOEHE, p.y)
 
 
+## DAS HOCHTAL im Nordwesten — zwei parallele Ketten mit einem Tal dazwischen, und im
+## Tal der Flugplatz ADLERHORST.
+##
+## FORM: die Massive selbst koennen nur ANHEBEN (max in height_at), ein Tal laesst sich
+## also nicht graben. Es entsteht als der Raum, den man FREILAESST — zwei Kaemme im
+## Abstand 2 * TAL_BREITE, dazwischen bleibt das Grundgelaende stehen. Am hinteren Ende
+## schliesst eine Querkette das Tal ab, sodass es eine Sackgasse ist.
+##
+## ABSTAND DER MASSIVE UNTEREINANDER: rund die HAELFTE ihres Radius, nicht ein ganzer.
+## Die Kegelform ist cone = 1 - smoothstep(0, r, d), und smoothstep faellt in der Mitte
+## steil ab: bei Abstand = r beruehren sich zwei Massive nur an der Basis und man bekommt
+## eine Perlenkette einzelner Kuppeln. Bei r/2 liegt der Sattel dazwischen noch bei rund
+## 93 Prozent der Gipfelhoehe — daraus wird ein durchgehender Kamm.
+##
+## HOEHEN bis 1250 m. Der bisher hoechste Punkt der Karte war der Vulkan mit 230 m; die
+## erste Fassung dieser Kette ging bis 650 m. Oberhalb von 230 m waechst nichts mehr
+## (FLORA_MAX_H), der Schnee blendet ueber 240 Hoehenmeter ein — die Kaemme sind damit
+## kahler Fels mit weissen Gipfeln, das Tal darunter gruen.
 func _hochgebirge() -> Array:
-	# Grat von Nordwest nach Suedost, 7,7 km lang. Anfang und Richtung sind so gewaehlt,
-	# dass die ganze Kette auf Land liegt (geprueft mit tools/_landkarte.gd).
-	var start := Vector2(-9600.0, -4400.0)
-	var richtung := Vector2(0.7071, -0.7071)
-	# (Abstand laengs des Grats, Gipfelhoehe, Radius)
-	var kette := [
-		[0.0, 420.0, 1900.0],
-		[970.0, 580.0, 1900.0],
-		[1940.0, 660.0, 1900.0],
-		[2910.0, 620.0, 1900.0],
-		# --- Luecke: hier liegt ADLERHORST bei 3860 m ---
-		[4810.0, 700.0, 1900.0],     # hoechster Gipfel der Karte
-		[5780.0, 640.0, 1900.0],
-		[6750.0, 520.0, 1800.0],
-		[7720.0, 410.0, 1700.0],
-	]
+	var quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)   # senkrecht zur Talachse
 	var out: Array = []
-	for e in kette:
-		var p := start + richtung * float(e[0])
-		# schaerfe/grat gibt es NUR hier: spitze Gipfel und kraeftige Rippen sind das,
-		# was diese Kette von den runden Kuppen der uebrigen Karte unterscheidet.
-		out.append({"pos": Vector3(p.x, 0.0, p.y), "r": float(e[2]), "peak": float(e[1]),
+	# Gipfelhoehen je Kette, von vorn nach hinten. Bewusst UNGLEICH und gegeneinander
+	# versetzt: gleiche Hoehen auf beiden Seiten laesen das Tal wie einen Kanal aussehen.
+	var kaemme := [
+		[1.0, [880.0, 1010.0, 1140.0, 1250.0, 1180.0, 1090.0, 1210.0, 950.0, 860.0]],
+		[-1.0, [900.0, 1060.0, 1190.0, 1120.0, 1240.0, 1160.0, 1000.0, 1080.0, 840.0]],
+	]
+	for k in kaemme:
+		var seite: float = k[0]
+		var gipfel: Array = k[1]
+		for i in gipfel.size():
+			var laengs := float(i) * 1300.0
+			var p := TAL_START + TAL_RICHTUNG * laengs + quer * seite * TAL_BREITE
+			out.append({"pos": Vector3(p.x, 0.0, p.y), "r": 2600.0, "peak": float(gipfel[i]),
+				"schaerfe": 0.85, "grat": 3.2})
+	# QUERKETTE am hinteren Ende: macht das Tal zur Sackgasse. Sie steht 1,6 km hinter dem
+	# Flugplatz — weit genug, um nach dem Aufsetzen noch auszurollen und zu drehen.
+	for j in range(-1, 2):
+		var p := TAL_START + TAL_RICHTUNG * (ADLERHORST_LAENGS + 1600.0) \
+			+ quer * float(j) * 1500.0
+		out.append({"pos": Vector3(p.x, 0.0, p.y), "r": 2300.0, "peak": 980.0,
 			"schaerfe": 0.85, "grat": 3.2})
-	# TRAEGER UNTER DEM PLATEAU. Ohne ihn saesse der Platz auf dem, was die beiden
-	# Nachbargipfel aus 950 m Entfernung noch beitragen — gerechnet 238 bis 350 m, also
-	# stark vom Gratrauschen abhaengig. Ein eigenes flaches Massiv gibt dem Plateau einen
-	# verlaesslichen Sockel, auf dem die Einebnung aufsetzt.
-	var fp := start + richtung * ADLERHORST_LAENGS
-	out.append({"pos": Vector3(fp.x, 0.0, fp.y), "r": 1250.0, "peak": ADLERHORST_HOEHE + 40.0})
 	return out
 
 
