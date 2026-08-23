@@ -175,6 +175,13 @@ const FREI_AUSSEN := 50.0
 # genau deshalb war das Tiefland ein einziges gleichmaessiges Gruen. 700 m ist die
 # Groessenordnung, in der ein Betrachter aus der Luft ueberhaupt noch Felder unterscheidet.
 const FLUR_M := 700.0
+# Groesse der Schneefelder und wie weit das Rauschen die Neigungsschwelle verzieht.
+# 150 m ist die Groessenordnung, in der man auf einer Bergflanke Firnfelder unterscheidet;
+# 0.14 auf eine Schwelle im Bereich 0.55..0.95 verschiebt sie um gut ein Drittel des
+# Fensters — genug, damit benachbarte Facetten zusammenfallen, zu wenig, um Schnee in
+# Wandfussnaehe zu legen, wo keiner liegen bleibt.
+const SCHNEE_M := 150.0
+const SCHNEE_KORN := 0.14
 const MAEANDER_SCHRITT := 70.0
 # Ueber diese Laufstrecke blendet die Auslenkung an Quelle und Muendung ein.
 const MAEANDER_RAND := 700.0
@@ -1629,6 +1636,7 @@ var _vk_zungen_kreis := 0.0
 var _vk_fels_takt := 0.0
 var _vk_block_takt := 0.0
 var _flur_takt := 0.0
+var _schnee_takt := 0.0
 var _vk_rost_takt := 0.0
 var _vk_grus_takt := 0.0
 var _vk_schutt_takt := 0.0
@@ -1808,6 +1816,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	# Grundwelle werden VULKAN_ROST_M. Eine dritte Rauschquelle waere hier reine Verschwendung
 	# — ein Fleckenwurf braucht keine Oktaven, er braucht nur eine Laengenskala.
 	_flur_takt = 1.0 / (FLUR_M * _patch.frequency)
+	_schnee_takt = 1.0 / (SCHNEE_M * _patch.frequency)
 	_vk_rost_takt = 1.0 / (VULKAN_ROST_M * _patch.frequency)
 	_vk_grus_takt = 1.0 / (VULKAN_GRUS_M * _patch.frequency)
 	_vk_schutt_takt = 1.0 / (VULKAN_SCHUTT_M * _patch.frequency)
@@ -5623,7 +5632,30 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# Der Hang allein reicht NICHT: die Kegel des Hochgebirges sind bei 2200 m Radius und
 	# 1250 m Gipfel rund 30 Grad geneigt, darauf liegt auch in echt Schnee — mit reinem
 	# Hangkriterium blieb die ganze Kette weiss.
-	var schnee := smoothstep(188.0, 428.0, cen.y) * smoothstep(0.72, 0.90, ny)
+	# SCHNEEFELDER STATT SALZ UND PFEFFER.
+	#
+	# Hier stand smoothstep(0.72, 0.90, ny) — der Schnee haing damit allein an der Neigung
+	# der EINZELNEN Facette. Auf dem gerippten Hochgebirge wechselt die alle acht Meter,
+	# und im Bild (Shot tal_quer) war die ganze Kette ein Salz-und-Pfeffer-Teppich aus
+	# weissen und dunklen Dreiecken: kein Berg mehr, sondern Rauschen.
+	#
+	# ZWEI AENDERUNGEN, und beide sind noetig:
+	#  * Das Fenster ist von 0.72/0.90 auf 0.55/0.95 geweitet. Ein Fenster von 0.18 auf
+	#    einer Groesse, die zwischen Nachbarn um mehr als das schwankt, ist ein SCHALTER
+	#    und kein Uebergang — es kann gar nichts anderes als flimmern.
+	#  * Die Schwelle wird von einem groben Rauschen verzogen (SCHNEE_M, rund 150 m).
+	#    Damit teilen sich benachbarte Facetten ihren Zustand und es entstehen Felder.
+	#    Dieselbe Kur hat auf der Vulkanflanke gewirkt, wo dasselbe Muster auftrat.
+	#
+	# UND SIE IST BILLIGER ALS VORHER: die Rauschprobe steht hinter der Hoehenschranke,
+	# unterhalb von 188 m zahlt das Tiefland jetzt gar nichts mehr statt zweier
+	# smoothstep-Aufrufe je Dreieck.
+	var schnee := 0.0
+	if cen.y > 188.0:
+		var sk := _patch.get_noise_2d(cen.x * _schnee_takt + 1700.0,
+			cen.z * _schnee_takt - 5300.0)
+		schnee = smoothstep(188.0, 428.0, cen.y) \
+			* smoothstep(0.55, 0.95, ny + SCHNEE_KORN * sk)
 	if schnee > 0.001:
 		fels = fels.lerp(Color(0.87, 0.88, 0.91), schnee)
 	if cen.y > 188.0:

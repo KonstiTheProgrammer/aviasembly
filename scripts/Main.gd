@@ -5016,7 +5016,27 @@ func _hochgebirge() -> Array:
 			# grat: wie stark die Rippen und Rinnen ausgepraegt sind.
 			var grat := wuerfel.randf_range(1.6, 4.6)
 			# nz_frq: Feinheit der Rippen. Klein = wenige breite Grate, gross = zerklueftet.
-			var frq := wuerfel.randf_range(1.3, 4.2)
+			# OBERGRENZE VON 4.2 AUF 2.5 HERUNTER. Bei 4.2 lag die Rippung so fein, dass sie
+			# in die Maschenweite des Netzes lief, und im Bild (Shot tal_quer) war die ganze
+			# Kette ein Salz-und-Pfeffer-Teppich aus hellen und dunklen Dreiecken statt eines
+			# Berges. Mit 2.5 liest sie sich als zusammenhaengender Fels.
+			#
+			# DIE MESSUNG BELEGT DIESE AENDERUNG NICHT, und das ist wichtig festzuhalten,
+			# damit niemand sie fuer eine Zahlenoptimierung haelt: tools/_rauheit.gd meldet
+			# vorher wie nachher rund 5 m mittleren Hoehensprung je 8-m-Schritt, der Anteil
+			# der Punkte ueber 45 Grad geht nur von 14,1 auf 13,3 Prozent. Was sich aendert,
+			# ist nicht die GROESSE der Spruenge, sondern ihre ZUSAMMENHANGSLAENGE — und die
+			# misst diese Zahl nicht. Entschieden hat hier das Bild, nicht der Messwert.
+			#
+			# ZWEI FEHLSPUREN VORHER, beide durch Messung ausgeschlossen:
+			#  * "Der Schnee schaltet je Facette an und aus." Er tat es, und die Schwelle ist
+			#    inzwischen ueber ein Rauschen gegluettet — am Bild aenderte das fast nichts.
+			#    Die dunklen Dreiecke waren nie schneefreier Fels, sondern SCHATTIERTE.
+			#  * "Das Gelaende ist zu rau." Der Vulkan ist mit 48,6 Prozent der Punkte ueber
+			#    45 Grad weit rauer als dieser Kamm mit 14,1 und sieht trotzdem gut aus. Sein
+			#    Basalt ist dunkel; auf dunklem Grund verschluckt das Auge dieselben
+			#    Winkelspruenge, die auf hellem Kalk jede einzelne Facette sichtbar machen.
+			var frq := wuerfel.randf_range(1.0, 2.5)
 			# dehnung/drall: gedrehte Ellipse als Grundriss. Der staerkste Hebel ueberhaupt —
 			# ein 1.6-fach gestreckter Berg liest sich voellig anders als ein Kegel.
 			var dehnung := wuerfel.randf_range(0.72, 1.55)
