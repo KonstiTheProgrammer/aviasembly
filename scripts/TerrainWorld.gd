@@ -184,6 +184,10 @@ const FLUR_M := 700.0
 # Tabelleneintraegen. Bei 720 Eintraegen ist ein Eintrag ein halbes Grad; 7 sind also
 # +-3,5 Grad.
 const SEE_GLAETTUNG := 11
+# Wie stark und auf welcher Laenge die Biomgrenze ausgefranst wird. 260 m ist klein genug,
+# dass der Saum zerfasert, und gross genug, dass keine Einzelflecken herausbrechen.
+const BIOM_M := 260.0
+const BIOM_UNRUHE := 0.115
 const SCHNEE_M := 150.0
 const SCHNEE_KORN := 0.14
 const MAEANDER_SCHRITT := 70.0
@@ -1641,6 +1645,7 @@ var _vk_fels_takt := 0.0
 var _vk_block_takt := 0.0
 var _flur_takt := 0.0
 var _schnee_takt := 0.0
+var _biom_takt := 0.0
 var _vk_rost_takt := 0.0
 var _vk_grus_takt := 0.0
 var _vk_schutt_takt := 0.0
@@ -1821,6 +1826,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	# — ein Fleckenwurf braucht keine Oktaven, er braucht nur eine Laengenskala.
 	_flur_takt = 1.0 / (FLUR_M * _patch.frequency)
 	_schnee_takt = 1.0 / (SCHNEE_M * _patch.frequency)
+	_biom_takt = 1.0 / (BIOM_M * _patch.frequency)
 	_vk_rost_takt = 1.0 / (VULKAN_ROST_M * _patch.frequency)
 	_vk_grus_takt = 1.0 / (VULKAN_GRUS_M * _patch.frequency)
 	_vk_schutt_takt = 1.0 / (VULKAN_SCHUTT_M * _patch.frequency)
@@ -1959,8 +1965,15 @@ func relief_at(x: float, z: float) -> float:
 	return smoothstep(-0.12, 0.42, _relief.get_noise_2d(x, z))
 
 ## Biom an einer Welt-Position (Tiefland-Charakter; Fels/Schnee kommt aus Höhe/Hang).
+## DIE GRENZE IST VERRAUSCHT, sonst ist sie eine Hoehenlinie. _biome ist ein glattes,
+## grossraeumiges Rauschen, und eine feste Schwelle darauf ergibt zwangslaeufig eine glatte
+## geschlossene Kurve — im Bild lagen die Sandflaechen als riesige, sauber gerundete Blobs
+## in der Wiese, wie mit dem Zirkel gezogen. Der Zuschlag verschiebt die Schwelle oertlich
+## um bis zu BIOM_UNRUHE und macht aus der Kurve einen ausgefransten Saum, ohne die
+## grossraeumige Verteilung der Biome anzutasten.
 func biome_at(x: float, z: float) -> int:
-	var b := _biome.get_noise_2d(x, z)
+	var b := _biome.get_noise_2d(x, z) \
+		+ BIOM_UNRUHE * _patch.get_noise_2d(x * _biom_takt, z * _biom_takt)
 	if b < -0.32:
 		return Biome.WUESTE
 	if b > 0.40:
@@ -5864,7 +5877,18 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 			elif t > 0.45:
 				bc = Color(0.72, 0.60, 0.45) # Geröll-/Erdfleck
 			else:
-				bc = Color(0.91, 0.82, 0.58).lerp(Color(0.86, 0.76, 0.52),
+				# DIESELBE FLURLAGE WIE DIE WIESE, aus demselben Grund: die beiden Sandtoene
+				# wechseln auf 60 m und mitteln sich aus der Luft zu einem. Die Wueste lag
+				# dadurch als eine einzige helle Flaeche da. Hier wandert sie zwischen
+				# hellem Duenensand und dunklerem, feuchterem Grund.
+				# Die Spanne ist bewusst schmaler als bei der Wiese. Ein Versuch mit dem
+				# doppelten Abstand (0.95/0.87/0.63 gegen 0.76/0.64/0.43) aenderte am Bild
+				# nichts messbares — die grossen hellen Flaechen um die Stadt gehoeren gar
+				# nicht zu diesem Zweig, sondern zu einer anderen Regel. Wer hier weiter
+				# dreht, faerbt nur die echten Wuestenfelder um und trifft nicht, was auffiel.
+				var wt := clampf(flur * 1.10 + 0.42, 0.0, 1.0)
+				bc = Color(0.93, 0.84, 0.60).lerp(Color(0.84, 0.72, 0.49), wt).lerp(
+					Color(0.88, 0.78, 0.54).lerp(Color(0.79, 0.67, 0.46), wt),
 					clampf(t * 0.6 + 0.5, 0.0, 1.0))
 		Biome.HEIDE:
 			# Heide/Herbst: staubiges Rosé/Ocker
