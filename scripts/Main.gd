@@ -70,7 +70,16 @@ const WOLKEN_LAGEN := ["kumulus", "turm", "schaefchen", "linse"]
 # von wenigen Dutzend Metern gehen, sonst fliegt man durch eine Farbe statt durch Wetter.
 const NEBEL_FREI := 0.00006
 const NEBEL_WOLKE := 0.020
-const NEBEL_FARBE_FREI := Color(0.66, 0.79, 0.94)
+# NEBELFARBE BEI FREIER SICHT. Sie stand auf 0.66/0.79/0.94, also Blau minus Rot = 0.28.
+# Das ist die staerkste Einzelquelle des Blaustichs, der ueber der ganzen Karte liegt:
+# gemessen hat der dunkle Basalt des Vulkans b-r = +0.208, waehrend die Vorlage bei +0.067
+# steht. Der Nebel ist bei 3,5 km ein ADDITIVER Sockel von 0.254 Leuchtdichte (Schwarzprobe
+# mit auf null gesetzten Gesteinsfarben) — er faerbt also nicht nur, er hellt auch auf, und
+# beides zusammen laesst jedes ferne Gestein kalt und flau aussehen.
+# 0.75/0.82/0.92 haelt b-r bei 0.17 — die Luftperspektive bleibt deutlich blau (sonst
+# verliert die Ferne ihre Tiefe und der Horizont trennt sich vom Himmel), aber sie
+# ueberfaerbt das Motiv nicht mehr.
+const NEBEL_FARBE_FREI := Color(0.75, 0.82, 0.92)
 const NEBEL_FARBE_WOLKE := Color(0.93, 0.95, 0.97)
 # Kennlinie: erst tief in der Wolke wird es wirklich weiss. Linear waere die Sicht schon
 # beim Streifen einer Kante halb zu, und das fuehlt sich falsch an.
@@ -421,9 +430,14 @@ func _setup_world() -> void:
 	# den Himmelston = Tiefe + Farbe, statt alles weiss zu waschen).
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.66, 0.79, 0.94)
+	# DIESELBEN KONSTANTEN WIE DIE WOLKEN-EINTRUEBUNG. Hier standen die beiden Zahlen ein
+	# zweites Mal als Literal, waehrend _wolken_aufenthalt sie aus NEBEL_FREI und
+	# NEBEL_FARBE_FREI nimmt. Zwei Wahrheiten fuer denselben Wert: wer eine davon aendert,
+	# aendert den Nebel im Flug oder beim Aufbau, aber nicht beides — und die Abnahmebilder
+	# (tools/_terrain_render.gd) kommen ohne Flugzeug aus, laufen also NUR ueber diesen Pfad.
+	env.fog_light_color = NEBEL_FARBE_FREI
 	env.fog_sun_scatter = 0.15
-	env.fog_density = 0.00006
+	env.fog_density = NEBEL_FREI
 	env.fog_aerial_perspective = 0.30
 	env.fog_sky_affect = 0.1
 	# GLOW: AUS — und zwar gemessen, nicht aus Geschmack.
