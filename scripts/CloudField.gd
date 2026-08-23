@@ -113,6 +113,90 @@ const TYPEN := {
 }
 
 
+# --- DAMPFFAHNE UEBER EINEM KRATER -------------------------------------------------------
+# WOFUER: ein Vulkan ohne Fahne ist ein schwarzer Berg. Von den drei Merkmalen, die ihn
+# ueberhaupt als taetig lesbar machen — Asche, Glut, Fahne — ist die Fahne das einzige, das
+# man noch aus zwanzig Kilometern sieht; die Glutrinnen sind dort laengst unter einem
+# Bildpunkt breit. Sie ist damit die Silhouette des Wahrzeichens und nicht sein Detail.
+#
+# WARUM DIESELBEN PUFFS WIE DIE WOLKENDECKE und keine Partikel: die Fahne steht mit den
+# Wolken im selben Bild. Zwei verschiedene Wolkenmaterialien in einer Ansicht fallen sofort
+# auf (dieselbe Erfahrung wie bei den drei Wasser-Looks im Terrain), und der Puff-Shader
+# traegt bereits alles, was hier gebraucht wird: Wrap-Licht, Silberrand gegen die Sonne und
+# die Nahausblendung, damit man hindurchfliegen kann, ohne in eine weisse Wand zu geraten.
+#
+# SIE STEHT STILL. Aufsteigen und Verwehen waeren eine Animation je Frame fuer ein Objekt,
+# das der Spieler fast immer aus mehreren Kilometern sieht — dort bewegt sich nichts
+# sichtbar. Was die Saeule lebendig macht, ist ihre FORM: Halbmesser nach oben wachsend,
+# seitlich abgetrieben und in der Achse versetzt.
+static func fahne(parent: Node3D, opts := {}) -> Node3D:
+	var fuss: Vector3 = opts.get("fuss", Vector3.ZERO)
+	var hoehe := float(opts.get("hoehe", 1300.0))
+	var r_unten := float(opts.get("r_unten", 110.0))
+	var r_oben := float(opts.get("r_oben", 430.0))
+	# Seitlicher Abtrieb, als Anteil der Fahnenhoehe. Senkrecht steht eine Fahne nur bei
+	# absoluter Windstille, und im Bild liest sich eine senkrechte Saeule als Rauchsignal.
+	# 0.8 sind rund 39 Grad Neigung. WENIGER GING NICHT: mit 0.34 stand die Saeule fast
+	# senkrecht ueber dem Krater und verdeckte im Abnahmebild genau das, was man dort
+	# pruefen will — Schuessel, Schlund und Innenwand. Jetzt zieht sie ueber den Rand
+	# hinaus ab, und der Krater bleibt frei.
+	var drift: Vector2 = opts.get("drift", Vector2(0.80, -0.10))
+	var stufen := int(opts.get("stufen", 21))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(opts.get("seed", 20260817))
+	var root := Node3D.new()
+	root.name = String(opts.get("name", "Fahne"))
+	parent.add_child(root)
+	var mat := _cloud_material()
+	# Dampf mit Asche darin, nicht Schoenwetterkumulus: warmes Grau statt des kuehlen
+	# Blaus, das eine Wolkenbasis vom Himmel zurueckbekommt.
+	mat.set_shader_parameter("farbe_krone", Color(0.80, 0.79, 0.77))
+	mat.set_shader_parameter("farbe_basis", Color(0.31, 0.30, 0.30))
+	# Dunkler als die Decke (0.52). Eine Fahne in Kumulusweiss steht als hellster Fleck im
+	# ganzen Bild und zieht das Auge vom Berg weg — sie soll aus ihm aufsteigen, nicht ihn
+	# ueberstrahlen.
+	mat.set_shader_parameter("helligkeit", 0.44)
+	var src_kern := _kugel(20, 10)
+	var src_schulter := _kugel(14, 7)
+	var src_knubbel := _kugel(8, 4)
+	var formen: Array = []
+	for i in 4:
+		formen.append(_puff_mesh("kumulus", src_kern, src_schulter, src_knubbel, rng))
+	for i in stufen:
+		var f := float(i) / float(maxi(stufen - 1, 1))
+		var mesh: ArrayMesh = formen[rng.randi() % formen.size()]
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = mat
+		# Kein Schattenwurf. Eine Fahne dieser Groesse legt sonst einen harten dunklen
+		# Fleck ueber den halben Kegel — und ausgerechnet ueber den Teil, dessen Glut man
+		# sehen soll.
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.lod_bias = PUFF_LOD_BIAS
+		mi.rotation.y = rng.randf() * TAU
+		# DER HALBMESSER WAECHST MIT DER WURZEL. Linear waere ein Trichter mit geraden
+		# Kanten; in Wirklichkeit reisst die Saeule gleich ueber dem Krater auf und wird
+		# nach oben nur noch langsam breiter.
+		# DIE STREUUNG JE STUFE IST NICHT KOSMETIK: mit gleich grossen Ballen auf einer
+		# Achse las sich die Fahne als PERLENKETTE — man zaehlte die Kugeln. Erst wenn
+		# benachbarte Ballen verschieden gross sind und einander seitlich verdecken,
+		# verschmelzen sie zu einer Saeule.
+		var r := lerpf(r_unten, r_oben, sqrt(f)) * rng.randf_range(0.78, 1.30)
+		# EIGENMASS AUS DEM MESH statt einer Konstanten: _puff_mesh wuerfelt sein Grundmass
+		# zwischen 54 und 78 aus, und wer dort etwas aendert, soll die Fahne nicht
+		# stillschweigend umbauen.
+		var ab := mesh.get_aabb()
+		mi.scale = Vector3.ONE * (r / maxf(maxf(ab.size.x, ab.size.z) * 0.5, 1.0))
+		# Die Stufen stehen unten DICHTER (Exponent > 1): dort ist der Halbmesser klein,
+		# und mit gleichem Abstand klaffte zwischen den ersten beiden Ballen eine Luecke,
+		# durch die man den Kraterrand sah.
+		var y := hoehe * pow(f, 1.25)
+		mi.position = fuss + Vector3(drift.x * y + rng.randf_range(-0.42, 0.42) * r, y,
+			drift.y * y + rng.randf_range(-0.42, 0.42) * r)
+		root.add_child(mi)
+	return root
+
+
 static func build(parent: Node3D, opts := {}) -> Node3D:
 	var typ := String(opts.get("typ", "kumulus"))
 	# Sortenvorgaben unterlegen: was in opts steht, gewinnt.

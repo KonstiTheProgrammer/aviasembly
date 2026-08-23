@@ -68,7 +68,12 @@ static func generate_image(t: TerrainWorld, size := 640, world_r := WORLD_R) -> 
 			for ms in t.massifs:
 				if String(ms.get("type", "")) == "vulkan" and h > 26.0 \
 						and Vector2(wx - ms["pos"].x, wz - ms["pos"].z).length() < float(ms["r"]) * 1.05:
-					c = Color(0.30, 0.24, 0.21)
+					# Dunkler als vorher (0.30/0.24/0.21), weil der Kegel im Gelaende kein
+					# brauner Berg mehr ist, sondern schwarzer Basalt mit Rostflecken
+					# (TerrainWorld.VULKAN_BASALT/_ROST). Die Karte muss dasselbe Zeichen
+					# zeigen wie das Fenster, sonst sucht man am Boden einen Berg, den man
+					# auf der Karte nicht wiedererkennt.
+					c = Color(0.17, 0.135, 0.125)
 			img.set_pixel(px, py, c)
 	return img
 

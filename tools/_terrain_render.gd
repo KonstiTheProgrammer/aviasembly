@@ -34,7 +34,37 @@ var _shots: Array = [
 	["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],                # ueber dem Flugfeld HEIMAT
 	["grossstadt", Vector3(4300, 420, 4100), Vector3(4300, 60, 2500)],   # Skyline aus Sued
 	["windpark", Vector3(-3900, 300, 900), Vector3(-3900, 40, -700)],    # Windpark + Weite
-	["vulkan", Vector3(11800, 780, -4750), Vector3(11800, 120, -5600)],  # Vulkaninsel von Norden
+	# Vulkaninsel von Norden. SIE STAND BEI (11800, 780, -4750) UND DAMIT IM BERG: das sind
+	# 850 m vom Mittelpunkt, und dort steht die Flanke seit der Vergroesserung auf 840 m —
+	# die Kamera sass 60 m unter der Gelaendeoberflaeche und das Bild war schwarz.
+	# 1290 m vom Mittelpunkt und 1470 m hoch ist dieselbe Stellung IN ANTEILEN des Kegels,
+	# die sie vorher hatte (0.68 * r und 1.3 * Gipfelhoehe).
+	["vulkan", Vector3(11800, 1470, -4310), Vector3(11800, 300, -5600)],
+	# VULKAN IM BLICKWINKEL DER REFERENZ: flach schraeg von oben aus rund 3,5 km, sodass der
+	# Kegel das Bild fuellt und der Horizont mit Land und Meer dahinter stehenbleibt. Die
+	# Kamera steht bewusst WEIT genug, dass sie fuer Gipfel zwischen 200 und 900 m taugt —
+	# waehrend eines Umbaus aendert sich die Hoehe staendig, und ein Bild, dessen Ausschnitt
+	# mitwandert, taugt nicht zum Vergleich zweier Staende.
+	["vulkan_ref", Vector3(11800, 1500, -2100), Vector3(11800, 330, -5600)],
+	# In den Krater hinein (Rand, Schuessel, Lavasee).
+	# SIE IST MITGEWACHSEN, ALS DER KEGEL WUCHS, und das war keine Kosmetik: aus der alten
+	# Stellung (1450 m hoch, 1150 m vom Mittelpunkt) verlief die Sichtlinie zur Seemitte am
+	# NAHEN Kraterrand nur noch 13 m ueber der Lippe. Bei 620 m Kraterradius und einer Lippe
+	# auf rund 1080 m haette der Rand die halbe Schuessel verdeckt — und eine Abnahme, die
+	# den Krater auf einem solchen Bild beurteilt, meldet dasselbe wie schon einmal die
+	# Dampffahne: "kein Krater vorhanden".
+	# 2150 m hoch und 1500 m vom Mittelpunkt raeumt 207 m ueber der Lippe. Wer den Kegel
+	# noch einmal vergroessert, muss das nachrechnen: die Sichtlinie muss bei md = crater_r
+	# ueber peak + apron + rand_h liegen.
+	["vulkan_krater", Vector3(11800, 2150, -4100), Vector3(11800, 620, -5600)],
+	# Der Bergfuss: hier muss die Baumgrenze schlagartig anfangen.
+	# SIE IST NACH AUSSEN GEWANDERT, WEIL DIE BAUMGRENZE ES IST. Sie ist eine HOEHENLINIE
+	# (44 bis 68 m), und seit unter dem Kegel die Ascheschuerze liegt, schneidet diese Hoehe
+	# das Gelaende nicht mehr bei 1200 m vom Mittelpunkt, sondern bei rund 2400 bis 2600.
+	# Aus 3450 heraus stand die Kamera mitten auf dem Aschefaecher, und im Bild war nichts
+	# als Schutt im Vordergrund — vom Waldrand, den dieser Shot pruefen soll, kein Halm.
+	# 2300 legt die Kamera vor den Faechersaum und den Waldsaum in die Bildmitte.
+	["vulkan_fuss", Vector3(11800, 120, -2300), Vector3(11800, 300, -5600)],
 	["canyon", Vector3(-6300, 120, 1300), Vector3(-4900, 20, 3100)],     # IN die Schlucht
 	["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)], # Schlucht von oben
 	# HOCHGEBIRGE im Nordwesten mit dem Bergflugplatz ADLERHORST auf dem Sattel.
@@ -81,6 +111,26 @@ func _run() -> void:
 	for a in ua:
 		if String(a).begins_with("nur="):
 			nur = String(a).substr(4).split(",")
+	# FREIE KAMERA: frei=x,y,z,zx,zy,zz macht GENAU EIN Bild aus dieser Stellung und
+	# ueberspringt die Tabelle. Wer einen Umbau beurteilt, braucht andere Blickwinkel als
+	# die, die beim Anlegen der Tabelle sinnvoll schienen — ohne diesen Schalter muesste er
+	# dafuer das Werkzeug aendern, und zwei Leute, die das gleichzeitig tun, ueberschreiben
+	# sich gegenseitig die Vergleichsbilder.
+	for a in ua:
+		if String(a).begins_with("frei="):
+			var f := String(a).substr(5).split(",")
+			if f.size() < 6:
+				push_error("frei= braucht sechs Zahlen: x,y,z,zx,zy,zz")
+				_finished = true
+				quit(1)
+				return
+			await _shoot("frei",
+				Vector3(float(f[0]), float(f[1]), float(f[2])),
+				Vector3(float(f[3]), float(f[4]), float(f[5])))
+			print("Freies Bild fertig")
+			_finished = true
+			quit()
+			return
 	for s in _shots:
 		if nur.size() > 0 and not nur.has(String(s[0])):
 			continue
@@ -166,6 +216,18 @@ func _shoot(name: String, pos: Vector3, target: Vector3) -> void:
 	if schalter.has("ohne_wolken"):
 		for n in main.fly_world.get_children():
 			if String(n.name).begins_with("Cloud") or String(n.name).begins_with("Wolken"):
+				(n as Node3D).visible = false
+	# ohne_fahne: die Dampffahne des Vulkans ausblenden. SIE FAELLT NICHT UNTER ohne_wolken,
+	# obwohl sie aus denselben Puffs besteht — und das ist Absicht, denn sie gehoert zum Berg
+	# und nicht zum Wetter.
+	# WOFUER DER SCHALTER DA IST: die Fahne steht senkrecht ueber dem Krater und verdeckt ihn
+	# aus jeder Kamera, die von oben hineinschaut. Eine Bewertung der KRATERFORM anhand eines
+	# solchen Bildes ist wertlos — genau darauf ist eine Abnahme schon hereingefallen und hat
+	# einen vorhandenen, vermessenen Krater als "nicht vorhanden" gemeldet. Form beurteilt man
+	# ohne Fahne, die Fahne beurteilt man im normalen Bild.
+	if schalter.has("ohne_fahne"):
+		for n in main.fly_world.get_children():
+			if String(n.name).begins_with("VulkanFahne"):
 				(n as Node3D).visible = false
 	cam.look_at_from_position(pos, target, Vector3.UP)
 	# Die Welt so hinstellen, wie sie fuer einen Spieler AN DIESER STELLE aussieht:

@@ -178,6 +178,1405 @@ const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionseb
 # bei 6 stieg der schlimmste Frame von 3,9 auf 6,7 ms.
 const MAX_ATTACH_PER_FRAME := 3
 
+# --- VULKANKEGEL -------------------------------------------------------------------------
+# Diese drei Zahlen stehen NICHT in der Massivtabelle, weil sie nicht einen bestimmten Berg
+# beschreiben, sondern wie das vorhandene Rauschen in POLARKOORDINATEN abgetastet wird.
+# Abgetastet wird immer auf einem KREIS im Rauschraum (Einheitsrichtung mal Kreisradius) —
+# damit gibt es keine Naht bei +-pi, wie sie ein atan2 als Rauschachse unweigerlich
+# hinterlaesst: dort spraenge das Muster, und der Sprung staende als kerzengerade Kante vom
+# Gipfel bis zum Fuss im Hang.
+# Die Kreisradien folgen aus der Frequenz der jeweiligen Rauschquelle und werden in setup()
+# einmal ausgerechnet (_vk_rippen_kreis, _vk_lippen_kreis) — wer die Frequenz aendert, zieht
+# sie damit automatisch mit.
+# RIPPEN_N ist die Zahl der Hauptgrate rund um den Kegel. Das ist die Grundoktave; _ridge
+# hat vier davon, die feineren Rippen entstehen von selbst.
+# HIER STAND 10, UND DAS WAR ZU VIEL. Der Kreis wird in NOISE-Einheiten abgetastet, die
+# Winkelwellenlaenge in METERN schrumpft also mit dem Abstand zum Gipfel — genau das sollen
+# radiale Grate tun, sie laufen ja zusammen. Bei zehn Grundrippen ist die vierte Oktave am
+# Kraterrand aber nur noch 27 m breit, also drei Netzzellen: im Bild wurde daraus ein
+# feiner Cordsamt, der von jeder Entfernung wie eine gebuerstete Oberflaeche aussah statt
+# wie Grate.
+# FUENF WAREN DANN ZU WENIG: eine Rippe war auf halber Flanke 1000 m breit, und ein Buckel
+# von 55 m auf 500 m Halbwelle kippt die Flaechennormale um sechs Grad. Bei Flachschattierung
+# ist das nichts — der Kegel sah aus wie mit Schokolade uebergossen.
+# ZEHN GEHEN ERST, SEIT DER KREIS MIT DEM ABSTAND WAECHST (siehe unten): die Zahl gilt am
+# FUSS, oben wird das Muster von selbst grober.
+const VULKAN_RIPPEN_N := 10.0
+# Wie schnell das Rippenmuster hangabwaerts wandert (dritte Rauschachse, Meter -> Rauschmass).
+# 0 gaebe kerzengerade Speichen wie auf einem Beachball, zu viel loest die Grate wieder in
+# richtungslose Flecken auf — genau das war der Zustand vorher, als das Gratrauschen in
+# KARTESISCHEN Koordinaten abgetastet wurde. Seit der Kreis mit dem Abstand waechst, wandert
+# das Muster ohnehin schon quer, deshalb steht der Wert niedriger als die anfaenglichen 1.1.
+const VULKAN_RIPPEN_LAUF := 0.8
+# Anteil der Rippenamplitude, der AN DER LIPPE noch steht.
+# HIER STAND NULL, und das war der Grund fuer den letzten Abnahmefehler: um den Krater lag
+# ein rund 200 m breites Band, in dem die Flanke glatt anlief, und darueber sass ein
+# gedrechselter Ring. Aus der Ferne las sich das als Tafelberg mit sauber abgedrehter
+# Krone — die Grate schienen erst auf halber Hoehe anzufangen, als klebte der Gipfel auf
+# dem Berg statt aus ihm zu wachsen.
+# Jetzt beissen dieselben Rippen, die die Flanke aufrauen, oben in die Lippe. Das macht die
+# Krone gezackt, ohne dass ihre HOEHE stark schwankt: bei 44 m Rippenamplitude rund 17 m auf
+# 650, gut zwei Prozent. Voll aufdrehen darf man es nicht — bei 1.0 waeren es +-37 m, und
+# ein Wall, der um ein Zehntel seiner Hoehe wackelt, reisst optisch auf.
+# DASS DIE ZACKEN TROTZ DER KLEINEREN AMPLITUDE BLEIBEN, ist der Grund, warum "fels" in der
+# Massivtabelle zugleich von 22 auf 30 gegangen ist: die Felslage haengt an sv und steht
+# oben am staerksten, sie traegt den Rand jetzt mit.
+# Nach INNEN laeuft derselbe Wert an der Kraterwand aus und rillt sie: die Referenz zeigt
+# genau das, senkrechte Streifen in der Innenwand, keine glatte Schuessel.
+# --- DIE FEINRIPPEN: DIE ZWEITE, VIEL DICHTERE LAGE AUF DEMSELBEN KREIS -------------------
+# WARUM ES SIE BRAUCHT, UND ZWAR AUS EINEM BILDVERGLEICH. Ein Zwischenstand dieser Runde
+# hatte die Zielzahl der Abnahme erreicht (lokale Streuung 0.0348 gegen 0.030 gefordert) und
+# sah trotzdem falsch aus: die Aufhellung sass als RUNDE, ISOLIERTE Flecken auf der Flanke,
+# im Bild ein aufgestreuter Kies. Die Vorlage macht es anders — ihr helles Gestein bildet
+# LANGE, HANGPARALLELE Baender mit dunklen Rinnen dazwischen. Der Unterschied ist nicht die
+# Amplitude und nicht die Groesse, sondern die RICHTUNG: eine isotrope Rauschlage kann keine
+# Baender machen, egal wie fein man sie stellt.
+# 3.4 IST DER FAKTOR AUF DEN RIPPENKREIS, also rund 34 Grundrippen statt zehn. Am Fuss sind
+# das rund 250 m je Rippe, auf halber Flanke gut 130 — und weil _ridge vier Oktaven hat,
+# liegt die sichtbare Gliederung darunter. Das trifft die Baenderbreite der Vorlage.
+# WEITER HINAUF DARF ES NICHT: bei zehn Grundrippen war schon die vierte Oktave am
+# Kraterrand nur 27 m breit und das Bild wurde zu Cordsamt (siehe VULKAN_RIPPEN_N). Bei 34
+# gilt dieselbe Rechnung fuer die ZWEITE Oktave — was darunter liegt, faellt unter die
+# Netzweite und darf deshalb nur noch faerben, nicht mehr Gelaende machen. Genau deshalb
+# steht die Amplitude in der Massivtabelle niedrig und die Aufhellung dazu hoch.
+const VULKAN_FEINRIPPE_N := 3.4
+# WIE SCHNELL DAS MUSTER DEN HANG HINUNTERWANDERT. Deutlich schneller als bei den groben
+# Rippen (0.8), und das ist der eigentliche Griff fuer die BANDFORM: quer schmal, laengs
+# lang. Bei gleichem Lauf waeren es wieder Flecken, nur mehr davon.
+const VULKAN_FEINRIPPE_LAUF := 2.2
+# WIE HELL DER FEINE KAMM STEHT. Er darf fuehren wie der grobe, denn unter ihm liegt
+# dieselbe Sorte Form — die Schwelle laesst nur das obere Drittel der Verteilung heraus,
+# damit aus Baendern keine flaechige Aufhellung wird.
+const VULKAN_FEINRIPPE_AB := 0.34
+const VULKAN_FEINRIPPE_VOLL := 0.78
+const VULKAN_FEINRIPPE_HELL := 0.72
+const VULKAN_RIPPEN_LIPPE := 0.45
+# Wo die Rippen INNEN anfangen, als Anteil des Kraterradius. 0.50 setzt sie knapp unterhalb
+# der Sohlenkante an (VULKAN_SOHLE): die Innenwand bekommt ihre Rillen, die flache Sohle
+# bleibt flach. Weiter nach innen zu gehen brachte nichts — dort ist der Abtastkreis so
+# klein, dass aus den Rippen drei breite Beulen werden, und die sahen im Kraterboden aus
+# wie ein liegengebliebener Schutthaufen.
+const VULKAN_RIPPEN_INNEN := 0.50
+# Zahl der Lappen, um die der Kraterrand aus dem Kreis wandert. Klein halten: das Rauschen
+# bringt seine eigenen Oktaven mit, und eine Lippe mit acht Lappen liest sich als Zahnrad.
+# 2.5 WAREN ZU WENIG, SEIT DER KRATER GEWACHSEN IST: bei 460 m Radius misst die Lippe
+# 2900 m im Umfang, ein Lappen war damit 1150 m lang — also genau eine Seite, die ausbeult.
+# Der Rand las sich als schief gedrechselter Ring statt als gezackte Lippe.
+const VULKAN_LIPPEN_N := 3.5
+# ZWEITE LAGE AUF DEMSELBEN RAND, feiner und schwaecher. Die 3.5 Lappen geben dem Krater
+# seinen unrunden Grundriss, aber jeder einzelne Lappen ist ein 800 m langer, sauberer
+# Bogen — im Umriss las sich der Rand deshalb wie mit dem Zirkel gezogen, nur eben aus drei
+# Kreisen statt aus einem. Erst die feine Lage macht aus dem Bogen eine Kante.
+# Zwei ganze Oktaven auseinander (Faktor 4) waeren zu weit: dann sitzen 14 Zacken auf dem
+# Ring, jeder 200 m lang, und das ist wieder das Zahnrad. 2.8 liegt dazwischen.
+const VULKAN_LIPPEN_ZACK_N := 2.8
+const VULKAN_LIPPEN_ZACK := 0.40
+# Wellenlaenge der feinen Felslage auf dem Kegel, in Metern. Sie ist RICHTUNGSLOS und
+# ergaenzt die Rippen, statt mit ihnen zu konkurrieren: die Rippen geben dem Berg seine
+# Gliederung, diese Lage gibt den einzelnen Flaechen ihre Neigung. Ohne sie bleibt der
+# Kegel eine polierte Glasur, egal wie tief die Rinnen sind.
+# 150 m sind bei 8 m Netzweite rund 19 Zellen je Welle — Facetten, die man aus der Luft
+# als Fels liest. Deutlich darunter wird daraus Griess, der im Flug nur flimmert.
+const VULKAN_FELS_M := 150.0
+# --- DIE BLOCKLAGE: FELSAUFSCHLUESSE AUF DEN GRATEN ---------------------------------------
+# DER BEFUND, DER SIE ERZWUNGEN HAT. Ein fremder Blick auf das letzte Abnahmebild: "Flanken
+# sind strukturlos — glatte, einfarbig dunkelblau-schwarze Facetten ohne Felsaufschluesse
+# oder Schuttbloecke". Nachgemessen an beiden Bildern (derselbe Ausschnitt der Mittelflanke,
+# Lava und Gruen ausmaskiert) steckt der ganze Befund in ZWEI Zahlen:
+#   MITTLERER HELLIGKEITSSPRUNG VON PIXEL ZU PIXEL   Vorlage 0.030, wir 0.008 — ein Viertel.
+#   MEDIAN DER FLANKENHELLIGKEIT                     Vorlage 0.114, wir 0.209 — fast doppelt.
+# Die Flanke ist also NICHT ZU DUNKEL, sie ist zu GLEICHMAESSIG. Ihr fehlen beide Enden: die
+# tiefschwarzen Schattenschlitze ebenso wie die hell angeleuchteten Kanten dazwischen. Eine
+# Farbe kann das nicht nachliefern — was einen Schlitz schwarz macht, ist eine Flaeche, die
+# von der Sonne wegzeigt, und die muss im Hoehenfeld stehen.
+# WARUM DIE VORHANDENEN LAGEN ES NICHT KOENNEN: Rippen (10 Wellen im Umfang), Felslage
+# (150 m) und Barrancos (245 m am Fuss) sind alle GROSS gegen ein 8-m-Dreieck. Sie kippen
+# eine Flaeche um wenige Grad je Zelle, ein Dutzend Nachbardreiecke zeigt also fast in
+# dieselbe Richtung — daher die grossen glatten Facetten. Die Vorlage zeigt darunter
+# Aufschluesse von 40 bis 80 m Breite mit voller eigener Fallhoehe: jeder ein paar Dreiecke
+# gross, jeder mit einer besonnten und einer verschatteten Seite.
+# 46 M SIND KNAPP SECHS ZELLEN — die kuerzeste Welle, die auf diesem Netz noch eine eigene
+# Flanke hat, statt zur Zackenreihe zu werden. Darunter (32 m, vier Zellen) faellt sie in
+# genau das Flimmern zurueck, vor dem schon VULKAN_FELS_M warnt.
+const VULKAN_BLOCK_M := 46.0
+# DIE SCHWELLE MACHT AUS EINEM TEPPICH EINZELNE AUFSCHLUESSE. Ohne sie liegt ueber der
+# ganzen Flanke gleichmaessig Griess, und das ist wieder eine Textur statt einer Form. _ridge
+# ist ridged, seine hohen Werte bilden von selbst zusammenhaengende Straenge; ab 0.34 bleibt
+# davon rund ein Drittel der Flaeche uebrig, in Nestern verteilt, mit blanken Feldern
+# dazwischen. Genau so sitzt der Fels in der Vorlage — verstreute Cluster, kein Belag.
+# DIE OBERE SCHWELLE IST DER FEHLER, DEN DIESE ZEILEN ZUERST HATTEN, und er ist lehrreich:
+# hier standen 0.34 / 0.95, gewaehlt "damit nur die staerksten Nester voll herauskommen".
+# Gemessen (tools/_vulkan_form.gd) reicht die Blocklage aber nur bis 0.98, und ihr oberstes
+# Zehntel faengt erst bei 0.63 an — ueber 0.95 lagen ganze 0.1 Prozent der Flaeche. KEIN
+# EINZIGER BLOCK erreichte also seine 26 m, die mittlere Huelle stand bei 0.16, und im Bild
+# war die Folge genau messbar: der Helligkeitssprung von Pixel zu Pixel stieg von 0.008 auf
+# 0.013, gegen 0.030 in der Vorlage. Eine Schwelle, die am oberen Ende der Verteilung klebt,
+# schaltet die Lage nicht scharf — sie schaltet sie aus.
+# 0.24 / 0.64 SIND AN DER GEMESSENEN VERTEILUNG GEWAEHLT: rund drei Fuenftel der Flaeche
+# tragen etwas, ein gutes Zehntel steht auf voller Hoehe. Das ist das Verhaeltnis der
+# Vorlage — ueberwiegend Fels mit einzelnen glatten Baendern dazwischen, und darin die
+# einzelnen Aufschluesse, die wirklich Schatten werfen.
+const VULKAN_BLOCK_AB := 0.24
+const VULKAN_BLOCK_VOLL := 0.64
+# WIE VIEL DAVON IN DER RINNENSOHLE STEHENBLEIBT. Aufschluesse sitzen auf den Graten, in der
+# Sohle liegt Schutt — und in der Sohle liegt auch die Lava (VULKAN_BARR_VERSATZ). Ein
+# 18-m-Block mitten in einer 15 m breiten gluehenden Ader zerhackt sie zu einer Perlenkette,
+# und genau das Aufgemalte, aus dem die Ader gerade herausgefuehrt wurde, waere zurueck.
+# 0.30 laesst in der Sohle eine Koernung stehen, ohne den Kanal anzufassen.
+const VULKAN_BLOCK_SOHLE := 0.30
+# WO DIE BLOECKE AUFHOEREN, als Anteil des Fussradius — UND DAS IST KEINE GESCHMACKSFRAGE,
+# SONDERN DIE BAUMGRENZE. Der Waldkragen sitzt gemessen zwischen 1020 und 1140 m (26 bis
+# 82 m Hoehe), und die Bepflanzung duennt nach der NEIGUNG UEBER DER 8-M-ZELLE aus: ueber
+# 4,6 m Hoehenunterschied je Zelle steht gar kein Baum mehr. 18 m Auswurf auf 46 m Welle
+# sind rund 6 m je Zelle — Bloecke bis in den Kragen hinunter haetten den Ring, der in der
+# Runde davor gerade erst geschlossen wurde (Deckung 0.85 im Median, kein einziges Loch),
+# wieder aufgerissen. Sie laufen deshalb ueber 900 bis 1075 m aus und sind an der Oberkante
+# des Kragens auf ein Siebtel herunter.
+# NACH INNEN BRAUCHT ES KEINE SCHRANKE: der Aufschluss darf bis an die Lippe stehen, die
+# Vorlage zeigt ihn dort am dichtesten. Die Rampe ab krx haelt ihn nur aus dem fertigen
+# Kraterrand heraus, so wie es die Rinnen auch tun.
+const VULKAN_BLOCK_AUS_AB := 0.72
+const VULKAN_BLOCK_AUS_ZU := 0.86
+# WIE HELL EIN AUFSCHLUSS STEHT. Er geht in DENSELBEN "blank"-Term wie Rippenkamm und
+# Barranco-Grat und nicht als eigene Farbe daneben — blank ist blank, egal welche Lage die
+# Flaeche aufgebrochen hat (dieselbe Begruendung wie bei VULKAN_HAUT_KRUME). Er DARF
+# fuehren, denn unter ihm liegt Form: es ist Zeichen fuer Zeichen derselbe Ausdruck, mit dem
+# height_at den Block auswirft. Genau das unterscheidet ihn von den beiden Rauschlagen, die
+# als "helle Striemen" gemeldet wurden und seither nur noch koernen duerfen.
+# 0.52 -> 0.72: mit dem kleineren Wert erreichte "blank" auf einem vollen Aufschluss nicht
+# einmal die Haelfte, der Block blieb also im Basaltton stehen und war nur an seinem Schatten
+# zu erkennen. Die Vorlage zeigt auf dem Aufschluss den HELLSTEN Ton der ganzen Flanke.
+const VULKAN_BLOCK_HELL := 0.85
+# --- BARRANCOS: DIE EROSIONSRINNEN DER FLANKE --------------------------------------------
+# WARUM ES SIE BRAUCHT, OBWOHL SCHON RIPPEN AUF DEM HANG LIEGEN. Die Rippen sind eine
+# RAUSCHLAGE: ridged, vier Oktaven, und die Oktaven 2 bis 4 liefern den Grossteil dessen,
+# was man sieht. Im Abnahmebild las sich das als feiner, gleichfoermiger Striemen ueber
+# einer sonst ungebrochenen Kegelflaeche — eine gebuerstete Oberflaeche, keine Gliederung.
+# Rauschen kann das auch nicht leisten: es hat keine ZAEHLBARE Zahl von Rinnen, keine
+# definierte Tiefe und keinen Ort, an dem eine Rinne anfaengt und aufhoert.
+# Ein Barranco hat all das. Er faengt an der Lippe mit Tiefe null an, wird die Flanke
+# hinunter tiefer, laeuft im Fuss-Apron aus, und zwischen zwei Rinnen steht ein GRAT.
+# Deshalb steht hier eine gerechnete Winkelwelle und keine weitere Rauschlage.
+#
+# DAS ATAN2 IST HIER KEIN FEHLER, obwohl weiter oben steht, dass ein atan2 als Rauschachse
+# eine Naht bei +-pi hinterlaesst. Der Unterschied ist die GANZE ZAHL: der Winkel geht nicht
+# in ein Rauschen, sondern in eine periodische Welle mit VULKAN_BARR_N Perioden auf dem
+# Vollkreis. Ueber die Naht springt die Phase um genau VULKAN_BARR_N, und der Nachkommateil
+# — auf dem allein die Welle sitzt — merkt davon nichts. Die Zahl MUSS deshalb ganz sein,
+# darum das round() in setup(); mit 30.5 staende dort die kerzengerade Kante vom Gipfel bis
+# zum Fuss, vor der die Rippen gewarnt haben.
+# 32 RINNEN sind an der Lippe (Umfang 2900 m) alle 91 m eine, auf halber Flanke alle 160 m,
+# am Fuss alle 245 m — Rinnen, die nach unten breiter werden und nach oben zusammenlaufen,
+# also genau das Fingermuster der Vorlage. Unter 24 wird der Kegel zum Zahnrad, ueber 40
+# ist eine Rinne am Kraterrand schmaler als zehn Netzzellen und faellt in den Cordsamt
+# zurueck, aus dem die Rippen gerade herausgeholt wurden.
+# HIER STAND 30, UND DIE ZWEI MEHR SIND KEIN GESCHMACK: 32 ist EINE ZWEIERPOTENZ, und daran
+# haengt das Lavanetz. Es ist ein Binaerbaum — acht Staemme am Kraterrand, zwei Gabelungen
+# die Flanke hinunter, also 8 * 2^2 = 32 Enden. Nur wenn die Rinnenzahl durch JEDE Zellbreite
+# des Baums teilbar ist, faellt eine Aderachse auf eine feste Stelle im Rinnenraster — welche
+# das ist, entscheidet dann VULKAN_BARR_VERSATZ. Mit 30 laege sie in jeder Generation
+# woanders, die Adern liefen also mal in einer Sohle und mal quer ueber einen Grat, und das
+# ist wieder ein aufgemaltes Muster auf einer Form, die etwas anderes sagt.
+const VULKAN_BARR_N := 32.0
+# Die TIEFE steht als "barranco" in der Massivtabelle (Main), so wie "rippen" und "fels":
+# sie beschreibt diesen einen Berg, waehrend die Zahlen hier beschreiben, WIE die Rinne
+# gebaut ist. Fehlt der Schluessel, passiert nichts.
+# Aufgetragen wird q*q (q = -1 Grat, 0 Sohle, +1 Grat), und q ist ueber die Zelle
+# gleichverteilt — sein Quadrat hat damit das Mittel 1/3. GENAU DIESE ZAHL WIRD ABGEZOGEN,
+# und deshalb steht sie hier als Konstante und nicht als 0.33 in der Zeile: sie ist der
+# Grund, warum der Kegel im Mittel gleich hoch bleibt. Der Grat steigt um 2/3 der Tiefe,
+# die Sohle faellt um 1/3, der Unterschied zwischen beiden ist die volle Tiefe.
+# WARUM q*q UND KEIN DREIECK: an der Sohle (q = 0) ist die Steigung null, die Rinne bekommt
+# also einen BODEN statt einer Schneide — dort soll die Lava liegen. Am Grat (|q| = 1)
+# stossen zwei Parabeln mit voller Steigung aufeinander, das gibt den scharfen Kamm. Ein
+# Dreieck haette es genau andersherum gemacht: spitze Rinne, runder Grat.
+const VULKAN_BARR_MITTE := 0.3333
+# VERSATZ ZWISCHEN RINNENGITTER UND LAVABAUM — EINE HALBE RINNE, UND SIE ENTSCHEIDET, OB DIE
+# LAVA IN DER SOHLE ODER AUF DER KANTE LIEGT.
+# Der Baum teilt die Flanke in Zellen der Breite 4, 2 und 1 Rinnen, und die Achse eines Astes
+# ist die MITTE seiner Zelle — das MUSS so sein, sonst ist der Abstand zur Achse an einer
+# Zellgrenze unstetig und im Hoehenfeld steht dort eine Wand (siehe _vulkan_ader).
+# Zellmitten sind also 4j+2, 2j+1 und j+0.5: die beiden groben sind GANZE Zahlen, die feinste
+# eine halbe. Ohne Versatz liegen die Rinnensohlen bei den halben Zahlen, und dann laege genau
+# EINE Generation in einer Sohle — die feinste, die es erst ganz am Fuss gibt. Staemme und
+# Hauptaeste liefen auf einem Grat. Genau das hat der Kritiker gesehen: "gluehende Baender
+# OBEN AUF der Flanke".
+# Eine halbe Rinne Versatz dreht das um. Die Sohlen liegen jetzt bei den GANZEN Zahlen, und
+# damit liegen Stamm und erster Ast in einer Sohle — also die obere Haelfte der Flanke, wo die
+# Ader breit ist und auffaellt. Nur die feinste Achse sitzt auf einem Grat, und sie wird erst
+# am Fussradius selbst voll erreicht, wo ohnehin alles ausblendet.
+# ES IST BILLIGER ALS JEDE ALTERNATIVE: eine Addition auf einer Zahl, die ohnehin gerechnet
+# wird. Den Baum stattdessen zu verschieben ginge nicht — dann wandern seine Zellgrenzen mit,
+# und die Mitten liegen wieder dort, wo sie vorher lagen.
+const VULKAN_BARR_VERSATZ := 0.5
+# --- DIE FEINE OBERHARMONISCHE ------------------------------------------------------------
+# WOFUER: 32 Rinnen sind am Fuss 245 m auseinander. Das gliedert den Kegel, aber die Vorlage
+# zeigt darunter noch eine zweite, viel dichtere Lage — Rippchen von wenigen Dutzend Metern,
+# die den Flanken der grossen Rinnen ihre Kanten geben. Ohne sie ist jede Barranco-Wand eine
+# glatte, 80 m breite Schraege, und aus der Referenzentfernung liest sich das wieder als
+# weiche Kannelierung statt als Fels.
+# DIE ZAHL MUSS UNGERADE SEIN, UND DAS IST DER GANZE TRICK. Die Grate der Grundlage liegen
+# bei ganzen ph, ihre Sohlen bei halben. Verdreifacht man die Phase, liegt ueber jedem
+# Grundgrat wieder ein Grat (3k ist ganz) und in jeder Grundsohle wieder eine Sohle
+# (3k + 1.5 ist halb) — die feine Lage VERSTAERKT die grobe, statt sie zu zerkerben. Bei
+# GERADER Zahl waere es genau umgekehrt: 2*(k+0.5) ist ganz, also saesse mitten in jeder
+# Sohle ein Grat, und dort laeuft die Lava (siehe _vulkan_ader).
+# DREI UND NICHT FUENF: 96 Rippchen sind am Fuss 82 m auseinander, also zehn Netzzellen; bei
+# fuenf waeren es 49 m, und eine Rippe von sechs Zellen faellt in den Cordsamt zurueck, vor
+# dem schon die Rippen gewarnt haben.
+const VULKAN_BARR_FEIN_N := 3.0
+# Anteil der Grundtiefe. 0.34 sind auf halber Flanke rund 16 m auf 56 m Breite — genug fuer
+# eine eigene Schattenkante, zu wenig, um die Zaehlbarkeit der 32 Grundrinnen zu stoeren.
+const VULKAN_BARR_FEIN := 0.34
+# ... und wo sie einblendet, als Anteil der Flankenlaenge. Sie faengt SPAETER an als die
+# Grundlage: oben am Kraterrand stehen 96 Rippchen 30 m auseinander, das sind keine vier
+# Netzzellen. Nach unten hin waechst der Umfang und mit ihm der Platz.
+const VULKAN_BARR_FEIN_AB := 0.25
+const VULKAN_BARR_FEIN_VOLL := 0.62
+# HUELLKURVE. Oben faengt die Rinne EXAKT an der gewachsenen Lippe mit null an (krx, nicht
+# der nominelle Kraterradius — sonst schnitte sie dort, wo die Lippe nach innen wandert, in
+# den fertigen Kraterrand). Voll ist sie nach diesem Anteil der Flankenlaenge.
+# 0.38 WAREN 300 m ANLAUF von 790, also fast die halbe Oberflanke: der Kritikpunkt lautete
+# "Rinnensystem ueber die GANZE Flanke", und darauf gab es unter dem Kraterrand ein breites
+# Band, in dem die Rinne noch nicht stand. 0.30 sind 237 m — die Rinnen fangen am Rand immer
+# noch bei null an (das muessen sie, sonst kerben sie in die fertige Lippe), haben ihre
+# Tiefe aber schon auf dem obersten Drittel.
+const VULKAN_BARR_OBEN := 0.30
+# ... und unten laeuft sie im Apron aus. SIE MUSS AM FUSSRADIUS BEI NULL SEIN, UND DAS IST
+# KEINE GESCHMACKSFRAGE: der ganze Massivzweig in height_at haengt an "cone > 0.0", und
+# cone ist 1 - smoothstep(0, mr, md) — bei md = mr faellt er auf null und ALLES, was der
+# Zweig aufgetragen hat, hoert von einem Schritt auf den anderen auf. Was dort noch steht,
+# steht als senkrechte, kreisrunde Wand im Gelaende.
+# HIER STAND 1.10, mit der Begruendung, die Grate duerften als Finger in die Ebene laufen.
+# Sie konnten es nie: die Zeile mit dem Auslauf wird jenseits von mr gar nicht mehr
+# erreicht. Uebrig blieb ein 12 m hoher Ring am Fussradius, den erst die Lavalappen
+# (weitere 24 m) sichtbar gemacht haben — im Bild ein Lattenzaun aus 8-m-Dreiecken quer
+# durch den Waldkragen. Die Probe dagegen steht jetzt in tools/_vulkan_form.gd und heisst
+# SENKRECHTE WAENDE; sie muss unter rund 20 m bleiben.
+# DER AUSLAUF FING BEI 0.80 AN UND WAR DAMIT ZU FRUEH: das unterste Fuenftel der Flanke —
+# also gerade der Ring, in dem die Vorlage ihre Grate als Finger in den Waldkragen schiebt —
+# hatte schon keine halbe Rinnentiefe mehr, und dort las sich der Kegel wieder als glatte
+# Schuerze. 0.87 laesst die Rinnen bis 1090 m voll stehen und erst auf den letzten 160 m
+# auslaufen. Bei NULL AM FUSSRADIUS bleibt es, siehe oben — daran haengt der ganze Zweig.
+const VULKAN_BARR_AUS_AB := 0.87
+const VULKAN_BARR_AUS_ZU := 1.00
+# MAEANDER: um wie viel eine Rinne seitlich wandert, in Zellbreiten. Ohne ihn stuenden 30
+# kerzengerade Speichen auf dem Kegel wie die Rillen einer Schallplatte. Das Rauschen dafuer
+# wird auf einem KREIS abgetastet (also nahtfrei) und laeuft mit dem Abstand als dritter
+# Achse — dieselbe Bauart wie bei Rippen und Zungen.
+# UEBER 0.5 DARF ER NICHT: bei einer halben Zellbreite Versatz koennen zwei Nachbarrinnen
+# ineinanderlaufen, und dann steht zwischen ihnen kein Grat mehr, sondern eine Mulde.
+# 0.42 BEI LAUF 1.3 WAR NOCH ZU BRAV — im Bild liefen die Rinnen fast schnurgerade den
+# Kegel hinunter wie die Rillen einer Schallplatte, waehrend die Vorlage wackelnde,
+# ineinander verzahnte Finger zeigt. Der Maeander geht deshalb dicht an die Grenze, und
+# vor allem laeuft er SCHNELLER hangabwaerts: bei 1.8 wandert eine Rinne auf der Flanke
+# rund eine dreiviertel Rauschperiode weit, macht also einen sichtbaren Bogen statt einer
+# Neigung.
+const VULKAN_BARR_MAEANDER := 0.47
+const VULKAN_BARR_WANDER_N := 2.0
+const VULKAN_BARR_LAUF := 1.8
+# TIEFENSTREUUNG: nicht jede Rinne ist gleich tief. Abgetastet wird auf demselben Kreis mit
+# wenigen Lappen, es sind also GRUPPEN benachbarter Rinnen, die tief einschneiden, und
+# andere, die kaum mehr als angedeutet sind. Eine Streuung je einzelner Rinne waere billiger
+# zu haben (das Rauschen an der Rinnennummer), sah aber aus wie ein Strichcode.
+# 0.50 WAR ZU TIEF ANGESETZT. Die flachste Rinne hatte damit die halbe Tiefe, auf halber
+# Flanke also 24 m auf 160 m Breite — eine 17-Grad-Mulde, die bei hochstehender Sonne
+# keinen Schatten wirft und im Rippenrauschen daneben verschwindet. Eine Gruppe, die man
+# nicht mehr als Rinne liest, ist keine Streuung, sondern ein Loch im Muster: aus der
+# Referenzentfernung sah der Kegel dort wieder glatt aus. 0.64 haelt auch die schwaechste
+# Gruppe bei 40 m und damit ueber 27 Grad Rinnenwand.
+const VULKAN_BARR_TIEF_N := 3.0
+const VULKAN_BARR_TIEF_MIN := 0.64
+# WIE STARK DIE RINNE IN DER FARBE STEHT. Die Form allein reicht nicht: bei hochstehender
+# Sonne trifft das Licht Grat und Sohle fast gleich, und dann sieht man 30 Rinnen erst,
+# wenn man von der Seite schaut. Der Grat ist abgerieben und hell, die Sohle liegt im
+# Schutt und im Schatten — dieselbe Hell-Dunkel-Achse wie bei den Rippen, deshalb geht der
+# Wert in DENSELBEN blank-Term statt als eigene Farbe daneben.
+# 0.34 WAR ZU VIEL, SOLANGE DIE RIPPEN DANEBEN AUF 0.30/0.74 STANDEN: beide Lagen zusammen
+# hoben den halben Kegel ins Grau. Seit das Rippenfenster schmal ist (VULKAN_GRAT_AB) traegt
+# die Helligkeit die RINNE und nicht mehr die Rauschlage, und dann darf der Sprung genau
+# hier stehen. Das ist der Unterschied, der 32 Rinnen auch dann noch zaehlbar macht, wenn die
+# Sonne senkrecht darauf steht — die Form allein schafft es bei 62 m auf 160 m Breite nicht.
+# 0.42 IST DIE FOLGE EINER RECHNUNG, NICHT EINES GESCHMACKS. In "blank" liegen vier Summanden
+# nebeneinander, und drei davon wussten nichts von der Rinne: die Krume schwankte um +-0.40,
+# der Grus um +-0.30, der Barranco-Term nur um +-0.21. Die Helligkeit der Flanke wurde also
+# von zwei richtungslosen Rauschlagen bestimmt — genau das "dunkle Textur-Schlierenmuster"
+# aus der Kritik, helle und dunkle Felder, die auf keiner Kante liegen. Die beiden anderen
+# sind heruntergegangen (VULKAN_HAUT_KRUME, VULKAN_GRUS), dieser hier hoch: mit 0.42 traegt
+# der Grat +0.28 bis +0.37 und die Sohle -0.14 bis -0.19, und damit fuehrt die FORM.
+const VULKAN_BARR_HELL := 0.20
+# --- GIPFEL UND KRATER -------------------------------------------------------------------
+# Alle vier Masse stehen in VIELFACHEN DES KRATERRADIUS bzw. der Kratertiefe, nicht in
+# Metern: wer den Krater weitet, will die Schuessel mitwachsen lassen und nicht ihre Wand
+# stehen sehen.
+# WARUM DIE LIPPE NACH AUSSEN FAST NICHTS MEHR AUFTRAEGT (KRONE_AUSSEN): ein Buckel der
+# Hoehe a, der ueber die Strecke L nach aussen auslaeuft, nimmt der Flanke dort im Mittel
+# a/L an Neigung. Vorher lagen dort 65 m ueber 0.62 Kraterradien, also ueber 186 m — auf
+# einer Flanke, die mit 1.1 faellt, blieb davon fast nichts uebrig. Im Bild war das keine
+# Lippe, sondern eine Schulter unter einer Kuppe, und der Gipfel las sich als Delle in
+# einem Kegel statt als Krater in einem abgestumpften Kegel.
+# DASS DER RAND TROTZDEM EIN ECHTES LOKALES MAXIMUM IST, macht die Schuessel dahinter: nach
+# aussen faellt die Flanke, nach innen die Kraterwand. Dafuer braucht es keinen Buckel.
+const VULKAN_KRONE_INNEN := 0.10
+const VULKAN_KRONE_AUSSEN := 0.12
+# Wo die flache Kratersohle aufhoert und die Innenwand anfaengt. Daran haengt, ob die
+# Schuessel im Streiflicht ganz im Schatten liegt oder nur grau wird: die Wand hat die ganze
+# Kratertiefe zu ueberwinden, und je kuerzer die Strecke, die sie dafuer hat, desto steiler
+# steht sie.
+# 0.50 gab 216 m Lauf und 52 Grad, und im Abnahmebild war die Schuessel eher hell als
+# verschattet. 0.55 waren 189 m und 56 Grad — und AUCH DAS WAR ZU WENIG: eine Abnahme hat
+# den Krater danach als "glatten Trichter" gemeldet, der nirgends tief aussieht.
+# JETZT 0.66. Das sind bei crater_r 620 und crater_depth 340 rund 192 m Lauf, im Mittel
+# 60 Grad und an der steilsten Stelle des smoothstep knapp 70 — eine Wand, die im
+# Streiflicht ihren eigenen Schatten in die Schuessel wirft.
+# DER ALTE EINWAND GEGEN 0.65 IST HINFAELLIG, und zwar nicht, weil er falsch war, sondern
+# weil sich der Boden geaendert hat: er lautete "dann ist die Sohle zwei Drittel des
+# Kraterdurchmessers breit, das ist eine Tasse". Diese Sohle ist aber nicht mehr leer —
+# in ihren inneren drei Vierteln liegt der LAVASEE (VULKAN_SEE_R), und was uebrigbleibt,
+# ist ein 99 m schmaler Schuttring zwischen Seeufer und Wandfuss. Eine breite Sohle ist
+# genau das, was ein See braucht; leer waere sie eine Pfanne.
+const VULKAN_SOHLE := 0.66
+# --- DER LAVASEE AUF DER KRATERSOHLE ------------------------------------------------------
+# WOGEGEN ER GEBAUT IST: "statt einer steilwandigen Schuessel mit dunklem Boden und echtem
+# Lavasee haben wir einen glatten Trichter, der in einem kleinen flachen Orangefleck endet".
+# Der Orangefleck war der Schlund (VULKAN_SCHLUND, 0.34 des Kraterradius) — bei 460 m
+# Kraterradius rund 156 m breit, in einer 916 m weiten Schuessel also ein Punkt.
+#
+# DIE FLACHHEIT IST DER GANZE TRICK. Alles an diesem Berg ist rauh: Gratrauschen, Felslage,
+# Blocklage, Rippen. Eine Flaeche, auf der NICHTS davon liegt, liest das Auge sofort als
+# Fluessigkeit — es gibt in einer Landschaft keinen anderen Grund fuer eine exakte Ebene.
+# Deshalb zieht height_at im See die beiden Rauschlagen wieder ab, die es kurz zuvor
+# aufgetragen hat, statt den See einfach tiefer zu legen. Ein tiefer gelegter, aber weiter
+# gewellter Boden war der erste Versuch und sah aus wie eine Schlackenhalde im Loch.
+#
+# VULKAN_SEE_R DARF NICHT UEBER VULKAN_RIPPEN_INNEN (0.50) LIEGEN. Dort fangen die radialen
+# Rippen an, und die zieht das Flachziehen NICHT mit ab — eine Rippe auf einem See ist eine
+# Welle in einem Spiegel. Beide Zahlen stehen deshalb auf 0.50 und muessen zusammen wandern.
+const VULKAN_SEE_R := 0.50
+# Breite des Ufers, in Kraterradien. Der Sprung von der Schuttsohle auf den Spiegel ist
+# "lavasee" hoch (Massivtabelle); auf 0.09 * 620 = 56 m Lauf sind 96 m Fallhoehe rund
+# 60 Grad im Mittel — dieselbe Steilheit wie die Kraterwand darueber, und aus demselben
+# Grund: eine Boeschung darunter liest sich als Rutsche und nicht als Seeufer.
+const VULKAN_SEE_UFER := 0.09
+# DIE KRUSTE UND IHRE FUGEN. Ein Lavasee ist nicht orange, er ist SCHWARZ mit orangen
+# Nahtstellen — die erkaltete Deckschicht zerreisst in Schollen, und nur dazwischen sieht
+# man das Glutbett. Eine durchgehend orange Scheibe war der zweite Fehlversuch: sie las sich
+# als Lampe im Berg, nicht als Gestein, das gerade schmilzt.
+# Die Fugen liegen auf _ridge (ridged, also scharfe Kaemme = duenne Linien statt Flecken).
+# 140 m Grundwelle heisst Schollen von rund 100 m auf einem See von 620 m Durchmesser: sechs
+# bis acht Schollen quer, so wie es die Vorlage zeigt. Feiner darf es nicht werden — das
+# Gelaendenetz hat 8 m Kantenlaenge, und ab rund 60 m Wellenlaenge flimmert die Farbe
+# zwischen benachbarten Dreiecken (dieselbe Grenze wie bei VULKAN_FELS_M).
+const VULKAN_SEE_M := 140.0
+const VULKAN_SEE_FUGE_AB := 0.34
+const VULKAN_SEE_FUGE_VOLL := 0.72
+const VULKAN_SEE_KRUSTE := Color(0.042, 0.034, 0.033)
+# --- DIE INNENWAND DES KESSELS ------------------------------------------------------------
+# Der Krater hebt den Hoehenanteil "t" von innen auf voll (siehe _vulkan_haut), damit die
+# Sohle nicht rostbraun wird. Der Preis dafuer: Innenwand und Aussenflanke bekommen genau
+# dieselbe Haut, und im Abnahmebild war der Kessel deshalb ein mittelgraues Becken — hell
+# genug, dass die 340 m Tiefe darin verschwanden.
+# Ein Kraterinneres ist aber JUENGER als die Flanke: dort liegt frischer Auswurf, kein
+# verwitterter Hang. VULKAN_KESSEL ist dieses fast schwarze Innere, und die Rampe blendet es
+# von der Lippe (1.02) nach innen ein, statt an einer Kante umzuschalten — die gewachsene
+# Lippe wandert um +-22 Prozent (siehe "lippe"), eine harte Grenze haette dort einen
+# Farbring hinterlassen.
+# NICHT GANZ DECKEND (0.62): die Felslage und die Blocklage sollen im Kessel weiter zu sehen
+# sein. Bei 1.0 war die Wand eine schwarze Flaeche ohne Struktur, und damit war sie wieder
+# so tiefenlos wie vorher die graue.
+const VULKAN_KESSEL := Color(0.062, 0.052, 0.052)
+const VULKAN_KESSEL_DECK := 0.62
+const VULKAN_KESSEL_AB := 1.02
+const VULKAN_KESSEL_VOLL := 0.72
+# Radius des Schlots, als Anteil des Kraterradius.
+# NICHT DIE TIEFE ENTSCHEIDET, OB MAN IHN SIEHT, SONDERN DAS VERHAELTNIS. Bei 0.30 und
+# 115 m stand seine Wand auf 40 Grad, und eine 40-Grad-Mulde faengt bei hochstehender Sonne
+# weder Streiflicht noch Schatten — im Bild lag in der hellen Pfanne eine kaum dunklere
+# Pfanne. Ab rund 55 Grad kippt sie ins Schwarze.
+# SEINE AUFGABE HAT SICH GEAENDERT, seit auf der Sohle der LAVASEE liegt: die helle Pfanne,
+# gegen die er gebaut wurde, gibt es nicht mehr. Er ist jetzt der SCHLUND IM SEE — die
+# Stelle, an der die Saeule steht und der Spiegel eingezogen ist. Deshalb ist er flach
+# geworden (siehe "schlot" in der Massivtabelle): eine tiefe Grube im See wuerde heissen,
+# dass der See leergelaufen ist, und ein leerer See ist wieder ein Trichter.
+# 0.17 von 620 m sind 105 m Radius, also ein Schlund von gut 200 m in einem See von 620 m —
+# das Verhaeltnis, das die Vorlage zeigt.
+const VULKAN_SCHLOT_R := 0.17
+# Tiefe der Scharte, gemessen an der KRATERTIEFE. Vorher hing sie an der Lippenhoehe und
+# schrumpfte deshalb mit, sobald die Lippe flacher wurde — die Kerbe soll aber die Wand
+# anschneiden, nicht die Lippe.
+const VULKAN_SCHARTE_TIEF := 0.28
+
+# --- HAUT DES VULKANS: GESTEIN, LAVAZUNGEN, GLUT ------------------------------------------
+# DIE FORM ALLEIN MACHT KEINEN VULKAN. Ein Kritiker hat den abgenommenen Kegel neben die
+# Referenz gestellt: Boeschung, Krater und Rippen waren gemessen richtig, und trotzdem las
+# sich das Bild als roter Sandstein-Tafelberg. Der Grund ist ein einziger — die ganze
+# Flanke trug EINEN Ton vom Fuss bis zur Lippe, ohne einen Hinweis darauf, dass hier etwas
+# passiert. Drei Dinge liegen deshalb jetzt darauf, jedes mit eigener Schwelle:
+#   GESTEIN  unten verwitterter rostbrauner Tuff, oben schwarze Asche,
+#   ZUNGEN   erstarrte Stroeme, die ueber den Bergfuss hinaus in die Ebene auslaufen,
+#   GLUT     offene Rinnen, die aus sich selbst leuchten (Alphakanal, siehe Shader).
+# Alle drei kosten NUR innerhalb des Vulkan-Umkreises etwas; draussen faellt je Dreieck ein
+# Abstandsquadrat an, siehe _vulkane.
+#
+# Hoehe in Metern, ab der die Vulkanhaut ueberhaupt gilt. Der Wert stand vorher schon in
+# _face_color; darunter ist der Kegel Strand und Vorland wie jede andere Insel.
+const VULKAN_HAUT_FUSS := 26.0
+# Reichweite der Haut als Vielfaches des Massivradius. SIE IST GROESSER ALS EINS, und das
+# ist der Punkt: ein Lavastrom, der genau am Fussradius aufhoert, sieht abgeschnitten aus.
+# Die Zungen laufen darueber hinaus in die gruene Ebene und enden dort ausgefranst.
+const VULKAN_HAUT_REICH := 1.32
+# GEMESSEN AN DER VORLAGE, NICHT GESCHAETZT. Ihre Mittelflanke hat den Helligkeitsmedian
+# bei 0.11, das obere Viertel faengt bei 0.19 an und das oberste Zwanzigstel liegt bei 0.36;
+# unsere Flanke stand bei 0.22 / 0.28 / 0.28. Zwei Befunde stecken darin, und der zweite
+# wiegt schwerer:
+#   ZU HELL  — der Kegel ist fast schwarzer Basalt, kein brauner Berg.
+#   ZU FLAU  — in der Vorlage ist der hellste Zehntel SECHSMAL so hell wie der Grund, bei uns
+#              knapp doppelt. Das Bild lebt von diesem Sprung: hell abgeriebene Gratruecken
+#              ueber fast schwarzen Rinnen.
+# EINE HOEHENRAMPE KANN DIESEN SPRUNG NICHT ERZEUGEN. Hier stand
+#     haut = ROST.lerp(ASCHE, smoothstep(0.28, 0.68, hoehenanteil))
+# und das faerbt per Konstruktion jede Hoehenlinie gleich — dabei kommt ein Verlauf heraus,
+# also genau der Anstrich, gegen den die Rampe eigentlich gebaut war. Die Helligkeit haengt
+# jetzt am RIPPENRAUSCHEN, also an der Form selbst: hohe Werte sind die Kaemme, tiefe die
+# Rinnen (dieselbe Lage, die height_at auftraegt und in deren Rinnen die Glut liegt).
+# Grund, fast schwarz und eine Spur blaeulich — die Rinnen und die Schattseite ...
+# DER BLAUSTICH IST RICHTIG UND BLEIBT, obwohl die letzte Kritik "dunkelblau-schwarz" als
+# Mangel gemeldet hat. Nachgemessen ist das dunkelste Viertel der VORLAGE mit 0.054/0.067/0.124
+# noch deutlich blauer als unseres — und das muss es sein: was dort leuchtet, ist der Himmel,
+# nicht die Sonne. Der Mangel steckte in der HELLIGKEIT, nicht im Ton: dasselbe Viertel stand
+# bei uns auf 0.121/0.155/0.224, also gut doppelt so hell. Ein Schattenschlitz, der halb so
+# tief ist wie er sein sollte, liest sich als flaue Flaeche, und genau das war der Befund.
+# 0.064 -> 0.050 zieht die Schattseite um ein knappes Viertel herunter.
+# WEITER HINUNTER BRINGT NICHTS, UND DAS IST GEMESSEN, NICHT GESCHAETZT: ein Probelauf mit
+# 0.036 hat den Median des fertigen Bildes um ganze 0.002 bewegt (0.221 auf 0.219). Der
+# Grund ist die Luftperspektive — bei 2 km Kameraabstand liegt unter der Flanke ein
+# additiver Sockel aus Nebel und Himmelslicht, der mit dem Albedo gar nicht skaliert. Wer
+# die Flanke naeher an die 0.114 der Vorlage bringen will, muss also an der Atmosphaere
+# drehen, und die gehoert der ganzen Welt. Was hier bleibt, ist der Weg ueber die FORM:
+# Flaechen, die von der Sonne wegzeigen, liefert die Blocklage (VULKAN_BLOCK_M).
+const VULKAN_BASALT := Color(0.028, 0.027, 0.036)
+# ... und der abgeriebene Gratruecken darueber. Der Sprung dazwischen ist der gemessene
+# Faktor sechs.
+# HIER STAND 0.44 / 0.415 / 0.375, ALSO EIN HELLES WARMES GRAU, und das war zweimal daneben.
+# Nachgemessen am fertigen Bild gegen die Vorlage (gleiche Ausschnitte, Himmel/Gruen/Lava
+# ausmaskiert): unsere Mittelflanke stand im Median auf 0.25 gegen 0.15, ihr oberstes
+# Zwanzigstel auf 0.53 gegen 0.36. Der helle Ton war also rund anderthalbmal zu hell, und im
+# Bild las er sich auf der Oberflanke als Schnee.
+# UND ER WAR ZU WARM. Der hellste Fels der Vorlage ist ein NEUTRALES Grau (gemessen
+# 0.55/0.50/0.52, also eine Spur ins Kalte); ihr Braun kommt vom Rost, der darueber liegt.
+# Unser Ton brachte die Waerme schon selbst mit und wurde vom Rost noch einmal gebraeunt —
+# heraus kam Beige, und Beige auf einer Flanke heisst Sandstein.
+# 0.335 / 0.320 / 0.308 sind drei Viertel der alten Helligkeit und fast neutral: Aschegrau mit
+# gerade so viel Waerme, dass es nicht blau gegen den Basalt steht. Die Waerme macht der Rost.
+# ZUERST STANDEN HIER 0.30 / 0.288 / 0.278, und das war eine Spur zu weit heruntergezogen:
+# nachgemessen lag das oberste Zwanzigstel der Oberflanke danach bei 0.37 gegen 0.43 in der
+# Vorlage, der Kegel also flacher als das Vorbild statt gleich. Der Rest der Reparatur sitzt
+# ohnehin nicht in diesem Ton, sondern darin, WO er aufgetragen wird (siehe VULKAN_HELL_SOCKEL).
+# UND ER IST WAERMER GEWORDEN, OHNE HELLER ZU WERDEN. Gemessen ist das hellste Zehntel der
+# Vorlage 0.396/0.340/0.340 — rotbraun, nicht grau; unseres stand auf 0.377/0.379/0.394, also
+# eine Spur ins Kalte. Die Begruendung oben ("die Waerme macht der Rost") stimmt fuer die
+# FLAECHE, aber nicht fuer den Grat: dort deckt der Rost am duennsten, und uebrig blieb genau
+# das kalte Grau, das im Bild als Schnee gelesen wurde. 0.366/0.309/0.280 hat dieselbe
+# Helligkeit wie 0.335/0.320/0.308 (0.322 gegen 0.323 nach der Luma-Formel) und schiebt nur
+# den Ton — es ist also KEINE Rueckkehr zu dem hellen Warmgrau, an dem der Ton zweimal
+# gescheitert ist, sondern dessen Farbe bei der inzwischen gemessenen Helligkeit.
+# ZWEI SCHRITTE, WEIL DER ERSTE ZU KURZ WAR: mit 0.352/0.316/0.288 stand das hellste Zehntel
+# des Bildes auf 0.383/0.362/0.367 gegen 0.396/0.340/0.340 in der Vorlage — waermer als
+# vorher, aber immer noch fast neutral. Die Luftperspektive mischt Blau dazu (der Kegel steht
+# 2 km vor der Kamera), der Ton muss den Weg dorthin also mitrechnen.
+const VULKAN_GRAT := Color(0.366, 0.309, 0.280)
+# ... und derselbe Fels weiter oben, wo die Asche jung ist. Er ist DUNKLER als der abgeriebene
+# Grat, und das ist der Punkt: abgerieben wird unten, oben liegt frischer Auswurf. Genau dort
+# standen die hellen Striemen, weil der Rost nach oben hin ausblendet (VULKAN_ASCHE_AB/_VOLL)
+# und den hellen Ton dann nichts mehr daempfte.
+# ES IST TROTZDEM KEINE HOEHENRAMPE AUF DER GESTEINSFARBE — die war schon einmal hier und ist
+# an ihrer eigenen Konstruktion gescheitert (siehe oben). Die Rampe faerbt nur, WOHIN "blank"
+# aufhellt; WO aufgehellt wird, entscheidet weiter allein die Form. Auf einer Hoehenlinie ohne
+# Kante passiert also nach wie vor gar nichts.
+const VULKAN_ASCHE := Color(0.215, 0.207, 0.203)
+# --- DER DRITTE TON: DAS ANSTEHENDE AN DER ABRISSKANTE ------------------------------------
+# WARUM ES IHN GEBEN MUSS, UND ZWAR GEMESSEN. Eine SCHWARZPROBE (alle Gesteinsfarben des
+# Kegels auf null, ein Renderlauf, vk/rzschwarz_vulkan_ref.png) hat gezeigt, was die Form
+# allein leisten kann: bei 3,5 km Kameraabstand misst der Kegel dann 0.254 mittlere
+# Leuchtdichte — das ist der reine Nebelsockel — und seine lokale Streuung faellt von 0.0141
+# auf 0.0019. NULL. Der Nebel ist additiv, er skaliert nicht mit dem Albedo; wo kein Albedo
+# steht, macht auch die zerklueftetste Geometrie keinen Helligkeitsunterschied. Genau daran
+# sind drei Runden gescheitert, die mehr Gelaende eingebaut haben.
+# Umgekehrt gilt: Kontrast entsteht NUR aus hellem Gestein, das steil steht. Die Vorlage
+# staffelt dafuer drei Toene — schwarzer Basalt in der Flaeche, rostrote Baender darueber
+# und, an Steilkanten und Abrissen, helles graues Anstehendes. Der dritte fehlte hier: der
+# hellste Ton war VULKAN_GRAT, und der wird nach oben hin auch noch zu VULKAN_ASCHE
+# abgedunkelt — ausgerechnet im Bildausschnitt der Abnahme stand als "hell" also 0.215.
+# GEMESSEN AN DER VORLAGE ist ihr hellster Fels 0.55/0.50/0.52, also ein neutrales Grau.
+# 0.52/0.495/0.475 liegt knapp darunter und ist bewusst NICHT die Rueckkehr zu dem hellen
+# Warmgrau, an dem der Gratton zweimal gescheitert ist ("liest sich als Schnee"): dieser Ton
+# wird NUR ueber "kante" aufgetragen, also ausschliesslich dort, wo unter ihm eine Kante
+# liegt. Die formlosen Lagen (Felslage, Grus) kommen an ihn gar nicht mehr heran — sie
+# hellen weiter nur bis zu Grat/Asche auf. Damit kann er per Konstruktion keine Striemen
+# machen: er sitzt auf Abrissen oder nirgends.
+# UND ER IST WAERMER GEWORDEN, OHNE HELLER ZU WERDEN — 0.52/0.495/0.475 auf 0.56/0.49/0.44
+# bei gleicher Luma (0.4989 gegen 0.5013). Der Grund ist gemessen und war eine Ueberraschung:
+# das Umgebungslicht dieser Welt kommt vom HIMMEL (Main: AMBIENT_SOURCE_SKY, Energie 0.85),
+# ist also blau. Eine helle Facette, die von der Sonne wegzeigt, wird davon so blaustichig,
+# dass sie im Bild b > r erreicht — und die Abnahmemessung haelt genau das fuer Himmel
+# (vk/kontrast.py, "himmel"). Gemessen stieg der Anteil weggeworfener Bildpunkte mit jeder
+# Aufhellung mit (9.4 auf 12.0 Prozent), und weil das 9x9-Fenster VOLLSTAENDIG auf Fels
+# liegen muss, fiel die Zahl der gueltigen Fenster von 42 auf 18 Prozent: die Streuung wurde
+# danach fast nur noch auf den flachen dunklen Resten gemessen und sank, obwohl das Bild
+# kontrastreicher geworden war (Streuung um die Fenstermitte 0.048 -> 0.075).
+# Der waermere Ton haelt r ueber b, auch nachdem das blaue Umgebungslicht darauf liegt.
+# ZWEITER SCHRITT IN DIESELBE RICHTUNG, WEIL DER ERSTE NUR DEN BLAUKANAL GEHOLT HAT.
+# Nachgemessen am fertigen Bild (Kasten der Abnahme, Himmel/Gruen/Lava ausmaskiert) stand
+# unser hellstes Hundertstel auf 0.846/0.818/0.737, die Vorlage auf 0.597/0.526/0.505. In
+# Verhaeltnissen zu Rot: wir 1 / 0.967 / 0.871, die Vorlage 1 / 0.881 / 0.846. Der Rueckstand
+# sitzt also fast ganz im GRUEN — unser Fels ist auf der Rot-Gruen-Achse neutral, und ein
+# neutraler Ton bei dieser Helligkeit liest sich als Schnee. Die Vorlage zeigt dort
+# graubraunes bis rostiges Gestein.
+# 0.615/0.478/0.383 HAT DIESELBE LEUCHTDICHTE wie 0.56/0.49/0.44 (0.5003 gegen 0.5013 nach
+# der Luma-Formel) und schiebt nur die Farbe — es ist also ausdruecklich KEIN Abdunkeln und
+# auch keine Rueckkehr zu dem hellen Warmgrau, an dem der Ton zweimal gescheitert ist: das
+# war HELL und warm, dieses ist gleich hell wie zuletzt und nur warm.
+# WARUM DER SCHRITT SO GROSS AUSFAELLT: der Nebelsockel bei 3,5 km ist additiv und fast
+# neutral, er zieht jede Farbe zur Mitte. Gemessen kommt vom Albedo-Abstand zum Grau nur
+# gut ein Viertel im Bild an (unser Albedo lag 0.125 unter eins im Gruenverhaeltnis, im Bild
+# waren davon 0.033 uebrig). Ein zaghafter Schritt verschwindet im Nebel.
+const VULKAN_ANSTEHEND := Color(0.615, 0.478, 0.383)
+# AB WELCHER KANTE ES UEBERHAUPT ANSTEHT — und diese Schwelle ist der Unterschied zwischen
+# einem gestaffelten Gestein und einem aufgehellten Kegel. GEMESSEN (tools/_vulkan_fein.gd):
+# ohne sie hebt schon ein "kante" von 0.05 die Albedo der FLAECHE um mehr als das Doppelte,
+# denn das Anstehende ist rund fuenfzigmal so hell wie der Basalt. Der Mittelwert des ganzen
+# Kegels haengt also nicht an der Helligkeit des Tons, sondern an der Flaeche, die ihn
+# ueberhaupt bekommt. Ohne Schwelle sagte die Kurve 0.325 Bildmittel voraus, mit 0.55 sind
+# es 0.29 — bei fast unveraenderter Streuung, weil der Sprung an der Kante derselbe bleibt.
+# ES IST AUSDRUECKLICH KEINE ZWEITE HELLIGKEITSREGEL, sondern eine Flaechenregel: was unter
+# der Schwelle liegt, ist keine Kante, sondern eine leicht geneigte Facette — und auf der
+# liegt Asche, kein blanker Fels.
+const VULKAN_ANSTEHEND_AB := 0.72
+# Schwellen auf dem Rippenrauschen. Gemessen (tools/_vulkan_form.gd) liegt es auf dem Kegel
+# zwischen -0.41 und 0.94, im Mittel bei 0.38, das oberste Zehntel faengt bei 0.67 an.
+# 0.42/0.80 STAND HIER ZUERST, nach der Flaechenrechnung: gut die Haelfte im Basalt, ein
+# Fuenftel deutlich heraus. Im Bild war das zu wenig — von zehn Rippen leuchteten zwei, der
+# Rest der Flanke stand als schwarze Masse da und der Kegel verlor seine Form. Die Vorlage
+# hat auf JEDER Rippe einen hellen Ruecken. 0.30/0.74 traf das, SOLANGE DIE RIPPEN DIE FORM
+# WAREN.
+# JETZT SIND SIE ES NICHT MEHR: die Flanke wird von den 32 Barrancos gegliedert und die
+# Rippenamplitude ist auf 44 m heruntergegangen (siehe Main, Massivtabelle). Ein breites
+# Fenster auf einem Rauschen, das nur noch halb so viel Gelaende macht, ist genau das
+# "dunkle Textur-Schlierenmuster", das ein fremder Blick auf dem letzten Abnahmebild
+# gefunden hat: helle und dunkle Felder, die mit keiner Kante zusammenfallen. 0.44/0.86
+# laesst nur noch das oberste Viertel der Verteilung hell werden — aus Feldern werden
+# Kanten, und die Flaeche dazwischen gehoert der Rinne (VULKAN_BARR_HELL).
+const VULKAN_GRAT_AB := 0.44
+const VULKAN_GRAT_VOLL := 0.86
+# WIEVIEL DER RIPPENKAMM UEBERHAUPT NOCH AUFHELLEN DARF. Er stand als EINZIGER der vier
+# Terme in "kante" ohne eigenen Faktor da, also mit dem vollen Gewicht 1.0 — und das ist der
+# teuerste Posten der ganzen Haut: gemessen hellt er im Mittel rund ein Viertel auf, und
+# zwar UEBERALL, denn seine Wellenlaenge ist die des Rippenmusters (zehn Wellen im Umfang,
+# also 250 bis 800 m). Am Bild nachgemessen bringt eine Aufhellung dieser Wellenlaenge im
+# 9x9-Fenster der Abnahme fast nichts — das Fenster ist rund 55 m breit und sieht von einer
+# 400-m-Welle nur eine schwach geneigte Ebene. Sie kostet also vollen Mittelwert und liefert
+# keine Streuung, und der Mittelwert ist die Zahl, die ohnehin am Nebelsockel klebt.
+# 0.45 laesst den Kamm weiter fuehren — er ist Form, und er soll dem Kegel seine Gliederung
+# geben —, gibt aber die Haelfte des Helligkeitsbudgets an die Lagen ab, die auf
+# Facettengroesse arbeiten (Blocklage 46 m, Abrissstufe 34 m).
+const VULKAN_RIPPEN_HELL := 0.18
+# GRUS. Die beiden Rauschlagen darueber (Rippen 10 Wellen im Umfang, Felslage 150 m) sind
+# beide GROSS gegen ein 8-m-Dreieck: ihre Grenzen liefen als weiche Baender ueber den Hang
+# und der Kegel sah luftgepinselt aus, waehrend die Vorlage koernigen Schutt zeigt. Diese
+# Lage bricht die Grenze auf Dreiecksmassstab auf — bei 34 m Welle sind das vier bis fuenf
+# Facetten je Lappen, also genau die Koernung, die das Netz ueberhaupt darstellen kann.
+# STAERKER ALS 0.35 GEHT NICHT: darueber kippt es von Schutt in Bildrauschen, weil dann auch
+# mitten im Basaltfeld einzelne Facetten hell aufblitzen.
+# 0.30 WAREN TROTZDEM ZU VIEL, und der Grund steht bei VULKAN_BARR_HELL: diese Lage hat KEINE
+# Form unter sich — sie faerbt nur. Solange sie um +-0.30 schwankte und der Barranco-Grat um
+# +-0.21, entschied der Schutt darueber, welche Flaeche hell aussieht. 0.18 koernt weiter auf
+# Dreiecksmassstab, ohne die Rinne zu ueberstimmen.
+const VULKAN_GRUS_M := 34.0
+# 0.18 -> 0.55, UND DER ALTE EINWAND DAGEGEN IST MIT DIESER RUNDE HINFAELLIG GEWORDEN. Er
+# lautete: "STAERKER ALS 0.35 GEHT NICHT, darueber kippt es von Schutt in Bildrauschen, weil
+# dann auch mitten im Basaltfeld einzelne Facetten hell aufblitzen" — und er war richtig,
+# SOLANGE die Lage nur faerbte. Seit "nasen" auf demselben Rauschfeld eine Abrissstufe ins
+# Gelaende schneidet, blitzt keine Facette mehr mitten im Feld auf: die hellen sitzen auf dem
+# gehobenen Absatz, und darunter steht eine Kante.
+# WARUM SO VIEL. Am Bild nachgemessen (vk/kontrast.py, ueber verschieden grosse Fenster)
+# holt die Vorlage ihre Streuung SCHON ZWISCHEN BENACHBARTEN BILDPUNKTEN: 0.031 im
+# 3x3-Fenster, wir standen bei 0.008. Ein Bildpunkt ist bei dieser Kamera rund 5 bis 6 m,
+# also ungefaehr eine Gelaendezelle. Was fehlt, ist also genau das: der Sprung von Facette
+# zu Facette — und den kann nur eine Lage in Zellgroesse liefern, die kraeftig genug ist,
+# den Basalt wirklich zu verlassen.
+const VULKAN_GRUS := 0.70
+# WO DIE STUFE IHREN NULLPUNKT HAT (siehe _vulkan_haut). Ueber 0.5 heisst: der gehobene
+# Absatz ist die MINDERHEIT, die Flaeche dazwischen bleibt Basalt.
+const VULKAN_GRUS_MITTE := 0.66
+# --- DER SCHUTT AUF DEM ABSATZ: EINE ZWEITE, ZELLGROSSE KOERNUNG ---------------------------
+# WARUM ES SIE BRAUCHT, OBWOHL SCHON EINE KOERNUNG DA IST — und die Begruendung ist eine
+# Messung am Bild, keine Geschmacksfrage. Die Abnahme misst die Streuung in einem
+# 9x9-Fenster; bei dieser Kamera sind das rund 55 m Gelaende. Misst man dieselbe Streuung
+# ueber verschieden grosse Fenster, zeigt sich, WO die Vorlage ihren Kontrast hat:
+#       Fenster        3x3     9x9    33x33
+#       Vorlage       0.031   0.046   0.058
+#       wir (davor)   0.008   0.010   0.011
+# Die Vorlage hat ihren Sprung schon zwischen BENACHBARTEN Bildpunkten. Bei 5 bis 6 m je
+# Bildpunkt ist das eine Gelaendezelle. Eine 34-m-Lage bringt es auf knapp anderthalb
+# Wechsel je Fenster — besser als alles, was vorher da war, aber ein Fenster mit anderthalb
+# Wechseln misst noch fast die Kante selbst und nicht ihre Haeufigkeit.
+# 18 M SIND RUND ZWEI ZELLEN und damit drei Wechsel im Messfenster. Fuer GELAENDE waere das
+# zu fein (siehe VULKAN_NASEN_AB: unter rund 32 m Welle wird aus Relief Flimmern) — als
+# FARBE ist es genau richtig, denn die Farbe liegt ohnehin je Dreieck flach an. Es ist
+# derselbe Grund, aus dem der Schutt auf einer echten Vulkanflanke aus der Luft koernig
+# aussieht, ohne dass sich das Gelaende darunter merklich wellt.
+# 0.30 UND NICHT MEHR: bei dieser Lage gilt der alte Einwand gegen zu starke Koernung
+# ("dann blitzen einzelne Facetten mitten im Basaltfeld auf") wieder voll, denn unter ihr
+# liegt KEINE Form. Sie darf deshalb koernen und nicht fuehren — die Fuehrung haben die
+# Kante und die Abrissstufe.
+const VULKAN_SCHUTT_M := 13.0
+const VULKAN_SCHUTT := 0.12
+# --- DIE ABRISSKANTEN ("nasen") -----------------------------------------------------------
+# WAS FUENF ABNAHMEN GEMELDET HABEN UND WARUM DREIMAL DAS FALSCHE GEBAUT WURDE. Der Befund
+# lautete jedesmal "glatte Flanke, es fehlt radiale Geometrie", und dreimal wurden daraufhin
+# die Rinnen tiefer gemacht. Gemessen (tools/_vulkan_rippen.gd) standen danach 22 bis 30
+# Grat-Rinne-Paare je Ring bei 83 bis 129 m Amplitude — mehr, als die Abnahmen selbst
+# gefordert hatten. Diese Rinnen haben rund 230 m Wellenlaenge; ueber die sichtbare
+# Kegelbreite sind das sechs bis acht Stueck, also GROSSFORM. Noch mehr davon aendert nichts.
+# WAS FEHLT, IST DIE KURZE WELLE — und zwar als KANTE, nicht als Welle. Diese Lage macht aus
+# dem Rauschen keine Sinuskuppen, sondern Stufen: das schmale Fenster 0.40 .. 0.60 auf einem
+# Feld, das von -1 bis 1 laeuft, laesst zwischen zwei Plateaus nur einen kurzen Uebergang
+# stehen. Heraus kommen flach liegende Absaetze mit steilen Abrissen dazwischen, und genau
+# darauf kommt es an: eine Kuppe kippt die Flaeche allmaehlich, eine Abrisskante stellt zwei
+# BENACHBARTE Facetten verschieden ins Licht.
+# DAS FENSTER LIEGT UM NULL, und das ist nicht Kosmetik: _patch ist fBm und damit um null
+# verteilt (gemessen Streuung rund 0.35). Ein Fenster bei 0.40 .. 0.60 haette nur die
+# obersten paar Prozent erwischt — vereinzelte Warzen auf einer ansonsten unveraenderten
+# Flanke. Um null herum liegen dagegen rund die Haelfte der Flaeche oben und die Haelfte
+# unten: Absatz, Abriss, Absatz. Zugleich ist die Lage damit von selbst um ihren eigenen
+# Mittelwert zentriert, sie hebt den Kegel also nicht an — dieselbe Bauart wie bei den
+# Barrancos (VULKAN_BARR_MITTE), und aus demselben Grund: die Boeschung ist vermessen.
+# +-0.26 UND NICHT ENGER: der Uebergang ist damit rund 5,5 m breit, also knapp eine
+# Netzzelle. Enger faellt die Stufe zwischen zwei Zellen und wird zu Treppenrauschen; viel
+# weiter ist es keine Kante mehr, sondern wieder eine Welle wie die drei, die schon da sind.
+# SIE LIEST DASSELBE RAUSCHEN WIE DIE GRUS-FARBLAGE (_vk_grus_takt, 34 m), und das ist der
+# eigentliche Griff: der Grus war bisher eine Aufhellung OHNE Form darunter, und genau als
+# solche ist er zweimal als "helle Striemen" gemeldet worden (siehe VULKAN_HELL_SOCKEL).
+# Jetzt liegt unter ihm eine Kante. Es kostet keine zusaetzliche Rauschabfrage in
+# _vulkan_haut und genau eine in height_at.
+const VULKAN_NASEN_AB := -0.26
+const VULKAN_NASEN_VOLL := 0.26
+# WO DIE ABRISSE AUFHOEREN, als Anteil des Fussradius — DIESELBE FALLE WIE BEI DER
+# BLOCKLAGE, und deshalb dieselbe Schranke: die Bepflanzung duennt nach dem Hoehenunterschied
+# ueber der 8-m-Zelle aus und faellt ueber 4,6 m ganz aus. 13 m Stufe auf 34 m Welle sind an
+# der Abrisskante rund 6 m je Zelle — durch den Waldkragen gelegt, riebe diese Lage ihn auf.
+# Sie laeuft deshalb schon innerhalb des Kegels aus und ist am Kragen bei null.
+const VULKAN_NASEN_AUS_AB := 0.74
+const VULKAN_NASEN_AUS_ZU := 0.90
+# WIE VIEL DIE BEIDEN FORMLOSEN LAGEN (Felslage und Grus) NEBEN EINER KANTE NOCH DUERFEN.
+# Sie standen mit den beiden formfolgenden Lagen in EINER Summe und konnten zusammen 0.45
+# beitragen — auf einer Flaeche, unter der keine Kante liegt, ist das die halbe Aufhellung
+# aus dem Nichts. Im Bild waren es grosse weiche hellgraue Schlieren quer ueber die
+# Oberflanke; ein fremder Blick hat sie als Schnee gelesen, und auf einem taetigen Vulkan ist
+# das der schlimmste moegliche Irrtum.
+# 0.22 laesst als Koernung stehen, was eine Koernung sein soll (noch +-0.10 statt +-0.45),
+# und gibt die Fuehrung an die Kante zurueck. AUF der Kante wirken beide Lagen unveraendert
+# voll — dort ist ihre Aufgabe, den Grat auszufransen und ihn auf Dreiecksmassstab
+# aufzubrechen, und die war nie das Problem.
+# NICHT AUF NULL: ohne jeden Sockel steht die Rinne als lackschwarze, voellig glatte Flaeche
+# da, und das ist der Fehler in die andere Richtung.
+# 0.22 -> 0.16, UND ZWAR WEIL EINE DRITTE FORMFOLGENDE LAGE DAZUGEKOMMEN IST. Der Sockel ist
+# das, was die beiden formlosen Lagen NEBEN einer Kante noch duerfen; seit Blocklage und
+# Steilkante dazwischen liegen, gibt es viel weniger Flaeche, auf der gar keine Form steht —
+# was dort noch aufhellt, verwaescht nur den Sprung, um den es geht.
+const VULKAN_HELL_SOCKEL := 0.20
+# STEILHEIT ALS NEIGUNG ZUM BLANKLIEGEN — eine von fuenf Lagen in "kante".
+# Sie liest die FLAECHENNORMALE, also die Form selbst und nicht ein Rauschen daneben: wo der
+# Hang zu steil wird, bleibt weder Asche noch Grus liegen und der blanke Fels steht an. Das
+# ist derselbe Mechanismus, mit dem die Weltregel ihren Fels vom Boden trennt (siehe
+# fels_anteil in _face_color) — hier nur mit einer Schwelle, die zum Kegel passt.
+# WARUM DAS KEINE HOEHENRAMPE DURCH DIE HINTERTUER IST, an der schon zwei Versuche gescheitert
+# sind: auf einem glatten Kegel WAERE Neigung dasselbe wie Hoehe, hier ist sie es gerade nicht.
+# Ueber Blocklage, Barrancos und Abrisskanten schwankt die Normale von Dreieck zu Dreieck um
+# mehr als der Kegel selbst ueber die halbe Flanke — sie springt also mit der Facette und
+# nicht mit der Hoehenlinie.
+# 0.80/0.55 -> 0.90/0.36, UND DAS IST EINE MESSUNG UND KEINE GESCHMACKSFRAGE: nachgemessen
+# (tools/_vulkan_fein.gd, Zeile "NY") liegt ny auf der Flanke im Median bei 0.567, das untere
+# Viertel unter 0.424, das obere ueber 0.757. Das alte Fenster endete schon bei 0.55 und stand
+# damit fuer mehr als die halbe Flanke auf seinem Anschlag — dort hat es gar nicht mehr
+# unterschieden, sondern nur noch gleichmaessig aufgehellt. Das neue spannt ueber die
+# tatsaechliche Verteilung, und erst dadurch trennt es Facette von Facette.
+# SIE HELLT NICHT NUR AUF, SIE DUNKELT AUCH AB, und das ist der Unterschied zwischen dieser
+# Fassung und der ersten. Zuerst stand die Steilheit rein additiv in "kante" — und im
+# Renderlauf danach war der Median der Flanke HOEHER als vorher (0.223 gegen 0.209), obwohl
+# der Grundton dunkler geworden war: der ganze Kegel steht schraeg, der Term war also nirgends
+# null und hob die Flaeche flaechig an. Eine Lage, die nur addiert, macht keinen Kontrast, sie
+# macht Helligkeit. Jetzt ist er um seinen eigenen Mittelwert zentriert.
+# VULKAN_STEIL_MITTE ist genau dieser Mittelwert ueber die Kegelflaeche (tools/_vulkan_form.gd,
+# "STEILE"). Mit dem breiteren Fenster steht er auf 0.55 statt auf 0.744; die Zahl gehoert
+# nachgemessen, sobald sich Fenster oder Form aendern.
+# 0.42 -> 0.70, WEIL DER TERM SEIT DIESER RUNDE GEDAEMPFT ANKOMMT: "kante" faerbt nicht mehr
+# selbst, sondern verschiebt nur noch die Schwelle der Aschedecke, und das mit dem Faktor 0.12
+# (VULKAN_DECKE_LAGEN). Gemessen: ohne diesen Summanden faellt das Verhaeltnis aus Streuung
+# und Helligkeit ueber dem Nebelsockel von 0.64 auf 0.58.
+const VULKAN_STEIL_AB := 0.90
+const VULKAN_STEIL_VOLL := 0.36
+const VULKAN_STEIL_HELL := 0.70
+const VULKAN_STEIL_MITTE := 0.55
+# --- DIE ASCHEDECKE: WORAN SICH IN DIESER RUNDE ALLES ENTSCHIEDEN HAT --------------------
+# Fenster, in dem die Flanke von "blank" auf "zugeweht" umschlaegt. Der Treiber ist der
+# Aufwaertsanteil der Flaechennormale, um das Feinkorn gewuerfelt und von den Formlagen
+# verzogen:  ny + KORN * korn - LAGEN * kante.
+# WARUM AUSGERECHNET DIE FLAECHENNORMALE. Die Abnahme misst die Streuung in einem
+# 9x9-Fenster, das bei 6,07 m je Bildpunkt rund 55 m abdeckt — sie sieht also nur, was sich
+# auf kuerzeren Wegen aendert. Gemessen (vk/fenster.py) hatte der Kegel ueber den ganzen
+# Ausschnitt schon DIESELBE Streuung wie die Vorlage (0.098 gegen 0.093), im Fenster aber nur
+# 0.036 gegen 0.051: der Kontrast sass in zu langen Wellen. Blocklage (46 m) und Feinrippe
+# (37 m) sind im Bild Flecken von sechs bis acht Bildpunkten, also groesser als das Fenster.
+# Die Flaechennormale dagegen aendert sich schon zwischen Nachbarn — von ihrer Streuung 0.211
+# stehen 0.117 bereits im 3x3-Fenster (tools/_vulkan_fein.gd, "NY-STREUUNG").
+# ES IST EIN TOR UND KEIN SUMMAND, und das ist der zweite Teil derselben Sache. Der Nebel bei
+# 3,5 km liegt als ADDITIVER Sockel unter der Flanke (Schwarzprobe: 0.254 Bildhelligkeit bei
+# Albedo null), unter ihn kommt keine Facette. Kontrast entsteht deshalb ausschliesslich durch
+# HINZUGEFUEGTE Helligkeit, und bei festem Bildmittel haengt er allein daran, auf wie WENIGE
+# Facetten sie verteilt ist. Solange jede Lage einzeln aufhellte, trug fast die ganze Flanke
+# ein bisschen davon (Bildmedian 0.298 ueber einem Sockel von 0.258) — teuer im Mittel,
+# wertlos im Fenster. Als Tor entscheidet die Decke stattdessen: entweder liegt Asche darueber
+# und die Facette ist schwarz, oder sie liegt blank und traegt den vollen Ton.
+# WER DIE FORM AENDERT, MISST DIE ZAHLEN NACH: sie haengen an der Verteilung der
+# Flaechennormalen, also an Rippen, Barrancos, Bloecken und Nasen zusammen.
+const VULKAN_DECKE_AB := -0.08
+const VULKAN_DECKE_ZU := 0.14
+# DER WUERFEL AUF DER SCHWELLE — UND ER HAT SEIT DIESER RUNDE ZWEI LAENGEN.
+# Ohne Wuerfel faellt die Decke mit einer festen Schwelle auf die Normale, und weil die ueber
+# eine Rippenflanke langsam kippt, waere ihr Rand eine gezeichnete Linie quer ueber jede
+# Rippe. So weit galt das schon vorher und gilt weiter.
+# WARUM DIE 13-M-LAGE DAS ALLEIN NICHT KONNTE, und das ist der ganze Befund dieser Runde:
+# bei 6,07 m je Bildpunkt ist sie im Abnahmebild ein bis zwei Bildpunkte breit. Sie wuerfelt
+# also zwischen NACHBARFACETTEN, und weil sie mit 0.70 der mit Abstand staerkste Summand im
+# Treiber war, entschied praktisch sie allein, welche Facette blank liegt. Heraus kam genau
+# das, was im Bild steht: einzelne helle Sprenkel im schwarzen Feld statt Schuttfelder.
+# GEMESSEN (vk/kontrast.py) lag die Klumpigkeit — der Anteil heller Bildpunkte, deren vier
+# Nachbarn auch hell sind — bei 0.633 gegen 0.705 in der Vorlage.
+# DIE STREUUNG WAR DABEI NICHT DAS PROBLEM (0.0509 gegen 0.0444, also schon UEBER der
+# Vorlage), und das ist die Falle, in die der Durchgang davor gelaufen ist: Punktrauschen
+# trifft diese Zahl muehelos und sieht trotzdem falsch aus. Wer hier die Streuung weiter
+# hochtreibt, baut denselben Sprenkel noch einmal (siehe Kopf von vk/kontrast.py).
+# 90 M SIND RUND FUENFZEHN BILDPUNKTE, also deutlich mehr als das 9x9-Messfenster (55 m):
+# benachbarte Facetten lesen jetzt denselben Wert und liegen gemeinsam blank oder gemeinsam
+# zu — aus Sprenkeln werden Hangstuecke. NICHT WEITER HINAUF: ab rund 150 m deckt ein Feld
+# eine ganze Kegelseite, und die Decke waere wieder das grosse weiche Fleckenmuster, an dem
+# die Felslage schon einmal gescheitert ist (siehe VULKAN_HELL_SOCKEL).
+const VULKAN_FELD_M := 90.0
+const VULKAN_DECKE_FELD := 0.66
+# DIE FEINE LAGE BLEIBT OBENAUF, nur nicht mehr als Fuehrung. Ohne sie haette das Feld einen
+# glatten Rand und laege wie ausgeschnitten auf der Flanke; mit einem Sechstel des alten
+# Gewichts franst sie ihn aus, ohne die Entscheidung noch zu tragen. Sie springt bei 8 m
+# Netzweite von Facette zu Facette um 0.30 bei einer Streuung von 0.25
+# (tools/_vk_korn_probe.gd), ist also praktisch unkorreliert.
+# BEIDE ZUSAMMEN HALTEN DIE ALTE AMPLITUDE: 0.66 und 0.16 auf einer Lage mit Streuung 0.25
+# ergeben 0.170 gegen vorher 0.175. Das ist Absicht — WIE VIEL Flaeche blank liegt (und
+# damit das Bildmittel, das zwischen 0.28 und 0.33 bleiben soll) haengt an dieser Amplitude,
+# WIE SIE VERTEILT IST an der Laenge. Diese Runde aendert nur die Verteilung.
+const VULKAN_DECKE_KORN := 0.16
+# WIE STARK DIE FORMLAGEN DIE DECKE AUFREISSEN. "kante" — Rippenkamm, Feinrippe,
+# Barranco-Grat, Blocklage, Steilkante — sagt seit dieser Runde nicht mehr, WIE HELL eine
+# Facette wird, sondern wie sehr sie dazu neigt, BLANK zu liegen: ein abgeblasener Gratruecken
+# liegt schon bei geringerer Neigung frei, eine Rinnensohle sammelt.
+# 0.22 IST BEWUSST KLEIN GEGEN DAS FENSTER (0.22 breit, also eine ganze Fensterbreite): die
+# Lagen sollen den Rand der Decke verziehen, nicht an ihre Stelle treten — sonst waere ihre
+# Wellenlaenge wieder die des Kontrasts, und genau davon kommt diese Runde her. Ganz ohne sie
+# (0.0) folgt die Haut nur noch der Neigung, und Grat und Rinne verlieren ihre Handschrift:
+# im Bild liegen die hellen Splitter dann als gleichmaessiger Sprenkel ueber der Flanke statt
+# sich zu radialen Streifen auf den Ruecken zu sammeln.
+# 0.12 -> 0.22 WAR IM MESSWERT UMSONST ZU HABEN (gerendert 0.310/0.0439 gegen 0.309/0.0445)
+# und im Bild der Unterschied zwischen Sprenkel und Grat — deshalb der groessere Wert.
+const VULKAN_DECKE_LAGEN := 0.22
+# Staffelfenster auf "blank": darunter Basalt, darueber der volle Gesteinston. Es ersetzt den
+# linearen Mischanteil, weil Zwischentoene den Mittelwert voll kosten und zur Streuung fast
+# nichts beitragen — dieselbe Begruendung wie beim Tor darueber, eine Stufe tiefer.
+const VULKAN_STAFFEL_AB := 0.24
+const VULKAN_STAFFEL_VOLL := 0.44
+# ROSTFLECKEN. Sie liegen NICHT als Hoehenband, sondern als Flecken: in der Vorlage sitzt das
+# oxidierte Rotbraun in unregelmaessigen Partien quer ueber die Flanke, dichter unten, duenner
+# oben. Der Fleckenwurf kommt aus _patch (einoktavig, also billig) auf rund 350 m gestreckt.
+const VULKAN_ROST := Color(0.31, 0.135, 0.075)
+# 350 -> 210 M. Die Zahl gehoert zum selben Befund wie die Blocklage: ein Fleck von 350 m
+# ist auf der 790 m langen Flanke fast ein Drittel ihrer Laenge, und weil der Wurf
+# einoktavig ist, lag das Rostbraun als grosse weiche Wolke darauf. Im Bild waren das
+# zwei, drei braune Felder je Kegelseite, die mit keiner Kante zusammenfielen — dieselbe
+# Sorte Fleck, wegen der die Felslage ihre Fuehrung abgeben musste, nur in Braun.
+# 210 m sind rund die Laenge eines Barranco-Abschnitts: der Rost wechselt jetzt innerhalb
+# einer Rinne und nicht mehr ueber den halben Berg.
+# NICHT WEITER HERUNTER: unter rund 150 m faellt er in die Groessenordnung der Blocklage
+# (46 m) und faerbt einzelne Aufschluesse ein, statt eine Partie zu ueberziehen — dann ist
+# es kein Verwitterungssaum mehr, sondern buntes Gestein.
+const VULKAN_ROST_M := 130.0
+const VULKAN_ROST_AB := 0.12
+const VULKAN_ROST_VOLL := 0.42
+const VULKAN_ROST_STAERKE := 0.55
+# WO DER ROST LIEGT — UND ZWAR IN DER RINNE UND NICHT AUF DEM GRAT.
+# Der Fleckenwurf oben sagt nur, WIE VIEL oxidiert ist; er weiss nichts von der Form darunter,
+# und deshalb lag der Rost bisher gleich dicht auf Kamm und Sohle. Die Vorlage macht es
+# andersherum: der rostbraune Saum sitzt in den unteren Rinnen, wo der Feinschutt liegen
+# bleibt und das Wasser steht, waehrend die abgeblasenen Grate grau sind.
+# 0.42 heisst: auf dem vollen Barranco-Grat bleiben zwei Fuenftel der Deckung, in der Sohle
+# die volle. AUSSERHALB DES RINNENBANDES AENDERT SICH NICHTS — der Faktor haengt an derselben
+# Huellkurve wie die Rinne selbst, oben am Kraterrand und im Apron ist er also eins.
+# 0.62 UND NICHT WENIGER, und das ist eine Korrektur an mir selbst: hier stand zuerst 0.42,
+# und das haette eine Messung ueberschrieben, die weiter oben schon festgehalten ist — in der
+# Vorlage sind ausgerechnet die hellsten Ruecken oft rotbraun ueberlaufen, der Rost meidet den
+# Grat also nicht, er deckt dort nur duenner. Beides gilt zugleich: dicht in der Rinne, duenn
+# auf dem Grat, nirgends fort.
+# ZWEI ZAHLEN ZIEHEN MIT. VULKAN_ROST_STAERKE geht von 0.74 auf 0.84, weil der Rost durch die
+# Umverteilung Flaeche verliert und die Flanke sonst insgesamt grauer wuerde statt nur anders
+# verteilt — und weil sie nach der Messung ohnehin zu kalt stand (siehe VULKAN_GRAT). Der
+# Faktor (1 - 0.35 * blank) in _vulkan_haut geht auf 0.26 herunter: er hat bisher ALLEIN die
+# Aufgabe getragen, den Grat duenner zu decken, und tut es jetzt zu zweit.
+const VULKAN_ROST_GRAT := 0.62
+# Die HOEHE entscheidet weiter mit, aber nur noch ueber die Rostmenge und nicht mehr ueber
+# die Gesteinsfarbe: oben ist die Asche jung und blank, unten ist sie verwittert. Dass die
+# Zahlen von der alten Rampe stammen, ist kein Zufall — der Befund dahinter (unten braun,
+# oben schwarz) war richtig, nur das Mittel war falsch.
+const VULKAN_ASCHE_AB := 0.28
+const VULKAN_ASCHE_VOLL := 0.68
+# ... erstarrter Strom, noch eine Spur kaelter als der Basalt (er ist juenger als alles,
+# worauf er liegt) ...
+const VULKAN_STROM := Color(0.075, 0.072, 0.078)
+# ... und offene Lava. SIE IST DIE EINZIGE FARBE DER WELT MIT EIGENLEUCHTEN: der Shader
+# multipliziert genau diesen Ton mit der Glut aus dem Alphakanal.
+const VULKAN_LAVA := Color(0.97, 0.31, 0.05)
+# ... und dieselbe Lava, nachdem sie den halben Berg hinuntergelaufen ist: tiefrot, kaum
+# noch gelb darin. Die Farbe der Ader wandert zwischen den beiden (siehe VULKAN_GLUT_KUEHL),
+# und weil der Shader die EIGENE Farbe der Flaeche zum Leuchten bringt, kuehlt damit auch
+# ihr Schein ab. Eine zweite, rote Lichtquelle waere derselbe Effekt zum doppelten Preis.
+# SIE WAR ZWEIMAL ZU DUNKEL (0.46 und 0.55 im Rot). Auf dem Papier ist das die richtige
+# Farbe fuer erkaltende Lava; im Bild verschwand die untere Flanke damit vollstaendig,
+# denn sie liegt ohnehin im Schatten und der Basalt darunter ist fast schwarz. Die Vorlage
+# zeigt dort ein kraeftiges Rot, kein Braunschwarz — abgekuehlt gegen den Kraterrand, aber
+# unverkennbar noch offen. Das Schwarz ist den LAPPEN vorbehalten, und die sind Form, nicht
+# nur Farbe.
+const VULKAN_LAVA_KALT := Color(0.72, 0.12, 0.03)
+# ZWEITE, FEINERE LAGE AUF DERSELBEN HELL-DUNKEL-ACHSE: die Felslage, die height_at als
+# "fels" auftraegt (VULKAN_FELS_M, 150 m Welle). Sie schiebt den Gratanteil nach oben oder
+# unten, statt eine eigene Helligkeit danebenzustellen — blank ist blank, egal welche Lage
+# die Flaeche aufgebrochen hat. Ohne sie zerfaellt der Kegel in zehn saubere Speichen; mit
+# ihr franst jeder Grat auf der Laenge aus.
+# 0.55 AUF EINER LAGE, DIE VON -0.61 BIS 0.96 REICHT, sind +-0.4 auf blank — mehr als der
+# Barranco-Grat selbst hatte. Die Felslage traegt zwar Gelaende (sie ist "fels" in der
+# Massivtabelle), aber nur mit sv gewichtet, auf der Unterflanke also kaum noch: dort faerbte
+# sie Felder, unter denen keine Form mehr lag. 0.40 laesst das Ausfransen und nimmt ihr die
+# Fuehrung (siehe VULKAN_BARR_HELL).
+const VULKAN_HAUT_KRUME := 0.18
+# Mittelwert dieser Felslage, gemessen ueber die Vulkanflanke (tools/_vulkan_form.gd).
+# Er steht hier, weil die Krume um ihn zentriert wird: ridged ist NICHT um null verteilt,
+# und ohne die Verschiebung wuerde die Felslage den ganzen Kegel systematisch aufhellen
+# statt ihn nur aufzurauen.
+const VULKAN_KRUME_MITTE := 0.29
+# BAUMGRENZE AM VULKAN, in Metern ueber NN. Die Weltbaumgrenze (FLORA_MAX_H, 230 m) ist fuer
+# einen 650-m-Kegel die falsche Zahl: sie sitzt auf einem Drittel der Flankenhoehe, und weil
+# die Dichte ueber die ganze Strecke von 46 bis 230 m ausblendet, kroch der Wald als immer
+# duenner werdender Schleier ueber die halbe Flanke — grueneln bis weit hinauf, nirgends ein
+# Waldrand. In der Vorlage steht er als DICHTER Kragen um den Fuss und hoert dann auf.
+# Beide Zahlen liegen deshalb eng beieinander: bis 40 m voller Wald, ab 82 m keiner mehr.
+# Am Fuss faellt der Hang mit rund 26 Grad, das sind 86 m Grundriss — ein Waldrand, kein
+# Verlauf.
+# 40..82 STANDEN HIER, UND DAS BAND WAR ZU BREIT — nicht in der Konstanten, sondern im Bild.
+# Gemessen (tools/_vulkan_form.gd, "WALDSAUM") lag die Oberkante ueber 32 Richtungen zwischen
+# 32 und 135 m, also 104 Hoehenmeter Streuung auf einer Grenze, die 42 breit sein sollte. Die
+# Zacken (siehe VULKAN_BAUM_ZACK) legen sich naemlich AUF das Band und nicht hinein: der Wald
+# reicht von AB - ZACK bis AUS + ZACK. Mit 44..68 und 22 Zacken sind das 22 bis 90 m statt
+# 10 bis 112 — und die 24 m Bandbreite sind bei 26 Grad Hangneigung 49 m Grundriss, also gut
+# sechs Bepflanzungszellen. Ein Waldrand, kein Verlauf.
+# GEMESSEN steht die Oberkante damit ueber 32 Richtungen zwischen 53 und 75 m (Median 64), das
+# Uebergangsband im Median bei 17 Hoehenmetern. Vorher waren es 32 bis 135 m.
+# NOCH SCHMALER GEHT NICHT: unter rund 20 m Band faellt der Uebergang in weniger als drei
+# Bepflanzungszellen, und dann steht dort keine Kante mehr, sondern eine Treppe aus 8-m-Feldern.
+const VULKAN_BAUM_AB := 44.0
+const VULKAN_BAUM_AUS := 68.0
+# ... und weil eine reine Hoehenschranke einen gezeichneten Kreis um den Berg legt, wandert
+# sie mit einer Rauschlage.
+# HIER STAND DAFUER DAS WALDRAUSCHEN (_forest), UND GENAU DAS WAR DER FEHLER: dieselbe Lage
+# setzt ueberall sonst die Waldinseln, sie entscheidet also zugleich ueber die DICHTE. Wo sie
+# tief steht, faellt der Wald aus UND die Grenze rutscht ab; wo sie hoch steht, ist er dicht
+# UND kriecht 30 m weiter hinauf. Beide Fehler zeigen in dieselbe Richtung und addieren sich —
+# gemessen 7 von 32 Richtungen ganz ohne Wald neben Zungen, die bis 135 m hinaufreichten. Das
+# war der Befund "der Uebergang liest sich als Zufall statt als Grenze".
+# JETZT LAEUFT DIE ZACKE AUF _patch, also auf einer Lage, die mit der Dichte nichts zu tun hat,
+# und auf einer eigenen, KURZEN Wellenlaenge: 130 m sind rund die Groesse eines Baumstandes.
+# Der Rand kerbt damit ein, statt in grossen Bogen zu wandern — 22 m Zacke sind am 26-Grad-Fuss
+# 45 m Grundriss, also eine sichtbare Kerbe je Welle.
+const VULKAN_BAUM_ZACK := 22.0
+const VULKAN_BAUM_M := 130.0
+# WIE DICHT DER KRAGEN UNTER DER BAUMGRENZE STEHT, als Sockel unter der Walddichte (0 = wie
+# die Weltregel es ergibt, 1 = geschlossener Bestand).
+# WOFUER ES DEN SOCKEL BRAUCHT: die Weltdichte ist smoothstep(-0.28, 0.30, Waldrauschen) ZUM
+# QUADRAT, sie steht also im Mittel bei einem Fuenftel und faellt auf einem Viertel der Flaeche
+# ganz aus. Gemessen war die Deckung im Kragenband im Median 0.19 — ein Punktenebel, kein
+# Kragen. Die Vorlage zeigt am Fuss einen GESCHLOSSENEN Bestand, der oben schlagartig aufhoert;
+# die Grenze macht die Baumgrenze, nicht das Ausduennen.
+# 0.85 UND NICHT 1.0: die Lichtungen des Waldrauschens sollen als Struktur erhalten bleiben,
+# nur nicht mehr als Loecher. Was den Kragen darueber hinaus aufbricht, ist die Hangneigung in
+# den Barrancos und die schwarze Lava — beides bleibt unangetastet und ist genau die
+# Verzahnung von Gruen und Schwarz, die die Vorlage am Fuss zeigt.
+const VULKAN_KRAGEN_DICHT := 0.85
+# WIE WEIT DER SOCKEL NACH AUSSEN REICHT, als Vielfaches des Massivradius. Der Kragen sitzt auf
+# dem Kegel zwischen rund 0.78 und 0.86 * r (dort liegen 26 bis 82 m Hoehe); nach aussen laeuft
+# er ueber den Fuss in das Vorland weiter, weil ein Waldguertel, der genau am Fussradius
+# aufhoert, wieder ein gezeichneter Kreis waere.
+# ER MUSS UEBER DAS VORLAND MITREICHEN, weil dort die Biome liegen: gemessen sind 17 von 64
+# Fussrichtungen WUESTE, und die Weltregel laesst dort ein Zwanzigstel der Dichte stehen und
+# sperrt ausserdem alles ueber 28 m. Ohne den Sockel fehlt der Kragen in diesen Sektoren
+# vollstaendig — das waren die Loecher im Ring.
+# NICHT UEBER DIE HAUTREICHWEITE HINAUS ("reich2" in _vulkane_bauen): _face_color bricht
+# seine Vulkanschleife an dieser Schranke ab und wuerde den Sockel weiter draussen nicht mehr
+# sehen — der Guertel stuende dann als Wald auf ungefaerbtem Wuestenboden.
+# 1.10/1.30 STANDEN HIER, UND MIT DER SCHUERZE WAREN SIE FALSCH GEWORDEN. Die Zahlen sind
+# Vielfache des FUSSRADIUS, das Kragenband liegt aber in einer HOEHENLAGE (26 bis 82 m), und
+# die ist mit der Schuerze nach aussen gewandert: sie steht am Kegelfuss noch 93 m hoch und
+# traegt erst ueber die naechsten 1000 m aus. Gemessen liegt das Band jetzt zwischen rund
+# 1.15 und 1.28 * r — die alte Ausblendung von 1.10 bis 1.30 lag also GENAU DARAUF und hat
+# den Kragen auf halber Strecke ausgeknipst.
+# 1.44/1.56 legen sie hinter das Band. Die Hautreichweite ist mit Schuerze 1.58 * r
+# (VULKAN_APRON_WEIT), die Schranke oben ist damit gerade noch eingehalten — und sie ist der
+# Grund, warum die Schuerze nicht beliebig hoch werden darf: je maechtiger sie ist, desto
+# weiter draussen liegt das Kragenband, und bei 1.58 ist Schluss.
+const VULKAN_KRAGEN_VOLL := 1.44
+const VULKAN_KRAGEN_AUS := 1.56
+# WIE STARK DER WALDBODEN IM KRAGEN DEN BASALT ZUDECKT. Ohne ihn war der Kragen ein gruener
+# Punktenebel auf schwarzem Grund und nichts, was man einen Wald nennt: die Weltregel duennt
+# die Baumdichte nach der HANGNEIGUNG aus, und am Fuss dieses Kegels stehen 26 Grad, also
+# bleibt rund ein Fuenftel der Dichte uebrig. Einzelne Nadelbaeume auf schwarzem Fels lesen
+# sich nicht als Waldrand. Denselben Handgriff macht die Welt ueberall (siehe WALDBODEN in
+# _boden_farbe) — hier steht er nur auf der Haut statt auf der Wiese.
+# NICHT GANZ ZUDECKEN: zwischen den Staemmen schaut der Fels durch, und genau daran liest man,
+# dass dieser Wald auf einem Vulkan steht. In der Vorlage verzahnen sich Gruen und Schwarz am
+# Fuss ebenso.
+# 0.80 -> 0.66, UND DER GRUND IST DER DICHTESOCKEL. Die Begruendung oben stammt aus der Zeit,
+# in der die Weltregel im Kragen rund ein Fuenftel der Dichte uebrigliess: der Boden musste
+# den Wald damals mitspielen, weil zu wenige Baeume dastanden. Seit VULKAN_KRAGEN_DICHT den
+# Bestand schliesst, tun das die Baeume selbst — und der breit aufgetragene Waldboden war im
+# Bild nur noch ein heller Wiesenschimmer, der ueber den Fuss hinauflief. Weniger Boden heisst
+# jetzt mehr Schwarz zwischen den Staemmen, also genau die Verzahnung, um die es geht.
+const VULKAN_KRAGEN := 0.66
+# LAVAZUNGEN. Zahl der Lappen rund um den Kegel und wie schnell das Muster hangabwaerts
+# wandert — dieselbe Bauart wie bei den Rippen (siehe VULKAN_RIPPEN_LAUF), damit die Zunge
+# nicht als kerzengerader Tortenschnitt vom Gipfel weglaeuft, sondern seitlich maeandert.
+const VULKAN_ZUNGEN_N := 7.0
+const VULKAN_ZUNGEN_LAUF := 0.75
+# VERSATZ IM RAUSCHRAUM, und er ist NICHT beliebig, obwohl jede Zahl fuer sich gleich gut
+# aussieht, solange man nur eine Seite des Berges betrachtet. Ohne ihn (also bei null)
+# lagen die Stroeme gemessen in 9 von 24 Richtungen und ballten sich dabei auf einer
+# Haelfte: ausgerechnet die Nordflanke, aus der die Abnahme den Berg ansieht, hatte keinen
+# einzigen — und ein Vulkan schuettet nicht nur nach Sueden. Abgesucht wurden 65 Versaetze
+# (Kriterium: moeglichst viele Richtungen bei moeglichst wenig Gesamtflaeche); mit 5600
+# stehen sie jetzt in 15 von 24 Richtungen, bei nur wenig mehr Flaeche.
+const VULKAN_ZUNGEN_OX := 5600.0
+# Schwellen auf dem Zungenrauschen. Sie entscheiden, wie viel vom Umfang ein Strom bedeckt;
+# gemessen sind es 16 Prozent der Kegelflaeche und 23 Prozent des Rings dahinter
+# (tools/_vulkan_form.gd).
+const VULKAN_ZUNGEN_AB := 0.07
+const VULKAN_ZUNGEN_VOLL := 0.15
+# WELCHE RINNEN UEBERHAUPT GLUEHEN. Abgetastet wird DASSELBE Rauschen, mit dem height_at
+# die Rippen aufwirft, nur andersherum gelesen: seine hohen Werte sind die Kaemme, seine
+# tiefen die Muldenzuege dazwischen. Die Schwellen sind an der gemessenen Verteilung
+# gewaehlt (tools/_vulkan_form.gd druckt sie): auf dem Kegel liegt das Rippenrauschen
+# zwischen -0.41 und 0.94 mit dem Mittel bei 0.38, das Zehntel der tiefsten Rinnen faengt
+# bei 0.08 an.
+# SEINE AUFGABE HAT SICH GEAENDERT, SEIT ES BARRANCOS GIBT. Vorher war dieses Rauschen die
+# Glut selbst, und weil sein Abtastkreis nur mit der WURZEL des Abstands waechst, war eine
+# Schwelle darauf oben ein 300 m breiter Lappen: im Bild lagen flaechige orange Flecken OBEN
+# AUF der Flanke, wie aufgemalt. Jetzt sagt es nur noch, WO AM UMFANG etwas fliesst.
+# ES WIRD DAFUER ANDERS ABGETASTET ALS FUER DIE GESTEINSFARBE, und das ist der Kern der
+# Sache: FESTER Kreis (kein sqrt(md)) und ZWEI Achsen (keine dritte den Hang hinunter). Der
+# Abtastpunkt haengt damit nur noch von der RICHTUNG ab — laengs eines Radialstrahls ist der
+# Sektor konstant, von der Lippe bis in den Apron. Genau das hat im ersten Anlauf gefehlt:
+# mit der wandernden dritten Achse schnitt schon diese Maske die Ader alle 50 m durch, und
+# im Bild standen kurze orange Striche quer ueber der Flanke statt Adern, die den Berg
+# hinunterlaufen. Wer hier wieder eine dritte Achse einzieht, bekommt die Striche zurueck.
+# VIER GRUNDLAPPEN WAREN ZU WENIG: das Rauschen hat dann genau EINE tiefe Stelle auf dem
+# Umfang, und im Bild gluehte eine geschlossene Gruppe von sechs Nachbarrinnen auf einer
+# Seite, waehrend die anderen drei Viertel des Kegels vollkommen kalt dastanden. Ein Vulkan
+# schuettet nicht nur nach einer Himmelsrichtung — derselbe Befund hat schon die Lavazungen
+# ihren Versatz gekostet (VULKAN_ZUNGEN_OX).
+# SIEBEN geben zwei bis drei getrennte Gruppen rings um den Kegel. Bei zehn wie bei den
+# Rippen waere jede zweite Rinne dran und der Kegel ein Lampion.
+# WAS DAVON HEUTE NOCH GILT: die Zahl und die Abtastung (fester Kreis, zwei Achsen, also
+# eine reine Funktion der Richtung). Die BEGRUENDUNG darunter hat gewechselt — sie waehlt
+# keine Rinnen mehr aus, dafuer gibt es den Baum, sie sagt nur noch, welche Seite des
+# Berges heisser ist (siehe VULKAN_GLUT_SEITE).
+const VULKAN_GLUT_SEKTOR_N := 7.0
+# Schwellen auf demselben Rauschen (Verteilung siehe tools/_vulkan_form.gd: -0.41 bis 0.94,
+# Mittel 0.38, unterstes Zehntel ab 0.08). 0.26/0.07 waren zusammen mit allen anderen
+# Masken zu eng — gemessen blieben 0.8 Prozent Glut, und die lagen als Tupfer da.
+const VULKAN_GLUT_AB := 0.38
+const VULKAN_GLUT_VOLL := 0.06
+# ... UND ES SCHALTET NICHTS MEHR AUS, ES DAEMPFT NUR NOCH. Solange dieses Rauschen die
+# Adern AUSGEWAEHLT hat, lagen auf dem Kegel rund acht Baender: gleich breit, unverzweigt,
+# zueinander parallel, alle am Kraterrand angesetzt und auf halber Flanke ohne Abschluss
+# zu Ende. Das ist kein Lavanetz, das ist ein Zebrastreifen — und die Ursache war genau
+# diese Maske, denn eine Schwelle auf einer Winkelfunktion kann nur BAENDER erzeugen, nie
+# eine Verzweigung. Das Netz baut jetzt _vulkan_ader als Baum; hier bleibt die Aufgabe,
+# fuer die eine Richtungsmaske taugt: dass eine Seite des Berges heisser ist als die
+# andere. 0.58 ist, was der kalten Seite bleibt — sichtbar kuehler, aber nicht abgeschnitten.
+# 0.34 WAR ZU WENIG: mit wenigen Staemmen sieht eine Kamera nur zwei bis vier davon, und wenn einer
+# davon auf der kalten Seite steht, ist die halbe sichtbare Flanke leer. Bei acht Baendern
+# fiel das nicht auf, bei vier schon.
+# EIN HARTER SCHNITT DARF ES NICHT SEIN: eine Ader wandert beim Gabeln um bis zu vier
+# Rinnen zur Seite, sie kreuzt also Sektorgrenzen. Wo die Maske ausschaltet, endet die Ader
+# mitten am Hang — der Mangel, aus dem diese Runde herausfuehren soll.
+const VULKAN_GLUT_SEITE := 0.58
+# --- DAS LAVANETZ: EIN BAUM, KEINE BAENDER -----------------------------------------------
+# Acht Staemme am Kraterrand, und jeder gabelt sich auf dem Weg nach unten zweimal — 32
+# Enden am Fuss, also genau eine je Barranco (Begruendung bei VULKAN_BARR_N). Gerechnet
+# wird das OHNE Rauschen, allein auf der stetigen Rinnenkoordinate: die Achse eines Astes
+# ist die MITTE seiner Zelle, und beim Gabeln wandert der Punkt von der Elternmitte zu der
+# des Kindes. Zwei Kinder, die aus einer Elternmitte nach beiden Seiten auseinanderlaufen,
+# sind ein Y — man muss es nicht als Y rechnen, es faellt aus der Zellteilung heraus.
+# ACHT STAEMME UND ZWEI GABELUNGEN, NICHT VIER UND DREI — und das ist eine Rechnung ueber
+# den WINKEL, unter dem eine Ader den Hang quert, nicht ueber ihre Zahl.
+# Beim Gabeln wandert ein Ast um eine VIERTEL Zellbreite zur Seite. Mit vier Staemmen ist die
+# oberste Zelle 8 Rinnen breit, der Ast wandert also zwei Rinnen — auf halber Flanke sind das
+# 244 m quer, waehrend die Gabelung nur ein Drittel der Flanke (330 m) Fallstrecke hat. Im
+# fertigen Bild lief die Ader damit fast waagerecht ueber die Rippen hinweg, quer zu jeder
+# Rinne, in die sie eigentlich gehoert: 36 Grad aus der Falllinie.
+# Mit acht Staemmen ist die oberste Zelle 4 Rinnen breit, der Ast wandert eine Rinne, und
+# weil eine Gabelung weniger noetig ist, hat jede die HALBE Flanke Fallstrecke. Das sind rund
+# 17 Grad — eine Ader, die sichtbar bergab laeuft und sich dabei einen neuen Weg sucht.
+# DAS ALTE BILD, VOR DEM DIE VIER STAEMME SCHUETZEN SOLLTEN, war ein anderes: acht gerade,
+# parallele, UNVERZWEIGTE Baender. Verzweigt sind sie hier, sie maeandern mit den Rinnen und
+# sie sind verschieden stark (VULKAN_ADER_WURF) — der Fehler von damals steckte nicht in der
+# Zahl acht, sondern im Fehlen des Baums.
+# 8 * 2^2 SIND WEITER 32 ENDEN, also eine je Barranco. Die Zellbreiten bleiben Zweierpotenzen
+# (4, 2, 1), und daran haengt sowohl die Naht bei +-pi als auch der Versatz, mit dem die
+# Achsen in den Sohlen liegen (VULKAN_BARR_VERSATZ).
+const VULKAN_ADER_STAEMME := 8.0
+const VULKAN_ADER_GABELN := 2.0
+# WO DIE DRITTE UND LETZTE GABELUNG FERTIG IST, als Anteil des Fussradius. 1.0 heisst: am
+# Fussradius selbst, und dort sitzt die feinste Aderachse dann genau auf einer Rinnensohle.
+# KLEINER ALS 1 GEHT, GROESSER NICHT: bei 1.1 waere die letzte Gabelung am Fuss noch nicht
+# durch, die Achse laege zwischen zwei Sohlen, und das Netz liefe quer zu den Rinnen.
+const VULKAN_ADER_FUSS := 1.0
+# ... und wie die zwei Gabelungen darauf verteilt sind. 1 waere gleichmaessig (Gabelungen auf
+# 855 und 1250 m); 1.25 schiebt sie nach aussen (913 und 1250 m) und laesst der Oberflanke
+# ihre acht Staemme. Viel groesser darf er nicht werden: dann draengen sich beide Gabelungen
+# in das unterste Viertel, und dort gabelt sich nichts mehr, es franst nur noch aus.
+const VULKAN_ADER_GABEL_K := 1.25
+# HALBE BREITE DES GLUEHENDEN KERNS, in RINNENBREITEN (nicht in halben, wie bis zuletzt).
+# Der Exponent gilt der Zellbreite: ein Ast mit halber Zelle ist 2^-0.66 = 0.63 mal so
+# breit, die Breite halbiert sich also ungefaehr alle zwei Gabelungen.
+# HIER STAND EINE NACHRECHNUNG UEBER 0.056/0.85 UND 70 m KANALBREITE, waehrend in der Zeile
+# darunter 0.024/0.72 stand — die Zahlen im Text haben nie zum Code gehoert. Deshalb steht
+# hier jetzt, was tools/_vulkan_form.gd MISST: mit 0.024/0.72 waren es 54 m Glutbreite bei
+# 520 m und 22 m bei 1120 m.
+# UND DAS WAR ZU BREIT. Der Befund am Abnahmebild lautete "fuenf gleichbreite gesaettigte
+# Baender", und 54 m orange auf einer Flanke, deren Rinne 100 m breit ist, sind genau das:
+# der Strom fuellt seine halbe Rinne aus, statt eine Linie in ihrer Sohle zu sein. In der
+# Vorlage ist die Ader ein FADEN mit einem breiten schwarzen Saum (VULKAN_ADER_KRUSTE), und
+# der Saum macht die Zeichnung, nicht die Glut.
+# DIE ZAHLEN SIND SEIT ACHT STAEMMEN ANDERE (VULKAN_ADER_STAEMME): die oberste Zelle ist nur
+# noch 4 statt 8 Rinnen breit, ein Kern derselben Formel waere am Stamm also von selbst
+# duenner geworden. 0.023/0.78 halten ihn dort bei rund 26 m Glutbreite und lassen ihm am
+# feinsten Ast noch 19 m.
+# WEITER RUNTER GEHT NICHT: die Netzweite ist 8 m, und eine Ader von zwei Dreiecken Breite
+# flackert beim Fliegen, weil sie zwischen den Facetten hin- und herspringt. Was die Ader
+# duenner aussehen laesst, ist der Saum (VULKAN_ADER_SAUM), nicht der Kern.
+const VULKAN_ADER_KERN := 0.023
+const VULKAN_ADER_DICK := 0.78
+# Der Kern glueht voll, bis SAUM mal Kern faellt er auf null ab, und bis KRUSTE mal Kern
+# liegt schwarze, matte Kruste. DASS DIE KRUSTE VIEL BREITER IST ALS DIE GLUT, ist der
+# Punkt: ein Strom zeigt nur seinen Kanal offen, der Rest ist erstarrt. Ohne sie sass das
+# Orange unvermittelt auf braunem Gestein und sah aufgemalt aus.
+# SAUM 2.2 -> 1.9 UND KRUSTE 4.2 -> 5.4: beide Zahlen sind Vielfache des Kerns, und der ist
+# gerade um ein Viertel geschrumpft. Waeren sie stehen geblieben, waere mit dem Kern auch
+# der schwarze Saum geschrumpft — die Ader haette dann nur weniger von allem gehabt statt
+# ein duenner Faden in einem breiten erstarrten Bett zu sein. Gerechnet: die Kruste ist
+# jetzt rund 2,8-mal so breit wie die Glut (vorher 1,9-mal).
+const VULKAN_ADER_SAUM := 1.9
+const VULKAN_ADER_KRUSTE := 5.4
+# WIE UNGLEICH DIE AESTE SIND. Je Ast einmal gewuerfelt (siehe _vulkan_ader_wurf) und ueber
+# die Gabelung von der Eltern- auf die Kindzahl geblendet: an einer Gabel wird der eine Arm
+# heller als der andere, und das ist der Unterschied zwischen einem Geflecht und einem
+# Ornament. Der schwaechste Ast behaelt 0.55 — dunkel, aber nicht verschwunden, denn seine
+# Kruste zeichnet ihn weiter.
+# 0.40 WAREN ZU WENIG, SEIT DIE ADERN DUENN SIND. Der Ringzaehler findet auf 1000 m Abstand
+# 27 Adern, im Bild sind es vier bis fuenf: ein 20 m schmaler Faden mit 40 Prozent Leuchtkraft
+# geht neben einem mit voller Leuchtkraft unter, und uebrig blieben genau die Hauptstaemme —
+# also wieder "ein paar breite Baender" statt eines Netzes. Mit 0.55 traegt auch der
+# schwaechste Ast noch, ohne dass die Gabelung ihren staerkeren und ihren schwaecheren Arm
+# verliert. VULKAN_LAPPEN_KRAFT ist mitgezogen, weil es auf DERSELBEN Zahl schwellt.
+const VULKAN_ADER_WURF := 0.55
+# UNTERBRECHUNG DER LAENGE NACH. Eine Ader, die ohne Luecke von der Lippe bis in die Ebene
+# durchlaeuft, sieht aus wie ein gezogener Strich. Dieses Rauschen laeuft deshalb schneller
+# den Hang hinunter als um ihn herum (dritte Achse gegen einen schmalen Abtastkreis): es
+# unterbricht die Ader quer, statt sie laengs zu spalten.
+# 5.2 UND 0.34/0.12 WAREN VIEL ZU SCHARF. Zusammen mit dem damals ebenfalls wandernden
+# Sektor blieben von der Ader 40 m lange Striche mit 4:1 Seitenverhaeltnis — im Bild
+# Zaehlstriche, keine Lavaadern. Jetzt laeuft es halb so schnell und laesst gut die Haelfte
+# offen: die Ader haelt ueber mehrere hundert Meter durch und setzt nur ab und zu aus.
+# Der Abtastkreis bleibt bewusst SCHMAL (1.4 Lappen): quer zur Ader soll dieses Rauschen
+# moeglichst nichts tun, sonst schiebt es die Glut aus der Sohle.
+const VULKAN_ADER_TAKT := 1.4
+const VULKAN_ADER_LAUF := 2.0
+const VULKAN_ADER_AB := 0.62
+const VULKAN_ADER_VOLL := 0.24
+# WAS DER ADER AN DER SCHWAECHSTEN STELLE BLEIBT. 0.45 stand hier, solange die Unterbrechung
+# die Nebenarme ganz ausknipsen sollte — das war der Ersatz fuer eine Verzweigung, die es
+# noch nicht gab. Jetzt gibt es sie, und die Unterbrechung hat nur noch die Aufgabe, den
+# Kanal ueberkrusten zu lassen: sie darf ihn daempfen, nicht durchschneiden. Eine Ader, die
+# alle 200 m aussetzt, ist wieder eine Reihe von Strichen.
+const VULKAN_ADER_GRUND := 0.62
+# --- WIE WEIT UNTEN NOCH ETWAS GLUEHT UND WIE HEISS -------------------------------------
+# ZWEI RAMPEN AUF DER HOEHE, UND SIE TUN VERSCHIEDENES. Die erste sagt, OB an dieser Stelle
+# ueberhaupt noch offene Lava liegt; die zweite, WIE HEISS sie ist. Vorher war es eine
+# einzige, und daran ist die Ader auf halber Flanke gestorben: voll erst ab einem Drittel
+# der Kegelhoehe, aus bei einem Zwanzigstel — das sind, auf den Abstand umgerechnet, 560
+# bis 950 m, also endete jede Ader bei drei Vierteln des Fussradius im Nichts.
+# Jetzt laeuft der Kanal DURCH BIS AN DEN BERGFUSS und kuehlt dabei ab: voll ab 58 m ueber
+# NN, ganz aus erst bei 28 m — das ist die Fussschwelle der Vulkanhaut selbst, weiter unten
+# gibt es keinen Kegel mehr. GEMESSEN hat der erste Anlauf mit 0.015/0.10 die unterste Glut
+# im Mittel auf 296 m stehen lassen, also auf halber Flankenhoehe; das Werkzeug zaehlt sie
+# jetzt (tools/_vulkan_form.gd, LAVANETZ), damit dieser Befund nicht wieder erst aus einem
+# fremden Blick aufs Bild kommen muss.
+const VULKAN_GLUT_UNTEN := 0.004
+const VULKAN_GLUT_OBEN := 0.055
+# ... und das ist die Abkuehlung: oben hellorange, im unteren Drittel tiefrot. Sie faerbt
+# NICHT nur, sie nimmt auch Leuchtkraft (VULKAN_GLUT_MATT ist der Rest ganz unten). Beides
+# gehoert zusammen — eine dunkelrote Flaeche, die so hell strahlt wie eine orange, liest
+# sich nicht als kuehler, sondern als andersfarbig.
+# 0.52 STAND HIER EINEN RENDER LANG UND IST WIEDER WEG. Die Ueberlegung war, dass die Ader
+# ueber ihre ganze Laenge in derselben gesaettigten Orange steht und deshalb aufgemalt
+# aussieht; die Grenze sollte auf halbe Flankenhoehe (325 m) hoch, damit unten tiefes Rot
+# liegt. Im Bild kam etwas anderes heraus: unter der halben Hoehe liegt die Flanke ohnehin
+# im Schatten und traegt fast schwarzen Basalt, und eine dunkelrote Ader darauf ist keine
+# Ader mehr, sondern verschwindet. Das Netz endete optisch auf halber Flanke — genau der
+# Befund, gegen den VULKAN_GLUT_UNTEN/OBEN gebaut wurden. Und die Vorlage gibt es auch nicht
+# her: dort leuchten die Faeden bis in den Waldkragen hinunter orange.
+# DAS AUFGEMALTE lag nie an der Farbe, sondern an der BREITE (siehe VULKAN_ADER_KERN).
+const VULKAN_GLUT_KUEHL := 0.00
+const VULKAN_GLUT_HEISS := 0.30
+const VULKAN_GLUT_MATT := 0.58
+# --- DIE LAVALAPPEN AM BERGFUSS ----------------------------------------------------------
+# WOFUER SIE DA SIND: eine Ader, die am Fuss einfach aufhoert, hat keinen Abschluss — und
+# ohne Abschluss liest das Auge sie als abgeschnitten statt als ausgelaufen. Wo ein Ast
+# ankommt, breitet er sich deshalb aus, erstarrt und bleibt als schwarzer, erhabener Lappen
+# liegen. Er hat HOEHE ("lava_lappen" in der Massivtabelle, 2 bis 4 Bloecke), denn ein
+# erkalteter Strom liegt AUF dem Gelaende, er faerbt es nicht nur ein.
+# Die Huelle in Anteilen des Fussradius. SIE ENDET AUF DEM FUSSRADIUS, nicht dahinter, und
+# zwar aus demselben zwingenden Grund wie die Barrancos: jenseits von mr traegt height_at
+# nichts mehr auf, ein Lappen dort waere eine senkrechte Wand (siehe VULKAN_BARR_AUS_ZU).
+# Voll ist er bei 0.93, also auf 1160 m — dort steht der Kegel noch rund 45 m hoch, und
+# genau da faengt der Waldkragen an. Der Lappen legt sich also in den Waldrand hinein, so
+# wie ein Strom, der im Gruen zum Stehen kommt.
+# ER FAENGT ERST BEI 0.86 AN UND NICHT SCHON BEI 0.80: der Lappen loescht die Glut (er IST
+# das Erkaltete), und bei 0.80 nahm er der Ader die untersten 250 m Weg weg — im Bild hoerte
+# sie wieder auf halber Flanke auf, nur diesmal mit Begruendung.
+const VULKAN_LAPPEN_AB := 0.86
+const VULKAN_LAPPEN_VOLL := 0.93
+const VULKAN_LAPPEN_AUS_AB := 0.97
+const VULKAN_LAPPEN_AUS_ZU := 1.00
+# Halbe Breite des Lappens in Rinnenbreiten: bei 1150 m Abstand sind 0.34 rund 78 m, der
+# Lappen ist also gut 150 m breit — deutlich breiter als die Ader, die ihn speist, so wie
+# ein Strom sich auf flachem Grund ausbreitet.
+const VULKAN_LAPPEN_BREIT := 0.34
+# NUR STARKE AESTE BILDEN EINEN LAPPEN. Sonst laege am Fuss ein geschlossener schwarzer
+# Kranz aus 32 Lappen, und der ist kein Abschluss, sondern ein Sockel.
+# DIE SCHWELLE SITZT AUF ad.z, UND DEREN UNTERGRENZE IST VULKAN_ADER_WURF — die beiden Zahlen
+# muessen deshalb zusammen wandern. Als der Wurf von 0.40 auf 0.55 ging, lag mit 0.52 jeder
+# einzelne Ast ueber der Schwelle, und der Kranz waere geschlossen gewesen. 0.64 trifft
+# denselben Ausschnitt der Verteilung wie vorher; die Probe dafuer steht in
+# tools/_vulkan_form.gd (LAVALAPPEN AM FUSS, rund ein Zehntel des Apron-Rings).
+const VULKAN_LAPPEN_KRAFT := 0.64
+# DER SCHLUND. Anteil des Kraterradius, bis zu dem der Kraterboden schwarz wird, und der
+# engere Kern, in dem er glueht. Der Boden ist eine breite waagerechte Flaeche und faengt
+# deshalb das meiste Licht ab; ohne einen dunklen Kern darin liest er sich als helle Pfanne.
+# Genau dieser Befund hat schon den Schlot in die Geometrie gebracht — die Farbe macht
+# daraus jetzt, was die Form allein nicht kann.
+const VULKAN_SCHLUND := 0.34
+const VULKAN_SCHLUND_KERN := 0.15
+
+# --- DIE SCHUERZE AM FUSS (APRON) ---------------------------------------------------------
+# WOGEGEN SIE GEBAUT IST, in den Worten der Abnahme: "der Kegel braucht statt des glatten
+# Kreissaums einen radial gerippten Fuss-Faecher, dessen Rinnen die Lava bis in die Ebene
+# tragen — erst dann sitzt der Berg im Land, statt darauf zu stehen." Genau das war der
+# Befund: der Kegel endete bei mr auf den Meter, und ringsum lag ungestoerte gruene Wiese.
+#
+# WARUM SIE NICHT EINFACH EIN GROESSERES "r" IST: der Fussradius bestimmt zugleich die
+# Flankenneigung (peak / (r - crater_r)). Zieht man ihn hoch, wird der Berg flacher — und
+# die Neigung war das einzige an diesem Kegel, das die Abnahme ausdruecklich stehenlassen
+# wollte. Die Schuerze ist deshalb ein ZWEITER, sehr flacher Kegel unter dem ersten: er
+# traegt den Gipfel um "apron" Meter hoeher und laeuft ueber mehr als das Anderthalbfache
+# des Fussradius aus. Der Kegel behaelt seine 47 bis 26 Grad, und der Berg bekommt
+# trotzdem eine Basis, die man aus mehreren Kilometern noch als Massiv liest.
+#
+# 1.53 IST DIE GRENZE DES LANDES, NICHT EIN GESCHMACK. Gemessen (tools/_vulkan_umland.gd)
+# liegt rings um den Vulkan Land bis rund 3400 m; erst danach faellt der Grund unter den
+# Meeresspiegel. Bei r = 1900 m sind 1.58 rund 3000 m — die Schuerze bleibt also ueberall
+# an Land. Wer weiter hinausgeht, hebt den Meeresgrund an und macht aus der Bucht im
+# Nordosten eine Sandbank; die Probe dafuer ist genau jenes Werkzeug.
+# 1.58 -> 1.45, UND DIE LANDGRENZE IST DABEI GAR NICHT MEHR DIE BINDENDE: der Fussradius
+# des Kegels ist von 1900 auf 1350 gegangen (siehe Main, Massivtabelle), 1.58 waeren also
+# ohnehin nur noch 2130 statt 3000 m. Die Zahl geht trotzdem herunter, weil die Schuerze
+# sonst im VERHAELTNIS zum Kegel breiter wuerde als vorher — und genau ihr flacher
+# Aussensaum war es, der den Berg gedrungen aussehen liess. 1958 m Aussenradius bleiben
+# klar innerhalb der gemessenen 3400 m Land (tools/_vulkan_umland.gd).
+const VULKAN_APRON_WEIT := 1.45
+# DER EXPONENT AUF DEM PROFIL, und er ist der Unterschied zwischen Schuerze und Sockel.
+# Die Grundkurve ist 1 - smoothstep(0, apr, md): sie hat an BEIDEN Enden die Steigung null,
+# laeuft also im Vorland tangential aus (kein gezeichneter Ring am Saum) und liegt unter dem
+# Kegel als Plateau. Roh (Exponent 1) waere die Schuerze aber auf halber Strecke am
+# steilsten — mitten auf der Kegelflanke, wo sie 5 Grad dazugaebe.
+# Der Exponent UNTER 1 schiebt die Masse nach aussen: unter dem Kegel bleibt die Kurve
+# flach, und der Abfall passiert dort, wo der Kegel schon zu Ende ist. Bei 0.55 steht die
+# Schuerze am Kegelfuss noch auf der Haelfte ihrer Hoehe und traegt von dort ueber 1100 m
+# mit rund 5 Grad aus — das ist die lange konkave Basis, die gefehlt hat.
+# 0.55 -> 0.85, UND DAS IST DIE KORREKTUR AN GENAU DIESEM SATZ. "Lange konkave Basis" war
+# das Ziel, herausgekommen ist die flache Rampe, die der Abnahme danach als Grund fuer
+# "gedrungen" aufgefallen ist: gemessen trug die Schuerze am Kegelfuss noch 125 m und lief
+# von dort mit 9 Grad aus, waehrend die Flanke darueber mit 36 Grad ankam. Ein Knick von
+# 27 Grad liest sich nicht als konkav, sondern als Berg auf einem Teller.
+# 0.85 laesst den Exponenten UNTER eins — die Schuerze bleibt also unter dem Kegel flach
+# und kippt ihn nicht — und zieht trotzdem so viel Masse nach innen, dass sie am Kegelfuss
+# nur noch 69 m traegt. Das ist die Hoehe der Baumgrenze (VULKAN_BAUM_AUS): das steile
+# Profil laeuft damit bis kurz vor den Wald durch, statt vorher auf eine Rampe zu kippen.
+# NICHT AUF ODER UEBER 1: dann ist die Schuerze auf halber Strecke am steilsten, und das
+# ist mitten auf der Kegelflanke — sie wuerde dort die Boeschung mitdrehen, die gerade erst
+# auf 32 Grad eingestellt wurde.
+const VULKAN_APRON_K := 0.85
+# DIE RINNEN DES FAECHERS. Sie sind DIESELBEN Rinnen wie die Barrancos der Flanke
+# (_vulkan_rinne, gleiche Phase, gleicher Maeander) und nicht ein zweites Muster daneben —
+# nur so laeuft eine Rinne wirklich vom Kraterrand bis in die Ebene durch, statt am Fuss zu
+# enden und ein paar hundert Meter weiter neu anzufangen.
+# DIE HUELLEN UEBERLAPPEN MIT ABSICHT: die Barrancos laufen zwischen 0.87 und 1.00 * mr aus
+# (VULKAN_BARR_AUS_AB/ZU), die Faecherrinnen blenden ab 0.78 ein. Im Uebergabeband liegen
+# beide an, und weil sie dieselbe Phase haben, addieren sie sich zu einer durchgehenden
+# Rinne. Haette man sie stumpf aneinandergesetzt, staende am Fuss eine Reihe von Absaetzen.
+const VULKAN_APRON_RIP_AB := 0.78
+const VULKAN_APRON_RIP_VOLL := 1.02
+const VULKAN_APRON_RIP_AUS := 0.80
+# --- DER SCHUTT AUF DEM FAECHER -----------------------------------------------------------
+# GEMESSEN, NICHT GESCHAETZT: der erste fertige Faecher hatte einen mittleren
+# Helligkeitssprung von Bildpunkt zu Bildpunkt von 0.0039. Die Vorlage steht am selben Ort
+# bei 0.0274, die Kegelflanke daneben bei 0.0143. Der Faecher war also SIEBENMAL glatter als
+# das Vorbild — im Bild ein Tuch, das jemand um den Berg gelegt hat.
+# Das kann die Rinnenlage nicht heilen: eine Rinne ist draussen 470 m breit, ihre Wand steht
+# auf 9 Grad, und ueber 470 m sieht das Auge keine Koernung, sondern eine Woelbung. Es fehlt
+# die kurze Welle, und die gibt es an diesem Berg schon — die BLOCKLAGE (VULKAN_BLOCK_M,
+# 46 m). Sie laeuft auf der Flanke zwischen 0.72 und 0.86 * r aus; hier setzt sie genau dort
+# wieder an und traegt bis in den Faecher hinein.
+# WARUM SIE VOR DEM WALDKRAGEN AUFHOEREN MUSS (1.06 .. 1.18): die Bepflanzung duennt nach
+# dem Hoehenunterschied ueber der 8-m-Zelle aus und faellt ueber 4,6 m ganz aus. Der Kragen
+# liegt jetzt draussen auf der Schuerze (rund 1.15 bis 1.28 * r), und eine Schuttlage mit
+# voller Amplitude wuerde ihn dort lautlos aufloesen — genau die Falle, vor der schon der
+# Schluessel "bloecke" warnt. An der Oberkante des Kragens steht die Lage noch auf gut einem
+# Viertel, das sind unter 2 m je Zelle.
+const VULKAN_APRON_BLOCK_AB := 0.72
+const VULKAN_APRON_BLOCK_VOLL := 0.86
+const VULKAN_APRON_BLOCK_AUS_AB := 1.06
+const VULKAN_APRON_BLOCK_AUS_ZU := 1.18
+# WO DIE ASCHE ANFAENGT AUSZUFRANSEN, als Anteil des Fussradius. Bis dahin ist die Schuerze
+# geschlossen schwarz; das ist zugleich die Grenze, bis zu der _face_color die Vulkanhaut
+# malt (siehe "haut_r" in _vulkane_bauen) — beide Zahlen MUESSEN dieselbe sein, sonst steht
+# an der Nahtstelle ein Farbring.
+const VULKAN_APRON_ASCHE_AB := 1.06
+# WIE WEIT DIE ASCHE AUF DEM GRAT REICHT, gegen 1.0 in der Rinnensohle. Das ist der Kern der
+# Sache: die Lava laeuft in den Rinnen, also greift die Asche dort weit ins Gruen hinaus und
+# bleibt auf den Ruecken dazwischen zurueck. Der Waldrand bekommt damit von selbst seine
+# Zacken — vorher war er ein Kreis, und ein Kreis ist die eine Form, die in einer Landschaft
+# nicht vorkommt.
+# 0.34 WAR ZU VIEL, und die Probe hat es gefunden, nicht das Bild: tools/_vulkan_form.gd
+# meldete danach 10 echte Loecher im WALDKRAGEN und eine Deckung von 0.00 in fast allen
+# Richtungen. Der Grund ist eine Ueberschneidung, die man der Zahl nicht ansieht — das
+# Kragenband liegt zwischen 26 und 44 m Hoehe, mit der Schuerze also bei rund 2430 bis
+# 2570 m, und die Asche reichte auf dem GRAT schon bis 2350 und im Mittel bis 2600. Sie hat
+# den Kragen damit nicht aufgerissen, sondern abgeraeumt.
+# Die Abnahme wollte das Gegenteil: "Ascheboden- und Lavazungen sollen die Baumgrenze
+# unregelmaessig AUFREISSEN". Ein Riss braucht etwas, das er zerreisst.
+# 0.10 WAR DANN ZU WENIG, und dieser Fehler stand im Bild statt in der Probe: die Asche war
+# schon 150 m hinter der Nahtstelle weg, WAEHREND die Schuttlage darunter noch 200 m weiter
+# lief. Im Vordergrund lag deshalb heller Fels mit Bloecken darin — Form ohne die Farbe, die
+# zu ihr gehoert, also genau der Widerspruch, an dem hier schon die Almwiese und die
+# Schutthalde haengengeblieben sind.
+# DIE ZAHL IST JETZT GERECHNET UND NICHT GERATEN. Sie muss zusammen mit VULKAN_APRON_SAUM
+# die Schuttlage ueberdecken, denn nur ueber der ist die Farbe zwingend Asche:
+#     (GRAT - SAUM) * (apr - ab) + ab  >=  mr * VULKAN_APRON_BLOCK_AUS_ZU
+# Mit ab = 1.06 * r, apr = 1.58 * r und AUS_ZU = 1.18 * r ergibt das GRAT - SAUM >= 0.23.
+# 0.34 gegen 0.10 haelt das mit Rand ein: bis 1.18 * r deckt die Asche ueberall voll, und
+# erst danach faengt sie an auszufransen.
+const VULKAN_APRON_GRAT := 0.34
+# ... UND DIE ZUNGEN MUESSEN ZUNGEN BLEIBEN. Der Anteil, mit dem eine Richtung als "Sohle"
+# zaehlt, ist im Mittel gut die Haelfte — linear angesetzt lag die Asche damit ueberall auf
+# halber Strecke, und aus den Zungen wurde wieder eine Scheibe mit welligem Rand.
+# Der Exponent zieht die Verteilung auseinander: nur die tiefen Rinnensohlen tragen weit
+# hinaus, alles dazwischen bleibt kurz. Bei 3.6 kommt die mittlere Richtung auf gut ein
+# Zehntel der Strecke, die Sohle auf die ganze — das ist der Unterschied zwischen einem
+# Saum und einem Geflecht. Bei 2.2 lag die mittlere Richtung auf einem Viertel, und
+# zusammen mit dem Zackenwurf reichte die Asche im Mittel bis mitten in das Kragenband.
+const VULKAN_APRON_ZUNGE := 3.6
+# ... und darauf noch ein grober Wurf, damit die Zacken nicht alle gleich lang sind.
+# 420 m Wellenlaenge auf _patch: das ist grob genug, dass eine Zunge mehrere Rinnen
+# zusammenfasst, und fein genug, dass sie nicht die halbe Schuerze auf einmal verschiebt.
+# ER SCHIEBT NUR NACH AUSSEN, NIE NACH INNEN (der Aufrufer rechnet mit 0.5 + 0.5 * Rauschen
+# statt mit dem rohen Wert). Beidseitig angesetzt war er die zweite Haelfte des hellen
+# Duenensands im Vordergrund: er konnte die Asche VOR VULKAN_APRON_GRAT zurueckziehen, und
+# damit gab es keinen Radius mehr, bis zu dem die Schuerze garantiert geschlossen ist.
+# Einseitig ist VULKAN_APRON_GRAT genau diese Garantie.
+const VULKAN_APRON_ZACK := 0.24
+const VULKAN_APRON_ZACK_M := 420.0
+# Breite des Uebergangs von Asche zu Vorland, im selben Mass wie die Reichweite (0 am
+# Kegelfuss, 1 am Saum). Schmaler waere eine gezeichnete Kante, breiter ein Schleier.
+# 0.20 WAR SO BREIT WIE DIE REICHWEITE SELBST, und damit gab es gar keine Strecke mehr, auf
+# der die Asche voll deckt: der Uebergang fing schon VOR der Nahtstelle an. 0.10 laesst der
+# geschlossenen Schuerze ihren Ring und ist mit rund 100 m immer noch kein gezeichneter
+# Strich. Die Rechnung dazu steht bei VULKAN_APRON_GRAT.
+const VULKAN_APRON_SAUM := 0.10
+# WIE STARK DIE ASCHE DAS VORLAND DECKT. Wie beim Lavastrom bleibt ein Rest der gewachsenen
+# Farbe stehen (siehe dort): daran liest man, dass hier etwas UEBER dem Boden liegt, statt
+# an seine Stelle getreten zu sein.
+const VULKAN_APRON_DECK := 0.90
+# Die Farbe der Schuerze. Sie ist absichtlich der Ton, den die Vulkanhaut am Kegelfuss
+# ohnehin hat (dunkler Basalt mit Rostanteil, gemessen rund 0.20/0.14/0.12) — an der Naht
+# bei VULKAN_APRON_ASCHE_AB stossen Haut und Schuerze zusammen, und zwei verschiedene
+# Schwarztoene dort waeren genau der Ring, den die Naht vermeiden soll.
+const VULKAN_APRON_ASCHE := Color(0.155, 0.122, 0.108)
+# Auf den Ruecken zwischen den Rinnen und auf den Schuttnestern liegt Grus statt frischer
+# Asche: heller, kaelter. Ohne diesen Unterschied ist der Faecher eine schwarze Flaeche, in
+# der die Rinnen nur ueber die Schattierung sichtbar sind — und bei hochstehender Sonne ist
+# das auf 5 Grad Grundneigung so gut wie nichts.
+# DIE BEIDEN ANTEILE ADDIEREN SICH, WEIL SIE VERSCHIEDENE LAENGENSKALEN SIND: der Ruecken
+# ist die 470-m-Welle (er gliedert), das Schuttnest die 46-m-Welle (sie koernt). Genau
+# diese Trennung fehlte, als der Faecher mit 0.0039 Helligkeitssprung gemessen wurde.
+# BEIDE SITZEN AUF FORM: der Ruecken auf dem Rinnenprofil, das height_at schneidet, das
+# Nest auf der Blocklage, die height_at auftraegt. Eine Aufhellung, die neben der Form
+# sitzt, ist an dieser Flanke schon einmal als "helle Striemen" gemeldet worden.
+# SIE WAR ZUERST 0.315/0.278/0.248, ALSO ZU HELL UND ZU WARM. Im Bild lagen auf dem Faecher
+# cremefarbene Facetten, und die liest das Auge als Sandstein — der Berg stand dann in einer
+# Geroellwueste statt in seiner eigenen Asche. Ein Aschefaecher ist grau und kuehl; hell wird
+# er nur dort, wo der Wind ihn abgerieben hat, und das ist ein Unterschied von wenigen
+# Zehnteln, nicht der zwischen Schwarz und Sand.
+const VULKAN_APRON_GRUS_C := Color(0.228, 0.208, 0.194)
+const VULKAN_APRON_RUECKEN := 0.55
+const VULKAN_APRON_BLOCK_HELL := 0.55
+# Bis wohin die BAUMGRENZE DES KEGELS gilt, als Anteil des Fussradius. Ohne Schuerze waren
+# das 1.06 (das Quadrat 1.1236 stand fest im Code) — mit ihr liegt das Band zwischen 44 und
+# 68 m Hoehe nicht mehr am Kegelfuss, sondern draussen auf der Schuerze bei rund 1.15 bis
+# 1.28 * mr. Bliebe die alte Schranke stehen, endete die Baumgrenze VOR ihrem eigenen Band,
+# und auf der halben Schuerze stuende Wald auf 80 m Asche.
+const VULKAN_APRON_BAUM := 1.36
+# Wie weit die LAVAZUNGEN (_vulkan_strom) mit der Schuerze hinauslaufen, als Anteil ihres
+# Aussenradius. Ohne Schuerze bleibt es bei VULKAN_HAUT_REICH, also exakt wie bisher.
+const VULKAN_APRON_STROM := 0.95
+# UM WIE VIEL DIE FELSSCHWELLE DER WELT AUF DER SCHUERZE NACH OBEN WANDERT, in Metern.
+# DER BEFUND, GEGEN DEN DAS STEHT: zwischen dem schwarzen Faecher und dem gruenen Waldrand
+# lag im Bild ein sandfarbener Ring. Er kam nicht aus dem Vulkan, sondern aus der Weltregel
+# in _face_color — die faerbt ab 45 bis 59 m Hoehe Bergfels, und die Schuerze traegt das
+# Vorland genau in diese Hoehenlage hinauf. Wo die Asche nicht deckte, stand deshalb heller
+# Fels statt Wald.
+# AUF DEM KEGEL GAB ES DAS PROBLEM NIE, und der Grund erklaert die Zeile: dort malt
+# _vulkan_haut, und die Weltregel kommt gar nicht erst zum Zug. Mit der Schuerze liegt das
+# Kragenband zum ersten Mal AUSSERHALB der Haut.
+# 58 M SCHIEBT DIE SCHWELLE AUF 103 BIS 117 M und damit ueber die hoechste Stelle, an der
+# die Baumgrenze des Kegels noch einen Baum zulaesst (VULKAN_BAUM_AUS 68 plus
+# VULKAN_BAUM_ZACK 22 = 90 m). Darueber deckt ohnehin die Asche.
+# DIE STEILHEIT BLEIBT UNBERUEHRT — dieselbe Trennung wie beim Wiesenhub im Hochtal (siehe
+# TAL_WIESE_HUB): eine senkrechte Wand ist auch auf einer Ascheschuerze Fels.
+const VULKAN_APRON_FELS_HUB := 58.0
+
 var seed_value := 1337
 var airfields: Array = []       # [{pos: Vector3, r_flat, r_blend, y?(Zielhöhe, default 0)}]
 var lakes: Array = []           # [{pos: Vector3, r: float, surf: float}] Inland-Seen
@@ -205,6 +1604,45 @@ var _noise: FastNoiseLite
 var _patch: FastNoiseLite       # Sekundär-Rauschen für Gras-Flecken
 var _forest: FastNoiseLite      # grobes Rauschen: wo stehen WÄLDER (Cluster)
 var _ridge: FastNoiseLite       # Ridged-Noise -> scharfe Bergketten
+# Kreisradien, auf denen die Vulkanflanke ihr Rauschen abtastet (siehe VULKAN_RIPPEN_N),
+# und der Streckfaktor der feinen Felslage.
+var _vk_rippen_kreis := 0.0
+var _vk_lippen_kreis := 0.0
+var _vk_lippen_zack := 0.0
+var _vk_zungen_kreis := 0.0
+var _vk_fels_takt := 0.0
+var _vk_block_takt := 0.0
+var _vk_rost_takt := 0.0
+var _vk_grus_takt := 0.0
+var _vk_schutt_takt := 0.0
+# Die GROBE Schwester des Schuttkorns: dieselbe Lage, nur auf Feldgroesse gestreckt. Sie
+# treibt die Aschedecke (siehe VULKAN_FELD_M), das Korn franst nur noch ihren Rand aus.
+var _vk_feld_takt := 0.0
+var _vk_baum_takt := 0.0
+# Barrancos: Zahl der Rinnen als GANZE Zahl (siehe VULKAN_BARR_N — daran haengt, dass die
+# Winkelwelle bei +-pi keine Naht hat) sowie die Kreise fuer Maeander und Tiefenstreuung.
+var _vk_barr_n := 0.0
+var _vk_barr_wander := 0.0
+var _vk_barr_tief := 0.0
+# Zellbreite eines LAVASTAMMES in Rinnenbreiten (Rinnenzahl durch Stammzahl). Sie steht
+# hier und nicht in _vulkan_ader, weil daran die Zusicherung haengt, dass sich die Zelle
+# GABELN laesst: 32 / 4 = 8, danach 4, 2, 1 — lauter ganze Zahlen, und deshalb faellt die
+# feinste Aderachse genau auf eine Rinnensohle.
+var _vk_ader_stamm := 0.0
+# Kreisfrequenzen des Astwurfs: ganzzahlige Perioden auf dem Umfang, sonst haette er an der
+# atan2-Naht eine Kante (siehe _vulkan_ader_wurf).
+var _vk_ader_wurf1 := 0.0
+var _vk_ader_wurf2 := 0.0
+var _vk_ader_kreis := 0.0
+var _vk_glut_kreis := 0.0
+var _vk_see_takt := 0.0
+var _vk_apron_takt := 0.0
+# VORGERECHNETE VULKANE fuer die Farbe und den Bewuchs: Mittelpunkt, Radien und der
+# quadrierte Umkreis der Haut. _face_color und die Bepflanzung laufen ueber die GANZE Welt,
+# und vorher stand dort eine Schleife ueber ALLE Massive mit je einem Stringvergleich und
+# einer Wurzel — bei den rund dreissig Kegeln des Hochgebirges ist das je Dreieck spuerbar.
+# Jetzt ist es je Vulkan ein Abstandsquadrat, und die Liste hat genau einen Eintrag.
+var _vulkane: Array = []
 var _relief: FastNoiseLite      # sehr grob: wie GEBIRGIG ist eine Region (Ebene<->Alpen)
 var _biome: FastNoiseLite       # sehr grob: welches BIOM (Wald/Wüste/Hochland/Heide)
 var _flora: Dictionary = {}     # Art -> Mesh (aus models/world_trees.glb, sieben Arten)
@@ -317,6 +1755,59 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_ridge.fractal_octaves = 4
 	_ridge.fractal_gain = 0.55
 	_ridge.frequency = 1.0 / 1700.0
+	# Ein Kreis mit diesem Radius im Rauschraum ist genau VULKAN_RIPPEN_N Wellenlaengen lang.
+	# Die Umrechnung steht hier und nicht in height_at: sie ist je Bild konstant, in der
+	# Hoehenschleife waere sie eine Division je Probe.
+	_vk_rippen_kreis = VULKAN_RIPPEN_N / (TAU * _ridge.frequency)
+	_vk_lippen_kreis = VULKAN_LIPPEN_N / (TAU * _noise.frequency)
+	_vk_lippen_zack = _vk_lippen_kreis * VULKAN_LIPPEN_ZACK_N
+	_vk_zungen_kreis = VULKAN_ZUNGEN_N / (TAU * _noise.frequency)
+	# DIE RUNDUNG IST KEINE KOSMETIK: nur bei einer GANZEN Rinnenzahl springt die Phase ueber
+	# die atan2-Naht um einen ganzen Umlauf, und nur dann merkt der Nachkommateil nichts
+	# davon. Steht in VULKAN_BARR_N eine gebrochene Zahl, laeuft der Kegel mit einer geraden
+	# Kante vom Gipfel bis zum Fuss herum — deshalb wird sie hier gerundet und nicht in der
+	# Hoehenschleife geprueft.
+	_vk_barr_n = maxf(round(VULKAN_BARR_N), 1.0)
+	_vk_barr_wander = VULKAN_BARR_WANDER_N / (TAU * _noise.frequency)
+	_vk_barr_tief = VULKAN_BARR_TIEF_N / (TAU * _noise.frequency)
+	_vk_ader_stamm = _vk_barr_n / maxf(VULKAN_ADER_STAEMME, 1.0)
+	_vk_ader_wurf1 = TAU * 13.0 / _vk_barr_n
+	_vk_ader_wurf2 = TAU * 5.0 / _vk_barr_n
+	_vk_ader_kreis = VULKAN_ADER_TAKT / (TAU * _ridge.frequency)
+	# FESTER Kreis fuer die Sektorwahl der Glut — er waechst mit Absicht NICHT mit dem
+	# Abstand (Begruendung bei VULKAN_GLUT_SEKTOR_N).
+	_vk_glut_kreis = VULKAN_GLUT_SEKTOR_N / (TAU * _ridge.frequency)
+	# Die Felslage nimmt dieselbe Rauschquelle, nur weit hineingezoomt: aus 1700 m Grundwelle
+	# werden VULKAN_FELS_M. Eine eigene FastNoiseLite dafuer waere ein weiterer Zustand, den
+	# der naechste Umbau uebersehen kann.
+	_vk_fels_takt = 1.0 / (VULKAN_FELS_M * _ridge.frequency)
+	# Dieselbe Quelle noch einmal, noch weiter hineingezoomt: die BLOCKLAGE. Sie muss auf
+	# _ridge liegen und nicht auf _patch — ihre scharfen Kaemme sind der halbe Zweck der
+	# Sache (Begruendung bei VULKAN_BLOCK_AB), ein einoktaviges Fleckenrauschen gaebe runde
+	# Beulen statt Aufschluesse.
+	_vk_block_takt = 1.0 / (VULKAN_BLOCK_M * _ridge.frequency)
+	# Dieselbe Umrechnung fuer die Rostflecken, nur auf _patch (einoktavig): aus 60 m
+	# Grundwelle werden VULKAN_ROST_M. Eine dritte Rauschquelle waere hier reine Verschwendung
+	# — ein Fleckenwurf braucht keine Oktaven, er braucht nur eine Laengenskala.
+	_vk_rost_takt = 1.0 / (VULKAN_ROST_M * _patch.frequency)
+	_vk_grus_takt = 1.0 / (VULKAN_GRUS_M * _patch.frequency)
+	_vk_schutt_takt = 1.0 / (VULKAN_SCHUTT_M * _patch.frequency)
+	# Vierte Stelle auf derselben Lage. Sie liegt bewusst NICHT auf einer eigenen
+	# Rauschquelle: gebraucht wird eine zweite LAENGENSKALA, kein zweites Muster, und ein
+	# Faktor sieben zwischen den beiden Takten reicht, damit sie sich nicht decken.
+	_vk_feld_takt = 1.0 / (VULKAN_FELD_M * _patch.frequency)
+	# Die FUGEN DER LAVASEE-KRUSTE liegen auf _ridge, weil dessen scharfe Kaemme duenne
+	# Linien geben — ein einoktaviges Fleckenrauschen wuerde runde Inseln zeichnen, und eine
+	# Kruste zerreisst in Schollen mit Naehten dazwischen (Begruendung bei VULKAN_SEE_M).
+	_vk_see_takt = 1.0 / (VULKAN_SEE_M * _ridge.frequency)
+	# Der grobe Wurf auf dem Saum der Ascheschuerze. Er liegt auf _patch und NICHT auf
+	# _forest: _forest setzt zugleich die Walddichte, und eine Zunge, die genau dort weit
+	# hinausgreift, wo ohnehin kein Wald steht, verschiebt keinen Waldrand — sie faerbt nur
+	# eine Lichtung um. Derselbe Fehler steckte schon einmal in VULKAN_BAUM_ZACK.
+	_vk_apron_takt = 1.0 / (VULKAN_APRON_ZACK_M * _patch.frequency)
+	# Dritte Stelle auf derselben Lage, fuer die ZACKEN der Baumgrenze (Begruendung dort).
+	# Sie darf NICHT auf _forest liegen — das ist die Lage, die zugleich die Dichte macht.
+	_vk_baum_takt = 1.0 / (VULKAN_BAUM_M * _patch.frequency)
 	# Relief: sehr grob — wie gebirgig eine Region ist (Ebene 0 .. Alpen 1)
 	_relief = FastNoiseLite.new()
 	_relief.seed = seedv * 23 + 7
@@ -325,6 +1816,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_biome = FastNoiseLite.new()
 	_biome.seed = seedv * 31 + 13
 	_biome.frequency = 1.0 / 3200.0
+	_vulkane_bauen()
 	# ERST HIER, nicht weiter oben: _talboden_bauen ruft height_at, und das braucht
 	# saemtliche Rauschquellen. Ein Aufruf vor _biome lieferte lauter Nullen.
 	_talboden_bauen()
@@ -342,11 +1834,27 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	var sh := Shader.new()
 	sh.code = """
 shader_type spatial;
+// GLUT AUS DEM ALPHAKANAL. a = 1 ist kaltes Gestein — und das ist der Wert, den JEDE
+// bisherige Farbe dieser Welt schon hat, denn Color(r, g, b) legt a auf eins. Je kleiner
+// a, desto staerker leuchtet die Flaeche aus sich selbst, und zwar in IHRER EIGENEN
+// Farbe: _face_color mischt die Gesteinsfarbe zur Lava hin, damit haben die schwach
+// geoeffneten Rinnen unten von selbst ein dunkleres Rot als die heissen am Kraterrand.
+// WARUM UEBER DEN ALPHAKANAL UND NICHT UEBER EIN ZWEITES MATERIAL: die Glutrinnen sind
+// einzelne Dreiecke MITTEN in der Gelaendeflaeche. Ein zweites Material waere ein zweiter
+// Zeichenaufruf je Chunk und eine zweite Netzhaelfte, die an jeder Kante mit der ersten
+// verzahnt — fuer eine Eigenschaft, die eine einzige Zahl je Dreieck ist.
+// DER FAKTOR STEHT DEUTLICH UEBER EINS, weil das Environment KEIN Glow hat (Main:
+// glow_enabled = false, und das umzustellen wuerde die ganze Welt betreffen). Die Rinne
+// muss also aus sich heraus lesbar sein: bei 4 kommt eine volle Lavaflaeche linear auf
+// rund 3,6 und liegt damit sicher in der Schulter des ACES-Tonemappers, waehrend eine
+// halb geoeffnete Rinne noch dunkelrot bleibt.
+const float GLUT = 2.2;
 void fragment() {
 	vec3 c = COLOR.rgb;
 	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.1;
+	EMISSION = ALBEDO * (1.0 - COLOR.a) * GLUT;
 }
 """
 	_mat = ShaderMaterial.new()
@@ -509,7 +2017,57 @@ func height_at(x: float, z: float) -> float:
 			var schelf := 1.0 - smoothstep(mr * 0.95, mr * 1.9, md)
 			if schelf > 0.0:
 				h = maxf(h, lerpf(h, SEA_Y - 9.0, schelf))
+		# --- DIE SCHUERZE AM FUSS -------------------------------------------------------
+		# "apron" ist ihre Hoehe unter dem Mittelpunkt in Metern und schaltet sie ein; ohne
+		# den Schluessel ist sie eine Null, und jedes Massiv der Welt bleibt bitgenau, wie
+		# es war. Wofuer es sie gibt und warum sie kein groesseres "r" ist, steht bei
+		# VULKAN_APRON_WEIT.
+		# SIE WIRD VOR DEM cone-TOR GERECHNET UND NICHT DARIN, und das ist ihr ganzer Sinn:
+		# cone ist jenseits von mr exakt null, der Zweig darunter laeuft dort also gar nicht
+		# mehr — genau dort aber liegt die Schuerze.
+		var aph := float(ms.get("apron", 0.0))
+		var apron := 0.0
+		if aph > 0.0:
+			var apr := mr * VULKAN_APRON_WEIT
+			if md < apr:
+				apron = aph * pow(1.0 - smoothstep(0.0, apr, md), VULKAN_APRON_K)
+				# DIE RINNEN DES FAECHERS, in derselben Phase wie die Barrancos darueber
+				# (Begruendung bei VULKAN_APRON_RIP_AB). Sie kosten zwei Rauschabfragen und
+				# laufen deshalb nur, wo es sie ueberhaupt gibt: ab 0.78 * mr.
+				var arp := float(ms.get("apron_rippen", 0.0))
+				if arp > 0.0 and md > mr * VULKAN_APRON_RIP_AB:
+					# EIGENE EINHEITSRICHTUNG statt der weiter unten gerechneten: die steht
+					# im Insel-Zweig, und der laeuft hier draussen nicht. Zwei Divisionen,
+					# und zwar nur fuer Massive mit Schuerze — also fuer genau eines.
+					var aux := dx / md
+					var auz := dz / md
+					var arn := _vulkan_rinne(aux, auz, md)
+					apron += arp * arn.y \
+						* smoothstep(mr * VULKAN_APRON_RIP_AB, mr * VULKAN_APRON_RIP_VOLL, md) \
+						* (1.0 - smoothstep(apr * VULKAN_APRON_RIP_AUS, apr, md)) \
+						* _vulkan_rinne_profil(arn.x, arn.z, md,
+							mr * VULKAN_APRON_RIP_AB, apr)
+				# DER SCHUTT AUF DEM FAECHER. "apron_bloecke" ist seine Auswurfhoehe in
+				# Metern und schaltet ihn ein; warum es ihn NEBEN den Rinnen braucht und wo
+				# er aufhoeren muss, steht bei VULKAN_APRON_BLOCK_AB. Der Ausdruck ist
+				# Zeichen fuer Zeichen der der Flanke (siehe DIE BLOCKLAGE), nur mit den
+				# Huellen des Faechers — sonst laege die helle Koernung neben dem Schutt.
+				var abl := float(ms.get("apron_bloecke", 0.0))
+				if abl > 0.0 and md > mr * VULKAN_APRON_BLOCK_AB:
+					apron += abl * _vulkan_apron_schutt(x, z, md, mr)
+				# DIE SCHUERZE DARF NUR ANHEBEN. Das ist die Zusicherung der ganzen
+				# Massivschleife ("nur anheben (max) -> stoeren das uebrige Gelaende nie"),
+				# und ohne dieses maxf bricht sie: das Rinnenprofil ist um seinen Mittelwert
+				# zentriert, die Sohle liegt also ein Drittel der Rinnentiefe UNTER null.
+				# Am aeusseren Saum, wo von der Schuerze nur noch ein paar Meter uebrig
+				# sind, schnitte das ins Vorland — und weil das Vorland rings um diesen
+				# Vulkan auf Meereshoehe liegt, staende danach in jeder Rinne eine Pfuetze.
+				apron = maxf(apron, 0.0)
 		var cone := 1.0 - smoothstep(0.0, mr, md)
+		if cone <= 0.0:
+			# JENSEITS DES FUSSRADIUS GIBT ES NUR NOCH DIE SCHUERZE. Ohne sie ist die Zeile
+			# ein "+= 0.0" und damit das alte Verhalten, Bit fuer Bit.
+			h += apron
 		if cone > 0.0:
 			# craggy: breite Ridge-Form + hochfrequente Grat-Details -> Bergform statt Kuppel
 			# GRATRAUSCHEN JE MASSIV EIGEN. Hier stand fuer JEDEN Berg dieselbe Frequenz
@@ -562,12 +2120,340 @@ func height_at(x: float, z: float) -> float:
 				# INSEL/VULKAN: Rand fällt UNTER den Meeresspiegel -> echte Küste rundum.
 				# Der Kegel setzt auf dem SCHELF auf (h), nicht auf einer Konstanten —
 				# sonst entsteht am Kegelrand wieder die Stufe.
-				var top := lerpf(h, float(ms["peak"]), s) + s * crag * 22.0
+				var cr := float(ms.get("crater_r", mr * 0.16))
+				# EINHEITSRICHTUNG vom Massivmittelpunkt nach aussen. Sie ersetzt jedes atan2
+				# in diesem Block: cos(Winkel) und sin(Winkel) SIND dx/md und dz/md — ohne
+				# Winkelfunktion und ohne Naht bei +-pi. Eine Naht waere hier nicht theoretisch:
+				# jedes Muster, das ueber den Winkel laeuft, springt dort, und der Sprung
+				# staende als kerzengerade Kante vom Gipfel bis zum Fuss im Hang.
+				var ux := 0.0
+				var uz := 0.0
+				if md > 1.0:
+					ux = dx / md
+					uz = dz / md
+				# --- ABGESTUMPFTER SCHICHTVULKAN ------------------------------------------
+				# "flanke" ist der Exponent des Kegelprofils und schaltet diesen Abschnitt
+				# ein. Ohne den Wert bleibt es beim doppelten smoothstep, also genau bei der
+				# Form, die alle Inseln haben.
+				# WAS DARAN FALSCH WAR: s = smoothstep(0, 1, cone) hat am Mittelpunkt UND am
+				# Rand die Steigung null. Bei 230 m auf 1250 m Radius ergab das im Mittel
+				# 10 Grad Boeschung, an beiden Enden flach — ein Fladen mit einer Delle.
+				# Der Radius laeuft jetzt erst am KRATERRAND los (krx) statt im Mittelpunkt:
+				# ein Schichtvulkan endet oben nicht in einer Spitze, sondern in der Lippe.
+				# Die Gipfelflaeche ist damit von Haus aus eben und der Krater muss sie nicht
+				# erst wieder abtragen — daran krankte die alte Fassung, die eine Kuppe
+				# aufbaute und danach eine Delle hineinzog.
+				# Der Exponent macht die Flanke KONKAV: knapp unter der Lippe rund 43 Grad,
+				# auf halber Flanke 40, am Fuss unter 25. Ein Exponent UNTER 1 macht es
+				# umgekehrt (steiler Fuss, flacher Gipfel) und liest sich als Tafelberg.
+				var flanke := float(ms.get("flanke", 0.0))
+				var sv := s
+				var krx := cr
+				if flanke > 0.0:
+					# UNREGELMAESSIGE LIPPE: der Kraterrand wandert winkelabhaengig aus dem
+					# Kreis heraus. Weil er zugleich die Kante der Gipfelflaeche ist, bekommt
+					# die oberste Flanke dieselbe Unruhe mit und der Rand liest sich nicht mehr
+					# als gedrechselt.
+					# ZWEI LAGEN AUF DEMSELBEN KREIS (Begruendung bei VULKAN_LIPPEN_ZACK_N):
+					# die grobe gibt dem Krater seinen unrunden Grundriss, die feine erst die
+					# Kante. Beide aus DEMSELBEN Rauschen, nur weiter draussen abgetastet — eine
+					# zweite FastNoiseLite waere Zustand, den der naechste Umbau uebersieht.
+					krx = cr * (1.0 + float(ms.get("lippe", 0.0))
+						* (_noise.get_noise_2d(ux * _vk_lippen_kreis, uz * _vk_lippen_kreis)
+						+ VULKAN_LIPPEN_ZACK * _noise.get_noise_2d(
+							ux * _vk_lippen_zack, uz * _vk_lippen_zack)))
+					# GEBROCHENER FUSS. Der Kegel endete auf den Meter genau bei mr, und ein
+					# Kreis dieser Groesse liest sich im Bild als gedrechselt — dieselbe
+					# Erfahrung wie beim Grundriss der Berge (siehe "dehnung").
+					# "fuss" zieht den Fussradius winkelabhaengig nach INNEN, nie nach aussen:
+					# der Fussabdruck bleibt damit garantiert innerhalb der 1250 m, mit denen
+					# das Massiv in der Tabelle steht, und kein Nachbargelaende wird beruehrt.
+					# Abgetastet wird dasselbe Rauschen wie fuer die Lippe, nur an anderer
+					# Stelle — sonst atmeten Lippe und Fuss im Gleichtakt.
+					var mrx := mr
+					var fuss := float(ms.get("fuss", 0.0))
+					if fuss > 0.0:
+						mrx = mr * (1.0 - fuss * (0.5 + 0.5 * _noise.get_noise_2d(
+							ux * _vk_lippen_kreis + 4100.0, uz * _vk_lippen_kreis - 2700.0)))
+					sv = pow(1.0 - clampf((md - krx) / maxf(mrx - krx, 1.0), 0.0, 1.0), flanke)
+				# DIE BEIDEN RAUSCHLAGEN STEHEN IN EIGENEN VERAENDERLICHEN und werden nicht
+				# mehr direkt aufaddiert. Der Grund steht ganz unten beim LAVASEE: der zieht
+				# sie in seiner Flaeche wieder ab, und dafuer muss er wissen, wie viel an
+				# dieser Stelle ueberhaupt aufgetragen wurde. Gerechnet wird nichts anderes.
+				var kraut := sv * crag * 22.0
+				var top := lerpf(h, float(ms["peak"]), sv) + kraut + apron
+				# --- RADIALE GRATE UND RINNEN ---------------------------------------------
+				# Das vorhandene Gratrauschen (crag) tastet in x/z ab. Auf einem Kegel ist das
+				# richtungslos: es macht Flecken, die quer ueber die Flanke laufen, und genau
+				# deshalb wirkte der Hang glatt und tot, obwohl Rauschen darauf lag.
+				# Hier laeuft die eine Rauschachse UM den Berg und die andere den Hang
+				# HINUNTER. Was quer schmal ist und laengs lang, sind Rippen — und _ridge ist
+				# ridged, hat also scharfe Kaemme mit breiten Rinnen dazwischen, die
+				# Aufteilung einer echten Vulkanflanke.
+				var rip := float(ms.get("rippen", 0.0))
+				if rip > 0.0 and md > krx * VULKAN_RIPPEN_INNEN:
+					# HUELLKURVE IN DREI ABSCHNITTEN, und der erste ist neu: die Rippen fangen
+					# jetzt INNEN in der Kraterwand an, stehen an der Lippe auf dem Anteil
+					# VULKAN_RIPPEN_LIPPE (dort steht, warum) und erreichen erst ein Drittel die
+					# Flanke hinunter ihre volle Hoehe.
+					# DIE OBERE RAMPE WAR ZU KURZ (0.18). Direkt unter der Lippe stehen die
+					# Rippen am dichtesten beieinander, weil sie dort zusammenlaufen; mit
+					# voller Amplitude schon 170 m unter dem Rand sass um den Krater ein
+					# Lattenzaun. Ueber ein Drittel der Flanke eingeblendet waechst der Grat
+					# mit dem Platz, den er hat.
+					# SIE BEI NULL ANFANGEN ZU LASSEN, war der Fehler danach: siehe
+					# VULKAN_RIPPEN_LIPPE. Beide Teile addieren sich, weil jeder smoothstep im
+					# Bereich des anderen konstant ist — an der Lippe ist der innere fertig und
+					# der aeussere faengt bei null an, die Kurve hat dort also weder Sprung noch
+					# Knick.
+					# UNTEN LAEUFT SIE ERST AM FUSS AUS statt schon bei 0.80 * r. Die Grate
+					# duerfen den Fussabdruck ausfransen — das ist die zweite Haelfte des
+					# gebrochenen Fusses; abgeschnitten wird nichts, weil maxf gegen das
+					# Vorland ohnehin nur anhebt.
+					var huell := (VULKAN_RIPPEN_LIPPE
+						* smoothstep(krx * VULKAN_RIPPEN_INNEN, krx, md)
+						+ (1.0 - VULKAN_RIPPEN_LIPPE)
+						* smoothstep(krx, krx + (mr - krx) * 0.35, md)) \
+						* (1.0 - smoothstep(mr * 0.90, mr * 1.02, md))
+					# DER KREIS WAECHST MIT DER WURZEL DES ABSTANDS, und daran haengt, ob man
+					# die Grate ueberhaupt sieht:
+					#   * fester Kreis heisst konstanter WINKEL je Rippe. Die Rippen laufen
+					#     nach oben zusammen wie Speichen — am Gipfel Cordsamt, am Fuss 1000 m
+					#     breite Wellen, die keine Flaeche mehr kippen. Beides war im Bild.
+					#   * ein mit md mitwachsender Kreis waere konstante BREITE in Metern —
+					#     das ist aber wieder gewoehnliches x/z-Rauschen, die Richtung ist weg.
+					# Die Wurzel liegt dazwischen: die Rippe wird nach unten breiter, aber nur
+					# halb so schnell wie der Umfang. Sie bleibt radial und ueber die ganze
+					# Flanke in einer Breite, die man sieht.
+					var rkr := _vk_rippen_kreis * sqrt(md / mr)
+					top += rip * huell * _ridge.get_noise_3d(ux * rkr, uz * rkr,
+						md * VULKAN_RIPPEN_LAUF)
+					# DIE FEINRIPPEN AUF DEMSELBEN KREIS, nur dichter und schneller den Hang
+					# hinunter (siehe VULKAN_FEINRIPPE_N). "feinrippen" ist ihre Amplitude in
+					# Metern und schaltet sie ein; ohne den Schluessel bleibt die Flanke
+					# exakt, wie sie war, und die zweite Rauschabfrage faellt weg.
+					# SIE HAENGT AN DERSELBEN HUELLKURVE wie die groben Rippen — sie faengt
+					# also innen in der Kraterwand an und laeuft am Fuss aus. Zwei
+					# Huellkurven fuer dasselbe Muster waeren zwei Zahlen, die beim naechsten
+					# Eingriff auseinanderlaufen.
+					var frp := float(ms.get("feinrippen", 0.0))
+					if frp > 0.0:
+						top += frp * huell * _ridge.get_noise_3d(
+							ux * rkr * VULKAN_FEINRIPPE_N, uz * rkr * VULKAN_FEINRIPPE_N,
+							md * VULKAN_FEINRIPPE_LAUF)
+				# --- FELSLAGE ------------------------------------------------------------
+				# "fels" bricht die Flaechen auf (Begruendung bei VULKAN_FELS_M). Sie haengt
+				# an sv, laeuft also zum Fuss hin von selbst aus und liegt zugleich auf der
+				# Lippe und im Kraterboden — beide waren ohne sie gedrechselt glatt.
+				var flz := float(ms.get("fels", 0.0))
+				var felslage := 0.0
+				if flz > 0.0:
+					felslage = flz * sv * _ridge.get_noise_2d(
+						x * _vk_fels_takt, z * _vk_fels_takt)
+					top += felslage
+				# --- ABRISSKANTEN: DIE KURZE WELLE ---------------------------------------
+				# "nasen" ist die Hoehe der Stufe in Metern und schaltet die Lage ein; ohne
+				# den Schluessel bleibt die Flanke exakt, wie sie war. Warum es sie NEBEN
+				# Rippen, Felslage und Blocklage braucht — die alle GROSS gegen ein
+				# 8-m-Dreieck sind —, steht bei VULKAN_NASEN_AB.
+				# SIE STEHT VOR DEM BARRANCO-BLOCK UND NICHT DARIN, weil sie dessen
+				# Rinnenlage nicht braucht: ein Abriss hat keine Vorzugsrichtung, er sitzt
+				# auf dem Grat so gut wie in der Sohle. Damit kostet sie auch dann nur eine
+				# Rauschabfrage, wenn der Kegel gar keine Rinnen hat.
+				# DIE INNERE RAMPE haelt sie aus dem fertigen Kraterrand heraus, genau wie
+				# bei Rinnen und Bloecken; die aeussere endet vor dem Waldkragen
+				# (VULKAN_NASEN_AUS_AB, dort steht warum).
+				var nas := float(ms.get("nasen", 0.0))
+				if nas > 0.0 and md > krx and md < mr * VULKAN_NASEN_AUS_ZU:
+					top += nas * (smoothstep(VULKAN_NASEN_AB, VULKAN_NASEN_VOLL,
+							_patch.get_noise_2d(x * _vk_grus_takt, z * _vk_grus_takt)) - 0.5) \
+						* smoothstep(krx, krx + (mr - krx) * 0.06, md) \
+						* (1.0 - smoothstep(mr * VULKAN_NASEN_AUS_AB,
+							mr * VULKAN_NASEN_AUS_ZU, md))
+				# --- BARRANCOS: DIE EROSIONSRINNEN DER FLANKE ----------------------------
+				# "barranco" ist ihre Tiefe in Metern (Grat gegen Sohle) und schaltet den
+				# Abschnitt ein; ohne den Wert bleibt die Flanke exakt, wie sie war. Warum es
+				# sie NEBEN den Rippen braucht und warum das atan2 hier ausnahmsweise keine
+				# Naht macht, steht bei VULKAN_BARR_N.
+				# SIE LIEGEN UEBER DEN RIPPEN, NICHT STATT IHRER: die Rippen (10 Grundlappen,
+				# vier Oktaven) rauen die Flaechen auf, die Barrancos gliedern den Kegel in
+				# 30 zaehlbare Rinnen mit Graten dazwischen. Die Rippen allein konnten das
+				# nicht — ein Rauschen hat keine zaehlbaren Rinnen und keinen Ort, an dem
+				# eine anfaengt.
+				var bar := float(ms.get("barranco", 0.0))
+				# "ader_tief" ist die Tiefe des LAVAKANALS in Metern, "lava_lappen" die
+				# Hoehe der erkalteten Lappen am Fuss. Beide fehlen duerfen: dann bleibt
+				# die Flanke exakt, wie sie ohne sie waere.
+				var adt := float(ms.get("ader_tief", 0.0))
+				var lpn := float(ms.get("lava_lappen", 0.0))
+				# "bloecke" ist die Auswurfhoehe der FELSAUFSCHLUESSE in Metern und schaltet
+				# die Blocklage ein; ohne den Wert bleibt die Flanke exakt, wie sie war.
+				# Sie steht in DIESEM Block und nicht daneben, weil sie die Rinnenlage
+				# braucht (Aufschluss auf dem Grat, Schutt in der Sohle) — rn ist hier
+				# ohnehin schon geholt, die Lage kostet also genau eine Rauschabfrage.
+				var blk := float(ms.get("bloecke", 0.0))
+				if (bar > 0.0 or adt > 0.0 or lpn > 0.0 or blk > 0.0) \
+						and md > krx and md < mr * VULKAN_BARR_AUS_ZU:
+					var rn := _vulkan_rinne(ux, uz, md)
+					if blk > 0.0:
+						# DIE BLOCKLAGE — WAS SIE LEISTEN SOLL, STEHT BEI VULKAN_BLOCK_M:
+						# Facetten in Dreiecksgroesse mit einer besonnten und einer
+						# verschatteten Seite, statt grosser glatter Felder.
+						# ABGETASTET WIRD IN X/Z UND NICHT RADIAL, und das ist Absicht: ein
+						# Felsaufschluss hat keine Vorzugsrichtung. Die Gliederung des
+						# Kegels machen die Rinnen, diese Lage gibt ihr den Massstab.
+						# DREI HUELLEN, jede mit eigenem Grund:
+						#   die Schwelle          — Nester statt Belag (VULKAN_BLOCK_AB),
+						#   rn.x * rn.x           — Aufschluss auf dem Grat, Schutt in der
+						#                           Sohle, damit die Ader ihren Boden behaelt,
+						#   die beiden Rampen     — innen aus dem fertigen Kraterrand heraus,
+						#                           aussen ueber dem Waldkragen aufhoeren
+						#                           (VULKAN_BLOCK_AUS_AB, dort steht warum).
+						top += blk * smoothstep(VULKAN_BLOCK_AB, VULKAN_BLOCK_VOLL,
+								_ridge.get_noise_2d(x * _vk_block_takt, z * _vk_block_takt)) \
+							* lerpf(VULKAN_BLOCK_SOHLE, 1.0, rn.x * rn.x) \
+							* smoothstep(krx, krx + (mr - krx) * 0.10, md) \
+							* (1.0 - smoothstep(mr * VULKAN_BLOCK_AUS_AB,
+								mr * VULKAN_BLOCK_AUS_ZU, md))
+					if bar > 0.0:
+						# HUELLKURVE: an der gewachsenen Lippe null (krx, nicht der nominelle
+						# Kraterradius — sonst schnitte die Rinne dort in den fertigen Rand,
+						# wo die Lippe nach innen wandert), voll auf der Mittelflanke, im
+						# Apron aus.
+						var bhu := smoothstep(krx, krx + (mr - krx) * VULKAN_BARR_OBEN, md) \
+							* (1.0 - smoothstep(mr * VULKAN_BARR_AUS_AB,
+								mr * VULKAN_BARR_AUS_ZU, md))
+						# UM DEN EIGENEN MITTELWERT ZENTRIERT (VULKAN_BARR_MITTE): Grat auf,
+						# Sohle ab, mittlere Flankenhoehe unveraendert. Ein reiner Abtrag
+						# haette den Kegel um zwei Drittel der Tiefe abgesenkt und die
+						# vermessene Boeschung mitgenommen — und die ist fertig.
+						# Das Querprofil bringt die feine Oberharmonische gleich mit
+						# (siehe _vulkan_rinne_profil); die Farbe liest dieselbe Kurve.
+						top += bar * bhu * rn.y \
+							* _vulkan_rinne_profil(rn.x, rn.z, md, krx, mr)
+					# --- DER LAVAKANAL UND SEIN LAPPEN -----------------------------------
+					# WARUM DIE ADER EINE EIGENE FORM BRAUCHT UND NICHT NUR EINE FARBE:
+					# das Netz gabelt sich ueber MEHRERE Rinnen hinweg, ein Stamm laeuft
+					# oben also zwangslaeufig ueber einen Barranco-Grat. Eine gluehende Linie
+					# auf einem Gratruecken ist genau der aufgemalte Zustand, aus dem diese
+					# Runde herausfuehren soll — Lava liegt in einer Mulde, nicht auf einer
+					# Kante. Der Kanal schneidet sie sich selbst und traegt den Aushub als
+					# Damm daneben auf: das ist die Form, die ein Strom wirklich hinterlaesst,
+					# und sie haelt den Hoehenverlust in Grenzen.
+					if adt > 0.0 or lpn > 0.0:
+						var ad := _vulkan_ader(rn.z, md, mr, cr)
+						if adt > 0.0:
+							# Der Kanal ist so breit wie die Kruste (nicht wie die Glut) und
+							# faellt zum Fuss hin FLACHER aus: unten ist er 50 m breit, und
+							# 28 m Tiefe darin waeren eine Klamm statt einer Rinne. Der
+							# Massstab dafuer ist die Aderbreite selbst — eine zweite
+							# Tiefenrampe waere eine Zahl, die neben der ersten ausschert.
+							var kw := ad.y * VULKAN_ADER_KRUSTE
+							var v := minf(ad.x / (kw * 1.8), 1.0)
+							var q := 1.0 - v * v
+							# 3.24 = 1.8^2: damit ist das Profil bei ad.x = kw genau null,
+							# innen Rinne, aussen Damm. Der Damm traegt rund ein Siebtel
+							# dessen auf, was die Rinne abtraegt.
+							top += adt * clampf(ad.y / (VULKAN_ADER_KERN * 2.6), 0.45, 1.0) \
+								* smoothstep(krx, krx + (mr - krx) * 0.12, md) \
+								* (1.0 - smoothstep(mr * 0.82, mr * 0.96, md)) \
+								* (3.24 * v * v - 1.0) * q * q
+						if lpn > 0.0:
+							top += lpn * _vulkan_lappen(ad, md, mr)
 				if typ == "vulkan":
-					# Krater: Kegelspitze zur Schüssel eindrücken (Boden bleibt hoch/trocken)
-					var cr := float(ms.get("crater_r", mr * 0.16))
-					var bowl := 1.0 - smoothstep(cr * 0.35, cr, md)
-					top -= bowl * float(ms.get("crater_depth", float(ms["peak"]) * 0.45))
+					# --- KRATER IM ABGESTUMPFTEN GIPFEL ------------------------------
+					# "rand_h" schaltet ihn ein; ohne den Wert bleibt es bei der alten
+					# abgezogenen Delle (siehe else).
+					# DER RAND IST KEIN AUFGESETZTER BUCKEL MEHR, SONDERN DIE KANTE SELBST:
+					# bei md = krx hoert die Flanke auf und die Schuessel faengt an. Nach beiden
+					# Seiten faellt das Gelaende, der Rand ist damit von Haus aus ein lokales
+					# Maximum und wirft im Streiflicht seinen Schatten in die Schuessel. Warum der
+					# frueher aufgesetzte Buckel genau das verhindert hat, steht bei
+					# VULKAN_KRONE_AUSSEN.
+					# SEINE HOEHE IST RINGSUM DIESELBE (peak + rand_h); gezackt machen ihn die
+					# Felslage und das Gratrauschen darunter, also rund 40 m auf 650 — wenige
+					# Prozent, so wie es sein soll. Was stark schwankt, ist sein RADIUS
+					# ("lippe"): das sieht man dem Umriss an, ohne dass der Ring aufreisst.
+					var randh := float(ms.get("rand_h", 0.0))
+					if randh > 0.0:
+						var u := md / maxf(krx, 1.0)
+						# SCHARTE: die Kerbe in der Lippe. "scharte_ri" ist ihre Richtung als
+						# Winkel in der x/z-Ebene; gemessen wird ueber das Skalarprodukt mit der
+						# Einheitsrichtung.
+						# HIER STAND 0.90 .. 0.995, das sind gut 50 Grad Oeffnung, und abgetragen
+						# wurde der Wall auf voller Hoehe und noch 80 m darunter. Das war keine
+						# Scharte mehr: von aussen sah man durch den Gipfel in die Schuessel, der
+						# Ringwall war kein Ring, und im Abnahmebild blieb vom Gipfel nur eine
+						# einseitig offene Kerbe. Jetzt sind es rund 20 Grad.
+						var sc := 0.0
+						var sw := float(ms.get("scharte", 0.0))
+						if sw > 0.0:
+							var sri := float(ms.get("scharte_ri", 0.0))
+							sc = sw * smoothstep(0.955, 0.999,
+								ux * cos(sri) + uz * sin(sri))
+						var tiefe := float(ms.get("crater_depth", float(ms["peak"]) * 0.45))
+						# DIE LIPPE: ein schmaler Grat auf der Kante, nach beiden Seiten kurz aus.
+						# minf statt einer Fallunterscheidung — beide Faktoren sind bei u = 1 genau
+						# eins, und jeder deckt eine Seite ab.
+						top += randh * (1.0 - sc) * minf(
+							1.0 - smoothstep(0.0, VULKAN_KRONE_INNEN, 1.0 - u),
+							1.0 - smoothstep(0.0, VULKAN_KRONE_AUSSEN, u - 1.0))
+						# DIE SCHUESSEL. Oben endet sie bei 0.97 und nicht bei 1.0: ein smoothstep
+						# hat an seinem Ende die Steigung null, die Wand liefe also direkt unter der
+						# Lippe waagerecht aus und liesse dort eine Bank stehen, auf der das Licht
+						# liegen bleibt statt in den Schatten zu kippen.
+						top -= tiefe * (1.0 - smoothstep(VULKAN_SOHLE, 0.97, u))
+						# --- DER LAVASEE AUF DER SOHLE ------------------------------
+						# "lavasee" ist die Hoehe der Stufe von der Schuttsohle auf den
+						# Spiegel, in Metern; ohne den Wert bleibt die Sohle durchgehend
+						# wie bisher. Warum es ihn braucht, steht bei VULKAN_SEE_R.
+						var see := float(ms.get("lavasee", 0.0))
+						if see > 0.0:
+							var sk := 1.0 - smoothstep(VULKAN_SEE_R,
+								VULKAN_SEE_R + VULKAN_SEE_UFER, u)
+							if sk > 0.0:
+								top -= see * sk
+								# UND JETZT DAS EIGENTLICHE: die beiden Rauschlagen, die
+								# oben aufgetragen wurden, kommen im See wieder weg.
+								# ER IST DIE EINZIGE WAAGERECHTE FLAECHE DES GANZEN BERGES,
+								# und genau daran liest das Auge ihn als Fluessigkeit — in
+								# einer Landschaft gibt es keinen anderen Grund fuer eine
+								# exakte Ebene. Der erste Versuch legte den See nur tiefer
+								# und liess das Rauschen darauf stehen; heraus kam eine
+								# Schlackenhalde in einem Loch, und die ist genau so
+								# tiefenlos wie der Trichter, den sie ersetzen sollte.
+								# Die Rippen sind hier KEIN Thema: sie fangen erst bei
+								# VULKAN_RIPPEN_INNEN an, und das ist dieselbe Zahl wie
+								# VULKAN_SEE_R (dort steht, warum das so bleiben muss).
+								top -= sk * (kraut + felslage)
+						# DER SCHLOT. "schlot" ist seine Tiefe in Metern; ohne den Wert bleibt
+						# die Sohle eben wie bisher.
+						# ER IST NICHT SCHMUCK, SONDERN DAS, WAS DIE SCHUESSEL ALS SCHUESSEL
+						# LESBAR MACHT. Die Sohle ist so breit wie der halbe Krater, und eine
+						# waagerechte Flaeche dieser Groesse bekommt von der Sonne fast dieselbe
+						# Helligkeit wie das Vorland: im Abnahmebild lag im Krater eine helle
+						# Pfanne, an der das Auge keine Tiefe ablesen konnte, obwohl der Rand
+						# gemessen 290 m darueber stand. Ein dunkles Loch in der Mitte gibt ihr
+						# den Bezugspunkt zurueck.
+						# Er sitzt auf u, nicht auf md — der Schlot wandert damit mit der Lippe
+						# mit und ist von Haus aus gelappt statt gedrechselt.
+						var slt := float(ms.get("schlot", 0.0))
+						if slt > 0.0:
+							top -= slt * (1.0 - smoothstep(0.0, VULKAN_SCHLOT_R, u))
+						# DER EINSCHNITT GEHOERT DEM WALL, NICHT DER SOHLE. Ohne die innere Grenze
+						# zog die Kerbe als Graben quer ueber den ganzen Kraterboden bis in die
+						# Mitte und hinterliess dort obendrein einen einzelnen Zacken: im
+						# Mittelpunkt selbst gibt es keine Richtung, die Kerbe greift dort also
+						# nicht. Nach aussen laeuft sie als Rinne den Oberhang hinunter — erst damit
+						# ist es ein Durchbruch, durch den etwas abfliessen koennte, und nicht bloss
+						# eine flache Stelle im Wall.
+						top -= sc * tiefe * VULKAN_SCHARTE_TIEF \
+							* smoothstep(VULKAN_SOHLE, 0.88, u) \
+							* (1.0 - smoothstep(1.05, 2.1, u))
+					else:
+						# Krater: Kegelspitze zur Schüssel eindrücken (Boden bleibt hoch/trocken)
+						var bowl := 1.0 - smoothstep(cr * 0.35, cr, md)
+						top -= bowl * float(ms.get("crater_depth", float(ms["peak"]) * 0.45))
 				h = maxf(h, top)
 	# STRAND-SCHELF: Hänge nahe der Wasserlinie abflachen -> breite Sandstrände und
 	# breite türkise Untiefen (die Küste "leuchtet"). Blendet bis ±10 m sanft aus.
@@ -1962,6 +3848,7 @@ func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
 	# ny ist der Aufwaerts-Anteil der Flaechennormale; daraus die Neigung wie im Chunk.
 	var slope := (1.0 - clampf(ny, 0.0, 1.0)) * 12.0
 	var edge := _open_ground(x, z) \
+		* vulkan_bewuchs(x, z, h) \
 		* smoothstep(FLORA_MIN_H, FLORA_FULL_H, h) \
 		* (1.0 - smoothstep(46.0, FLORA_MAX_H, h)) \
 		* (1.0 - smoothstep(2.8, 4.6, slope))
@@ -1974,6 +3861,11 @@ func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
 			dens *= 0.30
 		Biome.WUESTE:
 			dens *= 0.05
+	# DER WALDKRAGEN DES VULKANS HEBT DIE DICHTE AUF EINEN SOCKEL, und zwar NACH der
+	# Biomausduennung — er soll den Ring auch im Wuestensektor schliessen (Begruendung bei
+	# vulkan_kragen). Ausserhalb des Kegels liefert die Funktion null, die Zeile ist dort
+	# also ein maxf gegen null und das Ergebnis bitgenau das bisherige.
+	dens = maxf(dens, vulkan_kragen(x, z, h))
 	return clampf(dens * edge, 0.0, 1.0)
 
 
@@ -2044,7 +3936,14 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			var cz := oz + (float(j) + 0.5) * step
 			# Eingeebnete Flugplaetze/Plateaus bleiben frei — frueher besorgte das die
 			# Hoehenschwelle nebenbei, jetzt explizit (siehe FLORA_MIN_H).
-			var open := _open_ground(cx, cz)
+			# AM VULKAN WAECHST WEDER AUF DEM ERSTARRTEN STROM NOCH OBERHALB SEINER
+			# BAUMGRENZE ETWAS (vulkan_bewuchs). Der Strom ist dieselbe Maske, mit der
+			# _face_color das schwarze Band ueber die gruene Ebene legt: ohne sie stuende der
+			# Wald mitten darauf — genau der Widerspruch zwischen Farbe und Bewuchs, der beim
+			# Blockschutt am Felsentor schon einmal der Befund war. Die Baumgrenze wiederum
+			# ist die des KEGELS und nicht die der Welt, die bei 230 m auf einem Drittel
+			# dieser Flanke saesse.
+			var open := _open_ground(cx, cz) * vulkan_bewuchs(cx, cz, hc)
 			if open <= 0.01:
 				continue
 			# FELSEN: unabhaengig vom Wald, bevorzugt an Haengen und in Hochlagen.
@@ -2075,10 +3974,24 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			if edge <= 0.005:
 				continue
 			var biome := biome_at(cx, cz)
+			# DER WALDKRAGEN DES VULKANS, und er steht GANZ OBEN, weil er alles darunter
+			# betrifft (Begruendung bei vulkan_kragen). Ausserhalb des Kegels ist er null und
+			# jede Zeile darunter bleibt exakt die bisherige.
+			# IM KRAGEN GILT DAS BIOM NICHT. Das ist keine Bequemlichkeit, sondern die
+			# eigentliche Reparatur: gemessen sind 17 von 64 Fussrichtungen WUESTE, und die
+			# Weltregel laesst dort ein Zwanzigstel der Dichte stehen, sperrt alles ueber 28 m
+			# UND pflanzt Palmen. In diesen Sektoren fehlte der Kragen deshalb vollstaendig —
+			# das waren die 7 von 32 Richtungen ganz ohne Wald. Auf einem Aschekegel mit
+			# Steigungsregen ist ein geschlossener Nadelwaldguertel ohnehin das Naheliegende,
+			# und die Vorlage zeigt genau ihn.
+			var kragen := vulkan_kragen(cx, cz, hc)
+			if kragen > 0.01:
+				biome = Biome.WALD
 			var f := _forest.get_noise_2d(cx, cz)
 			# Waldkern dicht, Rand ausduennend, echte Lichtungen unter f = -0.28.
 			var dens := smoothstep(-0.28, 0.30, f)
 			dens = dens * dens
+			dens = maxf(dens, kragen)
 			var per_cell := FLORA_PER_CELL
 			if biome == Biome.HEIDE:
 				per_cell *= 0.30   # offene Heide -> Strauchwerk und einzelne Baeume
@@ -2553,6 +4466,881 @@ func _tal_wiese(cen: Vector3, ny: float) -> float:
 	return seit * hang * (1.0 - smoothstep(boden + TAL_WIESE_VOLL, boden + TAL_WIESE_AUS, hh))
 
 
+## Legt die Vulkane fuer Farbe und Bewuchs zurecht (siehe _vulkane).
+func _vulkane_bauen() -> void:
+	_vulkane = []
+	for ms in massifs:
+		if String(ms.get("type", "")) != "vulkan":
+			continue
+		var p: Vector3 = ms["pos"]
+		var mr := float(ms["r"])
+		# AUSSENRADIUS DER SCHUERZE, oder null, wenn dieser Kegel keine hat. Er steht hier
+		# EINMAL und wird von allen Ableitungen darunter gelesen — die Reichweite der Haut,
+		# der Zungen und des Waldkragens haengen inzwischen alle an ihm, und drei Stellen,
+		# die "mr * VULKAN_APRON_WEIT" jede fuer sich ausrechnen, laufen beim naechsten
+		# Eingriff auseinander.
+		var apr := 0.0
+		if float(ms.get("apron", 0.0)) > 0.0:
+			apr = mr * VULKAN_APRON_WEIT
+		# REICHWEITE DER HAUT. Ohne Schuerze ist sie wie bisher mr * VULKAN_HAUT_REICH; mit
+		# ihr muss sie bis an deren Saum gehen, denn dort draussen liegt jetzt die Asche,
+		# der Waldkragen und das Ende der Lavazungen. _face_color und der Bewuchs brechen an
+		# dieser Schranke ab — was dahinter liegt, sehen sie ueberhaupt nicht mehr.
+		var reich := maxf(mr * VULKAN_HAUT_REICH, apr)
+		_vulkane.append({
+			"x": p.x, "z": p.z, "r": mr, "reich2": reich * reich, "apr": apr,
+			# Bis wohin _face_color die VULKANHAUT malt. Ohne Schuerze steht hier wie bisher
+			# 1.05 * r; mit ihr genau die Stelle, an der die Ascheschuerze anfaengt
+			# auszufransen — die beiden MUESSEN zusammenfallen (siehe VULKAN_APRON_ASCHE_AB),
+			# sonst liegt zwischen Haut und Asche ein Ring aus gewachsener Wiese.
+			"haut_r": mr * (VULKAN_APRON_ASCHE_AB if apr > 0.0 else 1.05),
+			# Bis wohin die BAUMGRENZE DES KEGELS gilt, als Quadrat. Hier stand die feste
+			# Zahl 1.1236 (= 1.06^2) mitten in vulkan_bewuchs; mit der Schuerze liegt das
+			# Band aber weiter draussen (Begruendung bei VULKAN_APRON_BAUM).
+			"baum2": pow(mr * (VULKAN_APRON_BAUM if apr > 0.0 else 1.06), 2.0),
+			# Ein- und Ausblenden der LAVAZUNGEN in Metern. Ohne Schuerze sind das exakt die
+			# alten Werte (1.06 und VULKAN_HAUT_REICH mal r); mit ihr laufen die Zungen bis
+			# fast an den Saum des Faechers, denn dorthin tragen die Rinnen sie.
+			"str_ab": mr * 1.06,
+			"str_zu": (apr * VULKAN_APRON_STROM) if apr > 0.0 else (mr * VULKAN_HAUT_REICH),
+			# Reichweite des WALDKRAGENS als eigenes Quadrat. Sie ist heute dieselbe wie die
+			# der Haut, steht aber getrennt da, weil sie an einer anderen Zahl haengt
+			# (VULKAN_KRAGEN_AUS statt VULKAN_HAUT_REICH) — wer eine davon verschiebt, soll
+			# nicht die andere mitziehen.
+			"kr2": mr * VULKAN_KRAGEN_AUS * mr * VULKAN_KRAGEN_AUS,
+			"cr": float(ms.get("crater_r", mr * 0.16)),
+			# Ob dieser Kegel Barrancos hat. Die Haut braucht nur das JA/NEIN — ihre Tiefe
+			# in Metern faerbt nichts, sie schneidet. Ohne den Schluessel bleibt die Haut
+			# genau die, die sie vorher war (kein Grataufhellen, Adern aus dem alten
+			# Rippenrauschen).
+			"bar": float(ms.get("barranco", 0.0)) > 0.0,
+			# Ob dieser Kegel eine BLOCKLAGE hat. Wieder nur das JA/NEIN: die Auswurfhoehe
+			# in Metern hebt das Gelaende, die Haut braucht nur zu wissen, ob sie den
+			# Aufschluss auch aufhellen darf. Fehlt der Schluessel, kostet die Haut keine
+			# einzige zusaetzliche Rauschabfrage und faerbt bitgenau wie bisher.
+			"blk": float(ms.get("bloecke", 0.0)) > 0.0,
+			# Ob dieser Kegel FEINRIPPEN hat. Wieder nur das JA/NEIN: die Amplitude in
+			# Metern hebt das Gelaende, die Haut braucht nur zu wissen, ob sie deren Kamm
+			# aufhellen darf. Fehlt der Schluessel, kostet die Haut keine einzige
+			# zusaetzliche Rauschabfrage.
+			"frp": float(ms.get("feinrippen", 0.0)) > 0.0,
+			# Ob dieser Kegel Lavalappen am Fuss hat. Auch hier nur das JA/NEIN: die Hoehe
+			# in Metern hebt das Gelaende, die Bepflanzung interessiert nur, DASS dort
+			# frische Lava liegt. Fehlt der Schluessel, kostet der Kragen keine einzige
+			# zusaetzliche Rauschabfrage.
+			"lpn": float(ms.get("lava_lappen", 0.0)) > 0.0,
+			# Ob die Schuerze eine SCHUTTLAGE traegt. Wieder nur das JA/NEIN: die
+			# Auswurfhoehe in Metern hebt das Gelaende, die Haut braucht nur zu wissen, ob
+			# sie die Nester aufhellen darf. Fehlt der Schluessel, kostet die Schuerzenmaske
+			# keine einzige zusaetzliche Rauschabfrage.
+			"abl": float(ms.get("apron_bloecke", 0.0)) > 0.0,
+			# Bezugshoehe des Farbverlaufs. "peak" ist die Hoehe, mit der das Massiv in der
+			# Tabelle steht; die gewachsene Lippe liegt darueber, der Hoehenanteil saettigt
+			# dort also bei eins — und genau das soll er.
+			# DIE SCHUERZE MUSS MIT. Sie traegt den ganzen Kegel um "apron" Meter hoeher,
+			# der Gipfel steht also bei peak + apron. Ohne diesen Summanden saettigte der
+			# Hoehenanteil schon 190 m unter dem Gipfel, und die oberste Flanke bekaeme
+			# eine andere Haut als der Rest — Asche und Rost sitzen auf ANTEILEN der
+			# Flankenhoehe, nicht auf Metern.
+			"hoch": maxf(float(ms["peak"]) + float(ms.get("apron", 0.0))
+				- VULKAN_HAUT_FUSS, 1.0),
+		})
+
+
+## LAGE EINES PUNKTES IN SEINEM BARRANCO.
+##   x = Querlage in der Rinne: 0 ist die Sohle, +-1 der Grat zum Nachbarn.
+##   y = wie tief diese Rinne ueberhaupt einschneidet (VULKAN_BARR_TIEF_MIN .. 1).
+##   z = die STETIGE Rinnenkoordinate selbst (Rinne k liegt zwischen k und k+1, ihre Sohle
+##       bei k + 0.5). Sie kommt mit zurueck, weil das Lavanetz darauf laeuft: es soll sich
+##       ueber MEHRERE Rinnen hinweg gabeln, und dafuer reicht die Querlage in EINER nicht.
+##       Sie enthaelt den Maeander bereits — das Netz wackelt also mit den Rinnen mit,
+##       statt schnurgerade ueber sie hinwegzulaufen.
+##
+## ZWEI AUFRUFER, UND DAS IST DER GRUND FUER DIE EIGENE FUNKTION — derselbe Grund wie bei
+## _vulkan_strom, nur mit mehr Fallhoehe: height_at schneidet damit die Rinne, _vulkan_haut
+## legt die gluehende Ader in ihre Sohle und den hellen Abrieb auf ihren Grat. Stuende der
+## Ausdruck zweimal im Code, laege die Lava nach der naechsten Aenderung NEBEN der Rinne
+## statt in ihr, und ein aufgemaltes Netz auf einer glatten Flanke ist genau der Zustand,
+## aus dem die Barrancos herausfuehren sollten.
+##
+## BEIDE ZAHLEN KOMMEN ZUSAMMEN ZURUECK, damit kein Aufrufer die eine ohne die andere holen
+## kann: eine flache Rinne muss auch eine blasse Ader und einen stumpfen Grat haben.
+## Vector3 ist ein Wert, das kostet keine Zuteilung.
+func _vulkan_rinne(ux: float, uz: float, md: float) -> Vector3:
+	# Der Winkel geht als PHASE ein, nicht als Rauschachse — bei ganzer Rinnenzahl springt
+	# er ueber die Naht bei +-pi um einen vollen Umlauf, und der Nachkommateil merkt davon
+	# nichts (Begruendung bei VULKAN_BARR_N).
+	var ph := atan2(uz, ux) * _vk_barr_n / TAU \
+		+ VULKAN_BARR_MAEANDER * _noise.get_noise_3d(
+			ux * _vk_barr_wander, uz * _vk_barr_wander, md * VULKAN_BARR_LAUF)
+	# .x kommt aus der VERSETZTEN Phase (Sohlen auf ganzen Zahlen, siehe VULKAN_BARR_VERSATZ),
+	# .z bleibt die rohe — auf ihr sitzt der Lavabaum mit seinen Zellgrenzen.
+	var phb := ph + VULKAN_BARR_VERSATZ
+	return Vector3(2.0 * (phb - floor(phb)) - 1.0,
+		lerpf(VULKAN_BARR_TIEF_MIN, 1.0, 0.5 + 0.5 * _noise.get_noise_2d(
+			ux * _vk_barr_tief + 8300.0, uz * _vk_barr_tief - 6100.0)), ph)
+
+
+## DAS QUERPROFIL DER RINNE — GROBE LAGE PLUS FEINE OBERHARMONISCHE, um seinen eigenen
+## Mittelwert zentriert (-1/3 in der Sohle, +2/3 auf dem Grat). Die Huellkurve der feinen
+## Lage steckt mit drin, die der groben NICHT: die haengt am Aufrufer, weil height_at sie
+## mit der gewachsenen Lippe rechnet und die Farbe mit dem nominellen Kraterradius.
+##
+## ZWEI AUFRUFER, UND ES IST DERSELBE GRUND WIE BEI _vulkan_rinne, nur eine Ebene tiefer:
+## height_at schneidet dieses Profil als Gelaende, _vulkan_haut legt dieselbe Kurve als
+## Hell-Dunkel darauf. Stuende der Ausdruck zweimal im Code, laege nach der naechsten
+## Aenderung das helle Band neben dem Grat — und ein Streifenmuster, das quer zur Form
+## laeuft, ist schlimmer als gar keins.
+##
+## "q" ist rn.x (Querlage in der groben Rinne), "ph" ist rn.z (die stetige Rinnenkoordinate).
+func _vulkan_rinne_profil(q: float, ph: float, md: float, kr: float, mr: float) -> float:
+	var p := q * q - VULKAN_BARR_MITTE
+	var e := smoothstep(kr + (mr - kr) * VULKAN_BARR_FEIN_AB,
+		kr + (mr - kr) * VULKAN_BARR_FEIN_VOLL, md)
+	if e <= 0.0:
+		return p
+	# DIESELBE VERSETZTE PHASE WIE rn.x, sonst faenden Grundlage und Oberharmonische nicht
+	# zusammen (siehe VULKAN_BARR_VERSATZ und VULKAN_BARR_FEIN_N).
+	var f := (ph + VULKAN_BARR_VERSATZ) * VULKAN_BARR_FEIN_N
+	f = 2.0 * (f - floor(f)) - 1.0
+	return p + VULKAN_BARR_FEIN * e * (f * f - VULKAN_BARR_MITTE)
+
+
+## LAGE EINES PUNKTES IM LAVANETZ — DER GANZE BAUM STECKT IN DIESEN ZEHN ZEILEN.
+##   x = Abstand zur Achse des naechsten Astes, in Rinnenbreiten
+##   y = halbe Breite des gluehenden Kerns dieses Astes, ebenfalls in Rinnenbreiten
+##   z = Staerke dieses Astes, 0 bis 1 (je Ast einmal gewuerfelt)
+##
+## WIE DAS VERZWEIGEN OHNE VERZWEIGUNG ZUSTANDE KOMMT: die Flanke wird in Zellen der Breite
+## s eingeteilt, die Achse eines Astes ist die MITTE seiner Zelle. Hangabwaerts halbiert
+## sich s zweimal. Beim Halbieren zerfaellt jede Elternzelle in zwei Kinder, deren Mitten
+## nach beiden Seiten aus der Elternmitte herauswandern — geblendet ueber die Gabelung ist
+## das ein Y. Man muss es nicht als Y rechnen, es faellt aus der Zellteilung heraus, und
+## deshalb kostet der ganze Baum kein einziges Rauschen.
+##
+## DIE ZELLBREITEN SIND GANZE ZAHLEN (4, 2, 1 Rinnen), und daran haengt alles: nur so
+## faellt die Achse des feinsten Astes auf s * (j + 0.5) = k + 0.5, also genau in eine
+## Rinnensohle. Siehe VULKAN_BARR_N — die Rinnenzahl ist deshalb eine Zweierpotenz.
+## Ausserdem geht die Zellteilung damit ueber die atan2-Naht hinweg auf: bei ph und ph + 32
+## liegt derselbe Punkt, und weil 32 durch jede Zellbreite teilbar ist, liegt er auch in
+## derselben Zelle. Mit 30 Rinnen staende an der Naht eine Kante.
+func _vulkan_ader(ph: float, md: float, mr: float, cr: float) -> Vector3:
+	# "lam" ist die Zahl der schon vollzogenen Gabelungen als gebrochene Groesse: die ganze
+	# Stelle waehlt die Zellbreite, der Rest blendet die eine Gabelung ein, die gerade laeuft.
+	# Der Exponent schiebt sie nach aussen — bei 1.25 sind sie auf 788, 1032 und 1250 m
+	# fertig, und die obere Haelfte der Flanke gehoert den acht Staemmen allein. Linear
+	# kreuzte ein Ring schon bei 520 m ACHT Adern (gemessen mit tools/_vulkan_form.gd), der
+	# Kraterrand hatte also gar keine vier Hauptrinnen mehr.
+	var lam := VULKAN_ADER_GABELN * pow(clampf(
+		(md - cr) / maxf(mr * VULKAN_ADER_FUSS - cr, 1.0), 0.0, 1.0), VULKAN_ADER_GABEL_K)
+	var st := floorf(lam)
+	# smoothstep statt des rohen Rests: eine Gabel, die linear aufgeht, hat an ihrem Anfang
+	# einen Knick, und ein Knick auf 8 m Netzweite ist eine sichtbare Ecke in der Ader.
+	var g := smoothstep(0.0, 1.0, lam - st)
+	var sc := _vk_ader_stamm * pow(0.5, st)      # Zellbreite der ELTERN ...
+	var sf := sc * 0.5                           # ... und die der KINDER
+	# GENAU EINE GABELUNG ZUR ZEIT, UND DAS IST KEINE SPARSAMKEIT, SONDERN DIE BEDINGUNG
+	# DAFUER, DASS DER ABSTAND ZUR ACHSE STETIG IST. Hier stand einmal eine Fassung, in der
+	# jede Gabelung ihre eigene, weit gezogene Rampe hatte und alle sich
+	# ueberlappten — damit lief keine Ader mehr quer ueber den Hang, dafuer stand am
+	# Bergfuss ein LATTENZAUN aus 24 m hohen senkrechten Waenden.
+	# WARUM: die Zellmitte springt an jeder Zellgrenze um eine Zellbreite. Blendet man von
+	# der ELTERNMITTE zur Kindmitte, faellt der Sprung heraus, denn die Elternmitte liegt
+	# GENAU zwischen den beiden Kindern — beide Seiten der Grenze haben denselben Abstand.
+	# Ist die Elternmitte selbst schon eine Zwischenstellung (weil die vorige Gabelung noch
+	# laeuft), gilt das nicht mehr, und der Sprung bleibt stehen. Im Hoehenfeld ist so ein
+	# Sprung eine senkrechte Wand.
+	# Der Preis ist, dass eine Gabelung nur ein Drittel der Flanke hat: der Ast wandert
+	# dabei zwei Rinnen zur Seite, also rund 250 m auf 330 m Fallstrecke. Das sieht man ihm
+	# an, und es ist das kleinere Uebel — ein Strom, der sich seitlich einen neuen Weg
+	# sucht, tut genau das, eine Wand quer durch den Apron tut niemand.
+	var c := lerpf(sc * (floorf(ph / sc) + 0.5), sf * (floorf(ph / sf) + 0.5), g)
+	# Die Breite folgt der Zellbreite, nicht der Gabelzahl: dieselbe Blende, dieselbe Kurve,
+	# kein zweiter Satz Zahlen, der beim naechsten Eingriff auseinanderlaeuft.
+	return Vector3(absf(ph - c),
+		VULKAN_ADER_KERN * pow(lerpf(sc, sf, g), VULKAN_ADER_DICK), _vulkan_ader_wurf(ph))
+
+
+## WIE STARK DIESER AST IST, VULKAN_ADER_WURF bis 1.
+##
+## ER LIEST ph UND NICHT DIE ACHSE, OBWOHL DIE ACHSE DAS RICHTIGERE ARGUMENT WAERE. Der
+## Grund ist eine Falle, in die zwei Fassungen hintereinander gelaufen sind: der Wurf traegt
+## unten die LAVALAPPEN auf, also 24 m Gelaende, und jede Unstetigkeit in ihm ist dort eine
+## senkrechte Wand. Die Achse c ist aber in ph stueckweise KONSTANT — sie springt an jeder
+## Zellgrenze um eine halbe Zellbreite. Stetig ist nur der ABSTAND zu ihr, und das reicht
+## nicht: mitten in einer halb offenen Gabelung liegt die Zellgrenze GENAU AUF der Achse,
+## und dort steht dann die Wand. Dasselbe gilt fuer die Astnummer. ph dagegen ist stetig,
+## und weil der Wurf sich auf der Laengenskala einer Rinne aendert, unterscheiden sich zwei
+## Nachbaraeste trotzdem deutlich. Die Probe dazu heisst SENKRECHTE WAENDE
+## (tools/_vulkan_form.gd) und muss unter rund 20 m bleiben.
+## ZWEI SINUSSE MIT GANZZAHLIGEN PERIODEN AUF DEM UMFANG, sonst haette der Wurf an der
+## atan2-Naht eine Kante. 13 und 5 sind teilerfremd zueinander und zu 32 — benachbarte
+## Aeste (eine Rinne Abstand) unterscheiden sich damit deutlich, und das Muster wiederholt
+## sich erst nach einem vollen Umlauf. Ein Rauschen waere hier falsch: es gibt Nachbarn
+## AEHNLICHE Werte, und an einer Gabel sollen sich die beiden Arme gerade unterscheiden.
+func _vulkan_ader_wurf(c: float) -> float:
+	return lerpf(VULKAN_ADER_WURF, 1.0,
+		0.5 + 0.25 * sin(c * _vk_ader_wurf1) + 0.25 * sin(c * _vk_ader_wurf2 + 1.7))
+
+
+## LAVALAPPEN: was am Fuss von einem Ast uebrigbleibt, 0 bis 1. Er hat Hoehe (height_at),
+## ist schwarz (_vulkan_haut) und traegt keinen Baum (vulkan_bewuchs) — drei Aufrufer,
+## deshalb steht er als eigene Funktion da und nicht dreimal im Code.
+## "ad" ist die Rueckgabe von _vulkan_ader; der Aufrufer hat sie ohnehin schon geholt.
+func _vulkan_lappen(ad: Vector3, md: float, mr: float) -> float:
+	var e := smoothstep(mr * VULKAN_LAPPEN_AB, mr * VULKAN_LAPPEN_VOLL, md) \
+		* (1.0 - smoothstep(mr * VULKAN_LAPPEN_AUS_AB, mr * VULKAN_LAPPEN_AUS_ZU, md))
+	if e <= 0.004:
+		return 0.0
+	# Der Lappen sitzt auf der Aderachse und ist breiter als sie — deshalb der eigene
+	# Massstab in Rinnenbreiten statt eines Vielfachen der Aderbreite.
+	# FLACHE RAMPE AUF DER ASTSTAERKE (0.30 breit, nicht 0.22): sie traegt Gelaende auf, und
+	# je steiler sie ist, desto mehr macht sie aus einer kleinen Aenderung des Wurfs eine
+	# grosse Aenderung der Hoehe.
+	return e * smoothstep(VULKAN_LAPPEN_KRAFT, VULKAN_LAPPEN_KRAFT + 0.30, ad.z) \
+		* (1.0 - smoothstep(VULKAN_LAPPEN_BREIT * 0.45, VULKAN_LAPPEN_BREIT, ad.x))
+
+
+## ERSTARRTER LAVASTROM an einer Stelle: 0 = gewachsener Boden, 1 = blanker Basalt.
+## md/ux/uz sind Abstand und Einheitsrichtung zum Vulkanmittelpunkt — der Aufrufer hat sie
+## fuer seinen Vorfilter ohnehin schon gebraucht.
+##
+## ZWEI AUFRUFER, UND DAS IST DER GRUND FUER DIE EIGENE FUNKTION: die FARBE braucht die
+## Maske (schwarzes Band ueber Flanke und Ebene) und der BEWUCHS braucht sie (auf frischem
+## Basalt waechst nichts). Stuenden die beiden getrennt im Code, waere ueber kurz oder lang
+## ein Wald auf dem Strom gewachsen — genau der Widerspruch zwischen Farbe und Bewuchs, an
+## dem in dieser Welt schon die Almwiese und die Schutthalde haengengeblieben sind.
+func _vulkan_strom(vk: Dictionary, md: float, ux: float, uz: float) -> float:
+	var mr: float = vk["r"]
+	# Huellkurve: INNEN faengt die Zunge erst unterhalb des Kraterrands an — weiter oben ist
+	# die Flanke ohnehin schwarze Asche, dort waere ein schwarzes Band unsichtbar. AUSSEN
+	# laeuft sie ueber den Fussradius hinaus aus.
+	# DIE AEUSSEREN ZWEI ZAHLEN STEHEN JETZT IM VULKAN-EINTRAG statt hier im Ausdruck
+	# ("str_ab"/"str_zu", siehe _vulkane_bauen): mit einer Schuerze am Fuss laufen die Zungen
+	# bis fast an deren Saum, ohne sie bleibt es bei VULKAN_HAUT_REICH und damit exakt beim
+	# alten Wert. Ein "if" mitten in einer Funktion, die je Dreieck laeuft, waere dafuer der
+	# falsche Ort — der Fall entscheidet sich einmal beim Weltaufbau.
+	var e := smoothstep(mr * 0.30, mr * 0.46, md) \
+		* (1.0 - smoothstep(float(vk["str_ab"]), float(vk["str_zu"]), md))
+	if e <= 0.004:
+		return 0.0
+	# Eine Achse laeuft UM den Berg, die zweite den Hang HINUNTER — dieselbe Bauart wie bei
+	# den Rippen. Ohne die zweite waere die Zunge ein Tortenstueck mit kerzengeraden Kanten
+	# vom Gipfel bis in die Ebene; mit ihr maeandert sie seitlich, so wie ein Strom, der
+	# sich seinen Weg sucht.
+	return e * smoothstep(VULKAN_ZUNGEN_AB, VULKAN_ZUNGEN_VOLL,
+		_noise.get_noise_3d(ux * _vk_zungen_kreis + VULKAN_ZUNGEN_OX,
+			uz * _vk_zungen_kreis, md * VULKAN_ZUNGEN_LAUF))
+
+
+## DIE ASCHESCHUERZE AN EINER STELLE.
+##   x = wie weit die Asche hier deckt, 0 (Vorland) bis 1 (blanker Faecher)
+##   y = wie weit der Punkt auf dem RUECKEN zwischen zwei Rinnen liegt, 0 (Sohle) bis 1
+##   z = die Schuttlage an dieser Stelle (siehe _vulkan_apron_schutt)
+##
+## ZWEI AUFRUFER, UND ES IST DERSELBE GRUND WIE BEI _vulkan_strom: die FARBE braucht die
+## Maske (Asche ueber der gewachsenen Wiese) und der BEWUCHS braucht sie (auf frischer Asche
+## waechst nichts). Stuenden sie getrennt im Code, waere ueber kurz oder lang ein Wald auf
+## dem Faecher gewachsen — genau der Widerspruch zwischen Farbe und Bewuchs, an dem in dieser
+## Welt schon die Almwiese und die Schutthalde haengengeblieben sind.
+## DIE BEIDEN LESEN DESHALB DIESELBE ZAHL: die Farbe deckt mit x, der Bewuchs behaelt 1 - x.
+## Die Baumgrenze steckt darin schon drin (siehe unten) — vulkan_bewuchs darf sie im
+## Schuerzenring also NICHT ein zweites Mal auftragen, sonst duennt der Kragen quadratisch.
+##
+## DER RUECKENANTEIL KOMMT MIT ZURUECK, damit ihn die Farbe nicht ein zweites Mal holen muss:
+## _vulkan_rinne ist eine Rauschabfrage, und diese Funktion laeuft je Dreieck. Was er soll,
+## steht bei VULKAN_APRON_GRUS_C.
+##
+## WIE DER SAUM SEINE ZACKEN BEKOMMT: die Reichweite der ZUNGEN haengt an der Rinnenlage. In
+## der Sohle reicht die Asche voll hinaus (dort laeuft die Lava), auf dem Ruecken nur bis
+## VULKAN_APRON_GRAT. Der Waldrand faellt damit in die Rinnen hinein und steht auf den
+## Ruecken vor — er ist von Haus aus gezackt, ohne dass ihn ein Rauschen zackig machen muss.
+## Das grobe Rauschen darauf sorgt nur noch dafuer, dass nicht alle Zacken gleich lang sind.
+##
+## UND DARUEBER LIEGT DIE EIGENTLICHE REGEL: KAHLER BODEN AUF EINEM VULKAN IST ASCHE.
+## Die Zungen allein waren zweimal falsch eingestellt, und beide Male aus demselben Grund —
+## sie sind ein RADIUS, der Waldrand aber eine HOEHENLINIE. Wo beide auseinanderliefen, blieb
+## ein Ring, auf dem weder Asche lag noch ein Baum stand: im Bild heller, sonnenbeschienener
+## Bergfels, der den Faecher wie eine Geroellwueste aussehen liess.
+## Der Ausdruck 1 - Baumgrenze * (1 - Zunge) macht daraus eine Zahl. Oberhalb der Baumgrenze
+## ist er eins, ganz gleich, was der Radius sagt: dort ist der Boden kahl, also Asche.
+## Unterhalb bleibt genau die Zunge uebrig, und die franst in den Wald hinein.
+func _vulkan_apron(vk: Dictionary, x: float, z: float, h: float, md: float,
+		ux: float, uz: float) -> Vector3:
+	var apr: float = vk["apr"]
+	if apr <= 0.0 or md >= apr:
+		return Vector3.ZERO
+	var mr: float = vk["r"]
+	var ab := mr * VULKAN_APRON_ASCHE_AB
+	var rn := _vulkan_rinne(ux, uz, md)
+	var ruecken := rn.x * rn.x
+	# DIE SCHUTTLAGE KOMMT MIT ZURUECK, weil die Farbe sie braucht und height_at sie
+	# auftraegt. Beide lesen DIESELBE Funktion (_vulkan_apron_schutt) — stuende der Ausdruck
+	# zweimal im Code, laege die helle Koernung nach der naechsten Aenderung neben ihren
+	# Nestern, und ein Fleckenmuster ohne Form darunter ist an dieser Flanke schon einmal als
+	# "helle Striemen" gemeldet worden.
+	var schutt := 0.0
+	if bool(vk.get("abl", false)) and md > mr * VULKAN_APRON_BLOCK_AB:
+		schutt = _vulkan_apron_schutt(x, z, md, mr)
+	# INNEN IST DIE SCHUERZE GESCHLOSSEN. Der Kegel steht dort ohnehin ueber seiner
+	# Baumgrenze, die Regel unten gaebe also dasselbe — dies ist nur der Vorfilter, der die
+	# Rauschabfragen dafuer spart.
+	if md <= ab:
+		return Vector3(1.0, ruecken, schutt)
+	# 0 am Kegelfuss, 1 am aeusseren Saum — in diesem Mass steht auch die Reichweite.
+	var q := (md - ab) / (apr - ab)
+	# rn.y ist, WIE TIEF diese Rinne ueberhaupt einschneidet. Sie zieht mit: eine flache
+	# Rinne traegt weniger Lava und schiebt die Asche deshalb auch weniger weit hinaus.
+	var reich := lerpf(VULKAN_APRON_GRAT, 1.0,
+			pow((1.0 - ruecken) * rn.y, VULKAN_APRON_ZUNGE)) \
+		+ VULKAN_APRON_ZACK * (0.5 + 0.5 * _patch.get_noise_2d(
+			x * _vk_apron_takt, z * _vk_apron_takt))
+	var zunge := 1.0 - smoothstep(reich - VULKAN_APRON_SAUM, reich, q)
+	# UND DAS SCHUTTNEST DECKT AUCH. Es ist ausgeworfener Block, also Asche wie der Rest —
+	# und ohne diese Zeile war es der letzte helle Fleck auf dem Faecher: die Weltregel in
+	# _face_color faerbt Fels nicht nur nach der HOEHE (die haelt VULKAN_APRON_FELS_HUB
+	# heraus), sondern auch nach der STEILHEIT, und ein 15-m-Block auf 46 m Welle steht
+	# steiler als deren Schwelle. Im Bild lagen deshalb sandfarbene Facetten mitten im
+	# schwarzen Faecher, jede genau so gross wie ein Nest.
+	# Die Bepflanzung liest dieselbe Zahl (vulkan_bewuchs): auf einem Blockfeld waechst
+	# nichts, und der Kragen verliert dadurch nichts, was er nicht ohnehin verloren haette —
+	# er faellt an solchen Stellen schon an der Hangneigung aus.
+	return Vector3(maxf(1.0 - _vulkan_baumgrenze(x, z, h) * (1.0 - zunge), schutt),
+		ruecken, schutt)
+
+
+## DIE SCHUTTLAGE DES FAECHERS, 0 bis 1 — Nester aus 46-m-Bloecken, wie sie auf der Flanke
+## darueber liegen (VULKAN_BLOCK_M). height_at multipliziert das mit "apron_bloecke" und
+## traegt es auf, die Haut hellt dieselben Nester auf.
+##
+## ZWEI AUFRUFER, UND ES IST DER GRUND FUER DIE EIGENE FUNKTION: die Form und die Farbe
+## muessen dieselbe Lage lesen. Warum die aeussere Huelle vor dem Waldkragen endet, steht bei
+## VULKAN_APRON_BLOCK_AUS_AB.
+func _vulkan_apron_schutt(x: float, z: float, md: float, mr: float) -> float:
+	return smoothstep(VULKAN_BLOCK_AB, VULKAN_BLOCK_VOLL,
+			_ridge.get_noise_2d(x * _vk_block_takt, z * _vk_block_takt)) \
+		* smoothstep(mr * VULKAN_APRON_BLOCK_AB, mr * VULKAN_APRON_BLOCK_VOLL, md) \
+		* (1.0 - smoothstep(mr * VULKAN_APRON_BLOCK_AUS_AB,
+			mr * VULKAN_APRON_BLOCK_AUS_ZU, md))
+
+
+## Dasselbe fuer Aufrufer, die nur x/z haben. Der Bewuchs geht ueber vulkan_bewuchs, das den
+## Strom mit der Baumgrenze zusammenfasst — hier bleibt die NACKTE Strommaske, weil die
+## Abnahme sie einzeln misst (tools/_vulkan_form.gd zaehlt Flaechenanteil und Reichweite je
+## Richtung). Eine Messgroesse, die nur noch als Produkt mit etwas anderem zu haben ist,
+## taugt nicht als Messgroesse.
+func vulkan_strom_bei(x: float, z: float) -> float:
+	for vk in _vulkane:
+		var dx := x - float(vk["x"])
+		var dz := z - float(vk["z"])
+		var d2 := dx * dx + dz * dz
+		if d2 > float(vk["reich2"]):
+			continue
+		var d := sqrt(d2)
+		if d < 1.0:
+			return 0.0
+		return _vulkan_strom(vk, d, dx / d, dz / d)
+	return 0.0
+
+
+## WAS AM VULKAN VOM BEWUCHS UEBRIGBLEIBT, 0 bis 1. Draussen ist es eine Eins und kostet je
+## Vulkan ein Abstandsquadrat — die Funktion haengt an jeder Bewuchszelle der ganzen Welt.
+##
+## ZWEI GRUENDE, WARUM HIER NICHTS WAECHST, und sie stehen zusammen in EINER Funktion, weil
+## beide Aufrufer (die echten Baeume in _make_chunk_data und die eingefaerbte Fernschuerze
+## ueber wald_anteil) beide brauchen und sonst zweimal denselben Vorfilter zahlen:
+##   STROM  auf frischem Basalt waechst nichts, siehe _vulkan_strom.
+##   HOEHE  die Baumgrenze des Kegels, siehe VULKAN_BAUM_AB.
+## DIE FERNSCHUERZE MUSSTE MIT. Sie faerbt ihre Dreiecke nach wald_anteil dunkelgruen und
+## kannte bisher nur den Strom — jenseits der gestreamten Chunks lag deshalb ein gruener
+## Hauch bis auf 230 m die Flanke hinauf, waehrend im Nahfeld schon lange kein Baum mehr
+## stand. Im Anflug wanderte der Waldrand also mit dem Spieler.
+func vulkan_bewuchs(x: float, z: float, h: float) -> float:
+	for vk in _vulkane:
+		var dx := x - float(vk["x"])
+		var dz := z - float(vk["z"])
+		var d2 := dx * dx + dz * dz
+		if d2 > float(vk["reich2"]):
+			continue
+		var f := 1.0
+		var d := sqrt(d2)
+		var ux := 0.0
+		var uz := 0.0
+		if d > 1.0:
+			ux = dx / d
+			uz = dz / d
+		# ZWEI WEGE, UND SIE SCHLIESSEN EINANDER AUS.
+		# MIT SCHUERZE steckt die Baumgrenze schon in der Aschemaske (Begruendung bei
+		# _vulkan_apron: kahler Boden auf einem Vulkan IST Asche). Sie hier ein zweites Mal
+		# aufzutragen hiesse, den Kragen quadratisch auszuduennen — genau der Unterschied
+		# zwischen einem aufgerissenen Waldrand und gar keinem, den die Probe in
+		# tools/_vulkan_form.gd misst.
+		# OHNE SCHUERZE bleibt es bei der Baumgrenze allein, und zwar bis "baum2" hinaus.
+		# Weiter draussen laufen nur noch die Zungen, und was neben einer erstarrten Zunge
+		# waechst, ist ganz normales Vorland. Hier stand einmal die feste Zahl 1.1236.
+		if float(vk["apr"]) > 0.0:
+			f = 1.0 - _vulkan_apron(vk, x, z, h, d, ux, uz).x
+			if f <= 0.004:
+				return 0.0
+		elif d2 < float(vk["baum2"]):
+			f = _vulkan_baumgrenze(x, z, h)
+			if f <= 0.004:
+				return 0.0
+		if d < 1.0:
+			return f
+		# LAVALAPPEN. Sie liegen genau in der Hoehenlage des Waldkragens, also da, wo sonst
+		# der dichteste Wald des ganzen Kegels steht — ohne diese Zeilen waere jeder Lappen
+		# ein schwarzer Fleck mit Nadelbaeumen darauf. Die Abfrage kostet zwei
+		# Rauschabfragen und laeuft deshalb NUR im Apron-Ring, in dem es Lappen ueberhaupt
+		# gibt; auf der ganzen uebrigen Flanke faellt sie an der Abstandsschranke ab.
+		if bool(vk.get("lpn", false)) and f > 0.01:
+			var mr: float = vk["r"]
+			if d > mr * VULKAN_LAPPEN_AB and d < mr * VULKAN_LAPPEN_AUS_ZU:
+				var rn := _vulkan_rinne(ux, uz, d)
+				f *= 1.0 - _vulkan_lappen(
+					_vulkan_ader(rn.z, d, mr, float(vk["cr"])), d, mr)
+		return f * (1.0 - _vulkan_strom(vk, d, ux, uz))
+	return 1.0
+
+
+## BAUMGRENZE DES KEGELS an einer Stelle: 1 = Wald wie ueberall, 0 = kahl.
+##
+## SIE STEHT ALS EIGENE FUNKTION DA, WEIL ZWEI STELLEN SIE BRAUCHEN und beide dasselbe
+## Ergebnis liefern muessen: die Bepflanzung setzt danach ihre Baeume, die Haut faerbt danach
+## den Waldboden darunter. Liefen die beiden auseinander, stuenden Baeume auf blankem Basalt
+## oder gruener Boden waere baumlos — derselbe Widerspruch zwischen Farbe und Bewuchs, an dem
+## in dieser Welt schon die Almwiese und die Schutthalde haengengeblieben sind.
+func _vulkan_baumgrenze(x: float, z: float, h: float) -> float:
+	return 1.0 - smoothstep(VULKAN_BAUM_AB, VULKAN_BAUM_AUS,
+		h - VULKAN_BAUM_ZACK * _patch.get_noise_2d(x * _vk_baum_takt, z * _vk_baum_takt))
+
+
+## DICHTESOCKEL DES WALDKRAGENS an einer Stelle, 0 bis 1. Draussen ist es eine NULL und
+## kostet je Vulkan ein Abstandsquadrat — wie vulkan_bewuchs haengt die Funktion an jeder
+## Bewuchszelle der ganzen Welt und muss deshalb frueh abbrechen.
+##
+## WARUM SIE NICHT IN vulkan_bewuchs MIT DRIN STEHT, obwohl beide dieselbe Baumgrenze lesen:
+## vulkan_bewuchs ist ein FAKTOR auf den Bewuchs (es nimmt weg), dieser hier ist ein SOCKEL
+## unter der Dichte (er gibt dazu). In einen Wert zusammengefasst muesste er groesser als eins
+## werden koennen, und dann traegt derselbe Rueckgabewert auch die Felsdichte und die
+## Fernschuerze — beide wuerden stillschweigend mitwachsen.
+##
+## ZWEI DINGE HAELT ER FEST, und beide sind gemessen (tools/_vulkan_form.gd, "WALDSAUM"):
+##   DICHTE  im Kragenband lag die Deckung im Median bei 0.19, weil die Weltdichte das
+##           Waldrauschen QUADRIERT. Der Sockel hebt sie auf VULKAN_KRAGEN_DICHT.
+##   BIOM    17 von 64 Fussrichtungen sind WUESTE; dort laesst die Weltregel ein Zwanzigstel
+##           stehen und sperrt alles ueber 28 m. Der Sockel gilt AUCH dort (siehe die
+##           Aufrufer) — sonst hat der Ring genau in diesen Sektoren sein Loch.
+## WAS ER NICHT ANTASTET: Hangneigung, Lavastrom, Lappen und die Baumgrenze selbst. Der
+## Kragen soll geschlossen sein, wo Wald wachsen kann, und nicht ueberall.
+func vulkan_kragen(x: float, z: float, h: float) -> float:
+	for vk in _vulkane:
+		var dx := x - float(vk["x"])
+		var dz := z - float(vk["z"])
+		var d2 := dx * dx + dz * dz
+		if d2 > float(vk["kr2"]):
+			continue
+		return vulkan_kragen_bei(vk, x, z, h, sqrt(d2))
+	return 0.0
+
+
+## DERSELBE WERT FUER EINEN AUFRUFER, DER SEINEN VULKAN SCHON GEFUNDEN HAT.
+## _face_color laeuft je DREIECK und hat den Abstand zum Kegel in derselben Zeile schon
+## ausgerechnet; ein zweiter Durchgang durch _vulkane waere dort geschenktes Geld.
+func vulkan_kragen_bei(vk: Dictionary, x: float, z: float, h: float, d: float) -> float:
+	var f := _vulkan_baumgrenze(x, z, h)
+	if f <= 0.01:
+		return 0.0
+	# Nach aussen ausblenden, damit der Guertel nicht an einem gezeichneten Kreis endet.
+	var mr: float = vk["r"]
+	return VULKAN_KRAGEN_DICHT * f * (1.0 - smoothstep(
+		mr * VULKAN_KRAGEN_VOLL, mr * VULKAN_KRAGEN_AUS, d))
+
+
+## HAUT DES KEGELS: Gestein nach Hoehe, erstarrte Stroeme, offene Glut. Die Rueckgabe ist
+## die Deckfarbe, und ihr ALPHAKANAL traegt die Glut (siehe Shader in setup): a = 1 ist
+## kaltes Gestein, kleinere Werte leuchten aus sich selbst.
+## "ny" ist der Aufwaertsanteil der FLAECHENNORMALE dieses Dreiecks. Er kommt von
+## _face_color durchgereicht, das ihn ohnehin schon hat — gerechnet wird hier also nichts
+## dazu. Wozu er dient, steht bei VULKAN_STEIL_AB: er trennt das blanke Anstehende an der
+## Steilkante vom Aschefeld daneben, und er ist die einzige Groesse in dieser Funktion, die
+## die FERTIGE Form kennt (alle anderen lesen die Lagen, aus denen sie gebaut wurde).
+func _vulkan_haut(vk: Dictionary, cen: Vector3, md: float, ux: float, uz: float,
+		ny: float) -> Color:
+	var mr: float = vk["r"]
+	var cr: float = vk["cr"]
+	# Hoehenanteil ueber dem Fuss. IM KRATER GILT ER NICHT: dort faellt das Gelaende wieder
+	# bis unter die halbe Gipfelhoehe, und nach der Hoehe allein waere ausgerechnet der
+	# Kraterboden rostbraun — die juengste Flaeche des ganzen Berges. Deshalb hebt der
+	# Krater den Anteil von innen auf voll, und zwar ueber eine Rampe um den nominellen
+	# Kraterradius: die gewachsene Lippe wandert um +-22 Prozent (siehe "lippe"), eine
+	# harte Grenze haette dort einen Farbring hinterlassen.
+	var t := clampf((cen.y - VULKAN_HAUT_FUSS) / float(vk["hoch"]), 0.0, 1.0)
+	t = maxf(t, 1.0 - smoothstep(cr * 0.85, cr * 1.15, md))
+	# --- GESTEIN: GRATRUECKEN GEGEN RINNE ----------------------------------------------
+	# EXAKT DER AUSDRUCK AUS height_at (siehe RADIALE GRATE), Zeichen fuer Zeichen — sonst
+	# liegen die hellen Baender NEBEN den Graten, und ein quer ueber die Flanke gemaltes
+	# Streifenmuster ist schlimmer als gar keins. Er steht jetzt hier oben statt nur im
+	# Glutzweig, weil beide dasselbe Rauschen lesen: in seinen Rinnen sitzt die Glut, auf
+	# seinen Kaemmen das blanke Gestein. Zwei getrennte Abfragen daraus zu machen hiesse,
+	# dass die naechste Aenderung an der einen die andere verschiebt.
+	var rkr := _vk_rippen_kreis * sqrt(md / mr)
+	var lauf := md * VULKAN_RIPPEN_LAUF
+	var rip := _ridge.get_noise_3d(ux * rkr, uz * rkr, lauf)
+	# DER FEINE KAMM, ZEICHEN FUER ZEICHEN DERSELBE AUSDRUCK WIE IN height_at (siehe
+	# FEINRIPPEN) — aus demselben Grund wie beim groben: laege die Aufhellung neben dem
+	# Kamm, waere ein quer ueber die Flanke gemaltes Streifenmuster das Ergebnis.
+	# "frp" sagt nur, OB dieser Kegel Feinrippen hat; ohne sie kostet die Haut keine
+	# zusaetzliche Rauschabfrage und faerbt bitgenau wie ohne diese Lage.
+	var feinrip := 0.0
+	if bool(vk.get("frp", false)):
+		feinrip = _ridge.get_noise_3d(ux * rkr * VULKAN_FEINRIPPE_N,
+			uz * rkr * VULKAN_FEINRIPPE_N, md * VULKAN_FEINRIPPE_LAUF)
+	var fl := _ridge.get_noise_2d(cen.x * _vk_fels_takt, cen.z * _vk_fels_takt)
+	# NACH INNEN AUSBLENDEN, weil es die Grate dort gar nicht gibt: height_at laesst sie erst
+	# ab VULKAN_RIPPEN_INNEN anlaufen. Ohne die Huelle laegen im Kraterboden zehn helle
+	# Speichen auf einer Flaeche, die in Wahrheit eben ist. Gerechnet wird mit dem NOMINELLEN
+	# Kraterradius statt mit der gewachsenen Lippe — auf der Sohle ist das ein Unterschied
+	# von wenigen Metern, und dafuer lohnt die Lippenabfrage hier nicht.
+	# --- DIE RINNE, IN DER DER PUNKT LIEGT ---------------------------------------------
+	# Sie kommt aus DERSELBEN Funktion, mit der height_at die Rinne schneidet — sonst laege
+	# die Ader neben ihrer Rinne (siehe _vulkan_rinne). Nur einmal geholt, weil unten die
+	# Glut sie noch braucht.
+	# rn.x ist null in der Sohle und +-1 auf dem Grat; ohne Barrancos steht hier eine
+	# Sohle ueber die ganze Flanke, was den Grat-Term unten zu null macht — der Kegel sieht
+	# dann exakt so aus wie vorher.
+	# "bhu" ist DIESELBE Huellkurve, mit der height_at die Rinne einblendet: oben am
+	# Kraterrand gibt es noch keine Rinne, im Apron keine mehr, und eine Farbe, die dort
+	# schon (oder noch) eine zeichnet, ist ein Anstrich ohne Form darunter. Gerechnet wird
+	# mit dem NOMINELLEN Kraterradius statt mit der gewachsenen Lippe — dieselbe Abkuerzung
+	# wie beim Rippenzweig darueber, auf der Sohle sind das wenige Meter.
+	# BEI EINEM KEGEL OHNE BARRANCOS BLEIBT SIE NULL, und damit faellt unten jeder Term
+	# weg, der an ihr haengt: kein Grataufhellen, keine Ader. Der Schluessel fehlt, also
+	# passiert nichts — dieselbe Zusicherung wie in height_at.
+	var rn := Vector3.ZERO
+	var bhu := 0.0
+	var bprof := 0.0
+	if bool(vk.get("bar", false)) and md > cr:
+		rn = _vulkan_rinne(ux, uz, md)
+		bhu = smoothstep(cr, cr + (mr - cr) * VULKAN_BARR_OBEN, md) \
+			* (1.0 - smoothstep(mr * VULKAN_BARR_AUS_AB, mr * VULKAN_BARR_AUS_ZU, md))
+		# Dasselbe Querprofil, das height_at als Gelaende schneidet, samt der feinen
+		# Oberharmonischen — die Rippchen sollen ihre Kante auch in der Farbe haben.
+		bprof = _vulkan_rinne_profil(rn.x, rn.z, md, cr, mr)
+	# DER BARRANCO-GRAT GEHT IN DENSELBEN TERM wie die Rippen und nicht als eigene Farbe
+	# daneben: blank ist blank, egal welche Lage die Flaeche aufgebrochen hat (dieselbe
+	# Begruendung wie bei VULKAN_HAUT_KRUME). Zentriert wie in height_at, damit der Kegel im
+	# Mittel gleich hell bleibt und nur der Sprung zwischen Grat und Sohle waechst.
+	# OHNE IHN SIEHT MAN DIE RINNEN BEI HOHER SONNE NICHT: das Licht trifft Sohle und Grat
+	# dann fast gleich, und 62 m Tiefe auf 170 m Breite kippen die Normale um keine 40 Grad.
+	# Die Form macht die Rinne, die Farbe macht sie SICHTBAR.
+	# VIER LAGEN HELLEN AUF, ABER NUR ZWEI HABEN FORM UNTER SICH: der Rippenkamm und der
+	# Barranco-Grat sind beide EXAKT die Ausdruecke, mit denen height_at das Gelaende
+	# aufwirft. Felslage und Grus faerben nur.
+	# ALLE VIER STANDEN IN EINER SUMME, und darin lag der Befund "helle graue bis fast weisse
+	# Striemen, die den Basalt fleckig aufhellen": die beiden formlosen konnten zusammen 0.45
+	# beitragen, also fast die halbe Aufhellung, ohne dass darunter eine Kante lag — und weil
+	# die Felslage auf 150 m Welle liegt, waren das grosse weiche Schlieren quer ueber die
+	# Oberflanke. Kein Muster der Welt rettet eine Aufhellung, die neben der Form sitzt.
+	# JETZT FUEHRT DIE KANTE, und die Koernung haengt an ihr: neben der Kante kommt nur noch
+	# VULKAN_HELL_SOCKEL davon durch, auf der Kante wirkt sie unveraendert voll. Damit folgt
+	# die Aufhellung den Graten und die beiden Rauschlagen tun wieder das, wofuer sie da sind
+	# — ausfransen und koernen.
+	# --- DER AUFSCHLUSS UND SEINE STEILKANTE --------------------------------------------
+	# WIEDER ZEICHEN FUER ZEICHEN DERSELBE AUSDRUCK WIE IN height_at (siehe DIE BLOCKLAGE),
+	# aus demselben Grund wie beim Rippenkamm: laege die Aufhellung neben dem Block, waere
+	# ein quer ueber die Flanke gemaltes Fleckenmuster das Ergebnis — schlimmer als gar keins.
+	# Nur die aeussere Rampe fehlt hier: die INNERE (ab krx) ist es, die den hellen Ton aus
+	# dem fertigen Kraterrand heraushaelt, und gerechnet wird sie wie ueberall in dieser
+	# Funktion mit dem nominellen Kraterradius statt mit der gewachsenen Lippe.
+	# OHNE DEN SCHLUESSEL "bloecke" BLEIBT ES EINE NULL, und die Haut faerbt bitgenau wie
+	# bisher — dieselbe Zusicherung wie bei den Barrancos.
+	var block := 0.0
+	if bool(vk.get("blk", false)) and md > cr:
+		block = smoothstep(VULKAN_BLOCK_AB, VULKAN_BLOCK_VOLL,
+				_ridge.get_noise_2d(cen.x * _vk_block_takt, cen.z * _vk_block_takt)) \
+			* lerpf(VULKAN_BLOCK_SOHLE, 1.0, rn.x * rn.x) \
+			* smoothstep(cr, cr + (mr - cr) * 0.10, md) \
+			* (1.0 - smoothstep(mr * VULKAN_BLOCK_AUS_AB, mr * VULKAN_BLOCK_AUS_ZU, md))
+	# DAS FEINKORN (13 m) WIRD ZWEIMAL GEBRAUCHT und deshalb einmal geholt: es koernt die
+	# Aufhellung (VULKAN_SCHUTT) und es franst den Rand der Aschedecke aus. Eine zweite
+	# Abfrage waere in einer Funktion, die je DREIECK ueber den ganzen Kegel laeuft,
+	# geschenktes Geld. (Hier stand "dreimal" samt Verweis auf ein VULKAN_GRIES — diese
+	# Konstante gibt es nicht mehr, der dritte Gebrauch ist laengst entfallen.)
+	var korn := _patch.get_noise_2d(cen.x * _vk_schutt_takt, cen.z * _vk_schutt_takt)
+	# DAS SCHUTTFELD (90 m) IST DIESELBE LAGE AUF FELDGROESSE und seit dieser Runde der
+	# eigentliche Treiber der Aschedecke — die Begruendung, warum das Korn diese Rolle
+	# abgeben musste, steht bei VULKAN_FELD_M. Es wird nur an EINER Stelle gebraucht; es
+	# steht trotzdem hier neben dem Korn, weil die beiden zusammen eine Amplitude bilden und
+	# wer an der einen dreht, die andere mitlesen muss.
+	var feld := _patch.get_noise_2d(cen.x * _vk_feld_takt, cen.z * _vk_feld_takt)
+	# DER RIPPENKAMM FUEHRT NICHT MEHR ALLEIN (VULKAN_RIPPEN_HELL, dort steht warum).
+	var kante := clampf(VULKAN_RIPPEN_HELL
+		* smoothstep(VULKAN_GRAT_AB, VULKAN_GRAT_VOLL, rip)
+		* smoothstep(cr * VULKAN_RIPPEN_INNEN * 0.8, cr * VULKAN_RIPPEN_INNEN * 1.7, md)
+		+ VULKAN_FEINRIPPE_HELL * smoothstep(VULKAN_FEINRIPPE_AB, VULKAN_FEINRIPPE_VOLL,
+			feinrip)
+		+ VULKAN_BARR_HELL * bhu * rn.y * bprof
+		+ VULKAN_BLOCK_HELL * block
+		+ VULKAN_STEIL_HELL * (smoothstep(VULKAN_STEIL_AB, VULKAN_STEIL_VOLL, ny)
+			- VULKAN_STEIL_MITTE), 0.0, 1.0)
+	# DIE KOERNUNG SITZT JETZT AUF DER ABRISSSTUFE, ZEICHEN FUER ZEICHEN DIESELBE, die
+	# height_at auftraegt (siehe VULKAN_NASEN_AB): der gehobene Absatz ist abgeblasen und
+	# blank, die Stufe darunter haelt Feinasche. Vorher stand hier der ROHE Rauschwert
+	# derselben Lage — eine weiche Welle ohne Form darunter, und genau als solche ist sie
+	# zweimal als "helle Striemen" gemeldet worden. Der Unterschied ist nicht die Staerke,
+	# sondern dass es jetzt eine Kante gibt, der sie folgen kann.
+	# DER NULLPUNKT LIEGT NICHT IN DER MITTE DER STUFE, SONDERN BEI VULKAN_GRUS_MITTE, und
+	# das ist der Unterschied zwischen "gestaffelt" und "aufgehellt": bei 0.5 haette die
+	# Koernung ebenso viel Flaeche aufgehellt wie abgedunkelt, und weil unter dem Basalt kein
+	# Platz nach unten ist (er ist schon fast schwarz), waere davon nur die Aufhellung
+	# uebriggeblieben — gerechnet 0.329 Bildmittel gegen 0.303 vorher, also heller statt
+	# dunkler. Mit 0.70 bleibt der groessere Teil der Flanke im Basalt stehen und nur der
+	# abgeblasene Absatz kommt heraus.
+	# EXAKT DAS FENSTER, MIT DEM height_at DIE STUFE SCHNEIDET (VULKAN_NASEN_AB) — Zeichen
+	# fuer Zeichen, aus demselben Grund wie bei Rippenkamm und Blocklage: laege die
+	# Aufhellung neben der Stufe, waere sie wieder das quer ueber die Flanke gemalte
+	# Fleckenmuster, das hier schon zweimal als "helle Striemen" gemeldet worden ist.
+	# ES WAR EIN UMWEG PROBIERT UND VERWORFEN: ein eigenes, engeres Farbfenster weiter oben
+	# auf demselben Rauschen ("blank geblasen ist nur die oberste Kuppe des Absatzes"). Das
+	# klingt plausibel und war gemessen schlechter — mit 0.10/0.42 statt des Formfensters
+	# fiel der Nachbarsprung von 0.0349 auf 0.0290, weil die helle Flaeche dann nicht mehr
+	# mit der Kante zusammenfaellt, sondern als eigenes, groeberes Muster darauf liegt.
+	# Welcher Anteil hell wird, steuert VULKAN_GRUS_MITTE — der Nullpunkt, nicht das Fenster.
+	var stufe := smoothstep(VULKAN_NASEN_AB, VULKAN_NASEN_VOLL,
+		_patch.get_noise_2d(cen.x * _vk_grus_takt, cen.z * _vk_grus_takt))
+	# ZWEI KOERNUNGEN MIT VERSCHIEDENEM RECHT, und die Trennung ist der Kern dieser Runde.
+	# Die alte Regel war "beide formlosen Lagen duerfen neben einer Kante nur den Sockel"
+	# (VULKAN_HELL_SOCKEL) — richtig, solange BEIDE formlos waren. Die Grusslage ist es nicht
+	# mehr: sie liest jetzt exakt die Abrissstufe, die height_at ins Gelaende schneidet, und
+	# darf deshalb voll durch. Die Felslage (150 m Welle, nur mit sv gewichtet) hat auf der
+	# Unterflanke nach wie vor kaum Form unter sich und bleibt am Sockel.
+	var koern := VULKAN_GRUS * (stufe - VULKAN_GRUS_MITTE) * 2.0 + VULKAN_SCHUTT * korn
+	var schlier := VULKAN_HAUT_KRUME * (fl - VULKAN_KRUME_MITTE)
+	# DIE KOERNUNG UND DIE KANTE WERDEN GETRENNT AUFGETRAGEN, und das ist der Griff dieser
+	# Runde. Bisher standen beide in EINER Summe "blank" und mischten auf DENSELBEN hellen
+	# Ton — mit dem Ergebnis, dass der Ton so dunkel gewaehlt werden musste, wie es die
+	# formlose Haelfte vertrug (sonst "helle Striemen"), und damit war er auch fuer die
+	# Kante zu dunkel. Gemessen kam der Kegel deshalb ueber eine Albedospanne vom ersten
+	# zum dritten Viertel von nur 0.0053 auf 0.0080 (linear) — praktisch einfarbig, und aus
+	# einer einfarbigen Flanke kann keine Beleuchtung der Welt Kontrast machen.
+	# JETZT HAT JEDE LAGE IHREN EIGENEN TON: die Koernung hellt wie bisher nur bis
+	# Grat/Asche auf, die Kante geht bis zum Anstehenden (VULKAN_ANSTEHEND). Der Sprung
+	# zwischen Flaeche und Abriss wird damit rund fuenfmal so gross, ohne dass irgendwo
+	# aufgehellt wird, wo keine Form liegt.
+	# "blank" ist wie eh und je die Gesamtaufhellung auf den mittleren Ton (Grat/Asche); daran
+	# haengt auch die Deckung des Rosts weiter unten.
+	# ES WAR EIN FEHLER, DIE KANTE HIER HERAUSZUNEHMEN, und der Renderlauf hat ihn gezeigt:
+	# fuer einen Zwischenstand lief nur noch die Koernung auf den mittleren Ton und die Kante
+	# allein auf den hellen. Gemessen fiel die Streuung im Bild damit von 0.0141 auf 0.0099,
+	# obwohl die hellsten Facetten deutlich heller wurden (99. Perzentil 0.775 gegen 0.384) —
+	# der Kontrast sass danach in zwei Prozent der Flaeche, und 98 Prozent standen als
+	# gleichmaessig dunkle Masse da. Die Kante muss BEIDES fuehren: den mittleren Ton auf der
+	# ganzen Flanke und den hellen an ihrer Spitze.
+	# DAS GILT NUR NOCH ALS BEFUND, NICHT MEHR ALS BAUART: seit der Aschedecke (gleich
+	# darunter) faerbt "kante" gar nicht mehr selbst. Der Schluss daraus bleibt aber richtig
+	# und ist der Grund, warum die Decke ein TOR und keine dritte Aufhellung ist — Kontrast,
+	# der in zwei Prozent der Flaeche sitzt, ist im Bild keiner.
+	# --- DIE ASCHEDECKE: WAS FLACH LIEGT, IST ZUGEWEHT --------------------------------
+	# SIE IST DER UNTERSCHIED ZWISCHEN ABZIEHEN UND ZUDECKEN, und daran haengt diese Runde.
+	# Die Steilheit stand hier schon als SUMMAND in "kante" (VULKAN_STEIL_HELL): sie macht die
+	# flache Facette dunkler, aber jede andere Lage — Feinrippe, Blocklage, Grus — kann sie
+	# daneben wieder aufhellen. Gemessen (tools/_vulkan_fein.gd) lagen deshalb nur rund zehn
+	# Prozent der Flanke wirklich auf dem Basaltgrund, der ganze Rest trug ueberall ein
+	# bisschen Aufhellung: Bildmedian 0.298 bei einem Nebelsockel von 0.258. Eine Flanke, auf
+	# der fast jede Facette ein wenig hell ist, hat einen hohen Mittelwert und trotzdem keinen
+	# Sprung zwischen Nachbarn — genau der Befund "dunkel UND glatt".
+	# ALS FAKTOR IST ES EINE ENTSCHEIDUNG STATT EINER MISCHUNG: wo Feinasche liegen bleibt,
+	# liegt sie ueber ALLEM, was darunter ist, und die Facette ist schwarz. Nur wo der Hang zu
+	# steil dafuer ist, steht ueberhaupt Gestein an — und dort steht es dann ganz.
+	# DIE LAGEN SIND DAMIT NICHT ARBEITSLOS, sie sind eine Stufe weiter nach vorn gerueckt:
+	# sie verziehen die Schwelle der Decke (VULKAN_DECKE_LAGEN), entscheiden also weiter, WO
+	# blanker Fels steht — nur nicht mehr, wie hell er ist.
+	# DAS FELD ENTSCHEIDET, DAS KORN FRANST AUS — und diese Reihenfolge ist der Griff dieser
+	# Runde. Ohne jeden Jitter faellt die Decke mit einer festen Schwelle auf die
+	# Flaechennormale, und weil die Normale ueber eine Rippenflanke langsam kippt, waere ihr
+	# Rand eine gezeichnete Linie quer ueber jede Rippe. Trug den Jitter aber das 13-m-Korn
+	# allein, dann wechselte die Decke von NACHBAR zu NACHBAR, und blanker Fels stand als
+	# einzelne Sprenkel statt als Feld (Zahlen und Begruendung bei VULKAN_FELD_M).
+	var decke := smoothstep(VULKAN_DECKE_AB, VULKAN_DECKE_ZU,
+		ny + VULKAN_DECKE_FELD * feld + VULKAN_DECKE_KORN * korn
+		- VULKAN_DECKE_LAGEN * kante)
+	# DER TON IST JETZT ZWEIWERTIG: blanker Fels oder Basalt unter Asche, und nichts dazwischen
+	# (Begruendung bei VULKAN_DECKE_LAGEN und VULKAN_DECKE_AB). "kante" hat damit die Rolle
+	# gewechselt — sie steht oben als Neigung zum Blankliegen in den Treiber der Decke ein und
+	# traegt hier unten nur noch weiter, WAS die Decke entschieden hat.
+	var frei := 1.0 - decke
+	kante = frei
+	var blank := clampf(kante + koern
+		+ schlier * (VULKAN_HELL_SOCKEL + (1.0 - VULKAN_HELL_SOCKEL) * kante), 0.0, 1.0) * frei
+	# WIE JUNG DIE ASCHE HIER IST. Eine Zahl, zwei Aufgaben, und sie haengen zusammen: oben
+	# liegt frischer Auswurf, der ist dunkel und traegt noch keinen Rost; unten ist der Fels
+	# abgerieben und verwittert. Bisher drosselte diese Rampe NUR den Rost, und genau deshalb
+	# stand der helle Grat ganz oben voellig ungedaempft da (siehe VULKAN_ASCHE).
+	var asche := smoothstep(VULKAN_ASCHE_AB, VULKAN_ASCHE_VOLL, t)
+	# DIE STAFFEL: AUS DER MISCHUNG WIRD EINE STUFE. "blank" lief bisher DIREKT als
+	# Mischanteil in die Farbe, und damit war die Flanke ein Verlauf von Schwarz nach Grau —
+	# gemessen lagen ihre mittleren Bildwerte dicht gedraengt zwischen 0.27 und 0.36, also
+	# ueberall ein bisschen hell und nirgends ein Sprung. Fuer den Mittelwert zahlt man
+	# solche Zwischentoene voll, fuer die Streuung bekommt man fast nichts: bei festem Mittel
+	# haengt die Streuung daran, WIE VIELE Facetten hell sind, nicht wie hell die Mitte ist.
+	# Die Vorlage kennt diese Mitte nicht — dort steht schwarzer Basalt neben hellem
+	# Anstehendem, mit rostroten Baendern darueber, und daher kommt ihre Streuung.
+	# Die Kurve schiebt die Mitte deshalb auseinander: unter VULKAN_STAFFEL_AB bleibt die
+	# Facette Basalt, ueber VULKAN_STAFFEL_VOLL traegt sie den vollen Gesteinston.
+	var haut := VULKAN_BASALT.lerp(VULKAN_GRAT.lerp(VULKAN_ASCHE, asche),
+		smoothstep(VULKAN_STAFFEL_AB, VULKAN_STAFFEL_VOLL, blank))
+	# UND DARUEBER DAS ANSTEHENDE. Die Hoehenrampe "asche" fasst es NICHT an, und das ist
+	# Absicht: dass frischer Auswurf oben dunkler ist als abgeriebener Fels unten, gilt fuer
+	# die FLAECHE — ein frischer Abriss legt in jeder Hoehe dasselbe Gestein frei. Genau
+	# umgekehrt war es vorher, und weil der Messkasten der Abnahme auf der OBERflanke sitzt,
+	# stand dort als hellster Ton die dunkle Asche.
+	# UND ER KOMMT ERST UEBER EINER SCHWELLE (VULKAN_ANSTEHEND_AB, dort steht warum).
+	haut = haut.lerp(VULKAN_ANSTEHEND, smoothstep(VULKAN_ANSTEHEND_AB, 1.0, kante))
+	# --- ROSTFLECKEN --------------------------------------------------------------------
+	# Sie liegen UEBER dem Gestein statt an seiner Stelle: oxidiert wird, was schon da ist.
+	# Auf dem blanken Grat bleibt weniger haengen als in der windgeschuetzten Rinne, deshalb
+	# nimmt die Deckung mit blank ab — aber nur um ein Drittel und nicht, wie zuerst
+	# eingestellt, um die Haelfte: in der Vorlage sind ausgerechnet die hellsten Ruecken oft
+	# rotbraun ueberlaufen (gemessen 0.45/0.33/0.31 gegen 0.37/0.34/0.31 daneben), der Rost
+	# meidet den Grat also nicht, er deckt dort nur duenner. Nach oben hin wird er weniger:
+	# dort ist die Asche jung.
+	var rost := smoothstep(VULKAN_ROST_AB, VULKAN_ROST_VOLL,
+		_patch.get_noise_2d(cen.x * _vk_rost_takt, cen.z * _vk_rost_takt))
+	if rost > 0.004:
+		# ... UND ER LIEGT IN DER RINNE (VULKAN_ROST_GRAT, dort steht warum). "bprof +
+		# VULKAN_BARR_MITTE" ist das Querprofil OHNE seine Zentrierung, also null in der
+		# Sohle und eins auf dem Grat — dieselbe Kurve, die height_at schneidet, nur eine
+		# Zeile weiter unzentriert gelesen. Ausserhalb des Rinnenbandes ist bhu null und der
+		# Faktor damit eins: am Kraterrand und im Apron aendert sich nichts.
+		var rippe := clampf(bhu * rn.y * (bprof + VULKAN_BARR_MITTE), 0.0, 1.0)
+		haut = haut.lerp(VULKAN_ROST, rost * VULKAN_ROST_STAERKE * (1.0 - 0.26 * blank)
+			* lerpf(1.0, VULKAN_ROST_GRAT, rippe) * (1.0 - 0.62 * asche))
+	var strom := _vulkan_strom(vk, md, ux, uz)
+	if strom > 0.004:
+		haut = haut.lerp(VULKAN_STROM, strom)
+	# --- DAS LAVANETZ: KRUSTE UND LAPPEN --------------------------------------------------
+	# ERST DAS SCHWARZE, DANN DAS ORANGE, und zwar in dieser Reihenfolge und mit Abstand:
+	# das Netz ist bis in die Ebene hinunter als erstarrtes Geaest da, offen glueht nur sein
+	# Kern. Vorher folgte die Kruste der BARRANCO-Sohle und war deshalb ueberall dort, wo
+	# eine Rinne war — also ein durchgehender dunkler Streifen je Rinne. Jetzt folgt sie der
+	# ADER: sie zeichnet die Verzweigung mit, auch da, wo laengst nichts mehr leuchtet, und
+	# genau daran liest man ein Netz als Netz.
+	# ad/netz/lappen werden HIER geholt und nicht erst im Glutzweig, weil der Waldkragen
+	# darunter sie braucht: auf einem frischen Lavalappen steht kein Baum.
+	var ad := Vector3.ZERO
+	var netz := 0.0
+	var lappen := 0.0
+	if rn.y > 0.0:
+		ad = _vulkan_ader(rn.z, md, mr, cr)
+		var kw := ad.y * VULKAN_ADER_KRUSTE
+		netz = (1.0 - smoothstep(kw * 0.42, kw, ad.x)) \
+			* smoothstep(cr, cr * 1.10, md) \
+			* (1.0 - smoothstep(mr * VULKAN_LAPPEN_AUS_AB, mr * VULKAN_LAPPEN_AUS_ZU, md))
+		lappen = _vulkan_lappen(ad, md, mr)
+		if netz > 0.004 or lappen > 0.004:
+			haut = haut.lerp(VULKAN_STROM, maxf(netz, lappen))
+	# --- WALDKRAGEN AM FUSS --------------------------------------------------------------
+	# Wo Baeume stehen, ist der Boden Waldboden und nicht Basalt (Begruendung bei
+	# VULKAN_KRAGEN). Gelesen wird DIESELBE Maske wie in der Bepflanzung: die Baumgrenze des
+	# Kegels und der Strom, den diese Funktion ohnehin schon ausgerechnet hat — auf frischer
+	# Lava steht kein Baum und liegt also auch kein Waldboden.
+	# _boden_farbe kostet ein paar Rauschabfragen und laeuft deshalb NUR im Kragen: das ist der
+	# Ring zwischen Fussschwelle (26 m) und Baumgrenze (68 m), also die unteren sieben Prozent
+	# der Flankenhoehe. Gemessen traegt der Kegel darin gut ein Zehntel seiner Flaeche Wald
+	# (tools/_vulkan_form.gd); alles darueber faellt an der Schranke ab, ohne _boden_farbe
+	# auch nur anzufassen.
+	# DER LAPPEN GEHOERT MIT IN DIESE MASKE, aus demselben Grund wie der Strom: er liegt
+	# genau in der Hoehenlage des Kragens, und ein Waldboden mit Nadelbaeumen auf frischer
+	# Lava ist der Widerspruch zwischen Farbe und Bewuchs, an dem in dieser Welt schon
+	# Almwiese und Schutthalde haengengeblieben sind. Die Bepflanzung liest dieselbe Maske
+	# (vulkan_bewuchs).
+	var kragen := _vulkan_baumgrenze(cen.x, cen.z, cen.y) * (1.0 - strom) * (1.0 - lappen)
+	if kragen > 0.01:
+		# DER SOCKEL MUSS MIT (dritter Parameter): auch auf dem Kegel liegen Wuestensektoren,
+		# und ohne ihn holt _boden_farbe dort helle Duenenfarbe unter den Waldkragen.
+		# QUADRIERT, und das ist der Unterschied zwischen einem Waldrand und einem gruenen
+		# Hauch: der Waldboden folgte der Baumgrenze LINEAR, lag also auf halbem Uebergang noch
+		# mit 40 Prozent auf dem Basalt — im Bild ein gruener Schleier, der den Fuss hinauflief,
+		# waehrend oben laengst keine Baeume mehr standen. Der Boden faerbt sich jetzt nur da,
+		# wo der Bestand wirklich geschlossen ist; am ausduennenden Rand stehen einzelne
+		# Fichten auf schwarzem Fels, und genau so zeigt es die Vorlage.
+		haut = haut.lerp(_boden_farbe(cen, 0.0, kragen * VULKAN_KRAGEN_DICHT),
+			kragen * kragen * VULKAN_KRAGEN)
+	# --- GLUT: DER OFFENE KERN DES KANALS -------------------------------------------------
+	# WAS HIER VORHER STAND UND WARUM ES WEG IST — zweimal hintereinander dieselbe Falle:
+	# Zuerst war die Glut eine Schwelle auf dem Rippenrauschen, dessen Abtastkreis nur mit
+	# der Wurzel des Abstands waechst: oben schnitt sie einen 300 m breiten Lappen heraus,
+	# und im Bild lagen flaechige orange Flecken OBEN AUF der Flanke.
+	# Dann war sie eine Schwelle auf einer reinen Richtungsfunktion, und heraus kamen acht
+	# gleich breite, zueinander parallele, unverzweigte Baender, die alle am Kraterrand
+	# ansetzten und auf halber Flanke im Nichts endeten. EINE SCHWELLE AUF EINEM WINKEL KANN
+	# NICHTS ANDERES ERZEUGEN: sie hat keinen Begriff von "derselbe Strom weiter unten" und
+	# also auch keinen von einer Gabelung.
+	# JETZT IST ES EIN BAUM (_vulkan_ader), und die Masken haben klar getrennte Aufgaben:
+	#   netz   WO ein Kanal ist — der Baum selbst, samt seiner schwarzen Kruste.
+	#   hh     OB dort noch etwas offen ist. Laeuft bis an den Waldrand hinunter.
+	#   heiss  WIE HEISS es ist: hellorange oben, tiefrot unten (Farbe UND Leuchtkraft).
+	#   ad.z   WIE STARK dieser eine Ast ist — an einer Gabel wird ein Arm heller als der
+	#          andere, und das unterscheidet ein Geflecht von einem Ornament.
+	#   seite  welche SEITE des Berges ueberhaupt schuettet. Daempft nur noch (0.34), statt
+	#          abzuschneiden: eine Ader wandert beim Gabeln ueber Sektorgrenzen hinweg.
+	# DER LAPPEN LOESCHT DIE GLUT (1 - lappen): dort ist der Strom angekommen und erstarrt.
+	# Genau das ist der Abschluss, der der Ader vorher gefehlt hat — sie hoerte auf, statt
+	# irgendwo anzukommen.
+	var glut := 0.0
+	var hh := smoothstep(VULKAN_GLUT_UNTEN, VULKAN_GLUT_OBEN, t)
+	if hh > 0.004 and netz > 0.004:
+		var seite := lerpf(VULKAN_GLUT_SEITE, 1.0,
+			smoothstep(VULKAN_GLUT_AB, VULKAN_GLUT_VOLL,
+				_ridge.get_noise_2d(ux * _vk_glut_kreis, uz * _vk_glut_kreis)))
+		# UNTERBRECHUNG DER LAENGE NACH. Das Rauschen laeuft schnell den Hang HINUNTER und
+		# nur langsam um ihn herum — es laesst den Kanal streckenweise ueberkrusten, statt
+		# ihn zu verbreitern. Es DARF IHN NICHT MEHR DURCHSCHNEIDEN (VULKAN_ADER_GRUND):
+		# eine Ader, die alle 200 m aussetzt, ist wieder eine Reihe von Strichen.
+		var schnitt := smoothstep(VULKAN_ADER_AB, VULKAN_ADER_VOLL,
+			_ridge.get_noise_3d(ux * _vk_ader_kreis, uz * _vk_ader_kreis,
+				md * VULKAN_ADER_LAUF))
+		glut = hh * seite * ad.z * netz * (1.0 - lappen) \
+			* (1.0 - smoothstep(ad.y, ad.y * VULKAN_ADER_SAUM, ad.x)) \
+			* lerpf(VULKAN_ADER_GRUND, 1.0, schnitt)
+	# --- DER KESSEL: INNENWAND UND LAVASEE ------------------------------------------------
+	# WARUM DIE INNENWAND EINE EIGENE FARBE BRAUCHT, steht bei VULKAN_KESSEL: der Krater hebt
+	# den Hoehenanteil von innen auf voll, damit die Sohle nicht rostbraun wird — und danach
+	# tragen Innenwand und Aussenflanke dieselbe Haut. Im Abnahmebild war der Kessel deshalb
+	# ein mittelgraues Becken, in dem 340 m Tiefe verschwanden.
+	var kessel := smoothstep(cr * VULKAN_KESSEL_AB, cr * VULKAN_KESSEL_VOLL, md)
+	if kessel > 0.004:
+		haut = haut.lerp(VULKAN_KESSEL, kessel * VULKAN_KESSEL_DECK)
+		# DER LAVASEE. Schwarze Kruste mit gluehenden Fugen, nicht eine orange Scheibe —
+		# warum, steht bei VULKAN_SEE_KRUSTE. Die Ufergrenze ist DIESELBE wie die, an der
+		# height_at den Spiegel flachzieht (VULKAN_SEE_R/_UFER), sonst laege der Glanz
+		# neben dem Wasser.
+		var seek := 1.0 - smoothstep(cr * VULKAN_SEE_R,
+			cr * (VULKAN_SEE_R + VULKAN_SEE_UFER), md)
+		if seek > 0.004:
+			haut = haut.lerp(VULKAN_SEE_KRUSTE, seek)
+			glut = maxf(glut, seek * smoothstep(VULKAN_SEE_FUGE_AB, VULKAN_SEE_FUGE_VOLL,
+				_ridge.get_noise_2d(cen.x * _vk_see_takt, cen.z * _vk_see_takt)))
+	# DER SCHLUND. Aussen schwarz, im Kern offen — siehe VULKAN_SCHLUND.
+	if md < cr * VULKAN_SCHLUND:
+		var sk := 1.0 - smoothstep(cr * VULKAN_SCHLUND_KERN, cr * VULKAN_SCHLUND, md)
+		haut = haut.lerp(VULKAN_STROM, sk)
+		glut = maxf(glut, 1.0 - smoothstep(cr * VULKAN_SCHLUND_KERN * 0.45,
+			cr * VULKAN_SCHLUND_KERN, md))
+	if glut > 0.004:
+		# DIE ABKUEHLUNG. Der Schlund steht auf t = 1 (der Krater hebt den Hoehenanteil von
+		# innen auf voll, siehe oben) und bleibt damit hellorange; die Ader kuehlt auf ihrem
+		# Weg nach unten ab. BEIDES ZUGLEICH, Farbe und Leuchtkraft: eine tiefrote Flaeche,
+		# die so hell strahlt wie eine orange, liest sich nicht als kuehler, sondern als
+		# andersfarbig — und weil der Shader die EIGENE Farbe zum Leuchten bringt, sind die
+		# beiden Zeilen zwei Seiten derselben Sache.
+		var heiss := smoothstep(VULKAN_GLUT_KUEHL, VULKAN_GLUT_HEISS, t)
+		haut = haut.lerp(VULKAN_LAVA_KALT.lerp(VULKAN_LAVA, heiss), glut)
+		haut.a = 1.0 - glut * lerpf(VULKAN_GLUT_MATT, 1.0, heiss)
+	return haut
+
+
 func _face_color(cen: Vector3, ny: float) -> Color:
 	# GEDÄMPFTE, erdig-pastellige Low-Poly-Palette (Aviassembly-Look): Sage-Grün,
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
@@ -2618,13 +5406,57 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 				* smoothstep(-60.0, -42.0, ds) * (1.0 - smoothstep(kaus, kaus + 24.0, ds)) \
 				* maxf(1.0 - smoothstep(0.07, 0.16, uw.y), offen)
 		break
-	# VULKAN-Flanken: dunkler Basalt statt Schnee/Fels (sonst weisser Marshmallow-Kegel);
-	# zum Gipfel leicht roetlich verwitterte Schlacke. Unterer Gruenguertel bleibt normal.
-	for ms in massifs:
-		if String(ms.get("type", "")) == "vulkan" and cen.y > 26.0 \
-				and Vector2(cen.x - ms["pos"].x, cen.z - ms["pos"].z).length() < float(ms["r"]) * 1.05:
-			var vt := clampf((cen.y - 26.0) / maxf(float(ms["peak"]) - 26.0, 1.0), 0.0, 1.0)
-			return Color(0.24, 0.21, 0.20).lerp(Color(0.38, 0.25, 0.20), vt)
+	# --- VULKAN: GESTEIN, LAVAZUNGEN, GLUT --------------------------------------------
+	# Der Kegel bekommt seine Haut (siehe _vulkan_haut) statt Fels und Schnee — sonst
+	# stuende dort ein weisser Marshmallow. Sein STROM reicht darueber hinaus und wird
+	# NICHT zurueckgegeben, sondern unten ueber die gewachsene Farbe gelegt: was jenseits
+	# des Fusses liegt, ist Wiese mit einem schwarzen Band darauf und nicht Vulkan.
+	# Vorfilter zuerst und nur Quadrate — die Funktion laeuft je DREIECK ueber die ganze
+	# Welt, und fast jede Stelle liegt draussen.
+	var strom := 0.0
+	var kragen := 0.0
+	var asche := Vector3.ZERO
+	var asche_hub := 0.0
+	for vk in _vulkane:
+		var vdx := cen.x - float(vk["x"])
+		var vdz := cen.z - float(vk["z"])
+		var vd2 := vdx * vdx + vdz * vdz
+		if vd2 > float(vk["reich2"]):
+			continue
+		var vd := sqrt(vd2)
+		var vux := 0.0
+		var vuz := 0.0
+		if vd > 1.0:
+			vux = vdx / vd
+			vuz = vdz / vd
+		if cen.y > VULKAN_HAUT_FUSS and vd < float(vk["haut_r"]):
+			return _vulkan_haut(vk, cen, vd, vux, vuz, ny)
+		strom = _vulkan_strom(vk, vd, vux, vuz)
+		# DIE ASCHESCHUERZE. Sie faengt genau dort an, wo die Haut aufhoert ("haut_r" ist
+		# dieselbe Zahl, siehe VULKAN_APRON_ASCHE_AB) und laeuft ueber den Faecher aus. Sie
+		# wird NICHT hier aufgetragen, sondern unten ueber die gewachsene Farbe gelegt —
+		# genau wie der Lavastrom, und aus demselben Grund: was hier draussen liegt, ist
+		# Vorland mit Asche darauf und nicht Vulkan.
+		asche = _vulkan_apron(vk, cen.x, cen.z, cen.y, vd, vux, vuz)
+		# AUF DER SCHUERZE GILT DIE FELSSCHWELLE DER WELT NICHT (Begruendung bei
+		# VULKAN_APRON_FELS_HUB). Die Schleife laeuft nur bis zum Saum der Schuerze
+		# ("reich2"), die Zeile wirkt also genau dort und sonst nirgends; ohne Schuerze ist
+		# "apr" null und der Hub bleibt null.
+		if float(vk["apr"]) > 0.0:
+			asche_hub = VULKAN_APRON_FELS_HUB
+		# DER WALDKRAGEN REICHT UEBER DIE HAUT HINAUS, also bis in das Vorland vor dem Fuss
+		# (siehe vulkan_kragen). Dort faerbt nicht mehr _vulkan_haut, sondern _boden_farbe —
+		# und die kennt nur das Biom. Gemessen sind 17 von 64 Fussrichtungen WUESTE: ohne
+		# diese Zeile stuende der Guertel dort als geschlossener Fichtenwald auf hellem
+		# Duenensand, und das ist derselbe Widerspruch zwischen Farbe und Bewuchs, an dem hier
+		# schon Almwiese und Schutthalde haengengeblieben sind.
+		# (1 - strom), weil auf dem erstarrten Band ohnehin kein Baum steht — und aus
+		# demselben Grund (1 - asche.x): auf dem blanken Faecher steht auch keiner. Beides
+		# liest die Bepflanzung genauso (vulkan_bewuchs), sonst faerbte sich hier Waldboden
+		# unter einer Flaeche, auf der kein Baum wachsen darf.
+		kragen = vulkan_kragen_bei(vk, cen.x, cen.z, cen.y, vd) \
+			* (1.0 - strom) * (1.0 - asche.x)
+		break
 	# --- FELS UND SCHNEE, DURCHGEHEND OHNE STUFE -----------------------------------
 	# Hier standen ZWEI getrennte Zweige mit harten Grenzen bei 160 und 188 m. Der untere
 	# blendete zwischen 160 und 188 m auf flachem Grund bis fast auf Schneeweiss hoch, der
@@ -2650,7 +5482,14 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	if schnee > 0.001:
 		fels = fels.lerp(Color(0.87, 0.88, 0.91), schnee)
 	if cen.y > 188.0:
-		return fels
+		# DER UEBERZUG MUSS AUCH AUF DIESEM WEG MIT. Hier stand ein blankes "return fels",
+		# und das war der letzte helle Streifen auf der Ascheschuerze — gefunden hat ihn erst
+		# ein Strahl durch den Bildpunkt (tools/_vulkan_stich.gd): das Vorland steigt in
+		# einigen Sektoren schon von sich aus auf 150 m, die Schuerze legt bis zu 93 m
+		# darauf, und ein Faecherrucken traegt noch einmal 50. An solchen Stellen steht der
+		# Aschefaecher auf 247 m — ueber der Hochgebirgsschwelle der Weltregel, die deshalb
+		# vor jeder Vulkanzeile abbog und Firn und Fels zurueckgab.
+		return _vulkan_ueberzug(fels, asche, strom)
 
 	# FELS UND BODEN UEBERBLENDEN statt hart umschalten. Hier stand
 	#     if cen.y > 52.0 or ny < 0.70: return fels
@@ -2672,7 +5511,11 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	# ist KEINE Sonderfarbe fuer ein Wahrzeichen: hier faellt nur eine Sonderregel weg,
 	# uebrig bleibt der ganz normale Hochgebirgsfels der Weltregel.
 	var wiese := _tal_wiese(cen, ny) * _halde_frei(cen.x, cen.z)
-	var hub := TAL_WIESE_HUB * wiese
+	# ZWEI HUBE, EINE SCHWELLE: der Wiesenhub des Hochtals und der Ascheschuerze-Hub des
+	# Vulkans. Sie schliessen einander raeumlich aus (das Hochtal liegt im Nordwesten, der
+	# Vulkan im Osten), addiert werden sie trotzdem statt maxf — ein maxf haette an einem
+	# Ort, an dem beide gelten, stillschweigend einen davon verschluckt.
+	var hub := TAL_WIESE_HUB * wiese + asche_hub
 	var fels_anteil := maxf(smoothstep(45.0 + hub, 59.0 + hub, cen.y),
 		smoothstep(0.745, 0.655, ny))
 	var c: Color
@@ -2685,13 +5528,41 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 		# WUESTE auf -4 bis 21 m, und dort pflanzt _make_chunk_data Palmen. Gruener Boden mit
 		# Palmen darauf ist genau der Widerspruch zwischen Farbe und Bewuchs, den die
 		# Almwiese eigentlich aufloest.
-		var boden := _boden_farbe(cen, wiese * smoothstep(30.0, 48.0, cen.y))
+		var boden := _boden_farbe(cen, wiese * smoothstep(30.0, 48.0, cen.y), kragen)
 		c = boden if fels_anteil < 0.002 else boden.lerp(fels, fels_anteil)
 	if kies > 0.002:
 		# 0.6 -> 0.82 und ein waermerer Ton: mit dem alten Wert lag der Kies als Hauch auf
 		# dem Wiesengruen und war im Bild schlicht nicht zu finden. Im Referenzbild ist der
 		# Strand die HELLSTE Flaeche des ganzen Talbodens.
 		c = c.lerp(Color(0.80, 0.77, 0.70), kies * 0.82)
+	return _vulkan_ueberzug(c, asche, strom)
+
+
+## WAS DER VULKAN UEBER DIE GEWACHSENE FARBE LEGT: erst die Ascheschuerze, dann die Zunge.
+##
+## DIE REIHENFOLGE IST DIE DER NATUR: der Faecher ist der alte Auswurf, auf dem der Berg
+## steht, die Zunge das juengste, was ueber ihn gelaufen ist. Umgekehrt aufgetragen deckte
+## die Asche die Zungen wieder zu, und der Faecher waere eine einfarbige Flaeche.
+##
+## ZWEI AUFRUFER, UND DAS IST DER GRUND FUER DIE EIGENE FUNKTION: _face_color kehrt an ZWEI
+## Stellen zurueck — einmal ueber 188 m mit blankem Hochgebirgsfels, einmal ganz unten mit
+## der gemischten Bodenfarbe. Der erste Weg hatte den Ueberzug nicht, und genau dort lag im
+## Abnahmebild ein heller Streifen quer ueber die Schuerze.
+func _vulkan_ueberzug(c: Color, asche: Vector3, strom: float) -> Color:
+	if asche.x > 0.004:
+		# ZWEI LAENGENSKALEN HELLEN AUF, und beide haben Form unter sich: der RUECKEN
+		# zwischen zwei Rinnen (470 m, gliedert) und das SCHUTTNEST (46 m, koernt). Warum
+		# beides noetig ist und warum es sich addiert, steht bei VULKAN_APRON_GRUS_C.
+		var hell := clampf(asche.y * VULKAN_APRON_RUECKEN
+			+ asche.z * VULKAN_APRON_BLOCK_HELL, 0.0, 1.0)
+		c = c.lerp(VULKAN_APRON_ASCHE.lerp(VULKAN_APRON_GRUS_C, hell),
+			asche.x * VULKAN_APRON_DECK)
+	if strom > 0.004:
+		# DER STROM DECKT NICHT GANZ AB (0.92): ein Rest der Wiese schaut hindurch, und
+		# genau daran liest man, dass hier etwas UEBER dem Boden liegt statt an seine
+		# Stelle getreten zu sein. Bewuchs steht auf dem Band ohnehin keiner mehr, dafuer
+		# sorgt dieselbe Maske in der Bepflanzung (vulkan_bewuchs).
+		c = c.lerp(VULKAN_STROM, strom * 0.92)
 	return c
 
 
@@ -2712,7 +5583,11 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 ## Hochgebirge, zwischen Schneegipfeln, in 0.88/0.79/0.55.
 ## Deshalb wird im Korridor auf die WALD/WIESE-Variante geblendet — nicht hart umgeschaltet,
 ## sonst stuende an der Biomgrenze eine Kante quer durch das Tal.
-func _boden_farbe(cen: Vector3, alpin: float = 0.0) -> Color:
+## KRAGEN: Dichtesockel des Vulkan-Waldguertels an dieser Stelle (siehe vulkan_kragen). Er
+## tut hier GENAU DASSELBE wie "alpin" — er blendet auf die WALD/WIESE-Variante — und aus
+## demselben Grund: dort steht ein geschlossener Bestand, und was darunter liegt, darf keine
+## Duene sein. Ohne den Wert bleibt jede Stelle der Welt farblich exakt wie bisher.
+func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Color:
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	# WALDBODEN: exakt dieselbe Dichte-Formel wie die Bepflanzung in _make_chunk_data,
 	# also faerbt sich der Boden GENAU dort dunkel, wo auch Baeume stehen. Zwei Gewinne:
@@ -2722,7 +5597,12 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0) -> Color:
 	# _open_ground MUSS mit: sonst liegt rund um Bahn und Stadt dunkler Waldboden
 	# auf einer Wiese, auf der per Definition kein Baum steht.
 	var wald := smoothstep(-0.28, 0.30, _forest.get_noise_2d(cen.x, cen.z))
-	wald = wald * wald * smoothstep(FLORA_MIN_H, FLORA_FULL_H, cen.y) \
+	wald = wald * wald
+	# GENAU DIESELBE ZEILE WIE IN DER BEPFLANZUNG, an derselben Stelle der Rechnung: erst der
+	# Sockel auf die Dichte, dann die Schranken darauf. Stuende sie hier hinter den Schranken
+	# und dort davor, waere der Waldboden im Kragen ein anderer als der Wald darauf.
+	wald = maxf(wald, kragen)
+	wald = wald * smoothstep(FLORA_MIN_H, FLORA_FULL_H, cen.y) \
 		* (1.0 - smoothstep(46.0, FLORA_MAX_H, cen.y)) * _open_ground(cen.x, cen.z)
 	# Wald/Wiese: SATTES Wiesen-Grün, nur wenige dezente Flecken (kein blasses Mint mehr)
 	var g1 := Color(0.40, 0.61, 0.28)  # frisches, sattes Wiesen-Grün
@@ -2758,7 +5638,10 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0) -> Color:
 				hc = Color(0.80, 0.72, 0.50)   # Ocker-Gras
 			# Heide traegt nur 30 % der Walddichte -> auch nur ein Hauch Waldboden
 			bc = hc.lerp(Color(0.44, 0.44, 0.31), wald * 0.30)
-	return bc if alpin < 0.002 else bc.lerp(wc, alpin)
+	# Der Vulkankragen blendet auf dieselbe WALD/WIESE-Variante wie der Almkorridor (siehe
+	# oben) — eine Zeile, zwei Anlaesse, und beide meinen dasselbe: hier gilt das Biom nicht.
+	var zu_wc := maxf(alpin, clampf(kragen / maxf(VULKAN_KRAGEN_DICHT, 0.01), 0.0, 1.0))
+	return bc if zu_wc < 0.002 else bc.lerp(wc, zu_wc)
 
 
 # Baumarten aus models/world_trees.glb (tools/build_baeume.py). Die Meshes tragen
