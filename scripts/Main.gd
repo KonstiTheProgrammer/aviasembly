@@ -679,7 +679,10 @@ func _setup_world() -> void:
 	# -> echte Küsten mit Türkis-Schelf, egal welcher Seed).
 	var massifs := [
 		{"pos": Vector3(2400, 0, 1500), "r": 850.0, "peak": 205.0},
-		{"pos": burg_pos, "r": 420.0, "peak": 88.0},   # Burgberg (Flachzone y=78 sitzt oben drauf)
+		# Burgberg. "glatt" haelt _massive_charakterisieren von ihm fern: auf ihm sitzt eine
+		# Flachzone mit y = 78, und eine Spitze wuerde unter ihr durchstossen — die Burg
+		# staende dann auf einem abgeschnittenen Kegel statt auf einer Kuppe.
+		{"pos": burg_pos, "r": 420.0, "peak": 88.0, "glatt": true},
 				# CANYON-FLANKEN: erzwungene Grate beidseits der Schlucht-Spline — der River-Carve
 		# schneidet DANACH hindurch (Reihenfolge in height_at) -> echte Waende, seed-robust.
 		{"pos": Vector3(-6725, 0, 1450), "r": 750.0, "peak": 120.0},
@@ -931,18 +934,28 @@ func _setup_world() -> void:
 		{"pos": Vector3(3800, 0, -15800), "r": 600.0, "peak": 45.0, "type": "insel"},
 	]
 	massifs.append_array(_hochgebirge())
+	_massive_charakterisieren(massifs)
 	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
 	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
 	var rivers := [{
 		# CANYON DES WESTENS: extrem breites/tiefes "Flusstal" = durchfliegbare Schlucht
 		# (die Distanz-Rampe macht dort echte Berge -> hohe Waende links und rechts).
 		"w": 40.0, "valley": 260.0, "depth": 7.0,
+		# MAEANDER. Aus der Luft war die Schlucht ein schnurgerades blaues Band von gleicher
+		# Breite quer durch die halbe Karte — die auffaelligste kuenstliche Linie der Welt,
+		# weil acht Stuetzpunkte eben acht Geraden sind. 130 m Auslenkung bleiben INNERHALB
+		# des 260-m-Talbandes: die Schlucht windet sich, ihre Waende bleiben aber dieselben
+		# Massive und reissen nicht auf.
+		"maeander": 130.0, "maeander_welle": 1500.0,
 		"pts": [
 			Vector3(-6600, 46, 900), Vector3(-6050, 34, 1900), Vector3(-5250, 22, 2800),
 			Vector3(-4450, 12, 3700), Vector3(-3800, 8, 4500), Vector3(-3380, 4, 5100),
 		],
 	}, {
 		"w": 13.0, "valley": 55.0, "depth": 4.0,
+		# Derselbe Grund wie beim Canyon, nur eine Nummer kleiner: 70 m Auslenkung auf 700 m
+		# Wellenlaenge geben dem Tieflandfluss die Boegen, die ein Fluss in der Ebene hat.
+		"maeander": 70.0, "maeander_welle": 700.0,
 		"pts": [
 			Vector3(2545, 112, 1760), Vector3(2330, 82, 1600), Vector3(2110, 56, 1460),
 			Vector3(1900, 35, 1320), Vector3(1710, 20, 1210), Vector3(1560, 8, 1130),
@@ -4853,6 +4866,52 @@ func _tal_halbbreite(laengs: float) -> float:
 ## (FLORA_MAX_H), der Schnee blendet ueber 240 Hoehenmeter ein — die Kaemme sind damit
 ## kahler Fels mit weissen Gipfeln, das Tal darunter gruen. Die 1250 m stehen NICHT
 ## irgendwo in der Kette, sondern am Talschluss: beide Ketten steigen monoton dorthin.
+## CHARAKTER FUER DIE MASSIVE DES KERNLANDS.
+##
+## Die Berge um den Spawn und die sechs Canyonflanken standen als nackte {pos, r, peak}
+## in der Liste: runder Fussabdruck, fuer alle dieselbe Gratfrequenz, keine Schaerfe. Im
+## Abnahmebild (tools/_terrain_render.gd, Shot pan2) waren sie flache braune Pfannkuchen
+## ohne Relief — dieselbe Ausgangslage, in der der Vulkan vor seinem Umbau stand.
+##
+## Die Schluessel dafuer gibt es laengst; das Hochgebirge nutzt sie seit seinem eigenen
+## Umbau. Hier bekommen sie die uebrigen Massive, GEWUERFELT AUS DER POSITION und nicht
+## aus dem Listenindex: so bleibt die Welt bei jedem Start dieselbe, und ein spaeter
+## eingefuegter Berg verschiebt nicht den Charakter aller anderen.
+##
+## UEBERSPRUNGEN WIRD DREIERLEI, jedes aus einem eigenen Grund:
+##   * alles mit "type" (Vulkan, Inseln) — die haben ihre eigene Formgebung,
+##   * alles, was schon "schaerfe" mitbringt (die beiden Ketten des Hochgebirges),
+##   * alles mit "glatt" — das traegt heute nur der Burgberg, und die Begruendung steht
+##     bei ihm in der Liste.
+##
+## DIE WERTE SIND KLEINER ALS IM HOCHGEBIRGE, und das ist kein Geschmack:
+##   * nz_frq ist eine WELTfrequenz, keine Zahl von Rippen. Ein 750-m-Berg ueberdeckt ein
+##     Neuntel der Flaeche eines 2200-m-Kegels und traegt bei gleicher Frequenz entsprechend
+##     weniger Perioden. Damit die Rippen gleich fein AUSSEHEN, muss die Zahl hier groesser
+##     sein — 2.6 bis 6.5 gegen 1.3 bis 4.2 dort.
+##   * schaerfe bleibt unter 0.78. Diese Berge sind 110 bis 205 m hoch; eine Nadel steht im
+##     Tiefland falsch, gebraucht wird eine Kuppe mit Kanten.
+##   * dehnung bleibt zwischen 0.86 und 1.18. SECHS DIESER MASSIVE SIND DIE WAENDE DES
+##     CANYONS. Ein stark gestreckter Fussabdruck kann eine Wand seitlich wegziehen, und
+##     weil der Flussschnitt in height_at DANACH laeuft, stuende dort ein Loch statt einer
+##     Schlucht. Die Streckung ist deshalb hier ein Akzent und kein Hebel.
+func _massive_charakterisieren(liste: Array) -> void:
+	for ms in liste:
+		if ms.has("type") or ms.has("schaerfe"):
+			continue
+		if ms.get("glatt", false):
+			continue
+		var mp: Vector3 = ms["pos"]
+		var wuerfel := RandomNumberGenerator.new()
+		wuerfel.seed = hash(Vector2i(int(mp.x), int(mp.z))) ^ 0x4B0D_3117
+		ms["schaerfe"] = wuerfel.randf_range(0.30, 0.78)
+		ms["grat"] = wuerfel.randf_range(1.9, 3.4)
+		ms["nz_frq"] = wuerfel.randf_range(2.6, 6.5)
+		ms["nz_off"] = wuerfel.randf_range(-9000.0, 9000.0)
+		ms["dehnung"] = wuerfel.randf_range(0.86, 1.18)
+		ms["drall"] = wuerfel.randf_range(0.0, PI)
+
+
 func _hochgebirge() -> Array:
 	var quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)   # senkrecht zur Talachse
 	var out: Array = []

@@ -167,6 +167,12 @@ const CLEAR_CAP := 620.0        # groesster Freihalte-Radius um eine KREIS-Zone 
 # (= 35 bis 55 m von der Bahnachse), und die Bahn samt Sandschulter ist 45 m breit.
 const FREI_INNEN := 20.0
 const FREI_AUSSEN := 50.0
+# Schrittweite, in der ein maeandernder Fluss nachgetastet wird. 70 m ist knapp unter der
+# schmalsten Talbreite der Karte — feiner braucht es nicht, weil _river_carve ohnehin auf
+# das naechste Segment projiziert, und groeber wuerde der Bogen wieder eckig.
+const MAEANDER_SCHRITT := 70.0
+# Ueber diese Laufstrecke blendet die Auslenkung an Quelle und Muendung ein.
+const MAEANDER_RAND := 700.0
 const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionsebene hin)
 # Fertige Chunks je Frame einhaengen. Stand lange auf 1, begruendet mit den Kosten des
 # Physik-Einfuegens — das stimmt nicht mehr: Kollisionskoerper entstehen inzwischen im
@@ -1583,6 +1589,11 @@ var lakes: Array = []           # [{pos: Vector3, r: float, surf: float}] Inland
 var _flora_wasser_h := 34.0     # bis zu dieser Hoehe lohnt die Wasserpruefung der Flora
 var rivers: Array = []          # kuratierte Fluss-Splines (siehe _prepare_rivers)
 var massifs: Array = []         # [{pos: Vector3, r: float, peak: float}] erzwungene Berge
+# Vorfilter der Massivschleife, einmal je Welt gefuellt. Siehe die Begruendung in
+# height_at bei "DER VORFILTER LAS SEINE ZAHLEN FRUEHER AUS DEM WOERTERBUCH".
+var _ms_x := PackedFloat64Array()
+var _ms_z := PackedFloat64Array()
+var _ms_reich2 := PackedFloat64Array()
 # TALKORRIDOR des Hochtals: {start, richtung, laenge, halbbreite: PackedFloat32Array}.
 # Nur die ALMWIESE in _face_color liest ihn — das Hoehenfeld nicht. Warum es ihn gibt,
 # steht bei TAL_WIESE_HUB.
@@ -1731,6 +1742,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 			_see_umriss_bauen(lk)
 		_flora_wasser_h = maxf(_flora_wasser_h, float(lk["surf"]) + 1.0)
 	massifs = mss
+	_ms_vorfilter_bauen()
 	_prepare_rivers(rvs)
 	_noise = FastNoiseLite.new()
 	_noise.seed = seedv
@@ -1970,26 +1982,35 @@ func height_at(x: float, z: float) -> float:
 		h = lerpf(h, q + smoothstep(0.55, 1.0, f) * step_h, 0.75)
 	# ERZWUNGENE FORMEN (Massive): garantieren Berg/Insel/Vulkan an gewünschter Stelle,
 	# seed-unabhängig. Nur anheben (max) -> stören das übrige Gelände nie.
-	for ms in massifs:
-		var mp: Vector3 = ms["pos"]
-		var mr := float(ms["r"])
+	for mi in massifs.size():
 		# FRUEH RAUS, BEVOR IRGENDETWAS GERECHNET WIRD. Diese Schleife laeuft fuer JEDE
 		# Hoehenprobe ueber ALLE Massive — bei 2401 Proben je Chunk und inzwischen ueber
 		# vierzig Massiven sind das 100 000 Durchlaeufe pro Chunk. Die allermeisten Proben
 		# liegen ausserhalb jedes einzelnen Massivs.
-		# Der Schelf von Inseln und Vulkanen reicht bis 1.9 * r, ein Berg nur bis r.
-		var dx := x - mp.x
-		var dz := z - mp.z
+		#
+		# DER VORFILTER LAS SEINE ZAHLEN FRUEHER AUS DEM WOERTERBUCH, und das kostete mehr
+		# als er sparte: vier Zugriffe je Massiv und Probe, darunter
+		# String(ms.get("type", "berg")) — also eine STRING-ERZEUGUNG, rund fuenfundvierzig
+		# Mal je Hoehenprobe, nur um zu entscheiden, ob der Schelf bis 1.0 oder 1.9 * r
+		# reicht. Gemessen mit tools/_hoehe_takt.gd kostete eine Probe im offenen Tiefland
+		# 119 us, obwohl dort jedes einzelne Massiv verworfen wird.
+		# Jetzt stehen Mittelpunkt und QUADRIERTE Reichweite in drei Packed-Arrays, die
+		# setup() einmal fuellt (_ms_vorfilter_bauen). Der Rumpf liest weiter aus dem
+		# Woerterbuch — er laeuft ja nur fuer die wenigen Massive, die wirklich in Frage
+		# kommen.
+		# FLOAT64 UND NICHT FLOAT32: die Reichweite geht quadriert in einen Vergleich, und
+		# eine auf 32 Bit gerundete Schwelle wuerde Proben genau am Rand anders entscheiden
+		# als vorher. Die Hoehen muessen aber Bit fuer Bit dieselben bleiben — nachgeprueft
+		# mit tools/_welt_stichprobe.gd.
+		var dx := x - _ms_x[mi]
+		var dz := z - _ms_z[mi]
+		if dx * dx + dz * dz > _ms_reich2[mi]:
+			continue
+		var ms: Dictionary = massifs[mi]
+		var mp: Vector3 = ms["pos"]
+		var mr := float(ms["r"])
 		var typ := String(ms.get("type", "berg"))
 		var dehn := float(ms.get("dehnung", 1.0))
-		# REICHWEITE MUSS BEIDE RICHTUNGEN DER ELLIPSE ABDECKEN. Hier stand
-		# maxf(dehn, 1.0), und das war falsch: bei einer Dehnung UNTER 1 streckt sich das
-		# Massiv quer zur Drallachse und reicht bis mr/dehn. Der Vorfilter schnitt es dann
-		# bei mr kreisrund ab — im Bild eine senkrechte, 8 m gerasterte Wand mitten im
-		# Hang, die aussah wie eine eingestuerzte Schlucht.
-		var reichweite := mr * (1.0 if typ == "berg" else 1.9) * maxf(dehn, 1.0 / dehn)
-		if dx * dx + dz * dz > reichweite * reichweite:
-			continue
 		var md := sqrt(dx * dx + dz * dz)
 		# GEDREHTE ELLIPSE STATT KREIS. Der Fussabdruck war bei jedem Massiv rund, und
 		# damit sah jeder Berg von oben gleich aus — der wirksamste Hebel gegen
@@ -2557,10 +2578,24 @@ func _river_carve(x: float, z: float, h: float) -> float:
 			continue
 		var pts: PackedVector3Array = rv["pts"]
 		var tal_breiten: PackedFloat32Array = rv["tal"]
+		var sg: PackedFloat32Array = rv["seg"]
 		var best_d2 := INF
 		var best_surf := 0.0
 		var best_tal := 0.0
 		for i in range(pts.size() - 1):
+			# VORFILTER JE SEGMENT. Diese Schleife lief bisher fuer JEDE Hoehenprobe im
+			# Huellrechteck des Flusses ueber ALLE seine Segmente und rechnete jedes Mal die
+			# volle Projektion. Solange ein Fluss aus acht Stuetzpunkten bestand, war das
+			# billig — nur sah er deshalb auch aus wie mit dem Lineal gezogen. Mit dem
+			# Maeander sind es ueber hundert, und ohne diesen Filter waere die Probe im
+			# selben Mass teurer geworden.
+			# "seg" haelt je Segment ein bereits um die Talbreite aufgeweitetes Rechteck.
+			# Vier Vergleiche gegen zwei Multiplikationen, eine Division und eine Wurzel —
+			# und weil ein Sample nur an wenigen Segmenten wirklich nahe liegt, faellt der
+			# Aufwand jetzt mit der LAENGE des Flusses an und nicht mit seiner Aufloesung.
+			var k := i * 4
+			if x < sg[k] or x > sg[k + 1] or z < sg[k + 2] or z > sg[k + 3]:
+				continue
 			var a := pts[i]
 			var b := pts[i + 1]
 			var dx := b.x - a.x
@@ -2615,6 +2650,73 @@ func _river_carve(x: float, z: float, h: float) -> float:
 
 # Fluss-Splines aufbereiten: Punkte als PackedVector3Array (x, Wasserhöhe y, z),
 # AABB inkl. Tal-Margin für den Early-Out vorberechnen.
+## EINEN FLUSSLAUF NACHTASTEN UND DABEI AUSLENKEN.
+##
+## Der Lauf wird in Schritte von rund MAEANDER_SCHRITT Metern zerlegt; jeder neue Punkt
+## wandert quer zur oertlichen Laufrichtung um bis zu "weite" Meter. Die Auslenkung kommt
+## aus einer Sinusschwebung ueber die LAUFLAENGE und nicht aus einem Rauschfeld: ein Fluss
+## soll gleichmaessig pendeln, waehrend ein Rauschfeld ihn an manchen Stellen zappeln und
+## an anderen schnurgerade laufen liesse.
+##
+## Zwei Wellen mit unrundem Verhaeltnis (1 zu 0.37) verhindern, dass sich das Muster
+## sichtbar wiederholt — bei einer einzelnen Welle zaehlt das Auge aus der Luft die Boegen.
+##
+## Die Hoehe wird zwischen den alten Stuetzpunkten linear interpoliert und bleibt damit
+## monoton fallend; der Fluss fliesst weiter bergab.
+func _maeandern(pts: PackedVector3Array, weite: float, welle: float) -> PackedVector3Array:
+	var laengen := PackedFloat32Array()
+	var gesamt := 0.0
+	laengen.append(0.0)
+	for i in range(1, pts.size()):
+		gesamt += Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length()
+		laengen.append(gesamt)
+	if gesamt < MAEANDER_SCHRITT * 2.0:
+		return pts
+	var out := PackedVector3Array()
+	var n := int(gesamt / MAEANDER_SCHRITT)
+	var j := 0
+	for k in range(n + 1):
+		var s := gesamt * float(k) / float(n)
+		while j < laengen.size() - 2 and laengen[j + 1] < s:
+			j += 1
+		var span := maxf(laengen[j + 1] - laengen[j], 0.001)
+		var t := clampf((s - laengen[j]) / span, 0.0, 1.0)
+		var a := pts[j]
+		var b := pts[j + 1]
+		var px := lerpf(a.x, b.x, t)
+		var pz := lerpf(a.z, b.z, t)
+		var py := lerpf(a.y, b.y, t)
+		var dir := Vector2(b.x - a.x, b.z - a.z).normalized()
+		var quer := Vector2(-dir.y, dir.x)
+		# An beiden Enden auf null: Quelle und Muendung sind gesetzte Orte.
+		var rand := minf(smoothstep(0.0, MAEANDER_RAND, s),
+			smoothstep(0.0, MAEANDER_RAND, gesamt - s))
+		var aus := weite * rand * (sin(s / welle * TAU) * 0.68
+			+ sin(s / (welle * 0.37) * TAU) * 0.32)
+		out.append(Vector3(px + quer.x * aus, py, pz + quer.y * aus))
+	return out
+
+
+## Mittelpunkt und quadrierte Reichweite je Massiv in Packed-Arrays legen.
+##
+## DIE RECHNUNG MUSS ZEICHEN FUER ZEICHEN DIESELBE SEIN wie die, die frueher in der
+## Schleife stand — sonst verschiebt sich der Rand, an dem ein Massiv noch mitrechnet, und
+## das Gelaende ist nicht mehr dasselbe.
+func _ms_vorfilter_bauen() -> void:
+	_ms_x = PackedFloat64Array()
+	_ms_z = PackedFloat64Array()
+	_ms_reich2 = PackedFloat64Array()
+	for ms in massifs:
+		var mp: Vector3 = ms["pos"]
+		var mr := float(ms["r"])
+		var typ := String(ms.get("type", "berg"))
+		var dehn := float(ms.get("dehnung", 1.0))
+		var reichweite := mr * (1.0 if typ == "berg" else 1.9) * maxf(dehn, 1.0 / dehn)
+		_ms_x.append(mp.x)
+		_ms_z.append(mp.z)
+		_ms_reich2.append(reichweite * reichweite)
+
+
 func _prepare_rivers(rvs: Array) -> void:
 	rivers = []
 	for rv in rvs:
@@ -2644,11 +2746,47 @@ func _prepare_rivers(rvs: Array) -> void:
 			if i > 0:
 				lauf += Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length()
 			tal_breiten.append(lerpf(tq, valley, clampf(lauf / tl, 0.0, 1.0)))
+		# MAEANDER. Ein Fluss aus acht Stuetzpunkten ist acht gerade Strecken, und im Bild
+		# aus der Luft war der Canyon deshalb ein schnurgerades blaues Band von gleicher
+		# Breite quer durch die Landschaft — die auffaelligste kuenstliche Linie der Karte.
+		# Der Lauf wird hier auf MAEANDER_SCHRITT Meter nachgetastet und dabei quer zur
+		# Laufrichtung ausgelenkt. Ohne den Schluessel "maeander" passiert nichts, alle
+		# vorhandenen Fluesse bleiben damit Punkt fuer Punkt, wie sie sind.
+		#
+		# DIE AUSLENKUNG WIRD AN DEN ENDEN AUF NULL GEZOGEN. Quelle und Muendung sind
+		# gesetzte Orte — der Bergbach faengt an der Schwelle des Sees an und der Canyon
+		# endet im Endsee. Ein Maeander, der auch dort auslenkt, wuerde den Anfang neben
+		# die Schwelle und das Ende neben den See legen.
+		var maeander: float = rv.get("maeander", 0.0)
+		if maeander > 0.0:
+			pts = _maeandern(pts, maeander, float(rv.get("maeander_welle", 900.0)))
+			# Die Talbreiten haengen an den Stuetzpunkten und muessen mitwachsen.
+			tal_breiten = PackedFloat32Array()
+			var lauf2 := 0.0
+			for i in pts.size():
+				if i > 0:
+					lauf2 += Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length()
+				tal_breiten.append(lerpf(tq, valley, clampf(lauf2 / tl, 0.0, 1.0)))
+		# Huellrechteck je Segment, schon um die Talbreite aufgeweitet — der Vorfilter in
+		# _river_carve liest daraus.
+		var seg := PackedFloat32Array()
+		for i in range(pts.size() - 1):
+			var vv := maxf(tal_breiten[i], tal_breiten[i + 1]) + 6.0
+			seg.append(minf(pts[i].x, pts[i + 1].x) - vv)
+			seg.append(maxf(pts[i].x, pts[i + 1].x) + vv)
+			seg.append(minf(pts[i].z, pts[i + 1].z) - vv)
+			seg.append(maxf(pts[i].z, pts[i + 1].z) + vv)
+		# Das Huellrechteck des GANZEN Flusses muss den Maeander mit umfassen.
+		minx = INF; maxx = -INF; minz = INF; maxz = -INF
+		for p in pts:
+			minx = minf(minx, p.x); maxx = maxf(maxx, p.x)
+			minz = minf(minz, p.z); maxz = maxf(maxz, p.z)
 		var m := valley + 6.0
 		# max_tief MUSS MIT. Diese Funktion baut ein NEUES Woerterbuch; alles, was hier
 		# nicht aufgefuehrt ist, kommt in _river_carve nie an. Genau daran ist der Deckel
 		# gegen den 200-m-Einschnitt zuerst wirkungslos verpufft.
 		rivers.append({"pts": pts, "w": rv.get("w", 14.0), "valley": valley, "tal": tal_breiten,
+			"seg": seg,
 			"depth": rv.get("depth", 4.0), "max_tief": rv.get("max_tief", 0.0),
 			# 1 = Zufluss des Bergsees, -1 = Abfluss. Ihre Hoehen stehen NICHT in der Liste,
 			# sondern werden von seebaeche_einpassen() am Gelaende abgelesen.
