@@ -170,6 +170,11 @@ const FREI_AUSSEN := 50.0
 # Schrittweite, in der ein maeandernder Fluss nachgetastet wird. 70 m ist knapp unter der
 # schmalsten Talbreite der Karte — feiner braucht es nicht, weil _river_carve ohnehin auf
 # das naechste Segment projiziert, und groeber wuerde der Bogen wieder eckig.
+# FLURGROESSE. Das Fleckenrauschen der Wiese laeuft mit 60 m (_patch.frequency) — aus
+# Reiseflughoehe sind das ein bis zwei Bildpunkte, die sich zu EINER Flaeche mitteln, und
+# genau deshalb war das Tiefland ein einziges gleichmaessiges Gruen. 700 m ist die
+# Groessenordnung, in der ein Betrachter aus der Luft ueberhaupt noch Felder unterscheidet.
+const FLUR_M := 700.0
 const MAEANDER_SCHRITT := 70.0
 # Ueber diese Laufstrecke blendet die Auslenkung an Quelle und Muendung ein.
 const MAEANDER_RAND := 700.0
@@ -1623,6 +1628,7 @@ var _vk_lippen_zack := 0.0
 var _vk_zungen_kreis := 0.0
 var _vk_fels_takt := 0.0
 var _vk_block_takt := 0.0
+var _flur_takt := 0.0
 var _vk_rost_takt := 0.0
 var _vk_grus_takt := 0.0
 var _vk_schutt_takt := 0.0
@@ -1801,6 +1807,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	# Dieselbe Umrechnung fuer die Rostflecken, nur auf _patch (einoktavig): aus 60 m
 	# Grundwelle werden VULKAN_ROST_M. Eine dritte Rauschquelle waere hier reine Verschwendung
 	# — ein Fleckenwurf braucht keine Oktaven, er braucht nur eine Laengenskala.
+	_flur_takt = 1.0 / (FLUR_M * _patch.frequency)
 	_vk_rost_takt = 1.0 / (VULKAN_ROST_M * _patch.frequency)
 	_vk_grus_takt = 1.0 / (VULKAN_GRUS_M * _patch.frequency)
 	_vk_schutt_takt = 1.0 / (VULKAN_SCHUTT_M * _patch.frequency)
@@ -5745,7 +5752,22 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 	# Wald/Wiese: SATTES Wiesen-Grün, nur wenige dezente Flecken (kein blasses Mint mehr)
 	var g1 := Color(0.40, 0.61, 0.28)  # frisches, sattes Wiesen-Grün
 	var g2 := Color(0.28, 0.49, 0.23)  # tieferes Grün
-	var wc := g1.lerp(g2, clampf(t * 0.6 + 0.5, 0.0, 1.0))
+	# FLUREN. Beide Wiesentoene wandern ueber rund 700 m gemeinsam zwischen saftig und
+	# trocken. Das Fleckenrauschen "t" darueber bleibt, wie es war — es gibt die Koernung
+	# INNERHALB einer Flur, waehrend diese Lage entscheidet, welche Flur es ueberhaupt ist.
+	#
+	# WARUM NICHT EINFACH DIE ALTEN TOENE WEITER AUSEINANDER: weil das die Koernung
+	# vergroebert haette und nicht die Flaeche gegliedert. Zwei Toene, die sich alle 60 m
+	# abwechseln, mitteln sich aus jeder Reiseflughoehe zu ihrem Mittelwert — egal wie weit
+	# sie auseinanderliegen. Was fehlte, war eine Laengenskala, die das Auge noch aufloest.
+	#
+	# IM HOCHTAL WIRD DIE LAGE ZURUECKGENOMMEN (1 - alpin): eine strohgelbe Flur zwischen
+	# Schneegipfeln auf 1000 m liest sich als Fehler, und die Almwiese dort soll gruen
+	# bleiben.
+	var flur := _patch.get_noise_2d(cen.x * _flur_takt + 4400.0, cen.z * _flur_takt - 2600.0)
+	var trocken := clampf(flur * 1.25 + 0.40, 0.0, 1.0) * (1.0 - alpin)
+	var wc := g1.lerp(Color(0.63, 0.64, 0.32), trocken).lerp(
+		g2.lerp(Color(0.47, 0.53, 0.26), trocken), clampf(t * 0.6 + 0.5, 0.0, 1.0))
 	if t < -0.55:
 		wc = Color(0.50, 0.52, 0.40)   # seltener erdiger Fleck
 	elif t > 0.55:
