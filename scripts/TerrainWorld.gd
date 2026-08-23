@@ -180,6 +180,10 @@ const FLUR_M := 700.0
 # 0.14 auf eine Schwelle im Bereich 0.55..0.95 verschiebt sie um gut ein Drittel des
 # Fensters — genug, damit benachbarte Facetten zusammenfallen, zu wenig, um Schnee in
 # Wandfussnaehe zu legen, wo keiner liegen bleibt.
+# Halbe Fensterbreite, mit der die Umrisstabelle des Bergsees geglaettet wird, in
+# Tabelleneintraegen. Bei 720 Eintraegen ist ein Eintrag ein halbes Grad; 7 sind also
+# +-3,5 Grad.
+const SEE_GLAETTUNG := 11
 const SCHNEE_M := 150.0
 const SCHNEE_KORN := 0.14
 const MAEANDER_SCHRITT := 70.0
@@ -2996,9 +3000,22 @@ func _see_umriss_faktor(a: float) -> float:
 	# Sanduhr mit vier gleichen Fluegeln, ein Schmetterling. Im Referenzbild schiebt sich
 	# die Enge von EINER Seite herein: von der flachen, wo ein Schuttfaecher in den See
 	# waechst. Die steile Felsflanke (+90 Grad) bleibt eine fast gerade Uferlinie.
-	v *= maxf(1.0 - 0.34 * _winkelglocke(a, 1.5708, 0.4363)
-		- 0.62 * _winkelglocke(a, -1.5708, 0.3665), 0.18)
-	v += 0.72 * _winkelglocke(a, 0.0, 0.1745)          # schmaler Arm nach hinten
+	# DIE TAILLE IST VON 0.34/0.62 AUF 0.20/0.36 HERUNTER, UND DAS IST DIE EIGENTLICHE
+	# KORREKTUR AM SCHMETTERLING. Mit 0.62 fiel der Radius bei -90 Grad auf 0.38 seines
+	# Werts — der See war dort fast durchgeschnuert, und was links und rechts davon
+	# stehenblieb, las sich von oben zwangslaeufig als zwei Fluegel. Die Enge SOLL da sein
+	# (ein Schuttfaecher schiebt sich von der flachen Seite herein, deshalb bleiben die
+	# beiden Seiten ungleich), aber sie soll den See verengen und nicht teilen.
+	# Zuerst versucht und zu schwach: nur die fertige Umrisstabelle glaetten. Das rundet die
+	# Spitzen, aber die Fluegel kommen nicht von den schmalen Glocken — sie kommen von
+	# dieser Einschnuerung. Die Glaettung bleibt trotzdem drin, sie kostet nichts und nimmt
+	# den Keilen ihre Kanten.
+	v *= maxf(1.0 - 0.13 * _winkelglocke(a, 1.5708, 0.4363)
+		- 0.24 * _winkelglocke(a, -1.5708, 0.3665), 0.18)
+	# ARM VON 0.72 AUF 0.48 BEI GROESSERER BREITE. Eine Glocke von 10 Grad Breite mit
+	# 0.72 Amplitude ist in der Ebene kein Arm, sondern ein Dorn — der obere Fluegel des
+	# Schmetterlings. Breiter und flacher wird daraus eine Bucht, die talaufwaerts auslaeuft.
+	v += 0.48 * _winkelglocke(a, 0.0, 0.2400)          # Arm nach hinten
 	# Der Arm ist als Polarfunktion zwangslaeufig ein Keil. Diese kleine Glocke daneben
 	# knickt ihn aus der Achse, sonst steht dort ein sauberes gleichschenkliges Dreieck.
 	v += 0.16 * _winkelglocke(a, 0.1571, 0.0873)
@@ -3232,6 +3249,35 @@ func _see_umriss_bauen(lk: Dictionary) -> void:
 		wall[i] = _see_wandhoehe(a)
 		sch[i] = _see_scharte(a)
 		rmax = maxf(rmax, r)
+	# DIE KANTEN RUNDEN, BEVOR DIE TABELLE STEHT.
+	#
+	# Der Umriss ist eine Summe aus zwoelf Winkelglocken, mehrere davon nur vier bis fuenf
+	# Grad breit. Eine schmale Glocke auf einem RADIUS ist in der Ebene keine Ausbuchtung,
+	# sondern ein Keil — der Code sagt das beim Arm selbst ("als Polarfunktion
+	# zwangslaeufig ein Keil"). Vier solche Keile ergeben von oben einen Schmetterling, und
+	# genau so sah der See aus: vier spitze Zipfel um eine eingeschnuerte Mitte.
+	#
+	# ANGEFASST WIRD KEINE DER ZWOELF GLOCKEN. Sie sind einzeln eingemessen und tragen
+	# Bucht, Kap, Haken und Abfluss an ihren Winkeln; wer an ihnen dreht, verschiebt den
+	# Bachkopf oder die Scharte. Geglaettet wird stattdessen die FERTIGE Tabelle mit einem
+	# zyklischen gleitenden Mittel. Die grossen Formen ueberleben das — eine Glocke von
+	# 22 Grad Breite verliert kaum etwas —, waehrend die Spitzen zu Landzungen mit Rundung
+	# werden.
+	#
+	# DAS FENSTER IST EIN KOMPROMISS UND KEIN OPTIMUM: schmaler laesst die Zipfel stehen,
+	# breiter frisst das Haken-Kap auf, das mit 4,9 Grad Breite ohnehin an der Grenze
+	# dessen liegt, was das Wassernetz mit seinen 192 Richtungen zeichnen kann.
+	var glatt := PackedFloat32Array()
+	glatt.resize(SEE_TABELLE)
+	for i in SEE_TABELLE:
+		var summe := 0.0
+		for k in range(-SEE_GLAETTUNG, SEE_GLAETTUNG + 1):
+			summe += rad[((i + k) % SEE_TABELLE + SEE_TABELLE) % SEE_TABELLE]
+		glatt[i] = summe / float(2 * SEE_GLAETTUNG + 1)
+	rad = glatt
+	rmax = 0.0
+	for r2 in rad:
+		rmax = maxf(rmax, r2)
 	lk["_rad"] = rad
 	lk["_hang"] = hang
 	lk["_wall"] = wall
