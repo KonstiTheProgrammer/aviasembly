@@ -186,6 +186,11 @@ const FLUR_M := 700.0
 const SEE_GLAETTUNG := 11
 # Wie stark und auf welcher Laenge die Biomgrenze ausgefranst wird. 260 m ist klein genug,
 # dass der Saum zerfasert, und gross genug, dass keine Einzelflecken herausbrechen.
+# Wie weit die Strandschwelle oertlich wandert (in Metern Hoehe) und auf welcher Laenge.
+# 1.1 m klingt wenig, ist an der Kueste aber viel: der Strandschelf flacht die Haenge dort
+# bewusst ab (siehe shelf_k in height_at), ein Meter Hoehe sind also viele Meter Grundriss.
+const STRAND_UNRUHE := 1.1
+const STRAND_M := 190.0
 const BIOM_M := 260.0
 const BIOM_UNRUHE := 0.115
 const SCHNEE_M := 150.0
@@ -1646,6 +1651,7 @@ var _vk_block_takt := 0.0
 var _flur_takt := 0.0
 var _schnee_takt := 0.0
 var _biom_takt := 0.0
+var _strand_takt := 0.0
 var _vk_rost_takt := 0.0
 var _vk_grus_takt := 0.0
 var _vk_schutt_takt := 0.0
@@ -1827,6 +1833,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_flur_takt = 1.0 / (FLUR_M * _patch.frequency)
 	_schnee_takt = 1.0 / (SCHNEE_M * _patch.frequency)
 	_biom_takt = 1.0 / (BIOM_M * _patch.frequency)
+	_strand_takt = 1.0 / (STRAND_M * _patch.frequency)
 	_vk_rost_takt = 1.0 / (VULKAN_ROST_M * _patch.frequency)
 	_vk_grus_takt = 1.0 / (VULKAN_GRUS_M * _patch.frequency)
 	_vk_schutt_takt = 1.0 / (VULKAN_SCHUTT_M * _patch.frequency)
@@ -5557,8 +5564,25 @@ func _vulkan_haut(vk: Dictionary, cen: Vector3, md: float, ux: float, uz: float,
 func _face_color(cen: Vector3, ny: float) -> Color:
 	# GEDÄMPFTE, erdig-pastellige Low-Poly-Palette (Aviassembly-Look): Sage-Grün,
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
-	if cen.y < SEA_Y + 1.6:
-		return Color(0.93, 0.85, 0.62)        # heller, warmer Sandstrand/Ufer
+	# STRANDSAUM. Hier stand eine feste Hoehenschwelle mit EINER konstanten Farbe, und
+	# beides war im Bild zu sehen: jede flache Kuestenzone lag als gleichmaessig cremefarbene
+	# Flaeche da, umrandet von einer glatten geschlossenen Kurve. Das ist zwangslaeufig so —
+	# eine feste Schwelle auf einem stetigen Hoehenfeld IST eine Hoehenlinie, und eine
+	# Konstante hat keine Zeichnung. Gefunden mit tools/_bodenprobe.gd, nachdem der Verdacht
+	# zuerst auf dem Wuestenzweig und dann auf der Heide gelegen hatte.
+	#
+	# Jetzt wandert die Schwelle oertlich um bis zu STRAND_UNRUHE Meter, und der Sand
+	# staffelt sich zwischen trockenem, hellem Duenensand und feuchtem, dunklerem Saum.
+	#
+	# DIE RAUSCHPROBE STEHT HINTER EINER SCHRANKE, und das ist wichtig: diese Zeile ist der
+	# ERSTE Test in _face_color und laeuft damit fuer JEDES Dreieck der Welt, 4608-mal je
+	# Chunk. Nur Dreiecke, die ueberhaupt in Reichweite des Saums liegen, zahlen dafuer.
+	if cen.y < SEA_Y + 1.6 + STRAND_UNRUHE:
+		var sn := _patch.get_noise_2d(cen.x * _strand_takt, cen.z * _strand_takt)
+		if cen.y < SEA_Y + 1.6 + STRAND_UNRUHE * sn:
+			var feucht := clampf((cen.y - SEA_Y) / 2.7, 0.0, 1.0)
+			return Color(0.86, 0.77, 0.56).lerp(Color(0.95, 0.88, 0.66), feucht).lerp(
+				Color(0.90, 0.83, 0.60), clampf(sn * 0.5 + 0.5, 0.0, 1.0) * 0.45)
 	# --- BERGSEE: KIESSAUM ------------------------------------------------------------
 	# Die ALMWIESE stand frueher in dieser Schleife und hing am Uferabstand. Sie ist
 	# umgezogen (_tal_wiese, weiter oben) — hier bleibt nur der Kies, und der GEHOERT ans
@@ -5892,7 +5916,16 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 					clampf(t * 0.6 + 0.5, 0.0, 1.0))
 		Biome.HEIDE:
 			# Heide/Herbst: staubiges Rosé/Ocker
-			var hc := Color(0.74, 0.68, 0.50).lerp(Color(0.66, 0.58, 0.50),
+			# DIE FLURLAGE MUSS HIER AM STAERKSTEN WIRKEN. Die Heide war der flaechigste
+			# Blob der Karte: ihre beiden Toene liegen nur 0.085 in der Leuchtdichte
+			# auseinander UND wechseln auf 60 m, mitteln sich aus der Luft also zu einer
+			# einzigen Farbe. Eine Bodenprobe (tools/_bodenprobe.gd) an zwei 450 m
+			# auseinanderliegenden Punkten lieferte denselben Wert auf zwei Nachkommastellen.
+			# Erst hat der Verdacht auf dem Wuestenzweig gelegen — der ist es nicht, die
+			# hellen Flaechen um die Grossstadt sind HEIDE.
+			var ht := clampf(flur * 1.15 + 0.40, 0.0, 1.0)
+			var hc := Color(0.79, 0.73, 0.53).lerp(Color(0.62, 0.57, 0.44), ht).lerp(
+				Color(0.71, 0.63, 0.53).lerp(Color(0.55, 0.49, 0.42), ht),
 				clampf(t * 0.6 + 0.5, 0.0, 1.0))
 			if t < -0.40:
 				hc = Color(0.74, 0.62, 0.60)   # Rosé-Fleck
