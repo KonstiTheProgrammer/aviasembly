@@ -220,6 +220,9 @@ const TAL_KETTE_VERSATZ := 550.0
 # Platz schliesst die Querkette das Tal ab — man muss also drehen und wieder hinaus.
 const ADLERHORST_LAENGS := 8800.0
 const ADLERHORST_HOEHE := 90.0
+# Abstand des Hoehlenportals von der Bahnachse, quer dazu. Begruendung an der Baustelle
+# (Main._setup_world, "FELSENBASIS ADLERHORST").
+const ADLERHORST_HOEHLE_QUER := 462.0
 # FELSENTOR am Taleingang: Position auf der Talachse. Weit genug drinnen, dass man schon
 # zwischen den Waenden fliegt, weit genug vor dem Platz fuer einen langen Endanflug.
 const TOR_LAENGS := 3600.0
@@ -1194,6 +1197,21 @@ func _setup_world() -> void:
 	# echten Hang, der zur dicken Seite hin um ueber 400 m ansteigt.
 	Landmarks.build_felsentor(fly_world, Vector3(tor_p.x, tor_y, tor_p.y),
 		TOR_SPANN, 420.0, 105.0, atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y), TOR_SEED, terrain)
+	# FELSENBASIS ADLERHORST: der Bergflugplatz bekommt seine Halle IM Berg.
+	#
+	# DIE STELLE IST GEMESSEN, nicht gesetzt (tools/_hoehle_platz.gd). Quer zur Bahn steht
+	# das Gelaende bei 400 m noch auf Flugfeldhoehe, bei 480 m schon auf 115 m und bei
+	# 560 m auf 237 — die Wand steigt genau an der Kante der Flachzone an. 440 m ist der
+	# letzte Abstand, an dem der Hallenboden ohne Aushub auf die Bahnhoehe passt, und
+	# 120 m tiefer im Berg stehen ueber einer 40-m-Halle noch rund 125 m Fels.
+	# DIE SEITE IST DIE FLACHERE DER BEIDEN: gegenueber schiesst der Hang mit Steigung 5,8
+	# hoch, dort haette die Felsstirn keinen Platz und stuende als Scheibe im Nichts.
+	var hb_quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
+	var adler := _adlerhorst_pos()
+	var hb_p := Vector2(adler.x, adler.z) + hb_quer * ADLERHORST_HOEHLE_QUER
+	Landmarks.build_felsenbasis(fly_world,
+		Vector3(hb_p.x, ADLERHORST_HOEHE, hb_p.y),
+		atan2(hb_quer.x, hb_quer.y))
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
 	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.
