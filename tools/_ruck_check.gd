@@ -10,6 +10,23 @@
 ## alle Chunks bzw. alle Flora-MultiMeshes laufen. Eine Gesamtzahl sagt nicht, welcher
 ## davon den Frame reisst — und die teuerste Vermutung war hier schon zweimal falsch.
 ##
+## STAND DER MESSUNG (Reiseflug 60 s, 170 m/s, 400 m, 3600 Frames):
+##   Mittel 1286 us, p50 1125, p90 2409, p99 5373, MAX 9476
+##   Frames ueber 4 ms: 107, ueber 8,3 ms: 1, ueber 16,7 ms: 0
+##
+## AELTERE ZAHLEN IN DIESER DATEI GELTEN FUER EINE ANDERE WELT und duerfen nicht als
+## Zielwert gelesen werden. Als hier einmal "Mittel 294 us, null Frames ueber 4 ms" stand,
+## gab es weder das Hochgebirge noch den Vulkan noch die Vorstadt; die Flora haelt heute
+## rund 306 000 Instanzen in Baumreichweite. Wer die 294 als Sollwert nimmt, sucht einen
+## Fehler, den es nicht gibt — mir ist das passiert.
+## ZUM VERGLEICH derselbe Lauf auf dem Stand vor dem Weltumbau (c074288), also mit
+## demselben Hochgebirge und Vulkan, aber ohne die Optimierung der Massivschleife:
+##   Mittel 7563 us, 3502 Frames ueber 4 ms, 440 ueber 8,3 ms.
+## Der Gewinn kommt fast vollstaendig daher, dass height_at von 119 auf 14 us gefallen ist
+## (siehe TerrainWorld.height_at, "DER VORFILTER LAS SEINE ZAHLEN AUS DEM WOERTERBUCH"):
+## der Worker liefert Chunks schneller, die Flora-Warteschlange laeuft leer statt sich
+## aufzustauen, und der Hauptthread wartet weniger.
+##
 ## Godot --headless --path . --script res://tools/_ruck_check.gd -- [s=60] [v=170] [h=400]
 ##
 ## HEADLESS MISST KEINE GPU. Was hier steht, ist reine Main-Thread-Zeit. Genau die

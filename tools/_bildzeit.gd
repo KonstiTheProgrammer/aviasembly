@@ -68,7 +68,8 @@ func _lauf() -> void:
 		["Reiseflug 1200 m", Vector3(0, 1200, -1500), Vector3(0, 200, -9000)],
 		["ueber der Stadt", Vector3(4300, 420, 4100), Vector3(4300, 60, 2500)],
 	]
-	print("%-22s %10s %10s %10s %10s" % ["Stellung", "alles", "ohne Flora", "ohne Schuerze", "ohne Wolken"])
+	print("%-22s %7s %7s %7s %7s %7s %7s %7s"
+		% ["Stellung", "alles", "-Flora", "-FlSchat", "-Fern", "-Gelae", "", ""])
 	for st in stellungen:
 		cam.look_at_from_position(st[1], st[2], Vector3.UP)
 		main.terrain.update_center(st[1])
@@ -76,9 +77,9 @@ func _lauf() -> void:
 		var zeile := "%-22s" % st[0]
 		var calls := 0
 		var prims := 0
-		for fall in ["alles", "flora", "schuerze", "wolken"]:
+		for fall in ["alles", "flora", "florasch", "schuerze", "gelaende"]:
 			_schalten(fall)
-			zeile += " %9.2f" % await _median()
+			zeile += " %7.2f" % await _median()
 			if fall == "alles":
 				calls = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 				prims = int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
@@ -91,16 +92,38 @@ func _lauf() -> void:
 	quit()
 
 
+## Genau EINEN Posten abschalten, alle anderen an. "alles" schaltet nichts ab.
+##
+## GELAENDE UND FLORA SIND GETRENNT: beide haengen an denselben Chunk-Knoten, das
+## Gelaendenetz als MeshInstance3D, die Bepflanzung als MultiMeshInstance3D. Wer den
+## ganzen Chunk unsichtbar macht, misst beide zusammen und lernt nichts.
 func _schalten(fall: String) -> void:
 	main.fern_root.visible = fall != "schuerze"
 	for n in main.fly_world.get_children():
-		if String(n.name).begins_with("Cloud") or String(n.name).begins_with("Wolken"):
+		var nm := String(n.name)
+		if nm.begins_with("Cloud") or nm.begins_with("Wolken"):
 			(n as Node3D).visible = fall != "wolken"
-	# Flora haengt als MultiMeshInstance an den Chunks.
+		elif n != main.terrain and n != main.fern_root and n is Node3D:
+			# Alles uebrige in der Flugwelt: Staedte, Wahrzeichen, Schiffe, Windpark.
+			(n as Node3D).visible = fall != "bauten"
 	for c in main.terrain.get_children():
+		if c is MeshInstance3D:
+			# Die Wasserflaeche des Terrains haengt direkt unter ihm.
+			(c as MeshInstance3D).visible = fall != "wasser"
+			continue
 		for k in c.get_children():
 			if k is MultiMeshInstance3D:
 				(k as MultiMeshInstance3D).visible = fall != "flora"
+			elif k is MeshInstance3D:
+				(k as MeshInstance3D).visible = fall != "gelaende"
+			# "florasch": die Baeume bleiben SICHTBAR, werfen aber keinen Schatten mehr.
+			# Damit trennt sich, was ihre Geometrie im Kamerapass kostet, von dem, was sie
+			# in den vier Schattenkaskaden der Sonne kostet — dort laeuft dieselbe
+			# Geometrie noch einmal je Kaskade.
+			if k is MultiMeshInstance3D:
+				(k as MultiMeshInstance3D).cast_shadow = (
+					GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if fall == "florasch"
+					else GeometryInstance3D.SHADOW_CASTING_SETTING_ON)
 
 
 func _median() -> float:
