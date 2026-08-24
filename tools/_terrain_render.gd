@@ -73,6 +73,18 @@ var _shots: Array = [
 	# Wasser des ersten Stuetzpunkts, und blickt die Schlucht hinunter.
 	["canyon", Vector3(-6600, 81, 900), Vector3(-5250, 22, 2800)],
 	["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)], # Schlucht von oben
+	# FELSENBASIS ADLERHORST. Das Portal steht bei (-5945, 90.7, -9716); die Achse in den
+	# Berg zeigt nach (-0.7893, -0.6139), heraus also nach (0.7893, 0.6139).
+	# ANFLUG ist der Blickwinkel der Vorlage: tief, auf der Achse, rund 160 m davor, mit dem
+	# Blick tief in den Stollen hinein — genau die Stellung, aus der ein Flugzeug einfliegt.
+	# Wer hier Zahlen aendert, aendert die Vergleichbarkeit ALLER bisherigen Abnahmebilder.
+	["basis_anflug", Vector3(-5819, 112, -9618), Vector3(-5992, 100, -9753)],
+	# Weit genug zurueck, dass Portal UND Felsstirn ins Bild passen.
+	["basis_fern", Vector3(-5620, 190, -9420), Vector3(-5945, 120, -9716)],
+	# In der Halle, Blick nach hinten in den Berg.
+	["basis_halle", Vector3(-6000, 104, -9760), Vector3(-6130, 98, -9862)],
+	# In der Halle, Blick ZURUECK auf das Portal — der Gegenschuss zum Anflug.
+	["basis_zurueck", Vector3(-6070, 106, -9815), Vector3(-5900, 104, -9683)],
 	# HOCHGEBIRGE im Nordwesten mit dem Bergflugplatz ADLERHORST auf dem Sattel.
 	# Der Grat laeuft von (-9600,-4400) nach Suedosten; Kamera quer dazu, damit die
 	# Kette als Kette zu sehen ist und nicht als einzelner Huegel.

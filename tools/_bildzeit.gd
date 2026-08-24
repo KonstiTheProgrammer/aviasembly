@@ -64,6 +64,7 @@ func _lauf() -> void:
 		c.visible = false
 
 	var stellungen := [
+		["Basis ADLERHORST", Vector3(-5819, 112, -9618), Vector3(-5992, 100, -9753)],
 		["Tiefflug ueber Wald", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],
 		["Reiseflug 1200 m", Vector3(0, 1200, -1500), Vector3(0, 200, -9000)],
 		["ueber der Stadt", Vector3(4300, 420, 4100), Vector3(4300, 60, 2500)],

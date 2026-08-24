@@ -1773,10 +1773,29 @@ static func build_felsentor(parent: Node3D, mitte: Vector3, spannweite: float,
 ## andersherum liegen als beim Felsentor, das man von aussen sieht. Ein Vorzeichenfehler
 ## waere dort ein Loch im Berg — hier kann es keines geben.
 const HB_LAENGE := 190.0       # Tiefe in den Berg
-const HB_W_MUND := 30.0        # halbe Breite am Portal
-const HB_H_MUND := 34.0        # lichte Hoehe am Portal
-const HB_W_HALLE := 46.0       # halbe Breite der Halle
-const HB_H_HALLE := 40.0       # lichte Hoehe der Halle
+# DIE EINFAHRT WAR ZU KLEIN, und zwar nicht ein bisschen. Gemessen im Abnahmebild
+# basis_anflug (Kamera 160 m davor, 64 Grad senkrecht, also rund 200 m Bildhoehe in der
+# Portalebene) fuellte das alte Loch 30 x 34 knapp ein Sechstel der Bildhoehe — in der
+# Vorlage fuellt der Bogen praktisch das ganze Bild. Die Halle DAHINTER hatte mit 92 m
+# Breite laengst das richtige Mass; falsch war allein der Uebergang: ein 60 m breiter,
+# 34 m hoher Schlitz vor einem 92-m-Saal. Jetzt ist der Mund fast so gross wie die Halle,
+# und die Halle waechst mit, damit der Stollen nach innen nicht ENGER wird.
+# DIE HOEHEN SIND KEINE FREIEN ZAHLEN: h - w ist die Kaempferhoehe, ueber der ein
+# HALBKREIS vom Radius w sitzt (siehe _hb_ring). 70 - 50 = 20 m senkrechte Wange,
+# darueber ein 50-m-Bogen; 82 - 58 = 24 m in der Halle.
+const HB_W_MUND := 50.0        # halbe Breite am Portal  (lichte Weite 100 m)
+const HB_H_MUND := 70.0        # lichte Hoehe am Portal  (20 m Kaempfer + 50 m Bogen)
+const HB_W_HALLE := 58.0       # halbe Breite der Halle
+const HB_H_HALLE := 82.0       # lichte Hoehe der Halle  (24 m Kaempfer + 58 m Bogen)
+# DER PORTALRAHMEN: ein umlaufendes Betonband, in den Fels gesetzt. Ohne ihn bleibt die
+# Einfahrt ein Loch im Berg — die Vorlage zeigt ein BAUWERK. Die drei Masse sind das,
+# was den Ring als Bauteil lesbar macht: eine Bandbreite, ein Vortritt vor die Felswand
+# (sonst schluckt ihn das Relief der Stirn) und ein Griff in den Stollen hinein.
+const HB_RING_B := 11.0        # Breite des Betonbandes
+const HB_RING_VOR := 7.0       # wie weit es vor die Wandebene der Stirn tritt
+const HB_RING_TIEF := 14.0     # wie weit es in den Stollen hineingreift
+const HB_RING_LAMPEN := 34     # Warnlichter im Kranz (nur ueber der Kaempferhoehe)
+const HB_LOCH_B := 9.0         # Breite der Laibung zwischen Wandloch und Stollenmund
 const HB_RINGE := 28           # Querschnitte laengs
 const HB_STIRN_B := 196.0      # halbe Breite der Felsstirn am Portal
 # HOEHE DER STIRN. 88 m waren zu wenig, und der Fehler war ein Massstabsfehler: der Hang
@@ -1790,27 +1809,61 @@ const HB_STIRN_T := 26.0       # wie weit sie vor das Portal tritt
 # traegt 8-m-Dreiecke, die Stirn hatte 24-m-Segmente. Zwei Flaechen mit so
 # verschiedener Koernung koennen nicht ineinander uebergehen, egal wie gut Farbe und
 # Umriss stimmen — das Auge sieht die Naht an der Dreiecksgroesse.
-const HB_PUNKTE := 40          # Punkte je Querschnitt (in _hb_ring fest verdrahtet)
+# 52 STATT 40 PUNKTE, weil der Bogen jetzt 50 m Radius hat: mit 20 Bogenpunkten waere
+# jede Sehne 8 m lang gewesen, und ein Halbkreis aus 8-m-Sehnen liest sich aus 160 m als
+# Vieleck und nicht als Bogen. 26 Punkte druecken die Sehne auf 6 m.
+const HB_PUNKTE := 52          # Punkte je Querschnitt (in _hb_ring fest verdrahtet)
 const HB_STIRN_STUFEN := 7     # radiale Unterteilung der Wandflaeche
 
 
-## Ein Querschnitt: geschlossener Ring aus 16 Punkten (x quer, y ueber dem Boden).
+## Ein Querschnitt: geschlossener Ring aus HB_PUNKTE Punkten (x quer, y ueber dem Boden).
 ## Senkrechte Waende bis zur Kaempferhoehe, darueber ein Bogen — der Querschnitt eines
 ## gesprengten Stollens, nicht ein Rohr.
 static func _hb_ring(w: float, h: float) -> PackedVector2Array:
 	var p := PackedVector2Array()
-	var kampf := h * 0.52
-	# Rechte Wand hoch (6), Bogen (20), linke Wand herunter (6), Boden zurueck (8) = 40.
-	for i in 6:
-		p.append(Vector2(w, kampf * float(i) / 6.0))
-	for i in 20:
-		var a := PI * float(i) / 19.0
-		p.append(Vector2(w * cos(a), kampf + (h - kampf) * sin(a)))
-	for i in 6:
-		p.append(Vector2(-w, kampf * (1.0 - (float(i) + 1.0) / 6.0)))
+	# DIE KAEMPFERHOEHE IST h - w UND NICHT h * 0.52, und daran haengt, ob der Bogen als
+	# Bogen liest. Bei h * 0.52 ist die Bogenhoehe (h - kampf) an die Hoehe gekoppelt statt
+	# an die Breite: beim alten Mund 30 x 34 sass ueber 16 m Wange ein 16 m hoher Bogen
+	# ueber 60 m Spannweite — eine flache Ellipse, im Bild ein liegender Schlitz. Mit
+	# kampf = h - w ist (h - kampf) = w, der Bogen also ein exakter HALBKREIS ueber
+	# senkrechten Kaempfern, genau wie in der Vorlage.
+	# Die Klammer faengt nur ab, dass jemand h < w setzt (dann bliebe keine Wange uebrig).
+	var kampf := clampf(h - w, h * 0.14, h * 0.62)
+	# Rechte Wand hoch (8), Bogen (26), linke Wand herunter (8), Boden zurueck (10) = 52.
 	for i in 8:
-		p.append(Vector2(lerpf(-w, w, (float(i) + 0.5) / 8.0), 0.0))
+		p.append(Vector2(w, kampf * float(i) / 8.0))
+	for i in 26:
+		var a := PI * float(i) / 25.0
+		p.append(Vector2(w * cos(a), kampf + (h - kampf) * sin(a)))
+	for i in 8:
+		p.append(Vector2(-w, kampf * (1.0 - (float(i) + 1.0) / 8.0)))
+	for i in 10:
+		p.append(Vector2(lerpf(-w, w, (float(i) + 0.5) / 10.0), 0.0))
 	return p
+
+
+## EIN UMRISS, UM d NACH AUSSEN VERSETZT. Gebraucht fuer den Portalrahmen: sein Band muss
+## ueberall gleich breit sein, auch an der Ecke, wo die senkrechte Wange in den Bogen
+## uebergeht.
+##
+## WARUM NICHT RADIAL SKALIEREN (p * faktor, wie es die Laibung tut): am Bogen liefert das
+## dasselbe, an den senkrechten Wangen aber nicht — dort waechst mit dem Faktor auch die
+## HOEHE des Kaempfers mit, und das Band wird nach unten hin schmaler. Ein Rahmen, dessen
+## Breite mit der Hoehe wandert, liest sich nicht als Bauteil.
+## Die Normale ist der Mittelwert der beiden anliegenden Kantennormalen; bei einem
+## gegen den Uhrzeigersinn umlaufenden Umriss zeigt (e.y, -e.x) nach aussen.
+static func _hb_aussen(q: PackedVector2Array, d: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var n := q.size()
+	for i in n:
+		var a := q[(i - 1 + n) % n]
+		var b := q[i]
+		var c := q[(i + 1) % n]
+		var e0 := (b - a).normalized()
+		var e1 := (c - b).normalized()
+		var nn := (Vector2(e0.y, -e0.x) + Vector2(e1.y, -e1.x)).normalized()
+		out.append(b + nn * d)
+	return out
 
 
 ## Radius des Portalumrisses unter dem Winkel wnk, gemessen von der Portalmitte.
@@ -1891,7 +1944,10 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	# (tools/_bodenprobe.gd) liegt der Fels dort bei rund 0.56/0.51/0.45.
 	var fels := Color(0.32, 0.27, 0.22)
 	var stirn_c := Color(0.56, 0.51, 0.45)
-	var beton := Color(0.46, 0.45, 0.43)
+	# Der Boden ist DUNKLER Asphaltbeton (0.30) statt hellem Estrich (0.46): auf einem
+	# hellen Boden kann keine Lampe mehr einen Lichtkreis zeichnen, und die nassen
+	# Spiegelungen der Vorlage brauchen einen dunklen Grund, auf dem sie stehen.
+	var beton := Color(0.30, 0.30, 0.31)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_smooth_group(-1)
@@ -1922,8 +1978,15 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 				# sonst laufen die Ausbrueche als saubere Laengsrippen durch den Stollen.
 				var grob := _hb_rau(q.x * 0.045, q.y * 0.045 + z * 0.021)
 				var fein := _hb_rau(q.x * 0.16 + 4.0, q.y * 0.16 + z * 0.083)
-				var f := 1.0 + 0.085 * grob + 0.040 * fein
-				punkte.append(Vector3(q.x * f, q.y * f, z + 2.2 * grob))
+				# AM PORTAL BLEIBT DIE ROEHRE GLATT, und das ist die Bedingung dafuer, dass
+				# der Rahmen ueberhaupt einer wird: der Betonring sitzt genau auf diesem
+				# Umriss. Sitzt er auf einer gebrochenen Kante, wandert sein Band um bis zu
+				# 12 Prozent des Radius, also fuenf Meter — dann ist es kein Ring mehr,
+				# sondern eine Girlande. Erst ab rund 15 Prozent der Tiefe, wo der Ring
+				# aufhoert, bricht der Fels wieder auf.
+				var glatt := smoothstep(0.02, 0.16, t)
+				var f := 1.0 + (0.085 * grob + 0.040 * fein) * glatt
+				punkte.append(Vector3(q.x * f, q.y * f, z + 2.2 * grob * glatt))
 			else:
 				punkte.append(Vector3(q.x, q.y, z))
 		ringe.append(punkte)
@@ -1960,6 +2023,13 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	# Fledermausfluegel, keine Felswand.
 	# Jetzt liegen Aussenumriss und Lochrand in DERSELBEN Ebene; dazwischen spannt eine
 	# ebene Flaeche, so wie eine Wand aussieht. Die Tiefe steckt allein in der Laibung.
+	var quer0 := _hb_ring(HB_W_MUND, HB_H_MUND)
+	# LAIBUNGSBAND JETZT PARALLEL VERSETZT statt radial skaliert (frueher 1.18 / 1.16).
+	# Der Grund ist derselbe wie beim Rahmen: die Skalierung hebt mit dem Faktor auch die
+	# Kaempferhoehe an, das Band waere unten schmal und oben breit. Mit _hb_aussen ist es
+	# ueberall 9 m — und 9 m sind zwei Meter WENIGER als die Ringbreite, damit der Beton
+	# die ausgefranste Lochkante der Rasterwand in jedem Fall ueberdeckt.
+	var loch2 := _hb_aussen(quer0, HB_LOCH_B)
 	var loch: Array = []
 	var aus: Array = []
 	for i in mund.size():
@@ -1977,11 +2047,10 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 		ax *= 1.0 + 0.10 * _hb_rau(float(i) * 0.29, 4.0)
 		ay *= 1.0 + 0.07 * _hb_rau(float(i) * 0.31, 9.0)
 		aus.append(Vector3(ax, ay, -HB_STIRN_T + ay * 0.34))
-		# Der Laibungsring liegt weiter aussen als frueher (1.10 -> 1.18): zusammen mit der
-		# 0.94 der Wandflaeche ergibt das rund ein Fuenftel Ueberlapp, und damit greift die
-		# Wand auch dort noch, wo der Umriss zwischen zwei Randpunkten am staerksten
-		# einspringt.
-		loch.append(Vector3(p.x * 1.18, p.y * 1.16, -HB_STIRN_T + p.y * 0.34))
+		# Unter die Sohle darf das Band nicht: dort liegt der Hallenboden, und ein Loch,
+		# das unter ihn reicht, gaebe eine Fuge zwischen Boden und Wand.
+		var ly := maxf(loch2[i].y, 0.0)
+		loch.append(Vector3(loch2[i].x, ly, -HB_STIRN_T + ly * 0.34))
 	# DIE WANDFLAECHE IST EIN RASTER, KEIN RINGFAECHER.
 	#
 	# ZWEI ANLAEUFE VORHER, beide an derselben Ursache gescheitert: die Flaeche entstand
@@ -1995,7 +2064,11 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	# eines hat, und das LOCH wird hineingeschnitten: jeder Rasterpunkt, der innerhalb des
 	# Portalumrisses liegt, wird radial auf diesen Umriss geschoben. Zellen ganz im Loch
 	# werden dadurch entartet und verschwinden, Zellen am Rand bilden die Leibungskante.
-	var lz := HB_H_MUND * 0.45          # Mitte des Portals, Bezug fuer die Radien
+	# BEZUGSPUNKT DER RADIEN IST DER BOGENMITTELPUNKT, also die Kaempferhoehe h - w, und
+	# nicht mehr h * 0.45. Ueber dem Kaempfer ist der Umriss ein Kreis um genau diesen
+	# Punkt — von dort aus gemessen ist _hb_lochradius im ganzen Bogen konstant, und das
+	# Loch in der Rasterwand wird ein sauberer Halbkreis statt einer Beule.
+	var lz := HB_H_MUND - HB_W_MUND
 	var nx := 34
 	var ny := 18
 	var gitter: Array = []
@@ -2035,7 +2108,12 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 			# gesprengt), in der Flaeche aufgebrochen, am Aussenrand wieder ruhig, damit
 			# die Stirn im Hang verschwindet.
 			var rand_ab := minf(1.0 - absf(fx), float(gy) / float(ny) * 2.0)
-			var nah := clampf((rr - 40.0) / 90.0, 0.0, 1.0)
+			# DIE RUHIGE ZONE MUSS DEN RAHMEN UMFASSEN, sonst frisst ihn das Relief: der
+			# Ring steht 7 m vor der Wandebene, die Ausbrueche der Wand messen bis zu 15 m.
+			# Wo die Wand vor dem Ring steht, ist er kein Bauteil mehr, sondern ein halb
+			# verschuetteter Bogen. Ruhig bleibt deshalb alles bis 12 m ausserhalb des
+			# Ringrandes (50 + 11 + 12 = 73 m Radius), erst dahinter bricht der Fels auf.
+			var nah := clampf((rr - (HB_W_MUND + HB_RING_B + 12.0)) / 80.0, 0.0, 1.0)
 			# AMPLITUDE IN DER GROESSENORDNUNG DES GELAENDES. Mit 5,6 m blieb die Stirn aus
 			# der Entfernung eine glatte Kuppel neben einem Hang, dessen eigene Ausbrueche
 			# zehner Meter messen — im Bild eine Iglu-Haube in einer Felskerbe. 15 m
@@ -2096,6 +2174,9 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	# Die Stirn nach hinten in den Hang verlaengern, damit sie dort steckt und nicht als
 	# Scheibe im Gelaende steht.
 
+	# --- Der Portalrahmen, in DASSELBE Netz -----------------------------------------
+	_hb_ringbau(st, quer0)
+
 	st.generate_normals()
 	var mi := MeshInstance3D.new()
 	mi.name = "Schale"
@@ -2125,6 +2206,87 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	return node
 
 
+## DER PORTALRAHMEN — ein umlaufender Betonring, in den Fels gesetzt.
+##
+## WARUM ER SEIN MUSS: ohne ihn ist die Einfahrt ein Loch im Berg, und ein Loch hat keine
+## einzige Kante, an der das Auge eine Groesse ablesen koennte. Die Vorlage zeigt ein
+## BAUWERK — ein Band bekannter Breite, mit Lippe, Feld und Fuge, das den Bogen
+## nachzeichnet. Erst daran sieht man, dass die Oeffnung hundert Meter weit ist.
+##
+## ER LIEGT IN DEMSELBEN SurfaceTool WIE DIE SCHALE und ist kein eigenes Mesh. Zwei
+## Gruende, und der erste ist der wichtigere: er bekommt damit dieselbe Kollision. Ein
+## Rahmen, der 7 m vor der Felswand steht und durch den man hindurchfliegt, waere schlimmer
+## als gar keiner. Der zweite: ein Zeichenaufruf weniger.
+##
+## quer ist der GLATTE Portalquerschnitt (_hb_ring), nicht der gebrochene Ring 0 der
+## Roehre — begruendet oben bei der Rauheit.
+static func _hb_ringbau(st: SurfaceTool, quer: PackedVector2Array) -> void:
+	var beton := Color(0.52, 0.52, 0.50)
+	var beton_d := Color(0.34, 0.34, 0.34)
+	# DAS PROFIL: je Stufe der Abstand vom Portalumriss (x) und die Tiefe gegenueber der
+	# Wandebene der Stirn (y, negativ = vor der Wand).
+	# ZWEI LIPPEN STEHEN VORN, DAS FELD DAZWISCHEN LIEGT ZURUECK. Eine glatte Platte haette
+	# bei dem streifenden Licht hier keine einzige Schattenkante und laege im Bild als
+	# aufgemalter Ring auf dem Fels; mit der Kehle dazwischen wirft der Ring auf sich selbst
+	# und liest sich als Koerper.
+	var profil := [
+		Vector2(-0.35, -HB_RING_VOR + 2.6),   # Laibungskante, knapp INNERHALB des Mundes
+		Vector2(1.8, -HB_RING_VOR),           # innere Lippe, am weitesten vorn
+		Vector2(3.6, -HB_RING_VOR + 2.4),     # Kehle
+		Vector2(HB_RING_B - 3.6, -HB_RING_VOR + 2.4),
+		Vector2(HB_RING_B - 1.8, -HB_RING_VOR),   # aeussere Lippe
+		Vector2(HB_RING_B, -HB_RING_VOR + 3.2),
+		Vector2(HB_RING_B, HB_RING_TIEF),     # Schuerze, im Fels
+		Vector2(-0.35, HB_RING_TIEF),         # Leibung, im Stollen
+	]
+	# -0.35 STATT 0: laege die Leibung exakt auf dem Portalumriss, straeubten sich Ring und
+	# Roehre um dieselbe Tiefe — _hb_masse haelt die ersten 28 Prozent der Roehre auf
+	# genau diesem Mass, die beiden Flaechen waeren also ueber 14 m Laenge deckungsgleich
+	# und wuerden flimmern. Ein Drittelmeter nach innen entscheidet das eindeutig.
+	var n := quer.size()
+	var kont: Array = []
+	for s in profil.size():
+		var d: float = profil[s].x
+		var dz: float = profil[s].y
+		var versetzt := _hb_aussen(quer, d)
+		var ring := PackedVector3Array()
+		for i in n:
+			# DIE SOHLE DARF DER RING NICHT ANHEBEN. Auf dem Boden zeigt die Aussennormale
+			# nach UNTEN; mit d = -0.35 laege der untere Bandrand also 35 cm ueber dem
+			# Hallenboden und ein rollendes Flugzeug haette eine Schwelle quer in der
+			# Einfahrt. Bodenpunkte tauchen deshalb nur ab, nie auf.
+			var y: float = (-maxf(d, 0.0)) if quer[i].y < 0.5 else versetzt[i].y
+			ring.append(Vector3(versetzt[i].x, y,
+				-HB_STIRN_T + maxf(y, 0.0) * 0.34 + dz))
+		kont.append(ring)
+	for s in profil.size():
+		var a: PackedVector3Array = kont[s]
+		var b: PackedVector3Array = kont[(s + 1) % profil.size()]
+		for i in n:
+			var j := (i + 1) % n
+			# FUGEN: jedes dritte Segment eine Spur dunkler. Bei 52 Segmenten waere ein
+			# durchgehend gleicher Ton eine glatte Roehre; die Vorlage zeigt einen Ring aus
+			# einzelnen Fertigteilen, und die Fuge ist das, was ihn dazu macht.
+			var c := beton.darkened(0.07) if (i % 3) == 0 else beton
+			if s >= 5:
+				c = beton_d          # Schuerze und Leibung liegen im Schatten
+			# WICKLUNG: a[i] -> b[j] -> b[i]. Andersherum zeigen die Normalen der
+			# Stirnflaeche in den Berg, und der Ring stuende im Bild schwarz da (das
+			# Material ist zwar beidseitig, aber es dreht die Normale nicht mit).
+			_tri(st, a[i], b[j], b[i], c)
+			_tri(st, a[i], a[j], b[j], c)
+	# KAEMPFERKRAGEN: dort, wo die senkrechte Wange in den Bogen uebergeht, ein kurzer
+	# Vorsprung. Er ist der einzige waagerechte Strich am ganzen Rahmen und sagt dem Auge,
+	# WO der Bogen anfaengt — ohne ihn laeuft die Wange stufenlos in den Halbkreis und der
+	# Bogen verliert seinen Ansatz.
+	var kampf := HB_H_MUND - HB_W_MUND
+	for sx in [-1.0, 1.0]:
+		var cx: float = (HB_W_MUND + HB_RING_B * 0.5) * sx
+		var cz := -HB_STIRN_T + kampf * 0.34 - HB_RING_VOR - 1.2
+		_box_geo(st, Vector3(cx, kampf, cz),
+			Vector3(HB_RING_B + 5.0, 3.4, 5.6), beton.darkened(0.04))
+
+
 ## Material der Schale. BEIDSEITIG — Begruendung oben bei den Konstanten.
 static var _hb_vertex_mat: StandardMaterial3D
 static func _hb_mat() -> StandardMaterial3D:
@@ -2138,8 +2300,12 @@ static func _hb_mat() -> StandardMaterial3D:
 		# fast alles senkrecht, und im Berg trifft die Sonne gar nichts mehr. Ohne sie waere
 		# die Halle eine schwarze Kiste, in der die Lampen als Punkte schweben.
 		_hb_vertex_mat.emission_enabled = true
+		# 0.30 war zu viel des Guten: die Halle stand gleichmaessig hell da wie ein
+		# Buerofoyer, und die Vorlage lebt gerade vom Dunkel, in dem die Tiefe verschwindet.
+		# 0.16 laesst die Felsflaechen gerade noch durchzeichnen; was hell sein soll, machen
+		# jetzt die Lampen — und was keine Lampe trifft, DARF schwarz sein.
 		_hb_vertex_mat.emission = Color(0.44, 0.38, 0.31)
-		_hb_vertex_mat.emission_energy_multiplier = 0.30
+		_hb_vertex_mat.emission_energy_multiplier = 0.16
 	return _hb_vertex_mat
 
 
@@ -2163,20 +2329,32 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	var glas := _emit(Color(0.95, 0.86, 0.55), 1.5)
 	var gelb := _mat(Color(0.72, 0.62, 0.18), 0.9)
 
-	# --- Lampenreihen unter dem Scheitel -------------------------------------------
+	# --- Lampenreihen, an Pendeln unter dem Scheitel --------------------------------
+	# SIE HINGEN VORHER AUF wh.y * 0.86 — DAS GING NUR, SOLANGE DIE HALLE 40 m HOCH WAR.
+	# Bei 82 m saessen sie 70 m ueber dem Boden, und mit omni_range 46 kaeme unten kein
+	# Licht mehr an: eine helle Decke ueber einer schwarzen Halle. Sie haengen deshalb auf
+	# fester Arbeitshoehe (32 m, rund ein Drittel der Halle) an einem Pendel, das bis zum
+	# Scheitel hochgeht — das Pendel ist zugleich das Mass, an dem man die Deckenhoehe
+	# ablesen kann.
 	for k in 8:
 		var z := 22.0 + float(k) * 21.0
 		var wh := _hb_masse(z / HB_LAENGE)
 		for sx in [-1.0, 1.0]:
 			var x: float = wh.x * 0.55 * sx
-			var y := wh.y * 0.86
+			var y: float = minf(wh.y * 0.86, 32.0)
+			var haenge := wh.y * 0.88 - y
+			if haenge > 1.0:
+				_box(node, Vector3(x, y + haenge * 0.5, z), Vector3(0.3, haenge, 0.3), stahl)
 			_box(node, Vector3(x, y, z), Vector3(3.2, 0.5, 1.1), stahl)
 			_box(node, Vector3(x, y - 0.5, z), Vector3(2.6, 0.35, 0.8), glas)
 			var l := OmniLight3D.new()
 			l.position = Vector3(x, y - 2.0, z)
 			l.light_color = Color(1.0, 0.92, 0.74)
-			l.light_energy = 3.2
-			l.omni_range = 46.0
+			l.light_energy = 3.6
+			# 62 statt 46: die Halle ist doppelt so hoch geworden, der Abstand von der
+			# Lampe zur gegenueberliegenden Wand damit auch. Mit 46 endete der Lichtkegel
+			# in der Luft.
+			l.omni_range = 62.0
 			l.shadow_enabled = false
 			node.add_child(l)
 
@@ -2228,11 +2406,19 @@ static func _hb_einrichtung(node: Node3D) -> void:
 				_mat(Color(0.12, 0.12, 0.13), 0.95))
 
 	# --- Panzertore, offen an die Laibung geklappt ----------------------------------
+	# SIE SIND MIT DEM PORTAL GEWACHSEN. 22 m hoch standen sie in einer 70-m-Einfahrt als
+	# zwei Schraenke; ein Tor muss die Oeffnung schliessen koennen, sonst ist es keines.
+	# Die Blattbreite (18 m) ist bewusst KLEINER als die halbe lichte Weite: die Fluegel
+	# sind aufgeklappt und liegen an der Wange an, sie sollen die Einfahrt nicht verengen.
+	var tor_h := HB_H_MUND * 0.62
 	for sx in [-1.0, 1.0]:
-		_box(node, Vector3((HB_W_MUND - 2.6) * sx, 11.0, 4.0),
-			Vector3(4.0, 22.0, 15.0), stahl)
-		_box(node, Vector3((HB_W_MUND - 2.6) * sx, 22.6, 4.0),
-			Vector3(4.4, 1.2, 15.6), _mat(Color(0.30, 0.31, 0.33), 0.7))
+		_box(node, Vector3((HB_W_MUND - 3.4) * sx, tor_h * 0.5, 6.0),
+			Vector3(5.0, tor_h, 18.0), stahl)
+		_box(node, Vector3((HB_W_MUND - 3.4) * sx, tor_h + 1.2, 6.0),
+			Vector3(5.6, 2.2, 18.6), _mat(Color(0.30, 0.31, 0.33), 0.7))
+
+	# --- WARNLICHTERKRANZ UND SCHEINWERFER AM PORTAL --------------------------------
+	_hb_portallichter(node)
 
 	# --- Zwei Flakstaende neben dem Portal, aussen ----------------------------------
 	for sx in [-1.0, 1.0]:
@@ -2317,6 +2503,109 @@ static func _hb_einrichtung(node: Node3D) -> void:
 		mi.material_override = schutt
 		node.add_child(mi)
 
+	# --- STOCKWERKE: Laufstege in drei Ebenen an beiden Waenden ----------------------
+	#
+	# Sie sind der Massstab des Raums. Die Vorlage zeigt den Berg als KATHEDRALE, und was
+	# sie gross macht, sind nicht die Felswaende, sondern die kleinen, bekannten Dinge
+	# davor: ein Gelaender ist einen Meter hoch, also ist die Wand vierzig. Drei Ebenen
+	# uebereinander geben dem Auge drei Sprossen dieser Leiter.
+	# Die Ebenen ENDEN VOR DEM PORTALBEREICH (z > 46): der Einflug bleibt frei, und der
+	# Betonring des Tors traegt seine eigenen Konsolen.
+	var wh_h := _hb_masse(0.8)
+	for sx in [-1.0, 1.0]:
+		for ebene in 3:
+			var y := 14.0 + float(ebene) * 16.0
+			# Die Wand weicht mit der Hoehe zurueck (Bogenquerschnitt) — der Steg folgt ihr,
+			# sonst schwebte er oben frei im Raum.
+			var einzug := 1.0 - 0.10 * float(ebene)
+			var wx: float = (wh_h.x - 4.0) * einzug * sx
+			for k in 9:
+				var z := 52.0 + float(k) * 14.0
+				_box(node, Vector3(wx, y, z), Vector3(7.0, 0.5, 14.0), stahl)
+				_box(node, Vector3(wx - 3.2 * sx, y + 1.6, z), Vector3(0.2, 3.2, 14.0), stahl)
+				if k % 2 == 0:
+					_box(node, Vector3(wx, y - 4.0, z), Vector3(0.6, 8.0, 0.6), stahl)
+			# Verbindungstreppen zwischen den Ebenen, eine je Wand und Stufe.
+			if ebene < 3:
+				for st_k in 8:
+					_box(node, Vector3(wx, y + 1.0 + float(st_k) * 1.9,
+						116.0 - float(st_k) * 2.1), Vector3(4.2, 0.35, 2.0), stahl)
+
+	# --- KRANBRUECKEN: zwei Portalkraene ueberspannen die Halle ----------------------
+	# Sie sind das staerkste Einzelmerkmal der Vorlage: Technik, die den RAUM QUER nutzt.
+	# Fachwerk als drei parallele Gurte mit Diagonalstummeln — aus der Flugperspektive
+	# liest das als Gittertraeger, kostet aber nur ein paar Dutzend Boxen.
+	for kb in 2:
+		var kz := 96.0 + float(kb) * 52.0
+		var ky := 44.0 + float(kb) * 6.0
+		var spann: float = _hb_masse(kz / HB_LAENGE).x * 2.0 - 10.0
+		for g in [-2.2, 0.0, 2.2]:
+			_box(node, Vector3(0.0, ky + (0.0 if g == 0.0 else 2.2), kz + g),
+				Vector3(spann, 1.1, 1.1), stahl)
+		for d in 10:
+			var dx := -spann * 0.5 + spann * float(d) / 9.0
+			_box(node, Vector3(dx, ky + 1.1, kz), Vector3(0.5, 2.4, 3.6), stahl)
+		# Laufkatze mit Haken, asymmetrisch — zwei identische Kraene laesen als Kopie.
+		var katze := -spann * (0.18 + 0.24 * float(kb))
+		_box(node, Vector3(katze, ky - 1.6, kz), Vector3(3.4, 2.2, 3.0), rost)
+		_box(node, Vector3(katze, ky - 4.6, kz), Vector3(0.3, 4.4, 0.3), stahl)
+		_box(node, Vector3(katze, ky - 7.2, kz), Vector3(1.6, 0.8, 0.8), rost)
+		# Stuetztuerme an beiden Enden: Gitter aus vier Eckstielen mit Querriegeln.
+		for tx in [-1.0, 1.0]:
+			var bx: float = spann * 0.5 * tx + 2.0 * tx
+			for ec in [[-1.4, -1.4], [1.4, -1.4], [-1.4, 1.4], [1.4, 1.4]]:
+				_box(node, Vector3(bx + ec[0], ky * 0.5, kz + ec[1]),
+					Vector3(0.7, ky, 0.7), stahl)
+			for ri in 4:
+				_box(node, Vector3(bx, 6.0 + float(ri) * 10.0, kz),
+					Vector3(3.6, 0.7, 3.6), stahl)
+
+	# --- LICHTSCHACHT: Oeffnung im Gewoelbe, Strahl darunter -------------------------
+	#
+	# DER SCHACHT IST GEFAELSCHT, und zwar mit Absicht: ein echtes Loch in der Schale
+	# wuerde Himmel zeigen, dessen Richtung von der Tageszeit abhaengt, und die Schale
+	# undicht machen — Regel 1 dieser Baustelle. Stattdessen sitzt im Gewoelbe eine flach
+	# leuchtende Scheibe (der "Himmel" im Schacht), darunter haengt ein schraeger
+	# Lichtkegel aus vier ineinander gestaffelten, immer blasseren Huellen. Aus jeder
+	# Flugperspektive liest das als Lichtstrahl; nur wer direkt darunter stillsteht und
+	# senkrecht nach oben schaut, sieht die Scheibe — und dort steht man im Spiel nicht.
+	var schacht_z := 118.0
+	var schacht_x := 19.0
+	var schacht_y: float = _hb_masse(schacht_z / HB_LAENGE).y * 0.94
+	var himmel := _emit(Color(0.78, 0.86, 0.97), 3.4)
+	_cylinder(node, Vector3(schacht_x, schacht_y, schacht_z), 6.0, 6.0, 1.6, 12, himmel)
+	for h in 4:
+		var f := float(h) / 3.0
+		var kegel := StandardMaterial3D.new()
+		kegel.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		kegel.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		# ALPHA KLEIN UND NUR EINE SEITE. Der erste Wurf stand bei 0.10 je Huelle mit
+		# CULL_DISABLED — vier Huellen mal zwei Seiten sind acht Lagen, und im Bild hing
+		# statt eines Lichtstrahls ein deckender blauer Vorhang ueber der halben Halle.
+		kegel.albedo_color = Color(0.80, 0.88, 1.0, 0.040 - 0.008 * f)
+		var mi2 := MeshInstance3D.new()
+		var cy := CylinderMesh.new()
+		cy.top_radius = 5.0 + 1.5 * f
+		cy.bottom_radius = 8.0 + 3.0 * f
+		cy.height = schacht_y - 2.0
+		cy.radial_segments = 14
+		mi2.mesh = cy
+		# Leicht geneigt: senkrechte Strahlen gibt es nur zur Mittagszeit.
+		mi2.position = Vector3(schacht_x + 4.0 * f, (schacht_y - 2.0) * 0.5, schacht_z + 2.0 * f)
+		mi2.rotation.z = 0.07
+		mi2.material_override = kegel
+		node.add_child(mi2)
+	# Ein Spotlicht im Schacht macht aus dem Kegel LICHT AUF DEM BODEN.
+	var schein := SpotLight3D.new()
+	schein.position = Vector3(schacht_x, schacht_y - 2.0, schacht_z)
+	schein.rotation.x = -PI / 2.0
+	schein.light_color = Color(0.82, 0.90, 1.0)
+	schein.light_energy = 5.5
+	schein.spot_range = schacht_y + 4.0
+	schein.spot_angle = 16.0
+	schein.shadow_enabled = false
+	node.add_child(schein)
+
 	# --- Ein Lichtschein aus dem Portal, damit es von aussen bewohnt aussieht --------
 	var aussen := OmniLight3D.new()
 	aussen.position = Vector3(0.0, 9.0, 10.0)
@@ -2325,3 +2614,92 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	aussen.omni_range = 78.0
 	aussen.shadow_enabled = false
 	node.add_child(aussen)
+
+
+## DER WARNLICHTERKRANZ UND DIE SCHEINWERFER AM PORTAL.
+##
+## IN DER VORLAGE IST DER KRANZ DAS, WAS DEN BOGEN ERST ZUM BOGEN MACHT. Der Fels
+## daneben ist grau, der Ring ist grau, die Halle dahinter ist grau — die Kette roter
+## Punkte ist die einzige Linie im Bild, die den Halbkreis ZEICHNET. Ohne sie liest man
+## eine Hoehle; mit ihr ein Tor.
+##
+## SIE KOSTEN FAST NICHTS, UND DAS IST ABSICHT. Vierunddreissig OmniLight3D waeren
+## vierunddreissig Quellen, die jeden Pixel der Felswand anfassen; hier leuchten
+## stattdessen die Linsen selbst (emission), und nur SECHS echte Lampen sitzen im Kranz,
+## damit der Beton um sie herum rot anlaeuft. Alle ohne Schatten — Begruendung wie bei den
+## Hallenlampen, jeder Schattenwurf ist eine eigene Wuerfelkarte.
+static func _hb_portallichter(node: Node3D) -> void:
+	var stahl := _mat(Color(0.30, 0.31, 0.33), 0.62)
+	var gehaeuse := _mat(Color(0.17, 0.17, 0.18), 0.8)
+	# ENERGIE 9 IST NICHT ZU VIEL. Die Linse ist 2,2 m gross und steht aus 160 m auf
+	# acht Bildpunkten; bei Energie 2 (wie die Hallenlampen) waere sie ein dunkelroter
+	# Fleck auf grauem Beton und im Bild schlicht nicht da.
+	var rot := _emit(Color(1.0, 0.09, 0.05), 9.0)
+	var weiss := _emit(Color(1.0, 0.95, 0.82), 7.0)
+
+	var quer := _hb_ring(HB_W_MUND, HB_H_MUND)
+	# Die Lichter sitzen auf der KEHLE des Bandes, also in seiner Mitte und leicht davor.
+	var band := _hb_aussen(quer, HB_RING_B * 0.5)
+	var kampf := HB_H_MUND - HB_W_MUND
+
+	# Nur der Teil des Umrisses ueber der Sohle traegt Lampen: unten liegt das Band im
+	# Boden. Erst die tragfaehigen Punkte sammeln, dann gleichmaessig auswaehlen —
+	# sonst haeufen sie sich dort, wo _hb_ring dicht abtastet.
+	var traeger: Array = []
+	for i in quer.size():
+		if quer[i].y > 2.0:
+			traeger.append(band[i])
+	var lampen: Array = []
+	for k in HB_RING_LAMPEN:
+		var idx := int(round(float(k) * float(traeger.size() - 1) / float(HB_RING_LAMPEN - 1)))
+		lampen.append(traeger[idx])
+	for k in lampen.size():
+		var p: Vector2 = lampen[k]
+		var zw := -HB_STIRN_T + maxf(p.y, 0.0) * 0.34 - HB_RING_VOR + 2.4
+		_box(node, Vector3(p.x, p.y, zw - 0.7), Vector3(3.0, 3.0, 1.4), gehaeuse)
+		_box(node, Vector3(p.x, p.y, zw - 1.6), Vector3(2.2, 2.2, 0.5), rot)
+		# Sechs echte Quellen, gleichmaessig ueber den Kranz verteilt.
+		if k % int(maxf(float(HB_RING_LAMPEN) / 6.0, 1.0)) == 0:
+			var l := OmniLight3D.new()
+			l.position = Vector3(p.x, p.y, zw - 3.0)
+			l.light_color = Color(1.0, 0.16, 0.10)
+			l.light_energy = 3.0
+			l.omni_range = 26.0
+			l.shadow_enabled = false
+			node.add_child(l)
+
+	# --- SCHEINWERFER, DIE IN DEN STOLLEN LEUCHTEN ----------------------------------
+	# In der Vorlage haengen sie innen am Ring und werfen ihre Kegel nach hinten in den
+	# Berg. Sie sind der Grund, warum man dort ueberhaupt TIEFE sieht: ohne sie faellt das
+	# Licht der Hallenlampen erst weit drinnen an, und die ersten fuenfzig Meter Stollen
+	# sind ein schwarzes Maul.
+	# VIER STUECK, ZWEI JE SEITE: einer am Kaempfer, einer hoch im Bogen. Mehr waeren
+	# mehr Quellen fuer denselben Kegel; SpotLight3D ist teurer als OmniLight3D, deshalb
+	# hier die kleinste Zahl, die die Wand noch gleichmaessig ausleuchtet.
+	for sx in [-1.0, 1.0]:
+		for st_i in 2:
+			var wnk := deg_to_rad(18.0 + float(st_i) * 44.0)      # ueber dem Kaempfer
+			var px: float = cos(wnk) * (HB_W_MUND - 3.0) * sx
+			var py: float = kampf + sin(wnk) * (HB_W_MUND - 3.0)
+			var pz := 3.0
+			# Ausleger vom Ring nach innen, damit die Lampe nicht in der Wand klebt.
+			_box(node, Vector3(px + 2.6 * sx, py, pz), Vector3(5.2, 0.7, 0.7), stahl)
+			_box(node, Vector3(px, py, pz), Vector3(4.6, 3.4, 2.6), gehaeuse)
+			_box(node, Vector3(px - 1.0 * sx, py, pz + 1.4), Vector3(4.0, 2.8, 0.5), weiss)
+			var s := SpotLight3D.new()
+			var pos := Vector3(px, py, pz + 2.0)
+			# In den Berg und leicht zur Mitte: der Kegel soll die Sohle treffen, nicht
+			# die Wand, an der die Lampe haengt.
+			# BASIS STATT look_at: look_at rechnet in WELTkoordinaten. Die Felsenbasis ist
+			# um kurs gedreht — ein Weltziel muesste hier also mitgedreht werden, und beim
+			# naechsten Umbau des Kurses waeren die vier Kegel still verdreht. Die Basis
+			# aus der oertlichen Richtung ist von der Drehung des Knotens unabhaengig.
+			var ziel := Vector3(px * 0.25, 4.0, pz + 90.0)
+			s.transform = Transform3D(Basis.looking_at((ziel - pos).normalized()), pos)
+			s.light_color = Color(1.0, 0.93, 0.78)
+			s.light_energy = 9.0
+			s.spot_range = 140.0
+			s.spot_angle = 34.0
+			s.spot_attenuation = 0.7
+			s.shadow_enabled = false
+			node.add_child(s)

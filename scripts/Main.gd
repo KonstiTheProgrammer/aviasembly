@@ -680,11 +680,20 @@ func _setup_world() -> void:
 	# Also wird das Gelaende ueber dem Stollen auf Flugfeldhoehe gelegt. Die Narbe, die das
 	# in den Hang schneidet, deckt die Felsstirn ab: sie ist 392 m breit und 168 m hoch und
 	# steht genau davor.
+	#
+	# SIE IST MIT DEM PORTAL GEWACHSEN (118 -> 136 m, 236 -> 272 m Ausblendung), und das
+	# ist Pflicht und keine Vorsichtsmassnahme. Die Zone ist ein KREIS um einen Punkt 96 m
+	# im Berg; flach sein muss sie ueberall dort, wo der Stollen liegt. Der weiteste Punkt
+	# des Stollens ist seither die hintere untere Ecke der Halle: bei halber Hallenbreite
+	# 58 m (vorher 46) und 190 m Tiefe sind das sqrt(94^2 + 58^2) = 110 m vom Mittelpunkt,
+	# und knapp daneben, an der Portalwange, sqrt(96^2 + 61^2) = 114 m. Mit r_flat 118
+	# waere beides um wenige Meter drin gewesen — bis der naechste Umbau die Halle noch
+	# einmal anfasst und der Berg dann VON UNTEN im Stollen steht. 136 m lassen 22 m Luft.
 	var hb_q0 := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
 	var ad0 := _adlerhorst_pos()
 	var hb_m := Vector2(ad0.x, ad0.z) + hb_q0 * (ADLERHORST_HOEHLE_QUER + 96.0)
 	flat_zones.append({"pos": Vector3(hb_m.x, 0.0, hb_m.y),
-		"r_flat": 118.0, "r_blend": 236.0, "y": ADLERHORST_HOEHE})
+		"r_flat": 136.0, "r_blend": 272.0, "y": ADLERHORST_HOEHE})
 	# --- WAHRZEICHEN/POIs: Stadt mit See + Leuchtturm + BERGDORF am FLUSS (Stufe 3) ---
 	var town_pos := Vector3(1400, 0, 750)
 	var factory_pos := town_pos + Vector3(-225, 0, 95)
