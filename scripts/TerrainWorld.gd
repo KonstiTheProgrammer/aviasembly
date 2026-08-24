@@ -45,7 +45,20 @@ const FLORA_FADE := 900.0       # Laenge des Schrumpf-Uebergangs (siehe _flora_m
 # CHUNK-Mittelpunkt, das Schrumpfen dagegen pro Baum. Ohne den Abstand wuerde die
 # nahe Chunk-Ecke mit noch sichtbaren Baeumen weggeschnitten — genau das Aufpoppen,
 # das hier vermieden werden soll.
+# ER WIRD NICHT MEHR ALS FESTE ZAHL BENUTZT, sondern aus der GERADE geltenden Kappgrenze
+# gerechnet (siehe _flora_fade_setzen). Als Konstante war er doppelt falsch, sobald der
+# Spieler die Grafikstufe verstellte: _flora_dist skaliert mit 0.55 bzw. 1.35, dieser Wert
+# nicht.
+#   * Hohe Stufe: Flora bis 4320 m, Ausblendung fertig bei 2900 — die zusaetzlichen
+#     1400 m Reichweite waren komplett wirkungslos, es wurden Baeume berechnet und
+#     gezeichnet, die auf Groesse null standen.
+#   * Niedrige Stufe: gekappt bei 1760 m, waehrend die Baeume dort noch volle Groesse
+#     haben — also genau das Aufpoppen, das die Ausblendung verhindern soll.
+# Der Wert bleibt als VORGABE stehen, weil er die Vorgabestufe beschreibt: 3200 - 300.
 const FLORA_FADE_END := 2900.0
+# Abstand, den das Ende der Ausblendung unter der Kappgrenze haelt. Begruendung eine Zeile
+# hoeher: eine halbe Chunk-Diagonale sind 271 m, 300 gibt etwas Luft.
+const FLORA_FADE_RAND := 300.0
 # --- FLORA-SPARSTUFEN ------------------------------------------------------------------
 # Ab dieser Entfernung bekommt ein Chunk die grobe Baumfassung und nur noch einen Teil
 # seiner Pflanzen. GEMESSEN, warum das noetig ist: die Flora kostet 4,65 von 7,86 ms je
@@ -1930,8 +1943,7 @@ void fragment() {
 """
 	_flora_mat = ShaderMaterial.new()
 	_flora_mat.shader = fsh
-	_flora_mat.set_shader_parameter("fade_start", FLORA_FADE_END - FLORA_FADE)
-	_flora_mat.set_shader_parameter("fade_end", FLORA_FADE_END)
+	_flora_fade_setzen()
 	# Wasserfläche (rein optisch; Kollision = WorldBoundary bei SEA_Y in Main)
 	_water = MeshInstance3D.new()
 	var wm := PlaneMesh.new()
@@ -2757,6 +2769,20 @@ func _ms_vorfilter_bauen() -> void:
 		_ms_x.append(mp.x)
 		_ms_z.append(mp.z)
 		_ms_reich2.append(reichweite * reichweite)
+
+
+## Die Ausblendung der Flora an die GERADE geltende Kappgrenze haengen.
+##
+## Sie muss mitwandern, wenn der Spieler die Grafikstufe verstellt — sonst schrumpfen die
+## Baeume entweder viel zu frueh auf null (hohe Stufe: die gewonnene Reichweite ist dann
+## reine Rechenlast ohne Bild) oder gar nicht mehr rechtzeitig (niedrige Stufe: sie werden
+## in voller Groesse weggeschnitten und poppen).
+func _flora_fade_setzen() -> void:
+	if _flora_mat == null:
+		return
+	var ende := maxf(_flora_dist - FLORA_FADE_RAND, 200.0)
+	_flora_mat.set_shader_parameter("fade_end", ende)
+	_flora_mat.set_shader_parameter("fade_start", maxf(ende - FLORA_FADE, 100.0))
 
 
 func _prepare_rivers(rvs: Array) -> void:
@@ -3962,6 +3988,7 @@ func setze_baumweite(stufe: int) -> void:
 		_:
 			_flora_dist = FLORA_DIST
 			_flora_grob_ab = FLORA_GROB_AB
+	_flora_fade_setzen()
 	var m := Vector2(_last_pos.x, _last_pos.z)
 	for key in _chunks:
 		var roh: Variant = _chunks.get(key)

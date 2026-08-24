@@ -86,10 +86,22 @@ const NEBEL_FARBE_WOLKE := Color(0.93, 0.95, 0.97)
 const NEBEL_KURVE := 1.7
 
 # --- FERNSCHUERZE (siehe _fernschuerze_starten) -------------------------------------
-# Rasterweite der groben Fernlage. Die Chunks fahren 8 m; 64 m ist genau ein Achtel
-# davon, das Gitter faellt also auf JEDE achte Chunk-Stuetzstelle und beide Flaechen
-# treffen sich dort exakt.
-const FERN_ZELLE := 64.0
+# Rasterweite der Fernlage. Die Chunks fahren 8 m; BEIDE Stufen sind Vielfache davon, das
+# Gitter faellt also auf Chunk-Stuetzstellen und die Flaechen treffen sich dort exakt.
+#
+# ZWEI STUFEN, NACHEINANDER GEBAUT. Mit 64 m allein war das Land jenseits der Chunkgrenze
+# eine glatte, strukturlose Masse: die Grate der Massive haben rund 230 m Wellenlaenge und
+# werden von einem 64-m-Raster mit dreieinhalb Punkten je Welle abgetastet — sie
+# verschwinden schlicht. Aus Reiseflughoehe war das der auffaelligste Bruch der Karte,
+# weil die Chunks daneben jeden Grat zeigen.
+# 32 m loest die Grate auf (gemessen: 1,92 Mio. statt 482 000 Dreiecke), braucht aber
+# 17 bis 22 s statt 5 bis 6 — und so lange klaffte im Weltbild ein Loch.
+# Deshalb baut _fern_bauen ERST grob und haengt das ein, DANN fein und tauscht. Der Spieler
+# sieht nach rund fuenf Sekunden ein vollstaendiges Land und nach rund zwanzig ein feines;
+# der Tausch faellt nicht auf, weil beide Stufen dieselbe Farbfunktion und dieselbe
+# Absenkung fahren.
+const FERN_ZELLE_GROB := 64.0
+const FERN_ZELLE_FEIN := 32.0
 # Kantenlaenge einer Schuerzen-Kachel (24 Zellen). Groesser = weniger Draw-Calls, aber
 # groebere Sichtbarkeits-Auslese; 1536 m = vier Chunkbreiten hat sich als Mitte ergeben.
 const FERN_KACHEL := 1536.0
@@ -255,6 +267,10 @@ var wolken_dichte := 0.0          # 0 = freie Luft, 1 = mitten in einer Wolke
 var fern_root: Node3D             # grobe Gelaendelage jenseits der Chunk-Sichtweite
 var _fern_mat: ShaderMaterial
 var _fern_thread: Thread
+# Rasterweite, mit der der Schuerzen-Thread GERADE baut, und der Knoten der zuletzt
+# eingehaengten Stufe (er wird beim Tausch freigegeben).
+var _fern_zelle := FERN_ZELLE_GROB
+var _fern_stufe_knoten: Node3D
 var _fern_mutex: Mutex
 var _fern_keys: Array[Vector2i] = []
 var _fern_meshes: Array = []
@@ -1430,11 +1446,27 @@ void fragment() {
 
 
 func _fern_bauen() -> void:
-	var t0 := Time.get_ticks_msec()
-	var gid := WorkerThreadPool.add_group_task(_fern_kachel, _fern_keys.size(),
-		-1, false, "Fernschuerze")
-	WorkerThreadPool.wait_for_group_task_completion(gid)
-	call_deferred("_fern_fertig", Time.get_ticks_msec() - t0)
+	for zelle in [FERN_ZELLE_GROB, FERN_ZELLE_FEIN]:
+		var t0 := Time.get_ticks_msec()
+		_fern_zelle = zelle
+		# Sammelliste VOR dem Lauf leeren, und zwar hier auf dem Bauthread. Sie fruehe zu
+		# leeren war _fern_fertigs Aufgabe — das geht mit zwei Stufen nicht mehr, weil die
+		# zweite Stufe anlaufen kann, waehrend die erste noch eingehaengt wird.
+		_fern_mutex.lock()
+		_fern_meshes = []
+		_fern_tris = 0
+		_fern_mutex.unlock()
+		var gid := WorkerThreadPool.add_group_task(_fern_kachel, _fern_keys.size(),
+			-1, false, "Fernschuerze")
+		WorkerThreadPool.wait_for_group_task_completion(gid)
+		_fern_mutex.lock()
+		var fertig: Array = _fern_meshes
+		var tris := _fern_tris
+		_fern_meshes = []
+		_fern_mutex.unlock()
+		call_deferred("_fern_stufe_fertig", fertig, tris,
+			Time.get_ticks_msec() - t0, zelle)
+	call_deferred("_fern_thread_ende")
 
 
 ## Eine Kachel. Laeuft im Pool, also nur lesende Zugriffe auf terrain (height_at,
@@ -1461,13 +1493,14 @@ func _fern_kachel(idx: int) -> void:
 	# 2) Hoehenraster. Auf Meereshoehe geklemmt: die Wasserplatte reicht nur 4,6 km weit,
 	#    ein absaufender Kuestenhang waere dahinter als Loch im Meer zu sehen. So endet
 	#    das Land an der Wasserlinie, genau wie es aus der Ferne aussehen soll.
-	var n := int(FERN_KACHEL / FERN_ZELLE)
+	var zelle := _fern_zelle
+	var n := int(FERN_KACHEL / zelle)
 	var hs := PackedFloat32Array()
 	hs.resize((n + 1) * (n + 1))
 	for j in n + 1:
 		for i in n + 1:
 			hs[j * (n + 1) + i] = maxf(
-				terrain.height_at(ox + float(i) * FERN_ZELLE, oz + float(j) * FERN_ZELLE),
+				terrain.height_at(ox + float(i) * zelle, oz + float(j) * zelle),
 				TerrainWorld.SEA_Y)
 
 	var st := SurfaceTool.new()
@@ -1483,12 +1516,12 @@ func _fern_kachel(idx: int) -> void:
 			# Zelle komplett unter Wasser -> kein Dreieck (siehe Kopfkommentar).
 			if maxf(maxf(h00, h10), maxf(h01, h11)) <= TerrainWorld.SEA_Y + 0.01:
 				continue
-			var x0 := ox + float(i) * FERN_ZELLE
-			var z0 := oz + float(j) * FERN_ZELLE
+			var x0 := ox + float(i) * zelle
+			var z0 := oz + float(j) * zelle
 			var v00 := Vector3(x0, h00, z0)
-			var v10 := Vector3(x0 + FERN_ZELLE, h10, z0)
-			var v01 := Vector3(x0, h01, z0 + FERN_ZELLE)
-			var v11 := Vector3(x0 + FERN_ZELLE, h11, z0 + FERN_ZELLE)
+			var v10 := Vector3(x0 + zelle, h10, z0)
+			var v01 := Vector3(x0, h01, z0 + zelle)
+			var v11 := Vector3(x0 + zelle, h11, z0 + zelle)
 			_fern_tri(st, v00, v10, v11)
 			_fern_tri(st, v00, v11, v01)
 			tris += 2
@@ -1533,13 +1566,20 @@ func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 	st.add_vertex(c)
 
 
-func _fern_fertig(ms: int) -> void:
-	if _fern_thread != null:
-		_fern_thread.wait_to_finish()
-		_fern_thread = null
+## EINE Stufe einhaengen und die vorige wegraeumen.
+##
+## DER THREAD DARF HIER NICHT ABGEWARTET WERDEN. Frueher stand am Anfang dieser Funktion
+## _fern_thread.wait_to_finish() — mit zwei Stufen waere das ein Selbstblock: die erste
+## Stufe wird eingehaengt, waehrend derselbe Thread schon die zweite baut. Das Abwarten
+## steht deshalb in _fern_thread_ende, das der Thread als letztes selbst anstoesst.
+func _fern_stufe_fertig(meshes: Array, tris: int, ms: int, zelle: float) -> void:
 	if fern_root == null or not is_instance_valid(fern_root):
 		return
-	for m in _fern_meshes:
+	var vorige := _fern_stufe_knoten
+	var stufe := Node3D.new()
+	stufe.name = "Stufe%d" % int(zelle)
+	fern_root.add_child(stufe)
+	for m in meshes:
 		var mi := MeshInstance3D.new()
 		mi.mesh = m
 		mi.material_override = _fern_mat
@@ -1551,9 +1591,20 @@ func _fern_fertig(ms: int) -> void:
 		# Zuschlag wuerde Godot gegen die UNVERSCHOBENE AABB auslesen und Kacheln
 		# wegkullen, die erst durch die Absenkung ins Bild rutschen.
 		mi.extra_cull_margin = FERN_TIEF + FERN_BIAS + 16.0
-		fern_root.add_child(mi)
-	print("Fernschuerze: %d Kacheln, %d Dreiecke, %.2f s" % [_fern_meshes.size(), _fern_tris, ms / 1000.0])
-	_fern_meshes.clear()
+		stufe.add_child(mi)
+	# ERST DIE NEUE STUFE HAENGT, DANN FAELLT DIE ALTE. Andersherum stuende fuer einen
+	# Frame gar keine Schuerze da, und das saehe man als aufblitzendes Loch am Horizont.
+	_fern_stufe_knoten = stufe
+	if vorige != null and is_instance_valid(vorige):
+		vorige.queue_free()
+	print("Fernschuerze %d m: %d Kacheln, %d Dreiecke, %.2f s"
+		% [int(zelle), meshes.size(), tris, ms / 1000.0])
+
+
+func _fern_thread_ende() -> void:
+	if _fern_thread != null:
+		_fern_thread.wait_to_finish()
+		_fern_thread = null
 
 
 func _exit_tree() -> void:

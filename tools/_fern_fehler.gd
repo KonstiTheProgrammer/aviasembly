@@ -1,6 +1,6 @@
 ## WIE WEIT STOESST DIE FERNSCHUERZE DURCH DAS GELAENDE?
 ##
-## Die Schuerze tastet das Hoehenfeld mit FERN_ZELLE (64 m) ab und interpoliert dazwischen
+## Die Schuerze tastet das Hoehenfeld mit FERN_ZELLE_FEIN (32 m) ab und interpoliert dazwischen
 ## linear; die Chunks nehmen 8 m. Wo das grobe Raster ueber dem feinen liegt, ragt die
 ## Schuerze durch den Boden — sichtbar als heller, treppenfoermiger Streifen im Hang.
 ## Dagegen laufen zwei Konstanten: FERN_BIAS senkt die Schuerze ueberall ab, FERN_TIEF
@@ -20,7 +20,7 @@ func _process(_d: float) -> bool:
 	root.add_child(main)
 	var tw: TerrainWorld = main.terrain
 	var K: Dictionary = main.get_script().get_script_constant_map()
-	var Z: float = K["FERN_ZELLE"]
+	var Z: float = K["FERN_ZELLE_FEIN"]
 
 	# Bilineare Interpolation auf dem 64-m-Raster, genau wie die Schuerze sie baut.
 	var grob := func(x: float, z: float) -> float:
