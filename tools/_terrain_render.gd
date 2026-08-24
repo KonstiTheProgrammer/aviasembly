@@ -265,5 +265,11 @@ func _shoot(name: String, pos: Vector3, target: Vector3) -> void:
 		print("FEHLER: %s == %s (md5 %s)" % [name, _seen[sum], sum])
 	else:
 		_seen[sum] = name
-	print("Render -> %s   md5=%s  chunks=%d  h=%.1f  build=%d ms"
-		% [path, sum, terrain.get_child_count(), terrain.height_at(pos.x, pos.z), build_ms])
+	# GEZEICHNETE PRIMITIVEN MIT AUSGEBEN. Ohne diese Zahl ist jede Aussage ueber
+	# Zeichenlast geraten: die Kamera-Fernebene liegt bei 9 km und kullt ohnehin das
+	# meiste, ein Dreieck im Speicher ist also noch lange keines im Bild. Der Wert kommt
+	# aus dem letzten gezeichneten Frame, steht also fuer genau diese Kamerastellung.
+	var prims := Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)
+	print("Render -> %s   md5=%s  chunks=%d  h=%.1f  build=%d ms  prim=%d"
+		% [path, sum, terrain.get_child_count(), terrain.height_at(pos.x, pos.z),
+			build_ms, int(prims)])

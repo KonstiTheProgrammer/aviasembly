@@ -1,41 +1,43 @@
-## WOHIN GEHT DIE BILDZEIT? Messung an der ECHTEN Flugwelt, an mehreren Orten.
+## WAS KOSTET EIN BILD, UND WORAN LIEGT ES?
 ##
-## NICHT HEADLESS AUFRUFEN. Ohne Fenster laeuft kein GPU-Pass, und gerade die Flora kostet
-## fast nur dort — headless gemessen sieht sie zehn- bis hundertmal billiger aus, als sie
-## ist. Aus demselben Grund zaehlt der MEDIAN und nicht die Spitze: macOS drosselt ein
-## Fenster im Hintergrund, einzelne Bilder sind dann Ausreisser ohne Aussagekraft.
+## Die Primitivenzahl allein sagt wenig: 9,3 Millionen klingen viel, aber ob sie weh tun,
+## haengt daran, wie sie verteilt sind. Dieses Werkzeug misst die BILDZEIT an mehreren
+## Kamerastellungen und schaltet dabei die grossen Posten einzeln ab, sodass man sieht,
+## welcher davon sie traegt.
+##
+## GEMESSEN WIRD DER MEDIAN, nicht das Mittel: die ersten Bilder nach einem Kameraschwenk
+## bauen Chunks nach und sind Ausreisser, die jeden Mittelwert unbrauchbar machen.
 ##
 ## Godot --path . --script res://tools/_bildzeit.gd
 extends SceneTree
 
-const AUFWAERMEN := 45
-const PROBEN := 160
-
-# [Name, Kameraposition, Blickziel] — Reiseflug, Tiefflug, Gebirge, Vulkan.
-var _orte: Array = [
-	["Reiseflug 1200 m", Vector3(0, 1200, -1500), Vector3(0, 200, -9000)],
-	["Tiefflug ueber Wald", Vector3(300, 120, 900), Vector3(1700, 60, 2400)],
-	["Hochgebirge", Vector3(-8700, 420, -5400), Vector3(-5598, 90, -9446)],
-	["Vulkan", Vector3(11800, 1500, -2100), Vector3(11800, 330, -5600)],
-]
+const BREITE := 1280
+const HOCH := 720
+const PROBEN := 90
 
 var vp: SubViewport
 var main: Node3D
 var cam: Camera3D
-var _los := false
+var _f := 0
 var _fertig := false
 
 
 func _process(_d: float) -> bool:
-	if not _los:
-		_los = true
+	if _f == 0:
+		_f = 1
 		_lauf()
 	return _fertig
 
 
 func _lauf() -> void:
+	# VSYNC ZUERST AUS. Ohne das misst man 8,33 ms an jeder Stellung und bei jeder
+	# Abschaltung — das ist 1/120 s und damit der Bildschirm, nicht die Szene. Genau
+	# darauf ist der erste Messlauf hereingefallen.
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = 0
 	vp = SubViewport.new()
-	vp.size = Vector2i(1280, 720)
+	vp.size = Vector2i(BREITE, HOCH)
+	vp.msaa_3d = Viewport.MSAA_4X
 	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	get_root().add_child(vp)
 	main = load("res://scenes/Main.tscn").instantiate()
@@ -55,43 +57,59 @@ func _lauf() -> void:
 	main.fly_world.visible = true
 	if main.showroom != null:
 		main.showroom.set_stage_visible(false)
-	if main.sky_lights != null:
-		main.sky_lights.visible = true
 	main.camera.current = false
 	cam.current = true
 	main.mode = 1
-	for c in main.get_children():
-		if c is CanvasLayer:
-			c.visible = false
+	for c in main.find_children("*", "CanvasLayer", true, false):
+		c.visible = false
 
-	# Die Fernschuerze baut auf einem eigenen Thread und in zwei Stufen. Wer misst, bevor
-	# die feine Stufe steht, misst die halbe Welt.
-	var warte := 0
-	while main._fern_stufe_knoten == null or warte < 60 * 32:
-		await process_frame
-		warte += 1
-		if warte > 60 * 45:
-			break
-
-	print("Ort                     Median   p90     Bilder/s (Median)  Primitive   Draw Calls")
-	for o in _orte:
-		cam.look_at_from_position(o[1], o[2], Vector3.UP)
-		main.terrain.update_center(o[1])
-		main.terrain.build_now_around(o[1], TerrainWorld.VIEW_DIST, false)
-		for i in AUFWAERMEN:
-			await process_frame
-		var zeiten := PackedFloat32Array()
-		for i in PROBEN:
-			var t0 := Time.get_ticks_usec()
-			await process_frame
-			zeiten.append(float(Time.get_ticks_usec() - t0) / 1000.0)
-		zeiten.sort()
-		var med: float = zeiten[PROBEN / 2]
-		var p90: float = zeiten[int(PROBEN * 0.9)]
-		print("%-22s %6.2f ms %6.2f ms %8.0f          %9d %9d"
-			% [o[0], med, p90, 1000.0 / maxf(med, 0.001),
-				Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
-				Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)])
-	print("Videospeicher: %.0f MB" % (Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0))
+	var stellungen := [
+		["Tiefflug ueber Wald", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],
+		["Reiseflug 1200 m", Vector3(0, 1200, -1500), Vector3(0, 200, -9000)],
+		["ueber der Stadt", Vector3(4300, 420, 4100), Vector3(4300, 60, 2500)],
+	]
+	print("%-22s %10s %10s %10s %10s" % ["Stellung", "alles", "ohne Flora", "ohne Schuerze", "ohne Wolken"])
+	for st in stellungen:
+		cam.look_at_from_position(st[1], st[2], Vector3.UP)
+		main.terrain.update_center(st[1])
+		main.terrain.build_now_around(st[1], TerrainWorld.VIEW_DIST, false)
+		var zeile := "%-22s" % st[0]
+		var calls := 0
+		var prims := 0
+		for fall in ["alles", "flora", "schuerze", "wolken"]:
+			_schalten(fall)
+			zeile += " %9.2f" % await _median()
+			if fall == "alles":
+				calls = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+				prims = int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME))
+			elif fall == "flora":
+				zeile += "  (ohne Flora: %d Aufrufe)" % int(Performance.get_monitor(
+					Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+		print(zeile, " ms   |  alles: %d Zeichenaufrufe, %d Primitiven" % [calls, prims])
+		_schalten("alles")
 	_fertig = true
 	quit()
+
+
+func _schalten(fall: String) -> void:
+	main.fern_root.visible = fall != "schuerze"
+	for n in main.fly_world.get_children():
+		if String(n.name).begins_with("Cloud") or String(n.name).begins_with("Wolken"):
+			(n as Node3D).visible = fall != "wolken"
+	# Flora haengt als MultiMeshInstance an den Chunks.
+	for c in main.terrain.get_children():
+		for k in c.get_children():
+			if k is MultiMeshInstance3D:
+				(k as MultiMeshInstance3D).visible = fall != "flora"
+
+
+func _median() -> float:
+	for i in 12:
+		await RenderingServer.frame_post_draw      # einschwingen
+	var w := PackedFloat32Array()
+	for i in PROBEN:
+		var t0 := Time.get_ticks_usec()
+		await RenderingServer.frame_post_draw
+		w.append(float(Time.get_ticks_usec() - t0) / 1000.0)
+	w.sort()
+	return w[PROBEN / 2]

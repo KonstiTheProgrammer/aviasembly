@@ -65,7 +65,15 @@ const FLORA_FADE_RAND := 300.0
 # Bild (59 %) und stellt 5,46 von 7,35 Mio Primitiven (74 %).
 # 1100 m ist so gewaehlt, dass die Umschaltung hinter der Strecke liegt, auf der man
 # einen einzelnen Baum ueberhaupt als Baum erkennt.
-const FLORA_GROB_AB := 1700.0
+#
+# VON 1700 AUF 1200 ZURUECK, und diesmal gemessen statt geschaetzt (tools/_bildzeit.gd):
+#   Tiefflug ueber Wald   7.23 -> 6.90 ms, Primitiven 3.30 -> 2.99 Mio
+#   ueber der Grossstadt  7.12 -> 6.43 ms, Primitiven 3.17 -> 2.86 Mio
+#   Reiseflug 1200 m      unveraendert (dort ist ohnehin alles jenseits der Grenze)
+# Im Bild kostet es nichts: derselbe Shot mit beiden Werten unterscheidet sich in 19 719
+# von 921 600 Bildpunkten, alle im Mitteldistanzband, und die beiden Ausschnitte sind
+# nebeneinander nicht zu unterscheiden.
+const FLORA_GROB_AB := 1200.0
 # Anteil der Pflanzen, der jenseits davon noch gezeichnet wird. Die Transformationen
 # stehen in zufaelliger Reihenfolge im Puffer, ein Praefix ist also eine gleichmaessige
 # Stichprobe der Flaeche — deshalb genuegt visible_instance_count und es muss nichts
