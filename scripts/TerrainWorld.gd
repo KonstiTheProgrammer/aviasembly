@@ -1612,6 +1612,8 @@ var seed_value := 1337
 var airfields: Array = []       # [{pos: Vector3, r_flat, r_blend, y?(Zielhöhe, default 0)}]
 var lakes: Array = []           # [{pos: Vector3, r: float, surf: float}] Inland-Seen
 var _flora_wasser_h := 34.0     # bis zu dieser Hoehe lohnt die Wasserpruefung der Flora
+# Dasselbe fuer die Fluesse, abgeleitet aus ihren Stuetzpunkten (siehe _prepare_rivers).
+var _flora_fluss_h := 0.0
 var rivers: Array = []          # kuratierte Fluss-Splines (siehe _prepare_rivers)
 var massifs: Array = []         # [{pos: Vector3, r: float, peak: float}] erzwungene Berge
 # Vorfilter der Massivschleife, einmal je Welt gefuellt. Siehe die Begruendung in
@@ -2759,6 +2761,7 @@ func _ms_vorfilter_bauen() -> void:
 
 func _prepare_rivers(rvs: Array) -> void:
 	rivers = []
+	_flora_fluss_h = 0.0
 	for rv in rvs:
 		var pts := PackedVector3Array()
 		for p in rv["pts"]:
@@ -2825,6 +2828,11 @@ func _prepare_rivers(rvs: Array) -> void:
 		# max_tief MUSS MIT. Diese Funktion baut ein NEUES Woerterbuch; alles, was hier
 		# nicht aufgefuehrt ist, kommt in _river_carve nie an. Genau daran ist der Deckel
 		# gegen den 200-m-Einschnitt zuerst wirkungslos verpufft.
+		# Hoechste Wasserhoehe dieses Laufs merken — die Flora braucht sie, um zu wissen,
+		# bis zu welcher Hoehe sie ueberhaupt nach Fluessen suchen muss.
+		for p2 in pts:
+			_flora_fluss_h = maxf(_flora_fluss_h, p2.y + 1.0)
+		_flora_wasser_h = maxf(_flora_wasser_h, _flora_fluss_h)
 		rivers.append({"pts": pts, "w": rv.get("w", 14.0), "valley": valley, "tal": tal_breiten,
 			"seg": seg,
 			"depth": rv.get("depth", 4.0), "max_tief": rv.get("max_tief", 0.0),
@@ -4184,7 +4192,14 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			# stand im Bild ein geschlossener Nadelwald IM See. Fuer die Fluesse bleibt es
 			# bei 34 m — ihre Splines reichen bis 112 m hinauf, und ein Bachbett muss keine
 			# Baumsperre ueber das halbe Bergland ziehen.
-			if hc < _flora_wasser_h and _submerged(cx, cz, hc, river_chunk and hc < 34.0):
+			# DIE 34.0 WAREN FEST VERDRAHTET UND FALSCH. Der Canyonfluss entspringt auf
+			# 46 m; oberhalb von 34 wurde die Flusspruefung uebersprungen, und im Bild
+			# standen dort Nadelbaeume MITTEN IM WASSER. Aufgefallen ist es erst, als die
+			# Kamera "IN die Schlucht" auf den Talboden wanderte — von oben verdeckt der
+			# Bewuchs am Ufer, was im Fluss steht.
+			# _flora_fluss_h wird jetzt aus den Fluessen selbst abgeleitet, so wie
+			# _flora_wasser_h aus den Seen.
+			if hc < _flora_wasser_h and _submerged(cx, cz, hc, river_chunk and hc < _flora_fluss_h):
 				continue   # See- und Flussbett: nicht unter Wasser pflanzen
 			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
 			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.

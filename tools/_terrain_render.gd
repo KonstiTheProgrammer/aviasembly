@@ -65,7 +65,13 @@ var _shots: Array = [
 	# als Schutt im Vordergrund — vom Waldrand, den dieser Shot pruefen soll, kein Halm.
 	# 2300 legt die Kamera vor den Faechersaum und den Waldsaum in die Bildmitte.
 	["vulkan_fuss", Vector3(11800, 120, -2300), Vector3(11800, 300, -5600)],
-	["canyon", Vector3(-6300, 120, 1300), Vector3(-4900, 20, 3100)],     # IN die Schlucht
+	# IN DIE SCHLUCHT. Sie stand bei (-6300, 120, 1300) und damit IM HANG: seit das
+	# Talband des Flusses von 260 auf 110 m verengt und die sechs Flankenmassive auf
+	# 225 bis 280 m gehoben wurden, steht dort Fels — gemessen 180 m bei (-6100, 1100).
+	# Vorher war das eine Wiese, weil der Flussschnitt einen Viertelkilometer links und
+	# rechts flachgelegt hat. Die neue Stellung liegt AUF der Flusslinie, 35 m ueber dem
+	# Wasser des ersten Stuetzpunkts, und blickt die Schlucht hinunter.
+	["canyon", Vector3(-6600, 81, 900), Vector3(-5250, 22, 2800)],
 	["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)], # Schlucht von oben
 	# HOCHGEBIRGE im Nordwesten mit dem Bergflugplatz ADLERHORST auf dem Sattel.
 	# Der Grat laeuft von (-9600,-4400) nach Suedosten; Kamera quer dazu, damit die

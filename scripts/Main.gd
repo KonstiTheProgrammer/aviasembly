@@ -699,12 +699,12 @@ func _setup_world() -> void:
 		{"pos": burg_pos, "r": 420.0, "peak": 88.0, "glatt": true},
 				# CANYON-FLANKEN: erzwungene Grate beidseits der Schlucht-Spline — der River-Carve
 		# schneidet DANACH hindurch (Reihenfolge in height_at) -> echte Waende, seed-robust.
-		{"pos": Vector3(-6725, 0, 1450), "r": 750.0, "peak": 120.0},
-		{"pos": Vector3(-5875, 0, 950), "r": 750.0, "peak": 135.0},
-		{"pos": Vector3(-5675, 0, 3050), "r": 750.0, "peak": 140.0},
-		{"pos": Vector3(-4825, 0, 2550), "r": 750.0, "peak": 125.0},
-		{"pos": Vector3(-4625, 0, 4350), "r": 700.0, "peak": 110.0},
-		{"pos": Vector3(-3775, 0, 3850), "r": 700.0, "peak": 120.0},
+		{"pos": Vector3(-6725, 0, 1450), "r": 750.0, "peak": 245.0},
+		{"pos": Vector3(-5875, 0, 950), "r": 750.0, "peak": 270.0},
+		{"pos": Vector3(-5675, 0, 3050), "r": 750.0, "peak": 280.0},
+		{"pos": Vector3(-4825, 0, 2550), "r": 750.0, "peak": 255.0},
+		{"pos": Vector3(-4625, 0, 4350), "r": 700.0, "peak": 225.0},
+		{"pos": Vector3(-3775, 0, 3850), "r": 700.0, "peak": 235.0},
 		# DER VULKAN. Die Schluessel gehoeren zusammen und stehen deshalb hier beieinander;
 		# was jeder einzelne tut, steht bei TerrainWorld.height_at (SCHICHTVULKAN, RIPPEN,
 		# KRATER). Fehlt einer, faellt das Massiv auf die Inselform zurueck.
@@ -954,7 +954,16 @@ func _setup_world() -> void:
 	var rivers := [{
 		# CANYON DES WESTENS: extrem breites/tiefes "Flusstal" = durchfliegbare Schlucht
 		# (die Distanz-Rampe macht dort echte Berge -> hohe Waende links und rechts).
-		"w": 40.0, "valley": 260.0, "depth": 7.0,
+		# DAS TALBAND WAR 260 M BREIT UND HAT DIE SCHLUCHT SELBST EINGEEBNET.
+		# _river_carve zieht im ganzen Band die Ufer auf Wasserhoehe + 1,2 m; bei 260 m
+		# heisst das, dass links und rechts je ein Viertelkilometer flachgelegt wird — und
+		# gemessen (tools/_fluss_schnitt.gd) stand das Gelaende bei 90 m Abstand nur 6,3 m
+		# ueber dem Wasser. Die Kamera "IN die Schlucht" zeigte deshalb ein breites, flaches
+		# Flusstal ohne Waende, obwohl der Eintrag hier "durchfliegbare Schlucht" verspricht.
+		# Mit 110 m bleibt der Talboden breit genug zum Durchfliegen (die Spannweite der
+		# Bausatzflugzeuge liegt bei rund 12 m), und die Flanken der sechs Canyonmassive
+		# stehen wieder da, wo sie hingehoeren: direkt am Wasser.
+		"w": 40.0, "valley": 110.0, "depth": 7.0,
 		# MAEANDER. Aus der Luft war die Schlucht ein schnurgerades blaues Band von gleicher
 		# Breite quer durch die halbe Karte — die auffaelligste kuenstliche Linie der Welt,
 		# weil acht Stuetzpunkte eben acht Geraden sind. 130 m Auslenkung bleiben INNERHALB
