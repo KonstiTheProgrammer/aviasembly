@@ -1977,7 +1977,11 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 		ax *= 1.0 + 0.10 * _hb_rau(float(i) * 0.29, 4.0)
 		ay *= 1.0 + 0.07 * _hb_rau(float(i) * 0.31, 9.0)
 		aus.append(Vector3(ax, ay, -HB_STIRN_T + ay * 0.34))
-		loch.append(Vector3(p.x * 1.10, p.y * 1.08, -HB_STIRN_T + p.y * 0.34))
+		# Der Laibungsring liegt weiter aussen als frueher (1.10 -> 1.18): zusammen mit der
+		# 0.94 der Wandflaeche ergibt das rund ein Fuenftel Ueberlapp, und damit greift die
+		# Wand auch dort noch, wo der Umriss zwischen zwei Randpunkten am staerksten
+		# einspringt.
+		loch.append(Vector3(p.x * 1.18, p.y * 1.16, -HB_STIRN_T + p.y * 0.34))
 	# DIE WANDFLAECHE IST EIN RASTER, KEIN RINGFAECHER.
 	#
 	# ZWEI ANLAEUFE VORHER, beide an derselben Ursache gescheitert: die Flaeche entstand
@@ -2011,7 +2015,16 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 			var war_drin := false
 			if rr > 0.01:
 				var wnk := atan2(dy, dx)
-				var lr := _hb_lochradius(loch, lz, wnk)
+				# UEBERLAPPUNG STATT STOSS. _hb_lochradius sucht den naechstgelegenen der 40
+				# Randpunkte, statt zwischen zweien zu interpolieren; zwischen den Punkten
+				# liegt das Rasterloch deshalb bis zu ein paar Prozent weiter aussen als die
+				# Laibung dahinter. Zwei Flaechen, die sich nur beruehren SOLLEN, klaffen an
+				# so einer Stelle — im Bild standen links und rechts der Portalleibung zwei
+				# schmale gruene Schlitze, durch die man die Wiese draussen sah.
+				# Mit 0.94 greift die Wandflaeche in die Laibung hinein. Der Ueberlapp ist
+				# innen unsichtbar (dort liegt ohnehin Fels auf Fels), und eine Fuge kann
+				# damit gar nicht mehr entstehen.
+				var lr := _hb_lochradius(loch, lz, wnk) * 0.94
 				if rr < lr:
 					px = cos(wnk) * lr
 					py = lz + sin(wnk) * lr
