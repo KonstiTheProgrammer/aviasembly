@@ -1,4 +1,4 @@
-"""Build a smooth A-10-inspired cockpit module from an empty Blender scene.
+"""Build the second, reference-faithful A-10 cockpit module in Blender.
 
 The asset uses the Aviassembly authoring convention: X is width, Z is up and
 +Y points toward the nose. Blender's glTF conversion maps +Y to Godot -Z.
@@ -12,9 +12,10 @@ from mathutils import Vector
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BLEND_PATH = os.path.join(PROJECT_ROOT, "blender_lib/cockpit_a10.blend")
-GLB_PATH = os.path.join(PROJECT_ROOT, "models/cockpit_a10.glb")
-PREVIEW_PATH = os.path.join(PROJECT_ROOT, "blender_lib/cockpit_a10_preview.png")
+BLEND_PATH = os.path.join(PROJECT_ROOT, "blender_lib/cockpit_a10_v2.blend")
+GLB_PATH = os.path.join(PROJECT_ROOT, "models/cockpit_a10_v2.glb")
+PREVIEW_PATH = os.path.join(PROJECT_ROOT, "blender_lib/cockpit_a10_v2_preview.png")
+SIDE_PREVIEW_PATH = os.path.join(PROJECT_ROOT, "blender_lib/cockpit_a10_v2_side_preview.png")
 REFERENCE_PATH = os.path.join(PROJECT_ROOT, "blender_lib/a10_cockpit_reference.png")
 
 
@@ -46,7 +47,7 @@ def move_to_collection(obj, collection):
     collection.objects.link(obj)
 
 
-def make_material(name, color, metallic=0.0, roughness=0.4):
+def make_material(name, color, metallic=0.0, roughness=0.4, transmission=0.0):
     material = bpy.data.materials.new(name)
     material.use_nodes = True
     material.diffuse_color = (*color[:3], color[3])
@@ -59,12 +60,23 @@ def make_material(name, color, metallic=0.0, roughness=0.4):
             "Metallic": metallic,
             "Roughness": roughness,
             "IOR": 1.46,
+            "Alpha": color[3],
+            "Transmission Weight": transmission,
             "Coat Weight": 0.16,
             "Coat Roughness": 0.16,
         }
         for socket, value in values.items():
             if socket in bsdf.inputs:
                 bsdf.inputs[socket].default_value = value
+    if color[3] < 0.999:
+        # Blender 4.2+ replaced blend_method with surface_render_method.  The
+        # guarded assignment also keeps the builder usable with older Blender.
+        if hasattr(material, "surface_render_method"):
+            material.surface_render_method = "DITHERED"
+        elif hasattr(material, "blend_method"):
+            material.blend_method = "BLEND"
+        if hasattr(material, "use_transparency_overlap"):
+            material.use_transparency_overlap = False
     return material
 
 
@@ -77,6 +89,28 @@ def mesh_object(name, mesh_name, vertices, faces, collection, material, smooth=T
     obj.data.materials.append(material)
     for polygon in obj.data.polygons:
         polygon.use_smooth = smooth and (side_faces is None or polygon.index < side_faces)
+    return obj
+
+
+def create_beveled_box(name, location, dimensions, collection, material, bevel=0.025, rotation=(0.0, 0.0, 0.0)):
+    """Create a compact, manifold low-poly interior component."""
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=location, rotation=rotation)
+    obj = bpy.context.object
+    obj.name = name
+    obj.data.name = f"{name}_Mesh"
+    move_to_collection(obj, collection)
+    obj.dimensions = dimensions
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if bevel > 0.0:
+        modifier = obj.modifiers.new("Soft industrial edges", "BEVEL")
+        modifier.width = bevel
+        modifier.segments = 2
+        modifier.limit_method = "ANGLE"
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+    obj.data.materials.append(material)
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = False
     return obj
 
 
@@ -125,11 +159,58 @@ def loft_closed(name, sections, collection, material, segments=20, smooth=True):
     )
 
 
+def a10_body_ring(y, half_width, top_z, bottom_z):
+    """A broad-shouldered slab section with the A-10's nearly flat belly."""
+    height = top_z - bottom_z
+    return [
+        (0.42 * half_width, y, top_z),
+        (-0.42 * half_width, y, top_z),
+        (-0.82 * half_width, y, top_z - 0.07 * height),
+        (-1.00 * half_width, y, top_z - 0.22 * height),
+        (-1.00 * half_width, y, bottom_z + 0.18 * height),
+        (-0.82 * half_width, y, bottom_z),
+        (0.82 * half_width, y, bottom_z),
+        (1.00 * half_width, y, bottom_z + 0.18 * height),
+        (1.00 * half_width, y, top_z - 0.22 * height),
+        (0.82 * half_width, y, top_z - 0.07 * height),
+    ]
+
+
+def loft_a10_body(name, sections, collection, material):
+    vertices = []
+    rings = []
+    for section in sections:
+        ring = a10_body_ring(*section)
+        rings.append(list(range(len(vertices), len(vertices) + len(ring))))
+        vertices.extend(ring)
+
+    faces = []
+    ring_size = len(rings[0])
+    for station in range(len(rings) - 1):
+        for index in range(ring_size):
+            following = (index + 1) % ring_size
+            faces.append((rings[station][index], rings[station + 1][index], rings[station + 1][following], rings[station][following]))
+    side_faces = len(faces)
+    faces.append(tuple(rings[0]))
+    faces.append(tuple(reversed(rings[-1])))
+    return mesh_object(
+        name,
+        f"{name}_Mesh",
+        vertices,
+        faces,
+        collection,
+        material,
+        smooth=True,
+        side_faces=side_faces,
+    )
+
+
 def arch_points(y, width, base_z, height, segments=12):
     points = []
     for index in range(segments + 1):
-        angle = math.pi - math.pi * index / segments
-        points.append((width * math.cos(angle), y, base_z + height * math.sin(angle)))
+        t = -1.0 + 2.0 * index / segments
+        crown = max(0.0, 1.0 - t * t) ** 0.40
+        points.append((width * t, y, base_z + height * crown))
     return points
 
 
@@ -220,7 +301,7 @@ def point_at(obj, target):
 clear_scene()
 
 scene = bpy.context.scene
-scene.name = "A10_Cockpit_Module"
+scene.name = "A10_Cockpit_Module_V2"
 scene.unit_settings.system = "METRIC"
 scene.unit_settings.scale_length = 1.0
 scene.render.engine = "BLENDER_EEVEE"
@@ -231,14 +312,17 @@ scene.render.image_settings.file_format = "PNG"
 scene.render.image_settings.color_mode = "RGBA"
 scene.render.image_settings.color_depth = "8"
 
-model_collection = bpy.data.collections.new("MODEL_A10_Cockpit")
+model_collection = bpy.data.collections.new("MODEL_A10_Cockpit_V2")
 scene.collection.children.link(model_collection)
 presentation_collection = bpy.data.collections.new("PRESENTATION")
 scene.collection.children.link(presentation_collection)
 
-body_material = make_material("cockpit_body", (0.46, 0.49, 0.53, 1.0), metallic=0.32, roughness=0.43)
-glass_material = make_material("glass", (0.008, 0.016, 0.026, 1.0), metallic=0.0, roughness=0.19)
-frame_material = make_material("canopy_frame", (0.055, 0.063, 0.072, 1.0), metallic=0.55, roughness=0.36)
+body_material = make_material("cockpit_body", (0.50, 0.53, 0.56, 1.0), metallic=0.32, roughness=0.45)
+glass_material = make_material("glass", (0.035, 0.095, 0.135, 0.46), metallic=0.0, roughness=0.11, transmission=0.38)
+frame_material = make_material("canopy_frame", (0.040, 0.047, 0.055, 1.0), metallic=0.24, roughness=0.48)
+interior_material = make_material("cockpit_interior", (0.018, 0.022, 0.024, 1.0), metallic=0.10, roughness=0.68)
+seat_material = make_material("ejection_seat", (0.040, 0.045, 0.033, 1.0), metallic=0.02, roughness=0.80)
+instrument_material = make_material("instrument_glass", (0.015, 0.045, 0.052, 1.0), metallic=0.0, roughness=0.20)
 floor_material = make_material("Studio_Floor", (0.025, 0.060, 0.105, 1.0), metallic=0.0, roughness=0.82)
 
 glass_bsdf = glass_material.node_tree.nodes.get("Principled BSDF")
@@ -248,52 +332,73 @@ if glass_bsdf:
     if "Coat Weight" in glass_bsdf.inputs:
         glass_bsdf.inputs["Coat Weight"].default_value = 0.28
 
-root = bpy.data.objects.new("A10_Cockpit_Root", None)
+root = bpy.data.objects.new("A10_Cockpit_V2_Root", None)
 model_collection.objects.link(root)
 root.empty_display_type = "ARROWS"
 root.empty_display_size = 0.42
 root["asset_type"] = "modular_aircraft_cockpit"
 root["aircraft_reference"] = "A-10-inspired single-seat armored cockpit"
-root["style"] = "smooth rounded low-poly"
+root["style"] = "broad-shouldered reference-faithful low-poly"
 root["godot_forward"] = "-Z"
 root["reference_image"] = os.path.relpath(REFERENCE_PATH, PROJECT_ROOT)
 
-# Broad armored tub with a high shoulder and smoothly tapered nose. The first
-# and last stations remain planar attachment faces for editor snapping.
+# Broad armored tub with a genuinely flat upper deck and deep titanium-bath
+# silhouette. This deliberately avoids the rejected oval capsule cross-section.
 body_sections = [
-    (-1.35, 0.72, 0.65, -0.10, 2.45),
-    (-1.12, 0.76, 0.69, -0.10, 2.45),
-    (-0.68, 0.78, 0.72, -0.12, 2.38),
-    (-0.18, 0.77, 0.71, -0.13, 2.30),
-    (0.32, 0.74, 0.66, -0.14, 2.22),
-    (0.76, 0.68, 0.58, -0.15, 2.14),
-    (1.10, 0.52, 0.44, -0.17, 2.05),
-    (1.35, 0.40, 0.34, -0.17, 2.00),
+    (-1.45, 0.72, 0.45, -0.55),
+    (-1.10, 0.74, 0.48, -0.55),
+    (-0.68, 0.76, 0.48, -0.55),
+    (-0.18, 0.75, 0.45, -0.55),
+    (0.34, 0.71, 0.38, -0.55),
+    (0.76, 0.63, 0.25, -0.55),
+    (1.18, 0.53, 0.10, -0.54),
+    (1.52, 0.40, -0.03, -0.49),
+    (1.74, 0.22, -0.15, -0.38),
+    (1.86, 0.10, -0.21, -0.28),
 ]
-body = loft_closed("Cockpit_Body", body_sections, model_collection, body_material, segments=24)
+body = loft_a10_body("Cockpit_Body", body_sections, model_collection, body_material)
 body.parent = root
-
-# A low integrated collar prevents the bubble canopy from reading as a pod
-# glued onto the fuselage. It overlaps the body intentionally and stays clean.
-sill_sections = [
-    (-0.70, 0.42, 0.065, 0.505, 2.20),
-    (-0.54, 0.50, 0.075, 0.510, 2.25),
-    (-0.08, 0.53, 0.080, 0.515, 2.25),
-    (0.34, 0.51, 0.075, 0.505, 2.20),
-    (0.69, 0.40, 0.055, 0.465, 2.05),
-]
-sill = loft_closed("Canopy_Sill", sill_sections, model_collection, body_material, segments=24)
-sill.parent = root
 
 # Large rear bubble with a narrow base on the broad A-10-style shoulder.
 bubble_stations = [
-    (-0.61, 0.34, 0.54, 0.39),
-    (-0.48, 0.43, 0.54, 0.56),
-    (-0.08, 0.47, 0.55, 0.64),
-    (0.27, 0.42, 0.55, 0.60),
+    (-0.84, 0.27, 0.505, 0.18),
+    (-0.73, 0.34, 0.508, 0.34),
+    (-0.55, 0.40, 0.512, 0.47),
+    (-0.30, 0.44, 0.515, 0.55),
+    (-0.04, 0.45, 0.508, 0.57),
+    (0.19, 0.42, 0.492, 0.53),
+    (0.38, 0.38, 0.460, 0.48),
 ]
 bubble = canopy_surface("Canopy_Glass", bubble_stations, model_collection, glass_material, segments=16)
 bubble.parent = root
+
+# The reference photograph is readable as an actual cockpit because the seat,
+# dark tub and coaming are visible through the canopy.  These shapes are kept
+# deliberately simple so the part remains suitable for the editor preview.
+deck_vertices = [
+    (-0.28, -0.78, 0.512), (0.28, -0.78, 0.512),
+    (-0.37, 0.30, 0.477), (0.37, 0.30, 0.477),
+    (-0.28, -0.78, 0.486), (0.28, -0.78, 0.486),
+    (-0.37, 0.30, 0.451), (0.37, 0.30, 0.451),
+]
+deck_faces = [
+    (0, 2, 3, 1), (4, 5, 7, 6),
+    (0, 1, 5, 4), (2, 6, 7, 3),
+    (0, 4, 6, 2), (1, 3, 7, 5),
+]
+deck = mesh_object("Cockpit_Tub", "Cockpit_Tub_Mesh", deck_vertices, deck_faces, model_collection, interior_material, smooth=False)
+deck.parent = root
+
+interior_parts = []
+interior_parts.append(create_beveled_box("Seat_Cushion", (0.0, -0.19, 0.585), (0.40, 0.37, 0.12), model_collection, seat_material, 0.035))
+interior_parts.append(create_beveled_box("Seat_Back", (0.0, -0.42, 0.745), (0.43, 0.13, 0.45), model_collection, seat_material, 0.035, (math.radians(9.0), 0.0, 0.0)))
+interior_parts.append(create_beveled_box("Seat_Headrest", (0.0, -0.46, 0.930), (0.29, 0.15, 0.15), model_collection, frame_material, 0.025, (math.radians(6.0), 0.0, 0.0)))
+interior_parts.append(create_beveled_box("Left_Console", (-0.30, -0.05, 0.575), (0.13, 0.56, 0.10), model_collection, interior_material, 0.018))
+interior_parts.append(create_beveled_box("Right_Console", (0.30, -0.05, 0.575), (0.13, 0.56, 0.10), model_collection, interior_material, 0.018))
+interior_parts.append(create_beveled_box("Instrument_Coaming", (0.0, 0.25, 0.605), (0.55, 0.25, 0.12), model_collection, interior_material, 0.028, (math.radians(-7.0), 0.0, 0.0)))
+interior_parts.append(create_beveled_box("Instrument_Face", (0.0, 0.205, 0.580), (0.39, 0.018, 0.15), model_collection, instrument_material, 0.012, (math.radians(-7.0), 0.0, 0.0)))
+for part in interior_parts:
+    part.parent = root
 
 # Steep wrapped windscreen. Its six broad strips make the real multi-pane
 # construction legible without adding decorative grooves or greebles.
@@ -303,8 +408,9 @@ wind_bottom = []
 wind_top = []
 for t in wind_t:
     abs_t = abs(t)
-    bottom = (0.39 * t, 0.78 - 0.12 * abs_t, 0.48 + 0.025 * (1.0 - abs_t))
-    top = (0.42 * t, 0.27 + 0.025 * abs_t, 0.55 + 0.60 * math.sqrt(max(0.0, 1.0 - t * t)))
+    bottom = (0.39 * t, 0.74 - 0.10 * abs_t, 0.295 + 0.020 * (1.0 - abs_t))
+    crown = max(0.0, 1.0 - t * t) ** 0.40
+    top = (0.38 * t, 0.38 + 0.020 * abs_t, 0.460 + 0.48 * crown)
     wind_bottom.append(len(wind_vertices))
     wind_vertices.append(bottom)
     wind_top.append(len(wind_vertices))
@@ -338,24 +444,10 @@ rear_arch = arch_points(*bubble_stations[0], segments=16)
 front_arch = arch_points(*bubble_stations[-1], segments=16)
 frame_parts.append(create_poly_beam("Frame_Rear_Arch", rear_arch, 0.030, model_collection, frame_material))
 frame_parts.append(create_poly_beam("Frame_Front_Arch", front_arch, 0.033, model_collection, frame_material))
-frame_parts.append(
-    create_poly_beam(
-        "Frame_Left_Sill",
-        [rear_arch[0], arch_points(*bubble_stations[1], segments=16)[0], arch_points(*bubble_stations[2], segments=16)[0], front_arch[0]],
-        0.028,
-        model_collection,
-        frame_material,
-    )
-)
-frame_parts.append(
-    create_poly_beam(
-        "Frame_Right_Sill",
-        [rear_arch[-1], arch_points(*bubble_stations[1], segments=16)[-1], arch_points(*bubble_stations[2], segments=16)[-1], front_arch[-1]],
-        0.028,
-        model_collection,
-        frame_material,
-    )
-)
+left_sill = [arch_points(*station, segments=16)[0] for station in bubble_stations]
+right_sill = [arch_points(*station, segments=16)[-1] for station in bubble_stations]
+frame_parts.append(create_poly_beam("Frame_Left_Sill", left_sill, 0.028, model_collection, frame_material))
+frame_parts.append(create_poly_beam("Frame_Right_Sill", right_sill, 0.028, model_collection, frame_material))
 
 # Windscreen borders and one central divider are the only forward mullions.
 wind_bottom_points = [wind_vertices[index] for index in wind_bottom]
@@ -394,9 +486,9 @@ studio_floor.data.materials.append(floor_material)
 camera_data = bpy.data.cameras.new("Camera")
 camera = bpy.data.objects.new("Camera", camera_data)
 presentation_collection.objects.link(camera)
-camera.location = (5.35, 3.85, 3.10)
-camera_data.lens = 66
-point_at(camera, (0.0, 0.02, 0.16))
+camera.location = (5.15, 5.45, 4.05)
+camera_data.lens = 72
+point_at(camera, (0.0, 0.18, 0.08))
 scene.camera = camera
 
 
@@ -445,12 +537,26 @@ bpy.ops.export_scene.gltf(
 
 scene.render.filepath = PREVIEW_PATH
 bpy.ops.render.render(write_still=True)
+
+# A clean side silhouette is the quickest regression check against the A-10
+# reference: low bubble, steep windscreen and almost flat belly.
+camera.location = (6.35, 0.10, 0.55)
+camera_data.lens = 86
+point_at(camera, (0.0, 0.10, 0.05))
+scene.render.filepath = SIDE_PREVIEW_PATH
+bpy.ops.render.render(write_still=True)
+
+camera.location = (5.15, 5.45, 4.05)
+camera_data.lens = 72
+point_at(camera, (0.0, 0.18, 0.08))
+scene.render.filepath = PREVIEW_PATH
 bpy.ops.wm.save_as_mainfile(filepath=BLEND_PATH)
 
 result = {
     "blend": BLEND_PATH,
     "glb": GLB_PATH,
     "preview": PREVIEW_PATH,
+    "side_preview": SIDE_PREVIEW_PATH,
     "model_objects": len(model_collection.objects),
     "body_vertices": len(body.data.vertices),
     "body_polygons": len(body.data.polygons),
