@@ -192,6 +192,42 @@ static func plan_grossstadt() -> Array:
 			plan.append({"typ": typen[rng.randi() % typen.size()],
 				"pos": p + Vector2(rng.randf_range(-7, 7), rng.randf_range(-7, 7)),
 				"yaw": float(rng.randi() % 4) * 1.5708})
+	# VORSTADT. Die Stadt hoerte bei 250 m auf und war damit 600 m breit — im Anflug aus
+	# 1,6 km eine Handvoll Tuermchen in leerer Heide, nicht die GROSSSTADT, als die sie auf
+	# der Karte steht. Eine Stadt endet aber nicht an einer Linie, sie franst aus.
+	#
+	# DIE DICHTE FAELLT MIT DEM RADIUS, statt in Ringen zu springen: von 0.72 bei 250 m auf
+	# 0.12 bei 620 m. Damit entsteht der Verlauf, den man aus der Luft kennt — geschlossene
+	# Blockrandbebauung, dann Einzelhaeuser mit Gaerten, dann Hoefe im Feld.
+	# Die Haustypen wechseln bei 450 m mit: aussen stehen Bauernhaus, Scheune und Kate, und
+	# der Uebergang in die Landschaft ist damit auch inhaltlich einer und nicht nur eine
+	# Ausduennung derselben Reihenhaeuser.
+	#
+	# DAS KOSTET FAST NICHTS: build() buendelt je Typ in ein MultiMesh, die zusaetzlichen
+	# Haeuser sind also weitere Instanzen und keine weiteren Draw Calls. Und sie duerfen
+	# ueber die Flachzone der Stadt (r_flat 480) hinausreichen, weil jedes Haus seine Hoehe
+	# mit terrain.height_at selbst abtastet.
+	var vorstadt := ["Haus_Reihenhaus", "Haus_Stadthaus2", "Haus_Villa", "Haus_Eckhaus",
+		"Haus_Gasthaus", "Haus_Werkstatt"]
+	var feldrand := ["Haus_Bauernhaus", "Haus_Scheune", "Haus_Kate", "Haus_Villa"]
+	for gx in range(-14, 15):
+		for gz in range(-14, 15):
+			var q := Vector2(float(gx) * 46.0, float(gz) * 46.0)
+			var d := q.length()
+			if d <= 250.0 or d > 620.0:
+				continue
+			if rng.randf() > lerpf(0.72, 0.12, clampf((d - 250.0) / 370.0, 0.0, 1.0)):
+				continue
+			var liste: Array = vorstadt if d < 450.0 else feldrand
+			plan.append({"typ": liste[rng.randi() % liste.size()],
+				"pos": q + Vector2(rng.randf_range(-9, 9), rng.randf_range(-9, 9)),
+				"yaw": float(rng.randi() % 4) * 1.5708})
+	# Ein paar Marken in der Vorstadt, damit die Silhouette dort nicht nur aus Daechern
+	# besteht — von Hand gesetzt, weil ein Wasserturm neben dem naechsten albern aussaehe.
+	for m in [["Haus_Wasserturm", Vector2(-390, 210)], ["Haus_Kapelle", Vector2(345, -300)],
+			["Haus_Werkstatt", Vector2(-300, -395)], ["Haus_Speicher", Vector2(430, 165)],
+			["Haus_Windmuehle", Vector2(-520, -120)], ["Haus_Wasserturm", Vector2(255, 470)]]:
+		plan.append({"typ": m[0], "pos": m[1], "yaw": rng.randf() * TAU})
 	return plan
 
 
