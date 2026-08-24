@@ -5752,8 +5752,26 @@ func _face_color(cen: Vector3, ny: float) -> Color:
 	if cen.y > 188.0:
 		var sk := _patch.get_noise_2d(cen.x * _schnee_takt + 1700.0,
 			cen.z * _schnee_takt - 5300.0)
+		# DAS FENSTER IST BREIT, ABER ES LIEGT HOEHER. Beim Beheben des Flimmerns stand es
+		# zuerst auf 0.55..0.95 — die Breite war richtig und ist geblieben, die LAGE war
+		# falsch: mit 0.55 als Untergrenze bekam auch eine 56 Grad steile Wand noch Schnee,
+		# und im Bild von oben (Shot tal_oben) war die ganze Kette von Fuss bis Gipfel
+		# gleichmaessig weiss, ohne eine einzige dunkle Felswand. Ein Gebirge ohne Wechsel
+		# von Firn und Fels liest sich als Zuckerguss.
+		# 0.64..0.99 verlangt fuer vollen Schnee eine fast waagerechte Flaeche und laesst
+		# steile Flanken blank. 0.99 statt 1.0, weil kein Dreieck des 8-m-Netzes exakt
+		# waagerecht liegt — mit 1.0 als Obergrenze bliebe der Firn ueberall grau.
+		#
+		# WEITER HOCH GEHT NICHT, und das ist ausprobiert: mit 0.80 als Untergrenze
+		# verschwindet der Schnee auf dieser Kette fast vollstaendig UND das Flimmern kommt
+		# zurueck. Der Grund ist die Form der Massive selbst — bei 2200 m Radius liegen die
+		# allermeisten Facetten flach (gemessen mit tools/_rauheit.gd: nur 14 Prozent ueber
+		# 45 Grad), die Neigung TRENNT hier also kaum. Wer dunkle Felswaende in dieser Kette
+		# will, bekommt sie nicht ueber die Schneeschwelle, sondern nur ueber steilere
+		# Geometrie — und die hat ihren eigenen Preis, siehe die Rippenfrequenz in
+		# Main._hochgebirge.
 		schnee = smoothstep(188.0, 428.0, cen.y) \
-			* smoothstep(0.55, 0.95, ny + SCHNEE_KORN * sk)
+			* smoothstep(0.64, 0.99, ny + SCHNEE_KORN * sk)
 	if schnee > 0.001:
 		fels = fels.lerp(Color(0.87, 0.88, 0.91), schnee)
 	if cen.y > 188.0:
