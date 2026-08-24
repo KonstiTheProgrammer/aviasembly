@@ -222,7 +222,7 @@ const ADLERHORST_LAENGS := 8800.0
 const ADLERHORST_HOEHE := 90.0
 # Abstand des Hoehlenportals von der Bahnachse, quer dazu. Begruendung an der Baustelle
 # (Main._setup_world, "FELSENBASIS ADLERHORST").
-const ADLERHORST_HOEHLE_QUER := 462.0
+const ADLERHORST_HOEHLE_QUER := 436.0
 # FELSENTOR am Taleingang: Position auf der Talachse. Weit genug drinnen, dass man schon
 # zwischen den Waenden fliegt, weit genug vor dem Platz fuer einen langen Endanflug.
 const TOR_LAENGS := 3600.0
@@ -669,6 +669,22 @@ func _setup_world() -> void:
 			# die Querkette ab 9250 m dichtmacht. Jetzt endet sie bei 9420 m.
 			fz["quer_faktor"] = 0.88
 		flat_zones.append(fz)
+	# EINEBNUNG UEBER DEM STOLLEN DER FELSENBASIS.
+	#
+	# SIE IST NICHT KOSMETIK, SONDERN DIE BEDINGUNG DAFUER, DASS DIE HALLE BEGEHBAR IST.
+	# Hinter dem Portal steigt der Hang mit rund 31 Grad, der Hallenboden liegt waagerecht
+	# auf Flugfeldhoehe. Der Berg stoesst damit schon nach wenigen Metern VON UNTEN durch
+	# den Boden — im Bild sah man durch das offene Portal die Grasnarbe des Hangs im
+	# Stollen stehen. Ein Tunnel, der dem Hang davonlaeuft, muesste mit 31 Grad abtauchen
+	# und waere nicht mehr berollbar.
+	# Also wird das Gelaende ueber dem Stollen auf Flugfeldhoehe gelegt. Die Narbe, die das
+	# in den Hang schneidet, deckt die Felsstirn ab: sie ist 392 m breit und 168 m hoch und
+	# steht genau davor.
+	var hb_q0 := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
+	var ad0 := _adlerhorst_pos()
+	var hb_m := Vector2(ad0.x, ad0.z) + hb_q0 * (ADLERHORST_HOEHLE_QUER + 96.0)
+	flat_zones.append({"pos": Vector3(hb_m.x, 0.0, hb_m.y),
+		"r_flat": 118.0, "r_blend": 236.0, "y": ADLERHORST_HOEHE})
 	# --- WAHRZEICHEN/POIs: Stadt mit See + Leuchtturm + BERGDORF am FLUSS (Stufe 3) ---
 	var town_pos := Vector3(1400, 0, 750)
 	var factory_pos := town_pos + Vector3(-225, 0, 95)
@@ -1209,8 +1225,15 @@ func _setup_world() -> void:
 	var hb_quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
 	var adler := _adlerhorst_pos()
 	var hb_p := Vector2(adler.x, adler.z) + hb_quer * ADLERHORST_HOEHLE_QUER
+	# DER HALLENBODEN LIEGT 0,7 M UEBER DEM FLUGFELD, und das ist kein Spielraum, sondern
+	# noetig: die Flachzone haelt das Gelaende am Portal auf EXAKT ADLERHORST_HOEHE. Boden
+	# und Gelaende waeren damit koplanar — im Bild schien durch die untere Portalhaelfte
+	# das Gras der Wiese, weil beide Flaechen um dieselbe Tiefe streiten. 0,7 m sind genug,
+	# dass der Boden gewinnt, und wenig genug, dass man beim Rollen nichts davon merkt.
+	# 436 m statt 462: bei 462 steht das Gelaende schon auf rund 105 m und ragte damit in
+	# den Stollen hinein. 436 liegt noch in der Flachzone (r_flat 520 mit quer_faktor 0.88).
 	Landmarks.build_felsenbasis(fly_world,
-		Vector3(hb_p.x, ADLERHORST_HOEHE, hb_p.y),
+		Vector3(hb_p.x, ADLERHORST_HOEHE + 0.7, hb_p.y),
 		atan2(hb_quer.x, hb_quer.y))
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber

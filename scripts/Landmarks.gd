@@ -1777,7 +1777,7 @@ const HB_W_MUND := 30.0        # halbe Breite am Portal
 const HB_H_MUND := 34.0        # lichte Hoehe am Portal
 const HB_W_HALLE := 46.0       # halbe Breite der Halle
 const HB_H_HALLE := 40.0       # lichte Hoehe der Halle
-const HB_RINGE := 16           # Querschnitte laengs
+const HB_RINGE := 28           # Querschnitte laengs
 const HB_STIRN_B := 196.0      # halbe Breite der Felsstirn am Portal
 # HOEHE DER STIRN. 88 m waren zu wenig, und der Fehler war ein Massstabsfehler: der Hang
 # dahinter steigt auf 240 m, eine 88-m-Stirn stand davor als Lump und nicht als Wand. Sie
@@ -1785,6 +1785,13 @@ const HB_STIRN_B := 196.0      # halbe Breite der Felsstirn am Portal
 # Bauteil, egal wie gut ihre Farbe passt.
 const HB_STIRN_H := 168.0      # ihre Hoehe ueber dem Hallenboden
 const HB_STIRN_T := 26.0       # wie weit sie vor das Portal tritt
+# PUNKTE JE QUERSCHNITT und radiale Unterteilung der Wandflaeche. BEIDE WAREN ZU KLEIN,
+# und das war der Grund, warum sich die Basis nicht in den Berg fuegte: das Gelaende
+# traegt 8-m-Dreiecke, die Stirn hatte 24-m-Segmente. Zwei Flaechen mit so
+# verschiedener Koernung koennen nicht ineinander uebergehen, egal wie gut Farbe und
+# Umriss stimmen — das Auge sieht die Naht an der Dreiecksgroesse.
+const HB_PUNKTE := 40          # Punkte je Querschnitt (in _hb_ring fest verdrahtet)
+const HB_STIRN_STUFEN := 7     # radiale Unterteilung der Wandflaeche
 
 
 ## Ein Querschnitt: geschlossener Ring aus 16 Punkten (x quer, y ueber dem Boden).
@@ -1793,21 +1800,68 @@ const HB_STIRN_T := 26.0       # wie weit sie vor das Portal tritt
 static func _hb_ring(w: float, h: float) -> PackedVector2Array:
 	var p := PackedVector2Array()
 	var kampf := h * 0.52
-	p.append(Vector2(w, 0.0))
-	p.append(Vector2(w, kampf * 0.5))
-	p.append(Vector2(w, kampf))
-	for i in range(1, 9):
-		var a := PI * float(i) / 9.0
+	# Rechte Wand hoch (6), Bogen (20), linke Wand herunter (6), Boden zurueck (8) = 40.
+	for i in 6:
+		p.append(Vector2(w, kampf * float(i) / 6.0))
+	for i in 20:
+		var a := PI * float(i) / 19.0
 		p.append(Vector2(w * cos(a), kampf + (h - kampf) * sin(a)))
-	p.append(Vector2(-w, kampf))
-	p.append(Vector2(-w, kampf * 0.5))
-	p.append(Vector2(-w, 0.0))
-	p.append(Vector2(-w * 0.34, 0.0))
-	p.append(Vector2(w * 0.34, 0.0))
+	for i in 6:
+		p.append(Vector2(-w, kampf * (1.0 - (float(i) + 1.0) / 6.0)))
+	for i in 8:
+		p.append(Vector2(lerpf(-w, w, (float(i) + 0.5) / 8.0), 0.0))
 	return p
 
 
-## Breite und Hoehe an der Laengsstelle t (0 = Portal, 1 = Rueckwand).
+## Radius des Portalumrisses unter dem Winkel wnk, gemessen von der Portalmitte.
+## Die 40 Punkte des Lochrands liegen nicht auf gleichen Winkeln — deshalb wird der
+## naechstgelegene gesucht statt interpoliert. Bei 40 Punkten ist der Fehler kleiner als
+## die Rasterweite der Wand und damit unsichtbar.
+static func _hb_lochradius(loch: Array, cy: float, wnk: float) -> float:
+	var best := 0.0
+	var bd := 9e9
+	for q in loch:
+		var v: Vector3 = q
+		var d := angle_difference(atan2(v.y - cy, v.x), wnk)
+		if absf(d) < bd:
+			bd = absf(d)
+			best = sqrt(v.x * v.x + (v.y - cy) * (v.y - cy))
+	return best
+
+
+## WERTRAUSCHEN mit Wellenlaenge l — glatt, weil zwischen vier Gitterwerten interpoliert
+## wird.
+##
+## _hb_rau allein reicht dafuer NICHT, und das war im Bild sofort zu sehen: es ist ein
+## Hash, benachbarte Eingaben liefern unkorrelierte Werte. Auf ein Netz angewandt bekommt
+## damit jede Zelle ihre eigene Zufallshoehe, und die Wand sah aus wie ein Schachbrett.
+## Gebraucht wird eine Groesse, die ueber MEHRERE Zellen laeuft.
+static func _hb_welle(x: float, y: float, l: float) -> float:
+	var fx := x / l
+	var fy := y / l
+	var ix: float = floor(fx)
+	var iy: float = floor(fy)
+	var tx: float = fx - ix
+	var ty: float = fy - iy
+	# Glaettung der Anteile, sonst stehen die Gitterlinien als Knicke im Fels.
+	tx = tx * tx * (3.0 - 2.0 * tx)
+	ty = ty * ty * (3.0 - 2.0 * ty)
+	var a := _hb_rau(ix, iy)
+	var b := _hb_rau(ix + 1.0, iy)
+	var c := _hb_rau(ix, iy + 1.0)
+	var d := _hb_rau(ix + 1.0, iy + 1.0)
+	return lerpf(lerpf(a, b, tx), lerpf(c, d, tx), ty)
+
+
+## Deterministische Unruhe aus zwei Kennzahlen. KEIN randf(): die Basis muss bei jedem
+## Start dieselbe sein, und ein Rauschfeld waere hier ueberdimensioniert — gebraucht wird
+## eine Zahl je Netzpunkt, kein Feld ueber der Welt.
+static func _hb_rau(a: float, b: float) -> float:
+	var v := sin(a * 12.9898 + b * 78.233) * 43758.5453
+	var w := sin(a * 39.3468 + b * 11.135) * 24634.6345
+	return (fposmod(v, 1.0) - 0.5) * 1.3 + (fposmod(w, 1.0) - 0.5) * 0.7
+
+
 ## Der Stollen bleibt die ersten 30 Prozent eng und weitet sich dann zur Halle — sonst
 ## sieht man vom Portal aus sofort die Rueckwand und der Berg wirkt duenn.
 static func _hb_masse(t: float) -> Vector2:
@@ -1856,11 +1910,22 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 		var punkte := PackedVector3Array()
 		for i in quer.size():
 			var q := quer[i]
-			var rau := 1.0
+			var z := t * HB_LAENGE
 			if q.y > 0.5:
-				rau = 1.0 + 0.055 * sin(float(i) * 2.7 + t * 9.0) \
-					+ 0.035 * sin(float(i) * 5.3 - t * 4.0)
-			punkte.append(Vector3(q.x * rau, q.y * rau, t * HB_LAENGE))
+				# WAND UND DECKE WERDEN GEBROCHEN, der Boden nicht: ein welliger Boden waere
+				# eine Stolperfalle fuer die Physik, und ein gesprengter Stollen hat ohnehin
+				# eine geschuettete Sohle.
+				# ZWEI LAENGEN UEBEREINANDER: ein grober Wurf je Ring gibt Ausbrueche ueber
+				# mehrere Meter, ein feiner je Punkt die Koernung. Die feine Lage allein sah
+				# aus wie Rauschen auf einem Rohr.
+				# Auch hier ueber die LAGE gewuerfelt und nicht ueber Ring und Punkt —
+				# sonst laufen die Ausbrueche als saubere Laengsrippen durch den Stollen.
+				var grob := _hb_rau(q.x * 0.045, q.y * 0.045 + z * 0.021)
+				var fein := _hb_rau(q.x * 0.16 + 4.0, q.y * 0.16 + z * 0.083)
+				var f := 1.0 + 0.085 * grob + 0.040 * fein
+				punkte.append(Vector3(q.x * f, q.y * f, z + 2.2 * grob))
+			else:
+				punkte.append(Vector3(q.x, q.y, z))
 		ringe.append(punkte)
 
 	for r in HB_RINGE:
@@ -1868,8 +1933,7 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 		var b: PackedVector3Array = ringe[r + 1]
 		for i in a.size():
 			var j := (i + 1) % a.size()
-			# Boden in Beton, Wand und Decke in Fels. Der Boden sind die beiden letzten
-			# Punkte plus die Uebergaenge zu den Wandfuessen.
+			# Boden in Beton, Wand und Decke in Fels.
 			var unten := a[i].y < 0.6 and a[j].y < 0.6
 			var col := beton if unten else fels
 			_tri(st, a[i], b[i], b[j], col)
@@ -1906,41 +1970,118 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 		if absf(p.x) > HB_W_MUND * 0.9:
 			ax = HB_STIRN_B * rx
 		if p.y > HB_H_MUND * 0.75:
-			# EINE NASE UEBER DEM PORTAL, keine zwei Hoecker. Ein glatter Deckel gab eine
-			# Kiste; ein reiner Wurf auf die Hoehe gab zwei Buckel links und rechts des
-			# Scheitels, weil der Ring dort seine dichtesten Punkte hat — im Bild sah es
-			# aus wie ein aufgeklappter Fluegel. Die Hoehe haengt jetzt an der QUERLAGE:
-			# ueber der Einfahrt steht der Fels am hoechsten und faellt zu beiden Seiten
-			# ab, so wie ein Pfeiler, aus dem das Tor gebrochen wurde.
+			# Eine Nase ueber dem Portal: ueber der Einfahrt steht der Fels am hoechsten
+			# und faellt zu beiden Seiten ab.
 			var fx := ax / HB_STIRN_B
 			ay = HB_STIRN_H * (0.50 + 0.50 * (1.0 - fx * fx))
-		# Unruhiger Umriss, aber massvoll — er soll die Kante brechen und nicht die Form
-		# ersetzen. Der Wurf haengt am Punktindex, damit die Stirn bei jedem Start
-		# dieselbe ist.
-		ax *= 1.0 + 0.10 * sin(float(i) * 2.1) + 0.05 * sin(float(i) * 4.7)
-		ay *= 1.0 + 0.07 * sin(float(i) * 1.7 + 1.1) + 0.04 * sin(float(i) * 3.9)
-		# NACH HINTEN GENEIGT: eine Felswand steht nicht senkrecht, sie lehnt sich zurueck.
+		ax *= 1.0 + 0.10 * _hb_rau(float(i) * 0.29, 4.0)
+		ay *= 1.0 + 0.07 * _hb_rau(float(i) * 0.31, 9.0)
 		aus.append(Vector3(ax, ay, -HB_STIRN_T + ay * 0.34))
-		# Der Lochrand sitzt in derselben Ebene, nur wenig weiter als der Stollen — die
-		# Laibung bekommt dadurch eine sichtbare Tiefe statt einer Kante.
 		loch.append(Vector3(p.x * 1.10, p.y * 1.08, -HB_STIRN_T + p.y * 0.34))
+	# DIE WANDFLAECHE IST EIN RASTER, KEIN RINGFAECHER.
+	#
+	# ZWEI ANLAEUFE VORHER, beide an derselben Ursache gescheitert: die Flaeche entstand
+	# als Ringe, die vom Loch ausstrahlen. Ihre Facettenkanten laufen damit zwangslaeufig
+	# radial, und im Bild stand eine Muschel aus Fels. Das laesst sich mit Auslenkung nicht
+	# beheben — die Ordnung steckt in der Topologie und nicht in den Hoehen; ein Wurf ueber
+	# die Weltlage statt ueber den Netzindex hat daran nichts geaendert. Bloecke darueber
+	# zu streuen half auch nicht, die schwebten als Wuerfel vor der Wand.
+	#
+	# Jetzt liegt ein gleichmaessiges Raster in der Wandebene, so wie das Gelaende daneben
+	# eines hat, und das LOCH wird hineingeschnitten: jeder Rasterpunkt, der innerhalb des
+	# Portalumrisses liegt, wird radial auf diesen Umriss geschoben. Zellen ganz im Loch
+	# werden dadurch entartet und verschwinden, Zellen am Rand bilden die Leibungskante.
+	var lz := HB_H_MUND * 0.45          # Mitte des Portals, Bezug fuer die Radien
+	var nx := 34
+	var ny := 18
+	var gitter: Array = []
+	var drin: Array = []          # lag der Rasterpunkt im Portal?
+	for gy in ny + 1:
+		var reihe := PackedVector3Array()
+		var reihe_drin: Array = []
+		for gx in nx + 1:
+			var fx := -1.0 + 2.0 * float(gx) / float(nx)
+			var px := fx * HB_STIRN_B
+			var oben := HB_STIRN_H * (0.50 + 0.50 * (1.0 - fx * fx))
+			var py := oben * float(gy) / float(ny)
+			# Liegt der Punkt im Portal? Dann auf dessen Umriss schieben.
+			var dx := px
+			var dy := py - lz
+			var rr := sqrt(dx * dx + dy * dy)
+			var war_drin := false
+			if rr > 0.01:
+				var wnk := atan2(dy, dx)
+				var lr := _hb_lochradius(loch, lz, wnk)
+				if rr < lr:
+					px = cos(wnk) * lr
+					py = lz + sin(wnk) * lr
+					war_drin = true
+			reihe_drin.append(war_drin)
+			var pz := -HB_STIRN_T + py * 0.34
+			# Relief, ueber die LAGE gewuerfelt. Am Portal ruhig (dort ist der Fels
+			# gesprengt), in der Flaeche aufgebrochen, am Aussenrand wieder ruhig, damit
+			# die Stirn im Hang verschwindet.
+			var rand_ab := minf(1.0 - absf(fx), float(gy) / float(ny) * 2.0)
+			var nah := clampf((rr - 40.0) / 90.0, 0.0, 1.0)
+			# AMPLITUDE IN DER GROESSENORDNUNG DES GELAENDES. Mit 5,6 m blieb die Stirn aus
+			# der Entfernung eine glatte Kuppel neben einem Hang, dessen eigene Ausbrueche
+			# zehner Meter messen — im Bild eine Iglu-Haube in einer Felskerbe. 15 m
+			# treffen die Koernung der Umgebung.
+			var amp := 15.0 * clampf(rand_ab * 2.2, 0.0, 1.0) * nah + 0.5
+			# ZWEI WELLENLAENGEN: 52 m gibt die grossen Ausbrueche der Wand, 21 m die
+			# Koernung darauf. Beide sind ein Vielfaches der Rasterweite (rund 11 m) —
+			# darunter wuerde das Relief wieder in die Zellen fallen und schachbrettern.
+			pz += amp * (0.85 * _hb_welle(px, py, 52.0)
+				+ 0.45 * _hb_welle(px + 300.0, py - 200.0, 21.0))
+			px += amp * 0.35 * _hb_welle(py + 700.0, pz, 44.0)
+			py += amp * 0.28 * _hb_welle(px - 500.0, pz + 90.0, 38.0)
+			reihe.append(Vector3(px, maxf(py, 0.0), pz))
+		gitter.append(reihe)
+		drin.append(reihe_drin)
+	for gy in ny:
+		var r0: PackedVector3Array = gitter[gy]
+		var r1: PackedVector3Array = gitter[gy + 1]
+		var d0: Array = drin[gy]
+		var d1: Array = drin[gy + 1]
+		for gx in nx:
+			# ZELLEN GANZ IM PORTAL WERDEN NICHT GEZEICHNET, und daran haengt, ob das
+			# Portal ueberhaupt offen ist. Die Verschiebung auf den Lochrand allein genuegt
+			# NICHT: eine Zelle tief im Loch hat ihre vier Ecken an vier verschiedenen
+			# Winkeln des Randes, und das dazwischen aufgespannte Viereck deckt das Loch
+			# zu. Im Bild war die Wand danach geschlossen und vom Portal blieb eine Narbe.
+			# Zellen, die den Rand KREUZEN, werden weiter gezeichnet — sie bilden die
+			# Leibungskante und schliessen die Flaeche sauber an das Loch an.
+			if d0[gx] and d0[gx + 1] and d1[gx] and d1[gx + 1]:
+				continue
+			# DIE FARBE FOLGT DEM RELIEF statt einem Wurf je Zelle. Ein Wurf je Zelle war
+			# die zweite Haelfte des Schachbretts: selbst mit glattem Relief haette er das
+			# Muster wieder hineingemalt.
+			var tiefe := (r0[gx].z + r1[gx + 1].z) * 0.5 + HB_STIRN_T
+			var c := stirn_c.darkened(clampf(0.10 - tiefe * 0.016, -0.06, 0.12))
+			_tri(st, r0[gx], r1[gx], r1[gx + 1], c)
+			_tri(st, r0[gx], r1[gx + 1], r0[gx + 1], c)
+	# Die Stirn nach hinten in den Hang verlaengern: obere Kante und beide Seiten.
+	var oben_r: PackedVector3Array = gitter[ny]
+	for gx in nx:
+		var h0 := Vector3(oben_r[gx].x, oben_r[gx].y, HB_STIRN_T + 78.0)
+		var h1 := Vector3(oben_r[gx + 1].x, oben_r[gx + 1].y, HB_STIRN_T + 78.0)
+		_tri(st, oben_r[gx], h0, h1, stirn_c.darkened(0.10))
+		_tri(st, oben_r[gx], h1, oben_r[gx + 1], stirn_c.darkened(0.10))
+	for gy in ny:
+		for seite in [0, nx]:
+			var p0: Vector3 = gitter[gy][seite]
+			var p1: Vector3 = gitter[gy + 1][seite]
+			var q0 := Vector3(p0.x, p0.y, HB_STIRN_T + 78.0)
+			var q1 := Vector3(p1.x, p1.y, HB_STIRN_T + 78.0)
+			_tri(st, p0, q0, q1, stirn_c.darkened(0.12))
+			_tri(st, p0, q1, p1, stirn_c.darkened(0.12))
+	# Laibung: vom Lochrand zurueck an den Stollenmund.
 	for i in mund.size():
 		var j := (i + 1) % mund.size()
-		var c := stirn_c.darkened(0.07 * (0.5 + 0.5 * sin(float(i) * 3.3)))
-		# Wandflaeche
-		_tri(st, loch[i], aus[i], aus[j], c)
-		_tri(st, loch[i], aus[j], loch[j], c)
-		# Laibung: vom Lochrand zurueck an den Stollenmund
 		_tri(st, mund[i], loch[i], loch[j], fels.lightened(0.06))
 		_tri(st, mund[i], loch[j], mund[j], fels.lightened(0.06))
 	# Die Stirn nach hinten in den Hang verlaengern, damit sie dort steckt und nicht als
 	# Scheibe im Gelaende steht.
-	for i in mund.size():
-		var j := (i + 1) % mund.size()
-		var h0: Vector3 = Vector3(aus[i].x, aus[i].y, HB_STIRN_T + 78.0)
-		var h1: Vector3 = Vector3(aus[j].x, aus[j].y, HB_STIRN_T + 78.0)
-		_tri(st, aus[i], h0, h1, stirn_c.darkened(0.10))
-		_tri(st, aus[i], h1, aus[j], stirn_c.darkened(0.10))
 
 	st.generate_normals()
 	var mi := MeshInstance3D.new()
