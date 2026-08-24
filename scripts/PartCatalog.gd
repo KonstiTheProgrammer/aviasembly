@@ -1386,6 +1386,15 @@ static func set_gear_length(vis: Node3D, p: Dictionary, f: float) -> void:
 		eltern.add_child(pivot)
 		bein.name = "LegMesh"
 		bein.transform = Transform3D()
+		# OWNER LOESEN, BEVOR UMGEHAENGT WIRD. Beide Knoten stammen aus einer importierten
+		# Szene und tragen deren Wurzel als owner; das neue Pivot gehoert nicht dazu. Godot
+		# meldete deshalb bei JEDEM Flugzeugbau sechs Warnungen "will make owner
+		# 'wheel_jet2' inconsistent" — jede mit vollem Backtrace. Sie waren harmlos und
+		# genau deshalb schaedlich: in dieser Sitzung sind sie schon einmal fuer einen
+		# Absturz gehalten worden, weil sechs Backtraces im Log wie einer aussehen.
+		# Zur Laufzeit ist owner ohne Bedeutung — er zaehlt nur beim Speichern einer Szene.
+		bein.owner = null
+		rad.owner = null
 		pivot.add_child(bein)
 		pivot.add_child(rad)
 		rad.transform = rad_xf
