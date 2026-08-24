@@ -70,6 +70,9 @@ const FLORA_GROB_AB := 1700.0
 # stehen in zufaelliger Reihenfolge im Puffer, ein Praefix ist also eine gleichmaessige
 # Stichprobe der Flaeche — deshalb genuegt visible_instance_count und es muss nichts
 # neu gebaut werden.
+# Ab so vielen Dreiecken lohnt sich ein Stellvertretermesh fuer die Fernstufe (siehe
+# _stellvertreter). Darunter ist das Original schon billiger als der Ersatz.
+const STELLV_AB_DREIECK := 40
 const FLORA_GROB_ANTEIL := 0.75
 # Zeitbudget je Frame fuer das Nachziehen aufgeschobener Flora (Mikrosekunden).
 # 1200 us ist rund ein Vierzehntel eines 60-Hz-Frames: genug, damit ein Chunk in wenigen
@@ -6018,9 +6021,107 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 ## Stufen liegen zwar im Mesh, werden aber nie benutzt. Also muss das Mesh SELBST
 ## getauscht werden, und genau das macht _chunks_pflegen() je Chunk.
 
+## STELLVERTRETER FUER DIE FERNSTUFE: Kegel plus Stamm statt vereinfachtem Original.
+##
+## WARUM NICHT WEITER VEREINFACHEN. Die Fernstufe benutzte bisher Godots LOD-Erzeuger, und
+## der darf laut der Begruendung eine Zeile tiefer hoechstens die Haelfte der Dreiecke
+## wegnehmen — weil er als erstes den duennen STAMM opfert und dann Kronen ohne Stamm ueber
+## dem Boden schweben. Fuenf von sieben Baumarten vereinfacht er ueberhaupt nicht. Gemessen
+## (tools/_flora_bilanz.gd) standen deshalb im Umkreis des Spielers 83 Millionen
+## Flora-Primitive gegen 1,7 Millionen Gelaende-Dreiecke: die Flora ist 98 Prozent der
+## Geometrie, und die Fernstufe spart daran fast nichts.
+##
+## Ein Baum jenseits von FLORA_GROB_AB ist im Bild wenige Pixel hoch. Was ihn dort ausmacht,
+## ist seine Silhouette und seine Farbe, nicht seine Geometrie. Also wird sie nicht
+## vereinfacht, sondern ERSETZT: ein fuenfseitiger Kegel fuer die Krone, ein dreiseitiger
+## Stamm darunter, Masse aus der Huelle des Originals, Farben aus dessen Scheitelfarben
+## (oben Krone, unten Stamm). Elf Dreiecke statt 136 bis 292.
+##
+## NUR FUER BAUMAEHNLICHES. Fuer Felsen und Buesche waere ein Kegel falsch, und sie sind
+## ohnehin schon billig — unter STELLV_AB_DREIECK Dreiecken oder wenn das Mesh breiter als
+## hoch ist, bleibt es beim alten Weg.
+static func _stellvertreter(quelle: Mesh) -> Mesh:
+	var ab := quelle.get_aabb()
+	var h := ab.size.y
+	var b := maxf(ab.size.x, ab.size.z)
+	if h <= 0.001 or b <= 0.001:
+		return quelle
+	# Farben mitteln: oberhalb von 45 Prozent der Hoehe zaehlt zur Krone, darunter zum Stamm.
+	var krone := Color(0.20, 0.42, 0.20)
+	var stamm := Color(0.32, 0.24, 0.16)
+	var ks := Vector3.ZERO
+	var ss := Vector3.ZERO
+	var kn := 0
+	var sn := 0
+	for si in quelle.get_surface_count():
+		var arr := quelle.surface_get_arrays(si)
+		var vs: Variant = arr[Mesh.ARRAY_VERTEX]
+		var cs: Variant = arr[Mesh.ARRAY_COLOR]
+		if vs == null or cs == null:
+			continue
+		var vp: PackedVector3Array = vs
+		var cp: PackedColorArray = cs
+		for i in mini(vp.size(), cp.size()):
+			var c := cp[i]
+			if vp[i].y - ab.position.y > h * 0.45:
+				ks += Vector3(c.r, c.g, c.b)
+				kn += 1
+			else:
+				ss += Vector3(c.r, c.g, c.b)
+				sn += 1
+	if kn > 0:
+		ks /= float(kn)
+		krone = Color(ks.x, ks.y, ks.z)
+	if sn > 0:
+		ss /= float(sn)
+		stamm = Color(ss.x, ss.y, ss.z)
+
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	var y0 := ab.position.y
+	var stamm_h := y0 + h * 0.34
+	var sr := maxf(b * 0.055, 0.06)
+	# Stamm: dreiseitiges Prisma, drei Seitenflaechen zu je zwei Dreiecken.
+	for i in 3:
+		var a0 := TAU * float(i) / 3.0
+		var a1 := TAU * float(i + 1) / 3.0
+		var p0 := Vector3(cos(a0) * sr, y0, sin(a0) * sr)
+		var p1 := Vector3(cos(a1) * sr, y0, sin(a1) * sr)
+		var q0 := Vector3(p0.x, stamm_h, p0.z)
+		var q1 := Vector3(p1.x, stamm_h, p1.z)
+		st.set_color(stamm)
+		for v in [p0, p1, q1, p0, q1, q0]:
+			st.add_vertex(v)
+	# Krone: fuenfseitiger Kegel, setzt im oberen Drittel des Stamms an.
+	var kr := b * 0.5
+	var ky := y0 + h * 0.28
+	var spitze := Vector3(0.0, y0 + h, 0.0)
+	for i in 5:
+		var a0 := TAU * float(i) / 5.0
+		var a1 := TAU * float(i + 1) / 5.0
+		# Facettenweise leicht verschiedener Ton, wie bei den vollen Meshes.
+		st.set_color(krone.darkened(0.10 * (0.5 + 0.5 * sin(a0 * 3.0))))
+		st.add_vertex(Vector3(cos(a0) * kr, ky, sin(a0) * kr))
+		st.add_vertex(Vector3(cos(a1) * kr, ky, sin(a1) * kr))
+		st.add_vertex(spitze)
+	st.generate_normals()
+	return st.commit()
+
+
 static func _grobe_fassung(quelle: Mesh) -> Mesh:
 	if quelle == null or quelle.get_surface_count() == 0:
 		return quelle
+	# Baumaehnliches bekommt einen Stellvertreter statt einer Vereinfachung (Begruendung
+	# dort). Alles andere — Felsen, flache Buesche — geht den alten Weg.
+	var ab0 := quelle.get_aabb()
+	var tris := 0
+	for si0 in quelle.get_surface_count():
+		var a0v: Variant = quelle.surface_get_arrays(si0)[Mesh.ARRAY_VERTEX]
+		if a0v != null:
+			tris += (a0v as PackedVector3Array).size() / 3
+	if tris >= STELLV_AB_DREIECK and ab0.size.y > maxf(ab0.size.x, ab0.size.z) * 0.9:
+		return _stellvertreter(quelle)
 	var im := ImporterMesh.new()
 	for si in quelle.get_surface_count():
 		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, quelle.surface_get_arrays(si), [], {}, null, "", 0)
