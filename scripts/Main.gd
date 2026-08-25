@@ -607,6 +607,18 @@ func _setup_world() -> void:
 			# Aussenfelder bekommen zusaetzlich den Blender-Bausatz bei lokal (230, -60);
 			# plan_flugplatz() spannt davon -115..180 in x und -30..70 in z auf.
 			rects.append([262.0, -40.0, 170.0, 70.0])
+		# ADLERHORST: die KAVERNE freihalten. Im Bild standen Nadelbaeume mitten im
+		# Tunnelmund — die Bepflanzung weiss nichts von ihr, und der Kreis des Platzes
+		# (r_flat 520) endet lange vor dem Portal.
+		# LOKALE KOORDINATEN: die Bahn laeuft laengs Z, und _adlerhorst_kurs() zeigt
+		# ENTGEGEN TAL_RICHTUNG — talaufwaerts, also zur Kaverne hin, ist damit -Z.
+		# Das Portal liegt bei Talstation 9310, der Platz bei 8800: 510 m voraus. Die
+		# Halle reicht 700 m weiter, also bis -1210. Mitte -860, Halbtiefe 350,
+		# Halbbreite 175 (Roehre 168 plus Rand).
+		# Das wirkt NUR auf den Bewuchs: die Hoehe des Gelaendes haengt an r_flat/r_blend,
+		# nicht an den Rechtecken — der Berg ueber der Kaverne bleibt also stehen.
+		if String(af.get("name", "")) == "ADLERHORST":
+			rects.append([0.0, -860.0, 175.0, 350.0])
 		var fz := {"pos": af["pos"], "heading": af["heading"],
 			"r_flat": 1700.0 if is_main else 750.0,
 			"r_blend": 2300.0 if is_main else 1200.0, "rects": rects}
@@ -1221,9 +1233,28 @@ func _setup_world() -> void:
 	# Portal auf exakt ADLERHORST_HOEHE, koplanare Flaechen streiten um dieselbe Tiefe —
 	# im Bild schien frueher das Gras durch den Boden.
 	var kav_p := _tal_punkt(ADLERHORST_KAVERNE_LAENGS)
-	Landmarks.build_felsenbasis(fly_world,
+	var kaverne := Landmarks.build_felsenbasis(fly_world,
 		Vector3(kav_p.x, ADLERHORST_HOEHE + 0.7, kav_p.y),
 		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
+	# MASCHINEN AUF DEN STANDPLAETZEN. Ohne sie ist die Kaverne ein beleuchteter Korridor
+	# mit Markierungen auf dem Boden — ein Flugplatz wird sie erst durch das, was dort
+	# steht. Die Standplaetze sind in Landmarks._hb_einrichtung bei x = +-46 und z = 320
+	# bis 500 markiert; hier stehen die Flieger genau darauf.
+	# SIE HAENGEN AM KAVERNENKNOTEN, nicht an fly_world: dessen Drehung und Lage gelten
+	# damit auch fuer sie, und die Zahlen unten sind Masse IM BAUWERK statt Weltkoordinaten.
+	# PREIS: rund 35 000 Dreiecke je Maschine (siehe _bahnbelag). Sechs sind rund 210 000 —
+	# bei 2,15 ms Grundlast der Kaverne vertretbar, nachgemessen mit tools/_bildzeit.gd.
+	# DIE MISCHUNG IST ABSICHT: zwei Kolben, zwei Korea-Jets, zwei Ueberschall. Eine
+	# Bergbasis, in der sechs gleiche Flieger stehen, sieht aus wie ein Katalogbild.
+	if kaverne != null:
+		var stand := [
+			["spitfire", -28.0, 330.0, 90.0], ["me262", 28.0, 330.0, -90.0],
+			["f86", -28.0, 390.0, 90.0], ["mig15", 28.0, 390.0, -90.0],
+			["mig21", -28.0, 450.0, 90.0], ["mustang_p51", 28.0, 450.0, -90.0],
+		]
+		for e in stand:
+			_add_parked_plane(kaverne, String(e[0]),
+				Vector3(float(e[1]), 0.2, float(e[2])), float(e[3]))
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
 	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.

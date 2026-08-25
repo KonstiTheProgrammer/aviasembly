@@ -1787,10 +1787,17 @@ const HB_LAENGE := 700.0       # Tiefe in den Berg
 # DIE HOEHEN SIND KEINE FREIEN ZAHLEN: h - w ist die Kaempferhoehe, ueber der ein
 # HALBKREIS vom Radius w sitzt (siehe _hb_ring). 70 - 50 = 20 m senkrechte Wange,
 # darueber ein 50-m-Bogen; 82 - 58 = 24 m in der Halle.
-const HB_W_MUND := 50.0        # halbe Breite am Portal  (lichte Weite 100 m)
-const HB_H_MUND := 70.0        # lichte Hoehe am Portal  (20 m Kaempfer + 50 m Bogen)
-const HB_W_HALLE := 84.0       # halbe Breite der Halle (lichte Weite 168 m)
-const HB_H_HALLE := 86.0       # lichte Hoehe der Halle  (26 m Kaempfer + 60 m Bogen)
+# MASSSTAB. Hier standen 50/70 und 84/86 — ein Portal von 100 m Weite und eine Halle von
+# 168 m Breite. Gemessen am Inhalt war das falsch: eine Spitfire hat 11 m Spannweite und
+# stand darin als Spielzeug in einer Kathedrale, waehrend in der Vorlage der Jet ein
+# DRITTEL des Portals fuellt. Ein Bauwerk bekommt seinen Massstab von dem, was darin
+# steht, nicht von seinen eigenen Zahlen.
+# 60 m Weite sind immer noch das Fuenffache einer Jaegerspannweite — monumental genug,
+# und im Anflug endlich eine Oeffnung, die man treffen muss statt sie nur zu passieren.
+const HB_W_MUND := 30.0        # halbe Breite am Portal  (lichte Weite 60 m)
+const HB_H_MUND := 40.0        # lichte Hoehe am Portal  (10 m Kaempfer + 30 m Bogen)
+const HB_W_HALLE := 52.0       # halbe Breite der Halle (lichte Weite 104 m)
+const HB_H_HALLE := 54.0       # lichte Hoehe der Halle  (17 m Kaempfer + 37 m Bogen)
 # DER PORTALRAHMEN: ein umlaufendes Betonband, in den Fels gesetzt. Ohne ihn bleibt die
 # Einfahrt ein Loch im Berg — die Vorlage zeigt ein BAUWERK. Die drei Masse sind das,
 # was den Ring als Bauteil lesbar macht: eine Bandbreite, ein Vortritt vor die Felswand
@@ -1807,12 +1814,15 @@ const HB_RINGE := 28           # Querschnitte laengs
 # ist die beste Felsflaeche, die es gibt; die Stirn muss nur die Fuge zwischen Roehre und
 # Wand decken. 130 m halbe Breite sind dafuer genug (Portal 50 plus Laibung plus Band),
 # und das BAUWERK traegt der Betonring mit dem Warnlichterkranz, nicht der Fels.
-const HB_STIRN_B := 130.0      # halbe Breite der Felsstirn am Portal
+# SIE MUSS MIT DEM PORTAL MITWANDERN. 130 m standen fuer ein Portal von 50 m Halbbreite;
+# nach dessen Verkleinerung auf 30 war das eine helle Kuppel um ein kleines Loch. Der
+# Kragen ist ein VERHAELTNIS, keine Zahl: rund das Zweieinhalbfache der Portalbreite.
+const HB_STIRN_B := 80.0       # halbe Breite der Felsstirn am Portal
 # HOEHE DER STIRN. 88 m waren zu wenig, und der Fehler war ein Massstabsfehler: der Hang
 # dahinter steigt auf 240 m, eine 88-m-Stirn stand davor als Lump und nicht als Wand. Sie
 # muss die Groessenordnung des Hangs treffen, sonst liest sie sich als aufgestelltes
 # Bauteil, egal wie gut ihre Farbe passt.
-const HB_STIRN_H := 118.0      # ihre Hoehe ueber dem Hallenboden
+const HB_STIRN_H := 72.0       # ihre Hoehe ueber dem Hallenboden
 const HB_STIRN_T := 26.0       # wie weit sie vor das Portal tritt
 # PUNKTE JE QUERSCHNITT und radiale Unterteilung der Wandflaeche. BEIDE WAREN ZU KLEIN,
 # und das war der Grund, warum sich die Basis nicht in den Berg fuegte: das Gelaende
@@ -2401,9 +2411,14 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# das Tageslicht vom Portal als heller See. Genau das ist der "nasse Boden" der
 	# Vorlage, ohne einen einzigen Shader.
 	var nass := StandardMaterial3D.new()
-	nass.albedo_color = Color(0.21, 0.215, 0.23)
-	nass.roughness = 0.18
-	nass.metallic = 0.22
+	# NASS, ABER NICHT TOT. Erst stand hier Albedo 0.21 bei Metallic 0.22 — ein Boden, der
+	# fast nichts diffus zurueckgibt und dessen Spiegelung ins Leere zeigt, weil es in der
+	# Kaverne keine Reflexionssonde gibt. Zusammen mit Lampen, die ihn gar nicht erreichten,
+	# war die untere Bildhaelfte schwarz. 0.30 Albedo ohne Metallic gibt ihm eine echte
+	# diffuse Antwort; die Nasse traegt jetzt die niedrige Rauheit allein.
+	nass.albedo_color = Color(0.30, 0.305, 0.32)
+	nass.roughness = 0.32
+	nass.metallic = 0.0
 	var boden := MeshInstance3D.new()
 	var bm0 := BoxMesh.new()
 	bm0.size = Vector3(HB_W_HALLE * 2.0 - 4.0, 0.12, HB_LAENGE - 10.0)
@@ -2444,8 +2459,19 @@ static func _hb_einrichtung(node: Node3D) -> void:
 				var l := OmniLight3D.new()
 				l.position = Vector3(x, y - 2.5, z)
 				l.light_color = Color(1.0, 0.9, 0.72)
-				l.light_energy = 3.4
-				l.omni_range = 58.0
+				# REICHWEITE MUSS BIS AUF DEN BODEN GEHEN. Sie stand auf 58 m, waehrend die
+				# Lampen bei 0.84 der Hallenhoehe haengen — also rund 72 m ueber dem Boden.
+				# Sie erreichten ihn damit ueberhaupt nicht: die untere Bildhaelfte war ein
+				# schwarzes Loch, und der "nasse" Boden konnte nichts spiegeln, weil nichts
+				# auf ihn fiel. 120 m decken die volle Hoehe plus Streuung zur Seite.
+				# ENERGIE 14 STATT 3.4: bei 72 m Fallhoehe und 120 m Reichweite ist die
+				# Abschwaechung so gross, dass 3.4 auf dem Boden nichts mehr ist.
+				# 95 m STATT 130: mit 130 deckte eine einzige Lampe die ganze Hallenbreite
+				# und -hoehe ab, und der Boden wurde gleichmaessig grau — aus dem schwarzen
+				# Loch war eine flache Flaeche geworden. Bei 95 m bleiben Luecken zwischen
+				# den Lichtkreisen, und genau die geben der Halle ihre Tiefe.
+				l.light_energy = 16.0
+				l.omni_range = 95.0
 				l.shadow_enabled = false
 				node.add_child(l)
 
@@ -2504,13 +2530,42 @@ static func _hb_einrichtung(node: Node3D) -> void:
 			for qy in [9.0, 19.0, 29.0, 37.0]:
 				_box(node, Vector3(tx, qy, tz), Vector3(3.9, 0.4, 3.9), stahl)
 			_box(node, Vector3(tx, 39.2, tz), Vector3(3.4, 1.6, 2.4), glas)
-			var fl := OmniLight3D.new()
+			# FLUTLICHT ALS SPOT, NICHT ALS KUGEL. Ein Omni auf 36 m leuchtet zur Haelfte
+			# in den Fels ueber sich; ein Spot legt seinen Kegel dorthin, wo die Flugzeuge
+			# stehen, und zeichnet auf dem nassen Boden den Lichtsee, von dem die Vorlage
+			# lebt.
+			var fl := SpotLight3D.new()
 			fl.position = Vector3(tx, 36.0, tz)
-			fl.light_color = Color(1.0, 0.85, 0.6)
-			fl.light_energy = 2.6
-			fl.omni_range = 52.0
+			fl.rotation = Vector3(-1.15, (PI / 2.0) * -sx, 0.0)
+			fl.light_color = Color(1.0, 0.86, 0.62)
+			fl.light_energy = 26.0
+			fl.spot_range = 95.0
+			fl.spot_angle = 42.0
+			fl.spot_attenuation = 0.9
 			fl.shadow_enabled = false
 			node.add_child(fl)
+
+	# --- NIEDRIGE MASTEN AN DEN STANDPLAETZEN ------------------------------------------
+	# SIE MACHEN DIE LICHTSEEN. Alles andere haengt unter dem Scheitel auf ueber 70 m —
+	# von dort kommt nur eine breite, gleichmaessige Aufhellung, nie ein Kreis. Ein Mast
+	# auf 14 m wirft einen scharf begrenzten Fleck auf den nassen Boden, und der Wechsel
+	# aus Fleck und Dunkel dazwischen ist das, was die Vorlage traegt.
+	for sx in [-1.0, 1.0]:
+		for k in 7:
+			var mz := 300.0 + float(k) * 62.0
+			var mx: float = (HB_W_HALLE - 17.0) * sx
+			_box(node, Vector3(mx, 7.0, mz), Vector3(0.6, 14.0, 0.6), stahl)
+			_box(node, Vector3(mx, 14.2, mz), Vector3(2.6, 0.8, 1.6), glas)
+			var ml := SpotLight3D.new()
+			ml.position = Vector3(mx, 13.6, mz)
+			ml.rotation = Vector3(-1.3, (PI / 2.0) * -sx, 0.0)
+			ml.light_color = Color(1.0, 0.90, 0.70)
+			ml.light_energy = 22.0
+			ml.spot_range = 62.0
+			ml.spot_angle = 48.0
+			ml.spot_attenuation = 1.1
+			ml.shadow_enabled = false
+			node.add_child(ml)
 
 	# --- LICHTSCHACHT -----------------------------------------------------------------
 	# Der Schacht der Vorlage faellt schraeg von oben in den Raum. Ein ECHTER Schacht bis
@@ -2518,7 +2573,7 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# eine leuchtende Oeffnung im Gewoelbe, ein SpotLight als Strahl und der helle Fleck,
 	# den er auf den Boden legt. Kalt und blaeulich, als Gegenfarbe zum warmen Hallenlicht.
 	var schacht_z := 470.0
-	var schacht_x := 24.0
+	var schacht_x := 15.0
 	var wh_s := _hb_masse(schacht_z / HB_LAENGE)
 	var mi_s := MeshInstance3D.new()
 	var zyl := CylinderMesh.new()
@@ -2564,8 +2619,8 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	for sx in [-1.0, 1.0]:
 		for k in 4:
 			var zs := 320.0 + float(k) * 60.0
-			_box(node, Vector3(46.0 * sx, 0.18, zs), Vector3(30.0, 0.04, 0.8), gelb)
-			_box(node, Vector3(46.0 * sx, 0.18, zs + 20.0), Vector3(30.0, 0.04, 0.8), gelb)
+			_box(node, Vector3(28.0 * sx, 0.18, zs), Vector3(22.0, 0.04, 0.8), gelb)
+			_box(node, Vector3(28.0 * sx, 0.18, zs + 20.0), Vector3(22.0, 0.04, 0.8), gelb)
 	for k in 22:
 		var fx := -HB_W_HALLE + 7.0 + float(k % 11) * 2.6
 		_cylinder(node, Vector3(fx, 1.5, 640.0 + float(k / 11) * 3.2), 1.1, 1.1, 3.0, 10, rost)
@@ -2573,11 +2628,11 @@ static func _hb_einrichtung(node: Node3D) -> void:
 		var gr := 3.4 + float(k % 3) * 1.1
 		_box(node, Vector3(HB_W_HALLE - 9.0 - float(k % 5) * 4.8, gr * 0.5,
 			620.0 - float(k / 5) * 6.0), Vector3(gr, gr, gr), oliv)
-	_box(node, Vector3(34.0, 2.2, 380.0), Vector3(4.6, 4.4, 5.4), oliv)
-	_cylinder(node, Vector3(34.0, 3.0, 386.0), 2.3, 2.3, 9.0, 12, oliv)
+	_box(node, Vector3(21.0, 2.2, 380.0), Vector3(4.6, 4.4, 5.4), oliv)
+	_cylinder(node, Vector3(21.0, 3.0, 386.0), 2.3, 2.3, 9.0, 12, oliv)
 	for rx in [-1.6, 1.6]:
 		for rz in [378.5, 383.0, 389.5]:
-			_cylinder(node, Vector3(34.0 + rx, 1.0, rz), 1.0, 1.0, 0.7, 10,
+			_cylinder(node, Vector3(21.0 + rx, 1.0, rz), 1.0, 1.0, 0.7, 10,
 				_mat(Color(0.12, 0.12, 0.13), 0.95))
 
 	# --- PANZERTORE, offen an die Laibung geklappt ------------------------------------
