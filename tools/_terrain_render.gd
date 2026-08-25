@@ -73,18 +73,17 @@ var _shots: Array = [
 	# Wasser des ersten Stuetzpunkts, und blickt die Schlucht hinunter.
 	["canyon", Vector3(-6600, 81, 900), Vector3(-5250, 22, 2800)],
 	["canyon_hoch", Vector3(-5900, 620, 1600), Vector3(-4400, 0, 3900)], # Schlucht von oben
-	# FELSENBASIS ADLERHORST. Das Portal steht bei (-5945, 90.7, -9716); die Achse in den
-	# Berg zeigt nach (-0.7893, -0.6139), heraus also nach (0.7893, 0.6139).
-	# ANFLUG ist der Blickwinkel der Vorlage: tief, auf der Achse, rund 160 m davor, mit dem
-	# Blick tief in den Stollen hinein — genau die Stellung, aus der ein Flugzeug einfliegt.
-	# Wer hier Zahlen aendert, aendert die Vergleichbarkeit ALLER bisherigen Abnahmebilder.
-	["basis_anflug", Vector3(-5819, 112, -9618), Vector3(-5992, 100, -9753)],
-	# Weit genug zurueck, dass Portal UND Felsstirn ins Bild passen.
-	["basis_fern", Vector3(-5620, 190, -9420), Vector3(-5945, 120, -9716)],
-	# In der Halle, Blick nach hinten in den Berg.
-	["basis_halle", Vector3(-6000, 104, -9760), Vector3(-6130, 98, -9862)],
-	# In der Halle, Blick ZURUECK auf das Portal — der Gegenschuss zum Anflug.
-	["basis_zurueck", Vector3(-6070, 106, -9815), Vector3(-5900, 104, -9683)],
+	# FELSENBASIS ADLERHORST — jetzt der KAVERNENFLUGPLATZ am Talschluss. Das Portal
+	# steht bei (-5285, 90.7, -9848) auf der Bahnachse (Talstation 9310); die Achse in den
+	# Berg ist +TAL_RICHTUNG (0.6139, -0.7893), heraus (-0.6139, 0.7893).
+	# DIE ALTEN basis_-STELLUNGEN ZEIGTEN AUF DIE SEITENWAND und sind mit dem Umzug
+	# wertlos geworden — die Namen bleiben, damit Werkzeuge und Fortschrittsseite weiter
+	# funktionieren, aber Vergleiche ueber den Umzug hinweg sind nicht zulaessig.
+	# anflug = Blickwinkel der Vorlage: tief auf der Achse, kurz vor der Schwelle.
+	["basis_anflug", Vector3(-5456, 116, -9627), Vector3(-5285, 128, -9848)],
+	["basis_fern", Vector3(-5714, 230, -9296), Vector3(-5285, 150, -9848)],
+	["basis_halle", Vector3(-5187, 106, -9975), Vector3(-4965, 95, -10259)],
+	["basis_zurueck", Vector3(-5021, 112, -10188), Vector3(-5285, 108, -9848)],
 	# HOCHGEBIRGE im Nordwesten mit dem Bergflugplatz ADLERHORST auf dem Sattel.
 	# Der Grat laeuft von (-9600,-4400) nach Suedosten; Kamera quer dazu, damit die
 	# Kette als Kette zu sehen ist und nicht als einzelner Huegel.

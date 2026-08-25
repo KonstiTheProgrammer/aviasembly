@@ -222,7 +222,14 @@ const ADLERHORST_LAENGS := 8800.0
 const ADLERHORST_HOEHE := 90.0
 # Abstand des Hoehlenportals von der Bahnachse, quer dazu. Begruendung an der Baustelle
 # (Main._setup_world, "FELSENBASIS ADLERHORST").
-const ADLERHORST_HOEHLE_QUER := 436.0
+# LAENGSSTATION DES KAVERNENPORTALS auf der Talachse. GEMESSEN (tools/_kaverne_platz.gd):
+# bis 9300 liegt die ganze Roehrenbreite auf 90 m (die Bahn-Linse haelt), bei 9325 beginnt
+# das Gelaende zu steigen, bei 9350 steht es schon auf 180 bis 226 — die Talschlusswand
+# ist auf der Achse fast senkrecht. 9310 stellt die Portalstirn direkt an diese Wand; das
+# Band, in dem die Gelaendeflaeche die Roehre durchquert, ist nur rund 30 m tief
+# (laengs 9325 bis 9355) und liegt damit vollstaendig hinter dem Portalring.
+# Die Bahn endet bei laengs 9270 — wer durchstartet, fliegt in den Berg.
+const ADLERHORST_KAVERNE_LAENGS := 9310.0
 # FELSENTOR am Taleingang: Position auf der Talachse. Weit genug drinnen, dass man schon
 # zwischen den Waenden fliegt, weit genug vor dem Platz fuer einen langen Endanflug.
 const TOR_LAENGS := 3600.0
@@ -669,31 +676,12 @@ func _setup_world() -> void:
 			# die Querkette ab 9250 m dichtmacht. Jetzt endet sie bei 9420 m.
 			fz["quer_faktor"] = 0.88
 		flat_zones.append(fz)
-	# EINEBNUNG UEBER DEM STOLLEN DER FELSENBASIS.
-	#
-	# SIE IST NICHT KOSMETIK, SONDERN DIE BEDINGUNG DAFUER, DASS DIE HALLE BEGEHBAR IST.
-	# Hinter dem Portal steigt der Hang mit rund 31 Grad, der Hallenboden liegt waagerecht
-	# auf Flugfeldhoehe. Der Berg stoesst damit schon nach wenigen Metern VON UNTEN durch
-	# den Boden — im Bild sah man durch das offene Portal die Grasnarbe des Hangs im
-	# Stollen stehen. Ein Tunnel, der dem Hang davonlaeuft, muesste mit 31 Grad abtauchen
-	# und waere nicht mehr berollbar.
-	# Also wird das Gelaende ueber dem Stollen auf Flugfeldhoehe gelegt. Die Narbe, die das
-	# in den Hang schneidet, deckt die Felsstirn ab: sie ist 392 m breit und 168 m hoch und
-	# steht genau davor.
-	#
-	# SIE IST MIT DEM PORTAL GEWACHSEN (118 -> 136 m, 236 -> 272 m Ausblendung), und das
-	# ist Pflicht und keine Vorsichtsmassnahme. Die Zone ist ein KREIS um einen Punkt 96 m
-	# im Berg; flach sein muss sie ueberall dort, wo der Stollen liegt. Der weiteste Punkt
-	# des Stollens ist seither die hintere untere Ecke der Halle: bei halber Hallenbreite
-	# 58 m (vorher 46) und 190 m Tiefe sind das sqrt(94^2 + 58^2) = 110 m vom Mittelpunkt,
-	# und knapp daneben, an der Portalwange, sqrt(96^2 + 61^2) = 114 m. Mit r_flat 118
-	# waere beides um wenige Meter drin gewesen — bis der naechste Umbau die Halle noch
-	# einmal anfasst und der Berg dann VON UNTEN im Stollen steht. 136 m lassen 22 m Luft.
-	var hb_q0 := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
-	var ad0 := _adlerhorst_pos()
-	var hb_m := Vector2(ad0.x, ad0.z) + hb_q0 * (ADLERHORST_HOEHLE_QUER + 96.0)
-	flat_zones.append({"pos": Vector3(hb_m.x, 0.0, hb_m.y),
-		"r_flat": 136.0, "r_blend": 272.0, "y": ADLERHORST_HOEHE})
+	# FUER DIE KAVERNE AM TALSCHLUSS BRAUCHT ES KEINE EIGENE EINEBNUNG — und das ist kein
+	# Zufall, sondern der Grund, warum sie dort steht: die Bahn-Linse haelt das Gelaende
+	# auf der Achse bis laengs 9300 auf exakt 90 m, und dahinter steigt die Talschlusswand
+	# so steil, dass die Gelaendeflaeche schon bei 9355 ueber dem Roehrenscheitel liegt.
+	# Das schmale Band dazwischen verdeckt der Portalring (siehe Landmarks, LINER).
+	# Die fruehere Einebnung fuer den Seitenwand-Stollen ist mit ihm entfernt.
 	# --- WAHRZEICHEN/POIs: Stadt mit See + Leuchtturm + BERGDORF am FLUSS (Stufe 3) ---
 	var town_pos := Vector3(1400, 0, 750)
 	var factory_pos := town_pos + Vector3(-225, 0, 95)
@@ -1222,28 +1210,20 @@ func _setup_world() -> void:
 	# echten Hang, der zur dicken Seite hin um ueber 400 m ansteigt.
 	Landmarks.build_felsentor(fly_world, Vector3(tor_p.x, tor_y, tor_p.y),
 		TOR_SPANN, 420.0, 105.0, atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y), TOR_SEED, terrain)
-	# FELSENBASIS ADLERHORST: der Bergflugplatz bekommt seine Halle IM Berg.
+	# FELSENBASIS ADLERHORST: der unterirdische Flugplatz im Talschluss.
 	#
-	# DIE STELLE IST GEMESSEN, nicht gesetzt (tools/_hoehle_platz.gd). Quer zur Bahn steht
-	# das Gelaende bei 400 m noch auf Flugfeldhoehe, bei 480 m schon auf 115 m und bei
-	# 560 m auf 237 — die Wand steigt genau an der Kante der Flachzone an. 440 m ist der
-	# letzte Abstand, an dem der Hallenboden ohne Aushub auf die Bahnhoehe passt, und
-	# 120 m tiefer im Berg stehen ueber einer 40-m-Halle noch rund 125 m Fels.
-	# DIE SEITE IST DIE FLACHERE DER BEIDEN: gegenueber schiesst der Hang mit Steigung 5,8
-	# hoch, dort haette die Felsstirn keinen Platz und stuende als Scheibe im Nichts.
-	var hb_quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
-	var adler := _adlerhorst_pos()
-	var hb_p := Vector2(adler.x, adler.z) + hb_quer * ADLERHORST_HOEHLE_QUER
-	# DER HALLENBODEN LIEGT 0,7 M UEBER DEM FLUGFELD, und das ist kein Spielraum, sondern
-	# noetig: die Flachzone haelt das Gelaende am Portal auf EXAKT ADLERHORST_HOEHE. Boden
-	# und Gelaende waeren damit koplanar — im Bild schien durch die untere Portalhaelfte
-	# das Gras der Wiese, weil beide Flaechen um dieselbe Tiefe streiten. 0,7 m sind genug,
-	# dass der Boden gewinnt, und wenig genug, dass man beim Rollen nichts davon merkt.
-	# 436 m statt 462: bei 462 steht das Gelaende schon auf rund 105 m und ragte damit in
-	# den Stollen hinein. 436 liegt noch in der Flachzone (r_flat 520 mit quer_faktor 0.88).
+	# NICHT MEHR IN DER SEITENWAND. Die erste Fassung war ein Stollen quer zur Bahn — ein
+	# Loch in der Wand neben dem Platz. Jetzt laeuft die Kaverne AUF DER BAHNACHSE in den
+	# Talschluss: die Bahn endet bei laengs 9270, das Portal steht bei 9310, und wer
+	# ausrollt, rollt in den Berg. Begruendung der Station bei ADLERHORST_KAVERNE_LAENGS.
+	# Der Kurs ist derselbe wie der der Bahn, nur bergwaerts: +TAL_RICHTUNG.
+	# DER HALLENBODEN LIEGT 0,7 M UEBER DEM FLUGFELD: die Linse haelt das Gelaende am
+	# Portal auf exakt ADLERHORST_HOEHE, koplanare Flaechen streiten um dieselbe Tiefe —
+	# im Bild schien frueher das Gras durch den Boden.
+	var kav_p := _tal_punkt(ADLERHORST_KAVERNE_LAENGS)
 	Landmarks.build_felsenbasis(fly_world,
-		Vector3(hb_p.x, ADLERHORST_HOEHE + 0.7, hb_p.y),
-		atan2(hb_quer.x, hb_quer.y))
+		Vector3(kav_p.x, ADLERHORST_HOEHE + 0.7, kav_p.y),
+		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
 	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.
@@ -1464,6 +1444,13 @@ void vertex() {
 	// im Gebirge die volle, an flachen Kuesten fast keine.
 	float s = senke_tief * (1.0 - smoothstep(senke_nah, senke_fern, d))
 		+ senke_bias * COLOR.a * (1.0 - smoothstep(bias_aus_a, bias_aus_b, d));
+	// COLOR.a == 0 markiert den Grundriss des Kavernenflugplatzes (siehe _fern_tri).
+	// Dort wird die Absenkung GEDECKELT, damit keine Zelle in der Halle landet: wer
+	// ueber 220 m liegt, parkt beim Absinken auf 220 (mitten im Fels, unsichtbar),
+	// wer darunter liegt, sinkt voll und landet unter dem Hallenboden.
+	if (COLOR.a < 0.05 && wp.y > 220.0) {
+		s = min(s, wp.y - 220.0);
+	}
 	VERTEX.y -= s;
 }
 void fragment() {
@@ -1610,6 +1597,23 @@ func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
 	if w > 0.0:
 		col = col.lerp(FERN_WALD, clampf(w * 0.85, 0.0, 0.85))
 	col.a = clampf(0.25 + cen.y / 60.0, 0.25, 1.0)
+	# ALPHA 0 = KAVERNENGRUNDRISS. Der Vertex-Shader DECKELT dort die Absenkung (siehe
+	# _fernschuerze_starten): Zellen ueber 220 m parken beim Absinken auf 220 — ueber dem
+	# Hallenscheitel (177), unter der echten Oberflaeche (500 bis 1000), also mitten im
+	# Felsvolumen, wo niemand hinsehen kann. Zellen unter 220 m sinken voll und landen
+	# unter dem Hallenboden. Beides zusammen heisst: nichts haengt je in der Halle, und
+	# die Silhouette des Talschlusses bleibt aus JEDER Entfernung vollstaendig.
+	# DREI LOESCH-VARIANTEN VORHER RISSEN IMMER IRGENDWO EIN LOCH: alle Zellen im
+	# Grundriss weg = heller Schlitz vom Tal aus; nur die unter 260 m = Woelbung blieb
+	# (Absenkung reicht tiefer, als die Zelle hoch liegt); nur die hinteren unter 700 m =
+	# Himmelsfenster durch den Grat, weil genau sie die Silhouette getragen haben.
+	var k_dx := cen.x - TAL_START.x
+	var k_dz := cen.z - TAL_START.y
+	var k_l := k_dx * TAL_RICHTUNG.x + k_dz * TAL_RICHTUNG.y
+	if k_l > ADLERHORST_KAVERNE_LAENGS - 40.0 \
+			and k_l < ADLERHORST_KAVERNE_LAENGS + 790.0 \
+			and absf(k_dx * TAL_RICHTUNG.y - k_dz * TAL_RICHTUNG.x) < 175.0:
+		col.a = 0.0
 	st.set_color(col)
 	st.add_vertex(a)
 	st.add_vertex(b)
