@@ -68,6 +68,18 @@ func _lauf() -> void:
 		["Tiefflug ueber Wald", Vector3(700, 280, 200), Vector3(1700, 60, 1000)],
 		["Reiseflug 1200 m", Vector3(0, 1200, -1500), Vector3(0, 200, -9000)],
 		["ueber der Stadt", Vector3(4300, 420, 4100), Vector3(4300, 60, 2500)],
+		# NEONBUCHT, zwei Stellungen. Das Viertel ist der dichteste Ort der Karte: rund
+		# 130 Tuerme mit Aufbauten, ebenso viele Blockbauten, dazu ueber siebenhundert
+		# Laternen — und all das in einem Umkreis von 850 m. Wenn die Bildzeit irgendwo
+		# einbricht, dann hier, und der Tiefflug DURCH die Schlucht ist der schlimmste
+		# Fall: dort steht die ganze Geometrie nah vor der Kamera und verdeckt sich
+		# gegenseitig nicht.
+		# IM FJORD, auf Wasserhoehe zwischen den Waenden. Die Kuestenformen laufen bei
+		# JEDER Hoehenprobe der Welt mit (Polylinienabstand je Stuetzpunkt); wenn sie
+		# etwas kosten, dann hier, wo drei Formen zugleich im Bild sind.
+		["Fjord auf Wasserhoehe", Vector3(-21347, 45, -19629), Vector3(-15338, 90, -15772)],
+		["NEONBUCHT Schlucht", Vector3(2352, 55, -3480), Vector3(2510, 130, -3610)],
+		["NEONBUCHT von oben", Vector3(2700, 340, -3300), Vector3(2560, 240, -3620)],
 	]
 	print("%-22s %7s %7s %7s %7s %7s %7s %7s"
 		% ["Stellung", "alles", "-Flora", "-FlSchat", "-Fern", "-Gelae", "", ""])

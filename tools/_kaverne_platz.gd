@@ -23,12 +23,14 @@ func _process(_d: float) -> bool:
 	root.add_child(main)
 	var tw: TerrainWorld = main.terrain
 	var quer := Vector2(RICHTUNG.y, -RICHTUNG.x)
-	print(" laengs |  quer 0   +-40    +-62    +-84   | Band? (90 < h < 175)")
-	for i in 22:
-		var l := 9150.0 + float(i) * 25.0
+	# Querabstaende auf die neue Hallenbreite gezogen: HB_W_HALLE ist 78, der Wandfuss
+	# liegt also bei +-78, und 95 fragt, ob auch der Fels DAHINTER noch traegt.
+	print(" laengs |  quer 0   +-60    +-78    +-95   | Band? (90 < h < 175)")
+	for i in 24:
+		var l := 9250.0 + float(i) * 50.0
 		var zeile := "%7.0f |" % l
 		var band := false
-		for d in [0.0, 40.0, 62.0, 84.0]:
+		for d in [0.0, 60.0, 78.0, 95.0]:
 			var hs := ""
 			for seite in ([1.0] if d == 0.0 else [-1.0, 1.0]):
 				var p: Vector2 = START + RICHTUNG * l + quer * d * seite

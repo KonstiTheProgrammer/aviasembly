@@ -23,8 +23,10 @@ func _process(_d: float) -> bool:
 	var tw: TerrainWorld = main.terrain
 	var quer := Vector2(RICHTUNG.y, -RICHTUNG.x)
 	print(" laengs | quer 0   +-40   +-90  +-160 | 0 = frei, 1 = voller Bewuchs")
-	for i in 16:
-		var l := 9050.0 + float(i) * 80.0
+	# Bis 10450: die Roehre reicht seit der Verlaengerung auf HB_LAENGE = 1080 bis
+	# laengs 10390, und genau hinter der alten Messgrenze standen die Straeucher.
+	for i in 18:
+		var l := 9250.0 + float(i) * 70.0
 		var zeile := "%7.0f |" % l
 		for d in [0.0, 40.0, 90.0, 160.0]:
 			var p: Vector2 = START + RICHTUNG * l + quer * d

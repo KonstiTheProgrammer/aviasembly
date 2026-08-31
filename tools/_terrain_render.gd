@@ -11,6 +11,15 @@ extends SceneTree
 ## und dieselbe Kamera-Fernebene (9 km).
 ##
 ## Godot --path . --script res://tools/_terrain_render.gd -- <out_prefix>
+##
+## NICHT MIT --headless AUFRUFEN. Ohne Rendering-Server wird nie gezeichnet, also feuert
+## RenderingServer.frame_post_draw nie, und das Werkzeug haengt fuer immer in der
+## Wiederhol-Schleife um get_image() — bei rund 5 % CPU, was wie ein Deadlock im Terrain
+## aussieht und keiner ist. Genau darauf bin ich hereingefallen und habe eine Stunde in
+## Chunk-Aufbau und Flachzonen gesucht. Ein Lauf dauert rund 35 s; wenn es laenger dauert,
+## steht --headless in der Zeile.
+##
+## Auswahl einzelner Stellungen: nur=<name>,<name>  — es gibt KEIN kamera= und KEIN datei=.
 
 const VFOV := 64.0        # wie Main._setup_camera (ViewUtil, ultrawide-bewusst)
 const CAM_FAR := 9000.0   # wie Main._setup_camera — NICHT 7000
@@ -80,6 +89,46 @@ var _shots: Array = [
 	# wertlos geworden — die Namen bleiben, damit Werkzeuge und Fortschrittsseite weiter
 	# funktionieren, aber Vergleiche ueber den Umzug hinweg sind nicht zulaessig.
 	# anflug = Blickwinkel der Vorlage: tief auf der Achse, kurz vor der Schwelle.
+	# --- KAVERNE: vier weitere Stellungen fuer die Abnahme der Basis --------------------
+	# Roehrenkoordinaten: Portal (-5284.6, -9848.4), Achse (0.6139, -0.7893), Sohle y = 90.
+	# Tiefe d ab Portal, quer q nach Steuerbord. Die vier decken ab, was die basis_-Vier
+	# nicht zeigen: den Blick aus der Tiefe, das Vorfeld schraeg von oben, die Bodenlinie
+	# aus Augenhoehe und die Halle von der Galerie.
+	# DER BLICK AUF DAS PORTAL, nicht aus ihm heraus. Alle bisherigen Kavernenkameras
+	# stehen INNEN — mit ihnen war nicht zu pruefen, ob die Aussparung, die das Gelaende
+	# fuer die Roehre bekommen hat (TerrainWorld.tunnel), von aussen als Loch im Hang zu
+	# sehen ist. Genau dafuer diese beiden.
+	# --- STURMKAP, FJORD UND HAKENZUNGE -------------------------------------------
+	["fjord_mund", Vector3(-26351, 240.0, -22268), Vector3(-21854, 90.0, -19816)],
+	["fjord_tief", Vector3(-21347, 45.0, -19629), Vector3(-15338, 90.0, -15772)],
+	["kap_see", Vector3(-19860, 620.0, -26355), Vector3(-18188, 300.0, -17873)],
+	["lagune", Vector3(-9337, 760.0, 25654), Vector3(-11013, 0.0, 30258)],
+	["portal_anflug", Vector3(-5567.0, 118.0, -9485.3), Vector3(-5272.3, 108.0, -9864.2)],
+	["portal_seite", Vector3(-6025.7, 430.0, -10133.4), Vector3(-5272.3, 120.0, -9864.2)],
+	["kav_tief", Vector3(-4732.1, 105, -10558.8), Vector3(-5284.6, 100, -9848.4)],
+	["kav_apron", Vector3(-5070.2, 112, -10213.7), Vector3(-4928.1, 95, -10331.2)],
+	["kav_niedrig", Vector3(-5131.1, 95, -10045.7), Vector3(-4781.2, 112, -10495.6)],
+	["kav_galerie", Vector3(-4930.3, 116, -10206.2), Vector3(-4874.6, 95, -10416.3)],
+	# Auf die Raketenstellung suedlich des Platzes — Werfer, Antenne, Bettung.
+	["sam_ir", Vector3(390.0, 28.0, -2200.0), Vector3(430.0, 6.0, -2250.0)],
+	# --- NEONBUCHT: das Hochhausviertel bei (2600, -3800) -----------------------------
+	# Vier Blicke, die verschiedene Fragen beantworten: Silhouette aus der Ferne, Anflug
+	# auf die Prachtstrasse, IN der Gasse auf Flughoehe, und von oben ins Raster.
+	["neon_fern", Vector3(2600.0, 620.0, -1900.0), Vector3(2600.0, 200.0, -3800.0)],
+	# --- Die INSEL als Ganzes und ihr neuer Aussenring --------------------------------
+	["inselkette", Vector3(31800.0, 720.0, -1400.0), Vector3(26500.0, 0.0, -12000.0)],
+	["insel_wehr", Vector3(28430.0, 132.0, -10430.0), Vector3(28620.0, 98.0, -10680.0)],
+	["sam_radar", Vector3(-5494.0, 378.0, -8641.0), Vector3(-5494.0, 309.0, -8733.0)],
+	["insel_leucht", Vector3(30980.0, 95.0, -7180.0), Vector3(30450.0, 30.0, -7600.0)],
+	["westkap", Vector3(-23600.0, 300.0, -1000.0), Vector3(-24800.0, 0.0, -1800.0)],
+	["suedstrand", Vector3(6300.0, 300.0, 23400.0), Vector3(7100.0, 0.0, 24600.0)],
+	["rand_ost", Vector3(19000.0, 900.0, 1200.0), Vector3(23500.0, 0.0, 1200.0)],
+	["rand_sued", Vector3(1200.0, 1100.0, 17000.0), Vector3(1200.0, 0.0, 22000.0)],
+	["neon_anflug", Vector3(2600.0, 120.0, -2500.0), Vector3(2600.0, 110.0, -3800.0)],
+	["neon_gasse", Vector3(2216.0, 70.0, -2900.0), Vector3(2216.0, 80.0, -4300.0)],
+	["neon_nah", Vector3(2352.0, 55.0, -3480.0), Vector3(2510.0, 130.0, -3610.0)],
+	["neon_dach", Vector3(2700.0, 340.0, -3300.0), Vector3(2560.0, 240.0, -3620.0)],
+	["neon_oben", Vector3(2600.0, 900.0, -3300.0), Vector3(2600.0, 60.0, -3820.0)],
 	["basis_anflug", Vector3(-5456, 116, -9627), Vector3(-5285, 128, -9848)],
 	["basis_fern", Vector3(-5714, 230, -9296), Vector3(-5285, 150, -9848)],
 	["basis_halle", Vector3(-5187, 106, -9975), Vector3(-4965, 95, -10259)],
