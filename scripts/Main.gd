@@ -22,7 +22,19 @@ var flight_ctrl: FlightController
 
 # SONNENSTAND (Grad, Euler XY). Gilt fuer das gerichtete Licht UND fuer die gemalte
 # Sonne im Himmels-Shader — beide lasen den Wert frueher getrennt ab.
-const SONNE_WINKEL := Vector3(-50.0, -50.0, 0.0)
+# SONNENSTAND — 26 GRAD STATT 50, UND DAS IST DIE GROESSTE EINZELNE AENDERUNG AM AUSSEHEN
+# DER WELT.
+#
+# Bei 50 Grad steht die Sonne fast im Zenit. Der Unterschied zwischen einem Hang, der ihr
+# zugewandt ist, und einem, der von ihr wegzeigt, ist dann klein — beide bekommen fast
+# denselben Streifwinkel. Genau das war der Befund der Abnahme: "es gibt keine Sonne",
+# kein Berg hat eine Licht- und eine Schattenseite, ein 400 px breites Massiv liegt von
+# der linken bis zur rechten Flanke in einem einzigen Braunton da.
+#
+# Bei 26 Grad streift das Licht. Jede Kuppe bekommt eine helle und eine dunkle Seite,
+# jeder Grat wirft einen langen Schatten ueber den Hang dahinter, und das Low-Poly-Facett
+# bekommt endlich das, wovon es lebt: Kontrast zwischen benachbarten Flaechen.
+const SONNE_WINKEL := Vector3(-26.0, -50.0, 0.0)
 
 # Kamera-Fernebene im Flug. Steht hier, weil ausser der Kamera auch die Wolkendecke sie
 # braucht: die Puffs muessen vorher ausgeblendet sein (siehe unten).
@@ -68,7 +80,12 @@ const WOLKEN_LAGEN := ["kumulus", "turm", "schaefchen", "linse"]
 # Wie stark sich die Sicht eintruebt, wenn man drinsteckt. Der Nebel ist im Freien
 # bewusst hauchduenn (die Ferne SOLL lesbar sein); in der Wolke muss er auf Sichtweiten
 # von wenigen Dutzend Metern gehen, sonst fliegt man durch eine Farbe statt durch Wetter.
-const NEBEL_FREI := 0.00006
+# LUFTPERSPEKTIVE. 0.00006 ergab auf 3 km gerade 16 Prozent Eintruebung und auf 10 km
+# 45 — im Bild ein schmaler heller Streifen direkt am Horizont und sonst nichts. Die
+# Abnahme las das als "flaches Diorama von oben fotografiert, hintere Kante retuschiert".
+# 0.00013 gibt auf 3 km 32 Prozent und auf 10 km 73: eine durchgehende Rampe statt eines
+# Aufklebers, und damit liest sich nah gegen fern.
+const NEBEL_FREI := 0.00013
 const NEBEL_WOLKE := 0.020
 # NEBELFARBE BEI FREIER SICHT. Sie stand auf 0.66/0.79/0.94, also Blau minus Rot = 0.28.
 # Das ist die staerkste Einzelquelle des Blaustichs, der ueber der ganzen Karte liegt:
@@ -104,12 +121,22 @@ const FERN_ZELLE_GROB := 64.0
 const FERN_ZELLE_FEIN := 32.0
 # Kantenlaenge einer Schuerzen-Kachel (24 Zellen). Groesser = weniger Draw-Calls, aber
 # groebere Sichtbarkeits-Auslese; 1536 m = vier Chunkbreiten hat sich als Mitte ergeben.
-const FERN_KACHEL := 1536.0
+# GROESSER GEWORDEN (1536), UND ZWAR ABSICHTLICH IM GLEICHEN SCHRITT WIE DIE WELT.
+# Die Kachelzahl ist (2 * ceil(FERN_WELT / FERN_KACHEL) + 1) im Quadrat. Bei 1536 m und
+# 33 km Reichweite waeren das 2025 Kacheln statt bisher 961 — mehr als das Doppelte an
+# Netzen und Zeichenaufrufen fuer dieselbe Aufgabe. Mit 2200 m bleibt es bei 961: jede
+# Kachel deckt mehr Flaeche, die Aufloesung darin (FERN_ZELLE_*) bleibt unveraendert.
+const FERN_KACHEL := 2200.0
 # Halbe Kantenlaenge des abgesuchten Weltausschnitts. Muss den Kuestenradius aus
 # TerrainWorld.height_at abdecken (18000 +- 2400, also bis 20,4 km) plus den Auslauf.
 # Vorher standen hier 18500 fuer die kleinere Insel; die neue haette jenseits davon
 # einfach aufgehoert.
-const FERN_WELT := 23000.0
+# MIT DER INSEL GEWACHSEN (23000). Die Schuerze muss ueber die Kueste hinausreichen,
+# sonst hoert die Welt sichtbar vor ihrem eigenen Rand auf.
+# 35000 STATT 33000: das Sturmkap reicht bis 32,1 km hinaus (gemessen), die Schuerze
+# haette es mit 900 m Rest gerade noch gedeckt. Zwei Kilometer Reserve sind der
+# Unterschied zwischen 'passt gerade' und 'passt auch beim naechsten Umbau'.
+const FERN_WELT := 35000.0
 # Grundabsenkung im Ueberlappbereich. GEMESSEN an 40 000 Landproben: das echte 8-m-Gelaende
 # liegt gegenueber der 64-m-Interpolation im schlechtesten Fall 44 m tiefer, aber schon
 # bei 12 m sind 99,9 % erfasst. 14 m halten die Schuerze also praktisch ueberall unter
@@ -218,7 +245,26 @@ const TAL_KETTE_VERSATZ := 550.0
 # Wo im Tal der Platz liegt (Abstand vom Talanfang) und auf welcher Hoehe.
 # Weit hinten im Tal: der Anflug geht die ganze Laenge durch die Schlucht, und hinter dem
 # Platz schliesst die Querkette das Tal ab — man muss also drehen und wieder hinaus.
-const ADLERHORST_LAENGS := 8800.0
+# DER PLATZ LIEGT IM BERG. Er stand bei 8800 auf dem Talboden, und die Kaverne war nur
+# sein Abschluss — im Bild eine Bahn auf der Wiese vor einer Wand mit Loch. Bei 9820 liegt
+# die ganze 900-m-Bahn INNERHALB des Massivs: das Portal steht bei 9310, die Bahn reicht
+# von 9370 bis 10270, und darueber stehen laut tools/_kaverne_platz.gd zwischen 488 m
+# (bei 9400) und ueber 1000 m (bei 10350) Fels. Der Hallenscheitel liegt bei 145 m.
+const ADLERHORST_LAENGS := 9820.0
+# Wo die EINEBNUNG sitzt — bewusst NICHT mehr am Platz. Sie haelt den Talboden vor dem
+# Portal auf Flugfeldhoehe, damit der Anflug eben bleibt und die Portalstirn sauber
+# aufsetzt. Am Platz selbst waere sie schaedlich: sie wuerde den halben Berg abtragen,
+# unter dem er liegt.
+# 8800 UND KEINEN METER WEITER. Mit r_flat 520 reicht die Zone bis Talstation 9320 und
+# haelt damit genau den Fuss der Portalstirn (9310) eben — das ist ihre Aufgabe. Ein
+# Versuch mit 8900 schob sie bis 9420 und trug die FRONT DES MASSIVS ab: gemessen stand
+# das Gelaende bei laengs 9400 auf 488 m, danach auf 90, und aus 150 m Hoehe im Berg
+# blickte man ueber das Tal.
+const ADLERHORST_VORFELD_LAENGS := 8800.0
+# Talstation der QUERKETTE, die den Talschluss dichtmacht. Entspricht dem frueheren
+# ADLERHORST_LAENGS + 1600 = 10400 und steht jetzt fuer sich, damit sie nicht mitwandert,
+# wenn der Flugplatz umzieht. Die Kaverne endet bei 10390 — also genau in ihrem Fuss.
+const TAL_QUERKETTE_LAENGS := 10400.0
 const ADLERHORST_HOEHE := 90.0
 # Abstand des Hoehlenportals von der Bahnachse, quer dazu. Begruendung an der Baustelle
 # (Main._setup_world, "FELSENBASIS ADLERHORST").
@@ -410,6 +456,8 @@ func _ready() -> void:
 	flight_ctrl.g_protect = game.g_protect    # persistierter G-Schutz (Taste H)
 	_spawn_targets()
 	_spawn_flak()
+	_spawn_sam()
+	_spawn_inselwehr()
 	_setup_ui()
 	if not _load_design():
 		# Erststart ohne Speicherstand: fertiger Beispiel-Doppeldecker im Hangar,
@@ -442,12 +490,31 @@ func _setup_world() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.85
+	# 0.52 STATT 0.85. Ambient ist Licht ohne Richtung — je mehr davon, desto weniger
+	# bedeutet der Sonnenstand. Bei 0.85 gegen eine Sonne von 1.30 kam fast die Haelfte der
+	# Beleuchtung aus allen Richtungen zugleich und fuellte jeden Schatten wieder auf.
+	# Weniger Ambient macht die Schattenseite dunkel genug, dass die Sonnenseite ueberhaupt
+	# als solche zu erkennen ist.
+	env.ambient_light_energy = 0.52
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	# WICHTIG: tonemap_white=1.0 presste die GESAMTE Range platt -> alles pastellig-milchig
 	# ("fade Map"). white=6 gibt ACES seine Dynamik zurueck, Farben duerfen wieder satt sein.
 	env.tonemap_white = 6.0
 	env.tonemap_exposure = 1.0
+	# KONTAKTVERSCHATTUNG. Ohne sie beruehrt kein Gegenstand den Boden: Flugzeuge,
+	# Kisten, Masten und Hangars stehen mit einer sauberen Kante auf der Flaeche und
+	# lesen sich als aufgeklebt — in drei unabhaengigen Abnahmen ueber drei Runden der
+	# am haeufigsten wiederholte Befund. Der Radius ist mit 1,6 m ABSICHTLICH klein: er
+	# soll Auflagepunkte und Innenkanten fassen, nicht die grossen Flaechen abdunkeln.
+	# light_affect bleibt 0, damit die Verschattung nur das Umgebungslicht daempft und
+	# die Lichtseen der Lampen unangetastet bleiben.
+	env.ssao_enabled = true
+	env.ssao_radius = 1.6
+	env.ssao_intensity = 2.6
+	env.ssao_power = 1.6
+	env.ssao_detail = 0.55
+	env.ssao_horizon = 0.07
+	env.ssao_light_affect = 0.0
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.18
 	env.adjustment_contrast = 1.05
@@ -464,7 +531,9 @@ func _setup_world() -> void:
 	env.fog_light_color = NEBEL_FARBE_FREI
 	env.fog_sun_scatter = 0.15
 	env.fog_density = NEBEL_FREI
-	env.fog_aerial_perspective = 0.30
+	# 0.62 STATT 0.30. Der Wert bestimmt, wie stark der Nebel die Farbe des HIMMELS
+	# annimmt statt einer festen Nebelfarbe — also wie sehr Ferne sich in Luft aufloest.
+	env.fog_aerial_perspective = 0.62
 	env.fog_sky_affect = 0.1
 	# GLOW: AUS — und zwar gemessen, nicht aus Geschmack.
 	# Die Nachbelichtungskette dieser Szene wurde durchkalibriert (Graukeil durch
@@ -506,9 +575,21 @@ func _setup_world() -> void:
 	# eingestellt (8-m-Raster, sehr flache Winkel am Nachmittagsstand der Sonne).
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = SONNE_WINKEL
-	sun.light_color = Color(1.0, 0.97, 0.88)
-	sun.light_energy = 1.30    # kraeftige Tagessonne — Facetten des Low-Poly-Terrains zeichnen
+	# 1.55 UND WAERMER. Mit halbiertem Ambient muss die Sonne mehr tragen, und eine tief
+	# stehende Sonne ist waermer — 26 Grad Hoehe sind spaeter Nachmittag, nicht Mittag.
+	sun.light_color = Color(1.0, 0.94, 0.80)
+	sun.light_energy = 1.55
 	sun.shadow_enabled = true
+	# SCHATTEN DUERFEN NICHT SCHWARZ SEIN — und das ist die Kehrseite des halbierten
+	# Ambients. Gemessen nach der Umstellung: die verschattete Canyonwand stand bei
+	# RGB (2, 2, 1), und 16 Prozent des Bildes lagen unter Luminanz 5. Ein Viertel der
+	# Aufnahme war ein Loch ohne Silhouette.
+	#
+	# shadow_opacity ist dafuer der richtige Regler und nicht das Ambient: er hellt NUR
+	# den Schatten auf und laesst die besonnte Seite, wo der ganze Gewinn liegt, unberuehrt.
+	# Waere ich stattdessen ans Ambient gegangen, haette ich genau die Flachheit
+	# zurueckgeholt, gegen die der tiefe Sonnenstand angetreten ist.
+	sun.shadow_opacity = 0.76
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_max_distance = 3000.0
 	sun.directional_shadow_split_1 = 0.045
@@ -530,9 +611,27 @@ func _setup_world() -> void:
 	# solange die Sonne schattenlos war, musste es die Formen retten — jetzt uebernimmt
 	# das der Sonnenschatten, und zu viel Gegenlicht wuerde ihn wieder zuschmieren.
 	var underfill := DirectionalLight3D.new()
-	underfill.rotation_degrees = Vector3(58, 130, 0)
+	# 22 GRAD HOEHE STATT 58 — UND DAS WAR DER EIGENTLICHE FEHLER, NICHT DIE ENERGIE.
+	# Aus 58 Grad faellt das Licht steil ein und trifft eine fast SENKRECHTE Steilwand
+	# kaum: gemessen brachte eine Verdreifachung der Energie im Canyonbild ganze 1,1
+	# Prozentpunkte weniger schwarze Flaeche. Eine Wand braucht Licht, das sie streift,
+	# nicht Licht von oben. 22 Grad gegenueber der Sonne tun genau das.
+	underfill.rotation_degrees = Vector3(22, 130, 0)
 	underfill.light_color = Color(0.80, 0.86, 0.95)
-	underfill.light_energy = 0.24
+	# 0.62 STATT 0.24 — UND DAS IST DER RICHTIGE HEBEL FUER SCHWARZE SCHATTENSEITEN.
+	#
+	# Nach dem Umstellen auf tiefe Sonne und halbes Ambient stand die abgewandte
+	# Canyonwand bei RGB (2, 2, 1); 16 Prozent des Bildes lagen unter Luminanz 5. Zuerst
+	# habe ich es mit shadow_opacity versucht und damit gemessen NICHTS erreicht
+	# (16,2 auf 15,8 Prozent) — aus gutem Grund: die Wand liegt gar nicht im
+	# SCHLAGSCHATTEN, sie ist nur von der Sonne ABGEWANDT. Dagegen hilft kein
+	# Schattenregler, sondern Licht aus einer anderen Richtung.
+	#
+	# Genau dafuer steht dieses Fuelllicht schon hier. Es kommt aus 58 Grad Hoehe und
+	# 130 Grad Azimut, also grob gegenueber der Sonne, und ist kuehl gefaerbt — es hebt
+	# die Schattenseiten an, ohne die Sonnenseite zu beruehren, und gibt ihnen nebenbei
+	# den kalten Ton, den Himmelslicht in Wirklichkeit hat.
+	underfill.light_energy = 0.62
 	underfill.shadow_enabled = false
 	sky_lights.add_child(underfill)
 
@@ -562,8 +661,21 @@ func _setup_world() -> void:
 		{"name": "OSTHAFEN", "pos": Vector3(2200, 0, -250), "heading": -1.15, "color": Color(0.45, 0.75, 0.98)},
 		{"name": "BERGPISTE", "pos": Vector3(900, 0, 2000), "heading": 2.3, "color": Color(0.95, 0.5, 0.45)},
 		# Aussenfelder der GROSSEN Insel (~10-15 km Kuestenradius) — echte Reiseziele
-		{"name": "WESTKAP", "pos": Vector3(-9200, 0, -600), "heading": 1.9, "color": Color(0.55, 0.85, 0.60)},
-		{"name": "SÜDSTRAND", "pos": Vector3(2600, 0, 9200), "heading": -0.6, "color": Color(0.95, 0.60, 0.85)},
+		# AN DIE NEUE KUESTE GERUECKT (war -9200/-600). Beide Namen — WESTKAP und
+		# SUEDSTRAND — beschreiben Kuestenlagen, und nach dem Vergroessern der Insel von
+		# 17,8 auf 25,8 km mittleren Radius lagen sie 15 bis 17 km im Landesinneren. Das
+		# war nicht nur ein falscher Name: die neu gewonnene Flaeche hatte damit ueberhaupt
+		# kein Ziel, und "groesser" waere blosse leere Strecke geblieben.
+		# Die Stellen sind gemessen (tools/_kuestenplatz.gd): Westkap 1800 m hinter der
+		# Kueste bei 52 m Hoehenspanne im 700-m-Feld, Suedstrand 1200 m dahinter bei 31 m —
+		# die flachsten Punkte auf ihrer jeweiligen Peilung.
+		# MIT DER KUESTE NACH AUSSEN GERUECKT. Durch die Vergroesserung auf 27,2 km lag
+		# WESTKAP statt 1,7 plötzlich 3,1 km von der Wasserlinie — ein "Kap" mitten im
+		# Hinterland. Dieselbe Peilung, derselbe Abstand zum Wasser wie vorher.
+		{"name": "WESTKAP", "pos": Vector3(-25706, 0, -1662), "heading": 1.9, "color": Color(0.55, 0.85, 0.60)},
+		# EBENSO SUEDSTRAND: von 0,7 auf 2,0 km ins Landesinnere gerutscht. Ein
+		# Strandflugplatz, von dem aus man das Meer nicht sieht, ist ein Namensfehler.
+		{"name": "SÜDSTRAND", "pos": Vector3(7188, 0, 25403), "heading": -0.6, "color": Color(0.95, 0.60, 0.85)},
 		{"name": "VULKANFELD", "pos": Vector3(8800, 0, -4600), "heading": 0.9, "color": Color(0.95, 0.45, 0.20)},
 		# ADLERHORST liegt als EINZIGER Platz nicht auf Meereshoehe, sondern auf einem
 		# Sattel im Hochgebirge. Die y-Komponente traegt die Plateauhoehe; _build_airfield
@@ -590,6 +702,12 @@ func _setup_world() -> void:
 	# damit die Wasser-Materialien gleich mit der richtigen Richtung entstehen.
 	terrain.setze_sonne(Basis.from_euler(Vector3(
 		deg_to_rad(SONNE_WINKEL.x), deg_to_rad(SONNE_WINKEL.y), 0.0)).z)
+	# DIESELBE RICHTUNG AN DIE BAUWERKE. Landmarks faerbt Fels nach Sonnen- und
+	# Schattenseite (Landmarks._fels_tri) und muss dafuer wissen, wo die Sonne steht.
+	# Zwei Quellen waeren zwei Sonnen: Tor und Halde wuerden aus einer anderen Richtung
+	# beleuchtet erscheinen als der Berg, an dem sie lehnen.
+	Landmarks.sonne_zu = Basis.from_euler(Vector3(
+		deg_to_rad(SONNE_WINKEL.x), deg_to_rad(SONNE_WINKEL.y), 0.0)).z.normalized()
 	var flat_zones: Array = []
 	for af in airfields:
 		var is_main: bool = af.get("main", false)
@@ -618,8 +736,28 @@ func _setup_world() -> void:
 		# Das wirkt NUR auf den Bewuchs: die Hoehe des Gelaendes haengt an r_flat/r_blend,
 		# nicht an den Rechtecken — der Berg ueber der Kaverne bleibt also stehen.
 		if String(af.get("name", "")) == "ADLERHORST":
-			rects.append([0.0, -860.0, 175.0, 350.0])
-		var fz := {"pos": af["pos"], "heading": af["heading"],
+			# DIE RECHTECKE GELTEN ZUR ZONE, NICHT ZUM PLATZ. Genau daran bin ich
+			# gescheitert: hier stand [0, -30, 175, 560], gerechnet ab dem Platz bei 9820 —
+			# die Zone sitzt aber im Vorfeld bei 8800. Freigehalten wurde damit laengs 8240
+			# bis 9370, also ein Kilometer Wiese vor dem Berg, und in der Halle stand ab
+			# laengs 9460 _open_ground auf 1.00: gemessener voller Bewuchs ueber die ganze
+			# Kaverne, im Bild Straeucher neben der Bahn.
+			# AUS DEN KONSTANTEN GERECHNET statt hingeschrieben, damit das Rechteck der
+			# Roehre folgt, wenn HB_LAENGE oder eine der Stationen sich aendert.
+			# Talaufwaerts ist lokal -Z, die Station waechst also gegen -Z.
+			var z_portal := -(ADLERHORST_KAVERNE_LAENGS - ADLERHORST_VORFELD_LAENGS)
+			var z_rueck := z_portal - Landmarks.HB_LAENGE
+			rects.append([0.0, (z_portal + z_rueck) * 0.5, 175.0,
+				(z_portal - z_rueck) * 0.5 + 20.0])
+		# ADLERHORST BEKOMMT SEINE ZONE WOANDERS. Der Platz liegt seit dem Umbau tief im
+		# Berg; eine Einebnung an seiner Stelle wuerde das Massiv ueber ihm abtragen. Sie
+		# sitzt deshalb vorn im Tal (ADLERHORST_VORFELD_LAENGS) und haelt dort den
+		# Anflugstreifen und den Fuss der Portalstirn eben — genau das, wofuer sie da ist.
+		var fz_pos: Vector3 = af["pos"]
+		if String(af.get("name", "")) == "ADLERHORST":
+			var vp := _tal_punkt(ADLERHORST_VORFELD_LAENGS)
+			fz_pos = Vector3(vp.x, 0.0, vp.y)
+		var fz := {"pos": fz_pos, "heading": af["heading"],
 			"r_flat": 1700.0 if is_main else 750.0,
 			"r_blend": 2300.0 if is_main else 1200.0, "rects": rects}
 		# HOEHE MITGEBEN. Bisher kannte diese Schleife nur Plaetze auf Meereshoehe und
@@ -707,6 +845,20 @@ func _setup_world() -> void:
 	# Talhang: innerhalb der Uferlinie rechnet height_at nur noch mit der Umrissformel,
 	# und nach aussen uebernimmt der Beckenrand.
 	flat_zones.append({"pos": lh_pos, "r_flat": 110.0, "r_blend": 300.0})
+	# Kleine Freiflaeche fuer den Inselleuchtturm. y = 18 entspricht dem gewachsenen
+	# Gelaende an dieser Stelle, es entsteht also keine Stufe — die Zone ist nur dafuer da,
+	# den Bewuchs zu sperren (jede Flachzone tut das in _open_ground).
+	flat_zones.append({"pos": Vector3(30450, 18.0, -7600), "r_flat": 55.0,
+		"r_blend": 130.0, "y": 18.0})
+	# UND EINE FUER DIE STELLUNG AUF DER GROSSEN INSEL — aus demselben Grund, und der
+	# hat mich diesmal eine ganze Fehlersuche gekostet: die Stellung stand vollstaendig,
+	# an der richtigen Weltposition, mit neun sichtbaren Netzen — und war im Bild
+	# trotzdem nicht zu finden. Erst ein magentafarbener Testanstrich zeigte von ihr
+	# einen 18 Pixel breiten Splitter zwischen zwei Kiefern. Sie steckte im Wald, genau
+	# wie der Leuchtturm eine Viertelstunde vorher. Auf einer bewaldeten Insel braucht
+	# JEDES Bauwerk seine Lichtung, sonst ist es gebaut und trotzdem nicht da.
+	flat_zones.append({"pos": Vector3(28560, 95.0, -10680), "r_flat": 150.0,
+		"r_blend": 280.0, "y": 95.0})
 	flat_zones.append({"pos": village_pos, "r_flat": 140.0, "r_blend": 340.0, "y": 120.0})
 	# --- NEUE VIERTEL aus den Blender-Gebaeuden (scripts/CityBuilder.gd) ---------------
 	# Jedes braucht eine Einebnung, sonst stehen Hochhaeuser auf einem Hang.
@@ -715,7 +867,21 @@ func _setup_world() -> void:
 	var dorf_pos := Vector3(-2300, 0, 1900)     # Landdorf
 	var burg_pos := Vector3(-1750, 0, 3150)     # Burgberg
 	var mil_pos := Vector3(250, 0, -2400)       # Militaerposten (bei der FLAK-ZONE)
+	# HOCHHAUSVIERTEL. Bewusst weit weg von allem anderen: naechster Nachbar ist der
+	# Industriehafen 2,5 km entfernt, die Grossstadt liegt 6,6 km weg. Es soll ein ORT
+	# sein, zu dem man hinfliegt, und keine Erweiterung eines vorhandenen.
+	var sky_pos := Vector3(2600, 0, -3800)      # Hochhausviertel zum Durchfliegen
 	flat_zones.append({"pos": city_pos, "r_flat": 480.0, "r_blend": 980.0})
+	# GROSSZUEGIG EINGEEBNET, und das ist hier keine Bequemlichkeit: die Tuerme stehen auf
+	# einem 1664 m breiten Raster und tragen KOLLISION. Auf welligem Grund staende ein Teil
+	# von ihnen im Hang und die Gassen waeren an manchen Stellen unpassierbar, ohne dass man
+	# es vor dem Einflug sehen koennte.
+	# MIT RECHTECK, NICHT NUR MIT RADIUS. _open_ground deckelt den Freihalte-Radius einer
+	# KREIS-Zone bei CLEAR_CAP (620 m) — das Viertel ist aber 1536 m breit, und in seinem
+	# aeusseren Ring stand deshalb Wald zwischen den Hochhaeusern. Der Rechteck-Zweig kennt
+	# diesen Deckel nicht; er ist genau fuer solche Flaechen da.
+	flat_zones.append({"pos": sky_pos, "r_flat": 1150.0, "r_blend": 1900.0,
+		"heading": 0.0, "rects": [[0.0, 0.0, 880.0, 880.0]]})
 	flat_zones.append({"pos": indu_pos, "r_flat": 300.0, "r_blend": 700.0})
 	flat_zones.append({"pos": dorf_pos, "r_flat": 260.0, "r_blend": 620.0})
 	flat_zones.append({"pos": burg_pos, "r_flat": 160.0, "r_blend": 420.0, "y": 78.0})
@@ -985,11 +1151,38 @@ func _setup_world() -> void:
 			"crater_r": 400.0, "lippe": 0.22,
 			"rand_h": 36.0, "crater_depth": 215.0, "lavasee": 62.0, "schlot": 28.0,
 			"scharte": 1.0, "scharte_ri": -2.0},
-		{"pos": Vector3(16000, 0, -3800), "r": 520.0, "peak": 40.0, "type": "insel"},
-		{"pos": Vector3(12500, 0, -11500), "r": 500.0, "peak": 34.0, "type": "insel"},
-		{"pos": Vector3(-11500, 0, 13000), "r": 700.0, "peak": 55.0, "type": "insel"},
-		{"pos": Vector3(-14500, 0, 9000), "r": 430.0, "peak": 24.0, "type": "insel"},
-		{"pos": Vector3(3800, 0, -15800), "r": 600.0, "peak": 45.0, "type": "insel"},
+		# INSELN — MIT DER KUESTE NACH AUSSEN GEZOGEN UND ZU EINER KETTE ERGAENZT.
+		#
+		# Die fuenf alten Positionen (16000/-3800 und so fort) lagen bei 11,5 bis 16 km und
+		# waren damit Inseln vor der alten Kueste. Nach dem Vergroessern der Insel auf
+		# 25,8 km mittleren Radius waren es Huegel MITTEN IM LAND — dieselbe Regression wie
+		# bei den Schiffen, nur unauffaelliger, weil ein Huegel nicht falsch aussieht.
+		#
+		# Die neuen Punkte liegen alle in 24 m tiefem Wasser mit freiem 1600-m-Ring
+		# (gemessen, tools/_inselplatz.gd) — eine Insel, die mit dem Festland zusammen-
+		# waechst, ist eine Halbinsel und keine.
+		#
+		# DIE VIER ZUSAETZLICHEN bilden vor der Ostkueste eine KETTE. Das ist der Grund,
+		# warum es sie gibt: acht Kilometer neue Strecke ohne ein einziges Ziel waeren
+		# blosse Leere gewesen. Eine Kette gibt dem Tiefflug ueber See eine Linie, an der
+		# man sich entlanghangelt, und den beiden hoeheren Kuppen die Rolle von Marken.
+		{"pos": Vector3(27244, 0, -6468), "r": 520.0, "peak": 40.0, "type": "insel"},
+		{"pos": Vector3(21197, 0, -19498), "r": 500.0, "peak": 34.0, "type": "insel"},
+		# 31,0 STATT 29,5 KM. Gemessen (tools/_seelage2.gd) lag der Rand dieser Insel
+		# nach der Vergroesserung bei -0,9 m, also 5 m UEBER dem Spiegel (SEA_Y = -6):
+		# sie war ueber eine Untiefe mit dem Festland verwachsen und damit eine
+		# Halbinsel.
+		{"pos": Vector3(-20541, 0, 23219), "r": 700.0, "peak": 55.0, "type": "insel"},
+		# 30,8 STATT 28,2 KM: durch die groessere Kueste (27200 statt 26000) lag diese
+		# Insel bei 148 Grad plötzlich 300 m INNERHALB der Wasserlinie und war damit ein
+		# Kuestenhuegel. Gemessen mit tools/_kuestenlage.gd; derselbe Fehler wie bei der
+		# letzten Vergroesserung, nur diesmal beim ersten Nachmessen gefunden.
+		{"pos": Vector3(-26183, 0, 16219), "r": 430.0, "peak": 24.0, "type": "insel"},
+		{"pos": Vector3(6692, 0, -27799), "r": 600.0, "peak": 45.0, "type": "insel"},
+		{"pos": Vector3(29400, 0, -3200), "r": 360.0, "peak": 26.0, "type": "insel"},
+		{"pos": Vector3(28600, 0, -10600), "r": 780.0, "peak": 88.0, "type": "insel"},
+		{"pos": Vector3(25200, 0, -14900), "r": 340.0, "peak": 19.0, "type": "insel"},
+		{"pos": Vector3(30100, 0, -7600), "r": 610.0, "peak": 66.0, "type": "insel"},
 	]
 	massifs.append_array(_hochgebirge())
 	_massive_charakterisieren(massifs)
@@ -1150,6 +1343,146 @@ func _setup_world() -> void:
 	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs,
 		{"start": TAL_START, "richtung": TAL_RICHTUNG, "laenge": TAL_LAENGE,
 			"halbbreite": tal_hb})
+	# FELSWAND AM TALSCHLUSS. Ohne sie ist die Wand hinter ADLERHORST auf 480 m Breite
+	# um ganze 34 m gegliedert (gemessen, tools/_wandprofil.gd) — eine Ebene, die im
+	# Anflug 60 Prozent des Bildes fuellt und als Kulisse gelesen wird.
+	# MITTE BEI 9700, NICHT AM PORTAL: die Zone soll die ganze sichtbare Flanke fassen,
+	# und die reicht vom Wandfuss bei 9330 bis ueber den Kamm.
+	# 200 BIS 340 M ALS HOEHENTOR: darunter liegt der eingeebnete Talboden und die
+	# Portalstirn, die beide unberuehrt bleiben muessen.
+	var wand_p := _tal_punkt(9700.0)
+	var portal_p := _tal_punkt(ADLERHORST_KAVERNE_LAENGS)
+	# ================================================================================
+	# KUESTENFORMEN — was die Insel von einer Scheibe unterscheidet
+	# ================================================================================
+	#
+	# WARUM ES SIE BRAUCHT. Die Kueste entstand bisher allein aus r_coast(winkel): EIN
+	# Radius je Richtung. Eine solche Kurve kann keinen Fjord haben, keine Bucht mit
+	# enger Einfahrt, keine Landzunge, die sich zurueckkruemmt — auf jedem Strahl gibt es
+	# genau einen Wechsel von Land zu Wasser. Egal wie fein man das Winkelrauschen macht,
+	# es bleibt eine gebeulte Scheibe. Die beiden Formen hier brauchen jeweils mehrere
+	# Wechsel und sind deshalb ueber TerrainWorld.kuestenformen gebaut (Polylinien).
+	#
+	# WO SIE STEHEN, IST GEMESSEN, nicht geraten. tools/_kuestenlage.gd hat den Umriss in
+	# 36 Sektoren abgetastet: der Korridor 190 bis 260 Grad ist zwischen 14 und 33 km
+	# vollstaendig frei von Massiven, Plaetzen und Wahrzeichen — dort darf gebaut werden,
+	# ohne bestehendes zu fluten. Dieselbe Messung hat auch die urspruengliche Idee
+	# widerlegt, einen Fjord einfach ins Vorland zu schneiden: die Kueste ist RINGSUM
+	# flach (3 und 6 km landeinwaerts ueberall zwischen -5 und +130 m). Ein Meeresarm in
+	# flachem Land ist ein Kanal. Der Fjord muss seine Waende also mitbringen — deshalb
+	# steht unter ihm ein eigenes Gebirge.
+	terrain.kuestenformen = [
+		# --- STURMKAP: ein Gebirgskap, 4 km weiter drausen als die uebrige Kueste ------
+		#
+		# Es traegt zwei Aufgaben auf einmal. Erstens macht es die Insel groesser, und
+		# zwar dort, wo man es SIEHT — ein Kap, das aus dem Meer aufsteigt, aendert den
+		# Umriss staerker als ein gleichmaessig groesserer Radius. Zweitens liefert es die
+		# Waende fuer den Fjord, der es gleich darauf spaltet.
+		#
+		# Die Hoehen laufen von 120 m am Festlandsfuss ueber 840 m in der Mitte auf 240 m
+		# an der Spitze. Ein Kamm mit KONSTANTER Hoehe waere eine Mauer; die Kurve macht
+		# daraus eine Kette, die aus dem Land aufsteigt und ins Meer abtaucht.
+		{
+			"art": "land",
+			# DER LETZTE PUNKT LIEGT AUF NULL, und das ist keine Kosmetik: jenseits des
+			# Polylinienendes misst _kf_lage radial zum Endpunkt, die Form laeuft dort
+			# also als Kuppel vom Radius r_aus weiter. Mit 240 m Resthoehe und 4,6 km
+			# Reichweite hiess das ein 120-m-Huegel drei Kilometer DRAUSSEN IM MEER — im
+			# Bild stand vor der Fjordeinfahrt Duenenland mit Nadelwald. Ein Stuetzpunkt
+			# auf 0 laesst die Kette auslaufen, statt sie abzuschneiden.
+			"pts": PackedVector2Array([
+				Vector2(-12379, -13748), Vector2(-15282, -15825),
+				Vector2(-18188, -17873), Vector2(-21209, -19778),
+				Vector2(-23773, -20666), Vector2(-25511, -21558)]),
+			"hs": PackedFloat32Array([120.0, 620.0, 840.0, 700.0, 240.0, 0.0]),
+			"r_kern": 1500.0, "r_aus": 4600.0, "unruhe": 0.55,
+		},
+		# --- DER FJORD, der das Kap spaltet -------------------------------------------
+		#
+		# Er liegt auf der Kapachse (134 m Versatz in der Mitte, also praktisch mittig)
+		# und schneidet es damit der Laenge nach in zwei Grate. Das ist der Punkt: von
+		# aussen sieht man ein Kap, von innen fliegt man 13 km zwischen zwei 800-m-Waenden
+		# auf Meereshoehe. So etwas gibt es sonst nirgends auf der Karte.
+		#
+		# DIE SOHLE HAT EINE SCHWELLE AM EINGANG (-18 m) und wird nach innen tiefer
+		# (-78 m), bevor sie zum Talschluss ansteigt. Das ist kein Detailverliebtsein: ein
+		# echter Fjord ist ein ausgeschliffenes Trogtal, dessen Gletscher am Ausgang seine
+		# Endmoraene liegengelassen hat. Sichtbar wird es an der Wasserfarbe — der
+		# Strandschelf faerbt flaches Wasser tuerkis, tiefes petrol. Man sieht die
+		# Schwelle also von oben als hellen Riegel quer vor der Einfahrt.
+		#
+		# r_kern 320 / r_aus 780: 640 m offenes Wasser, und die Wand steigt darueber auf
+		# 460 m Horizontale zur vollen Hoehe. Das sind rund 57 Grad — steil genug, dass
+		# es eine Wand ist, flach genug, dass der Fels sich noch gliedert.
+		{
+			"art": "wasser",
+			# DER ERSTE PUNKT LIEGT IM OFFENEN MEER (34,2 km), nicht am Kapfuss. Sonst
+			# endet die Rinne innerhalb des Kaps und ihre letzten 900 m waeren durch
+			# dessen auslaufende Flanke gestaut — ein Fjord, den man nicht befahren kann.
+			# Die SCHWELLE sitzt deshalb als eigener Stuetzpunkt bei 32,2 km auf -16 m.
+			"pts": PackedVector2Array([
+				Vector2(-26199, -21983), Vector2(-24485, -20912),
+				Vector2(-21347, -19629), Vector2(-18281, -17778),
+				Vector2(-15338, -15772), Vector2(-13233, -14594)]),
+			"hs": PackedFloat32Array([-24.0, -16.0, -62.0, -78.0, -52.0, -14.0]),
+			"r_kern": 320.0, "r_aus": 780.0,
+		},
+		# --- DIE HAKENZUNGE mit ihrer Lagune ------------------------------------------
+		#
+		# Der Gegenentwurf zum Kap, auf der anderen Seite der Insel: kein Fels, sondern
+		# ein flacher Sandhaken von 18 km Laenge, der sich zur Kueste zurueckkruemmt und
+		# dabei ein Binnenmeer einschliesst. Zwischen seiner Spitze und dem Festland
+		# bleiben rund 600 m Einfahrt.
+		#
+		# ER MUSS NICHT AUSGEHOEHLT WERDEN. Die Lagune entsteht von selbst: das Wasser
+		# zwischen Kueste (dort bei 26 bis 27 km) und Haken (bei 28 bis 30 km) ist
+		# ohnehin Meer — der Haken schliesst es nur ein. Das ist der ganze Gewinn der
+		# Polylinienform gegenueber dem Radius.
+		#
+		# Hoehen von 90 m an der Wurzel auf 22 m an der Spitze: der Strandschelf verschleift
+		# das zu breiten Sandbaenken, und genau so soll eine Nehrung aussehen.
+		{
+			"art": "land",
+			# WEITER DRAUSSEN ALS IM ERSTEN ANLAUF, und das war der Unterschied zwischen
+			# einer Lagune und gar nichts. Zuerst lief die Achse bei 25 bis 30 km, die
+			# Innenflanke (1,5 km) reichte damit bis an den Schelf des Festlands heran —
+			# gemessen mit tools/_kuestenprofil.gd blieb es auf der Peilung durch die
+			# Lagune bei EINEM Land-Wasser-Wechsel: die Nehrung war mit der Kueste
+			# verwachsen und das eingeschlossene Wasser aufgefuellt. Jetzt liegt sie 1,5
+			# bis 2 km weiter aussen und ist mit r_aus 1100 schmaler.
+			"pts": PackedVector2Array([
+				Vector2(0, 26000), Vector2(-3084, 29338), Vector2(-7693, 30855),
+				Vector2(-12582, 29640), Vector2(-15863, 26401), Vector2(-16928, 23300)]),
+			# Die Spitze auf 12 m statt 22: auch hier laeuft die Form als Kuppel weiter,
+			# und bei 22 m stand jenseits der Nehrung noch eine trockene Sandbank. Bei
+			# 12 m verschwindet sie unter dem Strandschelf — also unter Wasser.
+			"hs": PackedFloat32Array([90.0, 62.0, 46.0, 38.0, 30.0, 12.0]),
+			"r_kern": 300.0, "r_aus": 1100.0, "unruhe": 0.25,
+		},
+	]
+	terrain.felswaende = [{
+		# 900 STATT 620: mit 620 lief die Radialblende schon bei 340 m aus, und im weiten
+		# Blick auf den Talschluss standen die beiden Flanken links und rechts wieder
+		# glatt neben der gegliederten Mitte. Der Talboden braucht keinen Schutz durch
+		# einen kleinen Radius — dafuer sorgt das Hoehentor.
+		"x": wand_p.x, "z": wand_p.y, "r": 900.0, "r2": 900.0 * 900.0,
+		# 185 BIS 300 STATT 200 BIS 340: die Portalstirn endet 163 m ueber dem Meer
+		# (Hallensohle 90,7 plus HB_STIRN_H), das Tor darf also knapp darueber oeffnen.
+		# 150 BIS 240, UND DAS IST EINE FRAGE DES BILDAUSSCHNITTS, NICHT DES GESCHMACKS.
+		# Die Anflugkamera steht 300 m vor der Wand auf 116 m Hoehe und hat 64 Grad
+		# senkrechten Bildwinkel — sie sieht damit Gelaendehoehen von rund 46 bis 305 m.
+		# Mit dem Tor bei 185 bis 300 lag das gesamte Relief AUSSERHALB dieses Bandes:
+		# gemessen war die Wand danach siebenfach staerker gegliedert, im Bild aenderte
+		# sich nichts. Bei 150 faellt der Einsatz knapp unter das Band und knapp ueber
+		# die Portalstirn, die 163 m hoch endet.
+		"h0": 150.0, "h1": 240.0, "amp": 1.6,
+		# FREIHALTEKREIS NUR 40 M. Mit 170 m stand er genau ueber der sichtbaren Wand und
+		# loeschte das Relief dort, wo es hin soll: gemessen blieb die Kruemmung bei
+		# Talstation 9375 bei 1,45 m, waehrend sie weiter oben schon auf 7 m stand. Die
+		# Stirn schuetzt das Hoehentor, nicht dieser Kreis — er faengt nur die letzten
+		# Meter am Mund ab.
+		"fx": portal_p.x, "fz": portal_p.y, "fr": 40.0,
+	}]
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	# KARTE: Bild im Hintergrund-Thread generieren (~100k height_at-Samples, kein Startup-Ruckler;
@@ -1163,8 +1496,22 @@ func _setup_world() -> void:
 		{"name": "FLAK-ZONE", "pos": Vector3(250, 0, -2400), "color": Color(1.0, 0.25, 0.2)},
 		{"name": "Canyon", "pos": Vector3(-5250, 0, 2800), "color": Color(0.90, 0.62, 0.30)},
 		{"name": "Windpark", "pos": Vector3(-3900, 0, -700), "color": Color(0.75, 0.88, 0.95)},
-		{"name": "Wrack", "pos": Vector3(16600, 0, -4600), "color": Color(0.62, 0.42, 0.30)},
+		# AUF DAS ECHTE WRACK, nicht 7 km daneben. Das Etikett stand noch auf der
+		# Position von vor der Inselvergroesserung, das Wrack selbst wurde damals mit der
+		# Kueste hinausgerueckt (siehe Landmarks.build_wreck weiter unten) — das Schild
+		# blieb zurueck und zeigte seither auf offenes Land.
+		{"name": "Wrack", "pos": Vector3(26983, 0, -7477), "color": Color(0.62, 0.42, 0.30)},
+		# --- Die neuen Kuestenformen als Ziele auf der Karte ---------------------------
+		#
+		# OHNE MARKE FINDET SIE NIEMAND. Der Fjord liegt 32 km vom Startplatz und ist von
+		# aussen nur ein Spalt zwischen zwei Bergen; wer nicht weiss, dass er da ist,
+		# fliegt daran vorbei. Dasselbe gilt fuer die Lagune hinter der Nehrung — vom
+		# Festland aus sieht man nur Wasser, nicht dass es eingeschlossen ist.
+		{"name": "Sturmkap", "pos": Vector3(-17195, 0, -18831), "color": Color(0.72, 0.70, 0.66)},
+		{"name": "Fjordmund", "pos": Vector3(-24485, 0, -20912), "color": Color(0.36, 0.60, 0.72)},
+		{"name": "Lagune", "pos": Vector3(-9209, 0, 28341), "color": Color(0.42, 0.76, 0.70)},
 		{"name": "GROSSSTADT", "pos": city_pos, "color": Color(0.95, 0.90, 0.55)},
+		{"name": "NEONBUCHT", "pos": sky_pos, "color": Color(0.55, 0.80, 1.0)},
 		{"name": "Industriehafen", "pos": indu_pos, "color": Color(0.80, 0.70, 0.62)},
 		{"name": "Landdorf", "pos": dorf_pos, "color": Color(0.72, 0.86, 0.60)},
 		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90)},
@@ -1179,16 +1526,65 @@ func _setup_world() -> void:
 	_build_town(town_pos)
 	Landmarks.build_airship_factory(fly_world, factory_pos, 0.12)
 	_build_lighthouse(lh_pos)
+	# --- DIE INSELKETTE BEKOMMT EINEN GRUND, HINAUSZUFLIEGEN --------------------------
+	#
+	# Neun Inseln vor der Ostkueste sind Landschaft. Landschaft ist kein Ziel: man sieht
+	# sie einmal an und kommt nicht wieder. Drei Dinge machen daraus einen Ort —
+	#
+	#   ein LEUCHTTURM auf der aeussersten Kuppe (30,1 km draussen). Er ist die Marke, die
+	#   den Weg lohnt und die man schon von der Kueste aus sieht;
+	#   eine STELLUNG auf der groessten Insel, damit der Anflug etwas kostet;
+	#   ein WRACK auf dem Riff daneben, das erzaehlt, warum.
+	#
+	# Die Hoehen kommen von den Inselmassiven selbst (peak 66 bzw. 88), die Bauwerke
+	# tasten ihren Grund ueber terrain.height_at ab.
+	# AUF DEM UFERVORSPRUNG, NICHT AUF DER KUPPE. Zuerst stand er auf dem hoechsten
+	# Punkt der Insel (83 m) — und damit MITTEN IM WALD: mit seinen 19 m Bauhoehe war er
+	# dort niedriger als die Kiefern ringsum und im Bild ein roter Punkt zwischen Baeumen.
+	# Ein Leuchtturm muss frei stehen und vom Wasser aus zu sehen sein.
+	# Gemessen (tools/_leuchtplatz.gd) faellt die Insel nach Osten von 83 m auf 18 m bei
+	# 350 m; dort ist Ufervorsprung, und die kleine Flachzone weiter oben haelt ihm die
+	# Baeume vom Leib.
+	var insel_leucht := Vector3(30450, 0, -7600)
+	insel_leucht.y = terrain.height_at(insel_leucht.x, insel_leucht.z)
+	_build_lighthouse(insel_leucht)
+	Landmarks.build_wreck(fly_world, Vector2(25640, -15320), 2.1)
 	_build_windfarm(Vector3(-3900, 0, -700))
 	# Ozean-Leben: Segelschiffe weit draussen (garantiert Wasser, d > 16 km) + Wrack
-	for sh in [[Vector2(15600, -5200), 0.7], [Vector2(13400, -11000), 2.4],
-			[Vector2(-11400, 12800), -0.9], [Vector2(4600, -16600), 1.6]]:
+	# MIT DER KUESTE NACH AUSSEN GERUECKT. Die alten Positionen (15600/-5200 und so fort)
+	# gehoerten zu einer Insel mit 17,8 km mittlerem Radius. Nach dem Vergroessern auf
+	# 25,8 km lagen sie ALLE auf dem Trockenen — eines der Schiffe auf 94 m Hoehe mitten
+	# in einem Huegel (gemessen mit tools/_seelage.gd). Die neuen Punkte liegen auf
+	# derselben Peilung und haben in Fahrtrichtung mindestens 900 m offenes Wasser vor
+	# sich, sind also nicht bloss knapp nass.
+	# ZUM ZWEITEN MAL MIT DER KUESTE HINAUSGERUECKT, und diesmal mit Reserve, die etwas
+	# aushaelt. Nach der Vergroesserung auf 27,2 km lagen ALLE FUENF an Land — einer 48 m
+	# ueber dem Meer mitten in einem Huegel. Der Grund stand im alten Kommentar schon da:
+	# "mindestens 900 m offenes Wasser". 900 m ueberlebt keine Kuestenaenderung.
+	#
+	# Die Punkte sind nicht geschaetzt, sondern gerechnet (tools/_seeplatz.gd): das
+	# Werkzeug behaelt die PEILUNG jedes Schiffes bei, sucht auf diesem Strahl die
+	# Wasserlinie und setzt es 2500 m dahinter. Nachgemessen liegen vier von ihnen jetzt
+	# ueber 24 m tiefem Wasser.
+	#
+	# SEGLER 3 IST DIE AUSNAHME und musste seine Peilung aendern: sein Strahl (131,7 Grad)
+	# trifft die vorgelagerte Insel, die in derselben Runde nach aussen gerueckt wurde —
+	# gerechnet kam er 144 m neben deren Mittelpunkt zu liegen, also an Land auf 68 m.
+	# Acht Grad seitlich bringen ihn frei, ohne dass er die Insel aus dem Blick verliert.
+	for sh in [[Vector2(26373, -8791), 0.7], [Vector2(21642, -17765), 2.4],
+			[Vector2(-23566, 19986), -0.9], [Vector2(7824, -28236), 1.6]]:
 		Landmarks.build_ship(fly_world, sh[0], sh[1])
-	Landmarks.build_wreck(fly_world, Vector2(16600, -4600), 0.8)
+	Landmarks.build_wreck(fly_world, Vector2(26983, -7477), 0.8)
 	Landmarks.build_village(fly_world, village_pos)
 	# Blender-Gebaeude einbauen (MultiMesh je Typ; ohne Kollision wie die Landmarks)
 	if CityBuilder.has_lib():
 		CityBuilder.build(fly_world, terrain, city_pos, CityBuilder.plan_grossstadt(), "Grossstadt")
+		# STRASSEN ZUR STADT. Sie sind aus der Luft die eigentliche Stadtform — die
+		# Haeuser sind aus 1500 m nur noch Koernung (Begruendung bei
+		# CityBuilder.strassennetz). Das Dorf bekommt ein kleines Netz mit derselben
+		# Funktion, damit es nicht als zweite lose Haeuserhaufen danebenliegt.
+		CityBuilder.strassennetz(fly_world, terrain, city_pos)
+		CityBuilder.strassennetz(fly_world, terrain, dorf_pos, 90.0, 120.0, 420.0)
 		CityBuilder.build(fly_world, terrain, indu_pos, CityBuilder.plan_industrie(), "Industriehafen")
 		CityBuilder.build(fly_world, terrain, dorf_pos, CityBuilder.plan_dorf(), "Landdorf")
 		CityBuilder.build(fly_world, terrain, burg_pos, CityBuilder.plan_burg(), "Burgberg")
@@ -1202,12 +1598,27 @@ func _setup_world() -> void:
 			# Aussenfelder haben nur den Grundplatz und behalten den Bausatz.
 			if af.get("main", false):
 				continue
+			# ADLERHORST AUCH NICHT — ER LIEGT IM BERG. Der Bausatz sitzt bei lokal x 230,
+			# und plan_flugplatz() spannt davon 115 bis 410 auf; die Halle ist 52 m halb
+			# breit. Alle sieben Haeuser stecken also im Fels, und der Hangar an der
+			# Innenkante ragte im Bild als gruener Buckel durch die Wand. Ein Wasserturm
+			# und eine Radarstation unter 500 m Gestein waeren ohnehin sinnlos. Was der
+			# Platz unter Tage braucht, baut Landmarks._hb_einrichtung: Kraene, Laufstege,
+			# Masten, Kanzel.
+			if String(af.get("name", "")) == "ADLERHORST":
+				continue
 			# NEBEN die Bahn (die laeuft im lokalen Z des Flugplatzes, 900 m lang!) und die
 			# ganze Planung mit dem Bahnkurs drehen -> Hangars stehen parallel zur Piste.
 			var hd: float = af["heading"]
 			var ap: Vector3 = af["pos"] + Basis(Vector3.UP, hd) * Vector3(230.0, 0.0, -60.0)
 			CityBuilder.build(fly_world, terrain, ap, CityBuilder.plan_flugplatz(),
 				"Flugplatzbauten_" + String(af["name"]), hd)
+	# HOCHHAUSVIERTEL — AUSSERHALB DES has_lib()-ZWEIGS, denn Skyline baut sich selbst und
+	# braucht die Blender-Bibliothek nicht. Und NACH terrain.setup(): vorher kennt das
+	# Gelaende seine Flachzonen noch nicht, height_at lieferte also die Hoehe eines
+	# Huegels, den es an dieser Stelle gar nicht mehr gibt, und die Tuerme staenden in
+	# der Luft oder im Boden.
+	Skyline.bauen(fly_world, terrain, sky_pos)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
 	# FELSENTOR am Eingang des Hochtals. Der Bogen steht QUER zur Talachse, man fliegt also
 	# beim Einflug hindurch. Die Fusslinie liegt auf der Gelaendehoehe an der Stelle —
@@ -1233,6 +1644,33 @@ func _setup_world() -> void:
 	# Portal auf exakt ADLERHORST_HOEHE, koplanare Flaechen streiten um dieselbe Tiefe —
 	# im Bild schien frueher das Gras durch den Boden.
 	var kav_p := _tal_punkt(ADLERHORST_KAVERNE_LAENGS)
+	# DEN LICHTRAUM DER ROEHRE BEIM GELAENDE ANMELDEN — sonst ist das Portal eine Attrappe.
+	#
+	# Das Gelaende ist ein Hoehenfeld und kennt keine Roehre; hinter dem Portal steigt der
+	# Talschluss von 90 auf 180 m, und seine KOLLISIONSFLAECHE steht quer im Stollen. Von
+	# innen sieht man sie nicht (die Vorderseite zeigt talwaerts, die Rueckseite wird
+	# weggeschnitten), von aussen fliegt man dagegen nach 10 bis 35 m gegen unsichtbaren
+	# Fels — gemessen mit tools/_kaverne_einflug.gd. Genau deshalb war die Kaverne
+	# einsehbar und nicht anfliegbar.
+	#
+	# DIE MASSE SIND ABSICHTLICH ENGER ALS DIE HALLE. Ausgespart werden muss nur dort, wo
+	# die Hangflaeche die Roehre kreuzt, und das ist ein Band von rund 30 m gleich hinter
+	# dem Mund — tiefer im Berg liegt das Gelaende 600 m ueber der Halle. 52 m halbe
+	# Breite deckt den 30-m-Mund mit Reserve und bleibt zugleich weit innerhalb der 80 m
+	# halben Breite der Portalstirn: das Loch im Hang liegt damit vollstaendig hinter
+	# ihrer Silhouette und ist aus dem Tal nicht zu sehen.
+	#
+	# UNTEN 1 M UEBER DEM HALLENBODEN, nicht darunter: der Talboden vor dem Portal liegt
+	# auf exakt ADLERHORST_HOEHE und soll bleiben. Wuerde die Aussparung ihn erfassen,
+	# risse sie ein Loch in das Vorfeld, auf dem man gerade noch gerollt ist.
+	terrain.tunnel.append({
+		"pos": Vector3(kav_p.x, ADLERHORST_HOEHE + 0.7, kav_p.y),
+		"dir": TAL_RICHTUNG.normalized(),
+		"laenge": 1080.0,          # Landmarks.HB_LAENGE
+		"halb_b": 52.0,
+		"unten": 1.0,
+		"oben": 66.0,              # Landmarks.HB_H_HALLE + Reserve
+	})
 	var kaverne := Landmarks.build_felsenbasis(fly_world,
 		Vector3(kav_p.x, ADLERHORST_HOEHE + 0.7, kav_p.y),
 		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
@@ -1248,9 +1686,17 @@ func _setup_world() -> void:
 	# Bergbasis, in der sechs gleiche Flieger stehen, sieht aus wie ein Katalogbild.
 	if kaverne != null:
 		var stand := [
-			["spitfire", -28.0, 330.0, 90.0], ["me262", 28.0, 330.0, -90.0],
-			["f86", -28.0, 390.0, 90.0], ["mig15", 28.0, 390.0, -90.0],
-			["mig21", -28.0, 450.0, 90.0], ["mustang_p51", 28.0, 450.0, -90.0],
+			["spitfire", -30.0, 320.0, 90.0], ["me262", 30.0, 320.0, -90.0],
+			["f86", -30.0, 450.0, 90.0], ["mig15", 30.0, 450.0, -90.0],
+			["mig21", -30.0, 580.0, 90.0], ["mustang_p51", 30.0, 580.0, -90.0],
+			# VIER WEITERE, UND ZWAR AUF DEN AUSSENSTAENDEN VOR DEN HALLEN. Die ersten
+			# sechs stehen alle im mittleren Drittel bei x = +-30; in den Abnahmebildern
+			# war deshalb je Aufnahme hoechstens EINE Maschine zu sehen, und ein Platz
+			# mit einem Flugzeug liest sich als Modellbau. Diese vier sitzen weiter
+			# aussen und ueber die ganze Tiefe verteilt, damit aus jeder Kamerastellung
+			# mehrere im Bild stehen.
+			["f86", -46.0, 190.0, 90.0], ["spitfire", 46.0, 190.0, -90.0],
+			["mig15", -46.0, 700.0, 90.0], ["me262", 46.0, 830.0, -90.0],
 		]
 		for e in stand:
 			_add_parked_plane(kaverne, String(e[0]),
@@ -1568,7 +2014,7 @@ func _fern_kachel(idx: int) -> void:
 	for j in n + 1:
 		for i in n + 1:
 			hs[j * (n + 1) + i] = maxf(
-				terrain.height_at(ox + float(i) * zelle, oz + float(j) * zelle),
+				terrain.height_at(ox + float(i) * zelle, oz + float(j) * zelle, zelle),
 				TerrainWorld.SEA_Y)
 
 	var st := SurfaceTool.new()
@@ -1590,8 +2036,8 @@ func _fern_kachel(idx: int) -> void:
 			var v10 := Vector3(x0 + zelle, h10, z0)
 			var v01 := Vector3(x0, h01, z0 + zelle)
 			var v11 := Vector3(x0 + zelle, h11, z0 + zelle)
-			_fern_tri(st, v00, v10, v11)
-			_fern_tri(st, v00, v11, v01)
+			_fern_tri(st, v00, v10, v11, zelle)
+			_fern_tri(st, v00, v11, v01, zelle)
 			tris += 2
 	if tris == 0:
 		return
@@ -1614,10 +2060,10 @@ func _fern_kachel(idx: int) -> void:
 ## wuerde dort den Strand unter die Wasserplatte druecken: beim Vorbeiflug waeren
 ## Kuestenstreifen in einem mitwandernden Ring abgesoffen. Also skaliert die
 ## Absenkung mit der Hoehe; 0,25 bleibt als Mindestmass gegen Z-Fighting stehen.
-func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3) -> void:
+func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, zelle: float) -> void:
 	var nn := (b - a).cross(c - a).normalized()
 	var cen := (a + b + c) / 3.0
-	var col := terrain._face_color(cen, absf(nn.y))
+	var col := terrain._face_color(cen, absf(nn.y), zelle, nn)
 	# WALD AUF DER GANZEN INSEL, ohne ein einziges zusaetzliches Dreieck. Echte Baeume gibt
 	# es nur in den gestreamten Chunks (3,8 km um den Spieler); die Schuerze reicht bis
 	# 20 km und war bisher unbewaldet, der Wald wanderte also mit dem Spieler mit. Aus
@@ -1831,7 +2277,13 @@ func _build_airfield(af: Dictionary) -> void:
 	for sx in [-1.0, 1.0]:
 		_deco_box(node, Vector3(sx * (RWY_W * 0.5 - 1.0), 0.1, 0), Vector3(0.7, 0.04, RWY_LEN - 24.0), paint)
 	# Mittellinie gestrichelt (30-m-Striche)
-	var nd := int(RWY_LEN / 60.0)
+	# NUR AUF DEM ASPHALT. Hier stand RWY_LEN / 60 = 15, und die Schleife laeuft von -nd
+	# bis +nd — die Striche reichten also von z -900 bis +900, waehrend die Bahn bei +-450
+	# endet. Die halbe Mittellinie lag damit an JEDEM Platz als weisse Farbe im Gras; bei
+	# ADLERHORST fuehrte sie ueber die Wiese bis ans Portal und war dort nicht mehr zu
+	# uebersehen. Der letzte Strich braucht seine halbe Laenge (15 m) plus den
+	# Schwellenbalken (12 m) Abstand zum Bahnende.
+	var nd := int((RWY_LEN * 0.5 - 30.0) / 60.0)
 	for i in range(-nd, nd + 1):
 		_deco_box(node, Vector3(0, 0.1, i * 60.0), Vector3(0.9, 0.04, 30.0), paint)
 	# Schwellen: "Piano-Keys" + Aufsetzpunkt-Blöcke + Touchdown-Paare
@@ -1881,6 +2333,16 @@ func _build_airfield(af: Dictionary) -> void:
 	vf.name = "Vorfeld"
 	vf.position = Vector3(0.0, 0.0, VORFELD_Z)
 	node.add_child(vf)
+	# ADLERHORST LIEGT IM BERG UND BEKOMMT DIESES VORFELD NICHT. Es spannt lokal x 24 bis
+	# 162 auf; die Halle ist 78 m halb breit. Alles ab x 78 steckt also im Fels, und die
+	# beiden Hangars bei x 54 und 74 ragten als olivgruene Buckel durch die Wand — genau
+	# das war im Bild zu sehen (tools/_kaverne_inventar.gd hat sie bei quer -54 gefunden,
+	# nachdem drei Vermutungen daneben lagen).
+	# ES WIRD GEBAUT UND DANN VERWORFEN statt uebersprungen: die Vorfeld-Strecke ist ein
+	# Block von rund siebzig Zeilen mit neunzig Einzelkoordinaten, und ihn einzuruecken,
+	# um ein if darumzulegen, waere die riskantere Aenderung. Der Bau kostet ein paar
+	# Millisekunden EINMAL beim Start.
+	var unter_tage := String(af.get("name", "")) == "ADLERHORST"
 	# Die Betonstuecke ueberlappen sich absichtlich um ein bis zwei Meter, liegen dafuer
 	# aber auf GESTAFFELTEN Hoehen (0.056 / 0.06 / 0.07 Oberkante). Gleich hohe, sich
 	# ueberlappende Platten flimmern (Z-Fighting); 1 cm Stufe faellt beim Rollen nicht auf,
@@ -1952,20 +2414,45 @@ func _build_airfield(af: Dictionary) -> void:
 		tank.material_override = _flat_mat(Color(0.88, 0.89, 0.9), 0.45)
 		vf.add_child(tank)
 		_collider_box(vf, Vector3(tx, 5.0, -12.0), Vector3(6.8, 9, 6.8))
+	if unter_tage:
+		node.remove_child(vf)
+		vf.queue_free()
+		_kavernen_vorfeld(node, af["color"])
+
 	# Namensschild hoch oben (immer sichtbar)
 	var lbl := Label3D.new()
 	lbl.text = af["name"]
 	lbl.font_size = 130
 	lbl.pixel_size = 0.22
-	lbl.position = Vector3(0, 60, 0)
+	# UNTER TAGE ANS PORTAL, NICHT IN DIE MITTE DES BERGES. Das Schild traegt
+	# no_depth_test, ist also durch Gestein hindurch sichtbar — das ist so gewollt, denn
+	# aus der Luft muss man die Basis finden. Auf der Platzmitte haengt es dabei 500 m
+	# TIEF IM MASSIV: von aussen schwebt es irgendwo ueber dem Kamm, von innen steht es
+	# mitten in der Halle und verdeckt das Portal. Am Mund (lokal z = +510) zeigt es von
+	# aussen auf den Eingang und ist von innen aus dem Weg.
+	lbl.position = Vector3(0, 50, 510) if unter_tage else Vector3(0, 60, 0)
 	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	lbl.no_depth_test = true
+	# NUR AUS DER FERNE. Das Schild ist eine Navigationshilfe fuer den Anflug und traegt
+	# deshalb no_depth_test — es leuchtet durch Gestein. In der Halle stand es damit
+	# formatfuellend quer im Bild und verdeckte ausgerechnet das Portal, also den einzigen
+	# Blickpunkt der Aufnahme. Ab 700 m ist es wieder da, wo es gebraucht wird.
+	if unter_tage:
+		# 1500, NICHT 700: die Halle ist 1080 m tief, und aus ihrem hinteren Ende stand
+		# das Schild bei 700 wieder im Bild — ausgerechnet quer ueber dem Portal, dem
+		# einzigen Blickpunkt der Aufnahme. Jenseits von 1500 m ist man draussen.
+		lbl.visibility_range_begin = 1500.0
+		lbl.visibility_range_begin_margin = 200.0
 	lbl.modulate = af["color"]
 	lbl.outline_size = 26
 	lbl.outline_modulate = Color(0, 0, 0, 0.9)
 	node.add_child(lbl)
 	# Umfeld: Baumguertel, Felsbrocken, Platzzaun (siehe _gruenguertel).
-	_gruenguertel(node)
+	# ADLERHORST LIEGT IM BERG und bekommt deshalb die Kavernenfassung: keine Baeume,
+	# kein Zaun, keine Trockenflecken. Ohne diesen Schalter pflanzte der Saum seine
+	# Nadelbaeume auf den Hallenboden und zog den Platzzaun bei lokal x = -78 quer durch
+	# den Fels — beides im Bild zu sehen, und beides wusste nichts von der Roehre.
+	_gruenguertel(node, String(af.get("name", "")) == "ADLERHORST")
 	# HEIMAT = Hauptbasis: großes Extra-Paket (Radar, Großhangar, Flutlicht, Helipad, …)
 	if af.get("main", false):
 		_build_main_base(vf, af["color"])
@@ -1974,6 +2461,114 @@ func _build_airfield(af: Dictionary) -> void:
 # Hauptbasis-Ausbau für HEIMAT: erweitertes Vorfeld, offener Großhangar (begehbar),
 # drehender Radarturm, Tower-Antenne mit Blinklicht, Flutlicht-Masten, Helipad,
 # Splitterschutz-Boxen (Blast Pens) mit GEPARKTEN Flugzeugen aus den Vorlagen.
+## EIN SENDEMAST, 165 M HOCH — die einzige Marke der Karte, die von weit her trägt.
+##
+## WOFUER. Beide unabhaengigen Weltabnahmen haben denselben Satz geschrieben: es gibt auf
+## dieser Insel nichts, worauf man zufliegen moechte. Der Horizont ist in jeder
+## Weitaufnahme derselbe Streifen austauschbarer Huegel, und der Beweis steht im Bild
+## selbst — die Welt traegt schwebende Schilder ("HEIMAT", "BERGPISTE"), weil die
+## Geometrie dem Piloten nicht sagen kann, wo etwas ist. In einem Flugspiel IST die
+## Silhouette die Navigationsanzeige.
+##
+## WARUM EIN MAST UND NICHT EIN GROESSERES GEBAEUDE. Ein Turm mit 165 m ist aus acht
+## Kilometern noch ein senkbarer Strich am Horizont, kostet aber nur ein Dutzend Kaesten —
+## und ein duenner senkrechter Strich ist genau das, was in einer Landschaft aus liegenden
+## Formen auffaellt. Das rote Blinklicht macht ihn ausserdem bei schlechter Sicht und im
+## Gegenlicht auffindbar, also genau dann, wenn man ihn braucht.
+##
+## Die Abspannungen sind kein Zierrat: ohne sie liest sich ein 165-m-Strich als Fehler im
+## Bild, mit ihnen als Bauwerk.
+func _sendemast(node: Node3D, wo: Vector3) -> void:
+	var stahl := _flat_mat(Color(0.62, 0.24, 0.20), 0.7)     # Signalrot-Weiss-Anstrich
+	var weiss := _flat_mat(Color(0.88, 0.88, 0.86), 0.7)
+	var hoehe := 165.0
+	var felder := 11                                          # Schuesse zu je 15 m
+	var b0 := 5.2                                             # Breite unten
+	var b1 := 1.6                                             # Breite oben
+	for i in felder:
+		var t0 := float(i) / float(felder)
+		var t1 := float(i + 1) / float(felder)
+		var y0 := hoehe * t0
+		var y1 := hoehe * t1
+		var br0 := lerpf(b0, b1, t0) * 0.5
+		var br1 := lerpf(b0, b1, t1) * 0.5
+		var mat: Material = stahl if i % 2 == 0 else weiss
+		# Vier Eckstiele je Schuss. Sie stehen leicht schraeg, weil der Mast sich verjuengt.
+		for sx in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				var u := wo + Vector3(sx * br0, y0, sz * br0)
+				var o := wo + Vector3(sx * br1, y1, sz * br1)
+				var m := (u + o) * 0.5
+				var laenge := u.distance_to(o)
+				var bx := MeshInstance3D.new()
+				var bm := BoxMesh.new()
+				bm.size = Vector3(0.42, laenge, 0.42)
+				bx.mesh = bm
+				bx.position = m
+				# Neigung des Stiels: er wandert je Schuss um (br0-br1) nach innen.
+				bx.rotation = Vector3(atan2(sz * (br1 - br0), laenge), 0.0,
+					-atan2(sx * (br1 - br0), laenge))
+				bx.material_override = mat
+				node.add_child(bx)
+		# Riegel oben auf jedem Schuss — ohne sie ist es ein Bund Stangen, kein Fachwerk.
+		for sx2 in [-1.0, 1.0]:
+			_deco_box(node, wo + Vector3(sx2 * br1, y1, 0.0),
+				Vector3(0.3, 0.3, br1 * 2.0), mat)
+			_deco_box(node, wo + Vector3(0.0, y1, sx2 * br1),
+				Vector3(br1 * 2.0, 0.3, 0.3), mat)
+	# Abspannungen: drei Seile in 120 Grad, vom oberen Drittel zum Boden.
+	for i in 3:
+		var a := TAU * float(i) / 3.0
+		var fuss := wo + Vector3(cos(a), 0.0, sin(a)) * 62.0
+		var kopf := wo + Vector3(0.0, hoehe * 0.72, 0.0)
+		var seil := MeshInstance3D.new()
+		var sm := BoxMesh.new()
+		sm.size = Vector3(0.16, fuss.distance_to(kopf), 0.16)
+		seil.mesh = sm
+		seil.position = (fuss + kopf) * 0.5
+		seil.look_at_from_position(seil.position, kopf, Vector3.UP)
+		# look_at richtet -Z aus; der Kasten steht auf +Y. Um X kippen bringt beides zusammen.
+		seil.rotate_object_local(Vector3.RIGHT, PI * 0.5)
+		seil.material_override = _flat_mat(Color(0.30, 0.30, 0.32), 0.8)
+		node.add_child(seil)
+		_deco_box(node, fuss + Vector3(0.0, 0.8, 0.0), Vector3(2.0, 1.6, 2.0),
+			_flat_mat(Color(0.55, 0.55, 0.52), 0.9))
+	# KOLLISION AUF DEN GANZEN MAST. Bisher hatte er keine — Konvention der uebrigen
+	# Platzbauten, aber bei 165 m Hoehe eine schlechte: ein Hindernis, das genau die
+	# Hoehen bedeckt, in denen man den Platz anfliegt, und durch das man hindurchfaellt,
+	# ist keine Marke, sondern eine Luege im Bild. EIN Kasten ueber die volle Hoehe
+	# genuegt; die Gitterstruktur muss nicht einzeln getroffen werden.
+	var kk := StaticBody3D.new()
+	kk.collision_layer = 1
+	node.add_child(kk)
+	var ks := CollisionShape3D.new()
+	var kb := BoxShape3D.new()
+	kb.size = Vector3(b0 * 0.8, hoehe, b0 * 0.8)
+	ks.shape = kb
+	ks.position = wo + Vector3(0.0, hoehe * 0.5, 0.0)
+	kk.add_child(ks)
+
+	# Spitze mit Blinklicht.
+	_deco_box(node, wo + Vector3(0.0, hoehe + 4.0, 0.0), Vector3(0.3, 8.0, 0.3), weiss)
+	var lampe := MeshInstance3D.new()
+	var ls := SphereMesh.new()
+	ls.radius = 1.4
+	ls.height = 2.8
+	ls.radial_segments = 8
+	ls.rings = 5
+	lampe.mesh = ls
+	lampe.position = wo + Vector3(0.0, hoehe + 8.5, 0.0)
+	lampe.material_override = _emit_mat(Color(1.0, 0.16, 0.12), 6.0)
+	node.add_child(lampe)
+	var licht := OmniLight3D.new()
+	licht.light_color = Color(1.0, 0.2, 0.15)
+	licht.light_energy = 8.0
+	licht.omni_range = 60.0
+	licht.shadow_enabled = false
+	licht.position = lampe.position
+	node.add_child(licht)
+
+
 func _build_main_base(node: Node3D, _col: Color) -> void:
 	# EXAKT derselbe Ton wie in _build_airfield — die Erweiterung stoesst dort buendig an.
 	# Mit den frueheren 0.60 gegen 0.55 war die Naht als Farbkante quer ueber das Vorfeld
@@ -1982,6 +2577,9 @@ func _build_main_base(node: Node3D, _col: Color) -> void:
 	# --- Vorfeld nach Osten erweitern (stoesst BUENDIG an die Basisplatte bei x = 126:
 	# ueberlappende gleich hohe Platten flimmern, eine geteilte Kante nicht) ---
 	_deco_box(node, Vector3(142.0, 0.035, -5.0), Vector3(32.0, 0.07, 190.0), concrete)
+	# SENDEMAST NEBEN DEM PLATZ. Weit genug von der Bahn, dass er keine Anflugachse
+	# schneidet, nah genug, dass er den Platz markiert und nicht irgendein Feld.
+	_sendemast(node, Vector3(196.0, 0.0, 150.0))
 	# --- Offener Großhangar als TONNENHALLE ---
 	# Vorher: vier graue Kisten (Rueckwand, zwei Seiten, Dachplatte). Die Vorlage zeigt an
 	# dieser Stelle das Wahrzeichen des Platzes — eine Bogenhalle mit offener Stirn, in der
@@ -2584,6 +3182,58 @@ func _add_windsock(parent: Node3D, pos: Vector3) -> void:
 # ueberall Rundbogenhallen mit dunklem Tor, nie die flache Kiste mit Satteldach, die hier
 # vorher stand. Farbe kommt NICHT mehr aus af["color"] (das ist die Kartenfarbe des Platzes
 # und machte weisse/rosa/hellblaue Hangars) — die Vorlagen haben durchweg Olivgruen.
+## VORFELD UNTER TAGE — der Ersatz fuer den Aussenplatz in der Kaverne.
+##
+## Das normale Vorfeld ist auf freies Feld gerechnet: 138 m Beton NEBEN der Bahn, Tower,
+## Windsack, Tanklager, dazu ein 850 m langer Platzzaun. In einer Roehre von 156 m lichter
+## Weite hat davon nichts Platz, und ein Windsack unter 500 m Fels waere ohnehin Unsinn.
+##
+## Was hier steht, ist auf die Roehre gerechnet: zwei Betonstreifen zwischen Bahnschulter
+## und Wandfuss, darauf je fuenf geschlossene Tonnenhallen mit dem Ruecken zur Wand, und
+## ein Betriebsgebaeude am hinteren Ende. Die Hallen sind um 90 Grad gedreht — dann messen
+## sie 20 m quer und nur 16 m laengs und stehen als Reihe an der Wand, statt sich
+## gegenseitig die Tore zuzustellen.
+##
+## LAGE IN PLATZKOORDINATEN: die Bahn laeuft laengs Z, talaufwaerts ist -Z, und der Platz
+## sitzt 510 m hinter dem Portal. Die Tiefe ab Portal ist damit 510 - z; die Reihe von
+## z = 180 bis z = -140 liegt also 330 bis 650 m im Berg, wo die Halle ihre volle Weite
+## erreicht hat (sie weitet sich ueber die ersten 30 Prozent).
+func _kavernen_vorfeld(wurzel: Node3D, farbe: Color) -> void:
+	var node := Node3D.new()
+	node.name = "KavernenVorfeld"
+	wurzel.add_child(node)
+	var beton := _flat_mat(Color(0.60, 0.59, 0.57), 0.9)
+	var paint_y := _flat_mat(Color(0.86, 0.72, 0.12), 0.9)
+	# x 24 bis 74: innen an der Bahnschulter (die Bahn ist 30 m breit, Schulter bis 22),
+	# aussen 4 m vor dem Wandfuss bei 78.
+	for sx in [1.0, -1.0]:
+		_deco_box(node, Vector3(49.0 * sx, 0.05, 20.0), Vector3(50.0, 0.10, 620.0), beton)
+		# Gelbe Fuehrungslinie auf der Streifenachse — dieselbe Sprache wie draussen.
+		_deco_box(node, Vector3(49.0 * sx, 0.11, 20.0), Vector3(0.5, 0.02, 600.0), paint_y)
+		# TORSEITE. _tonnenhalle setzt ihre Oeffnung auf lokal +Z; yaw dreht die ganze
+		# Halle. Hier stand fest 90 Grad fuer BEIDE Reihen — damit zeigten die Tore der
+		# einen Reihe zur Bahn und die der anderen in den Fels, und die Haelfte der
+		# Hangars stand als fensterlose gruene Roehre da. -90 * sx dreht jede Reihe zur
+		# Bahn hin.
+		# VERSETZT UND VERSCHIEDEN LANG. Fuenf gleiche Hallen im gleichen Abstand liest
+		# das Auge als Kopie und zaehlt sie ab. Der Versatz von 40 m zwischen den Reihen
+		# und drei Tiefen im Wechsel brechen das Raster, ohne dass eine Halle aus der
+		# Flucht faellt.
+		var versatz := 40.0 if sx > 0.0 else 0.0
+		for k in 5:
+			var z := 180.0 - float(k) * 80.0 - versatz
+			var tiefe: float = [20.0, 26.0, 20.0, 30.0, 24.0][k]
+			# BETONGRAU, NICHT OLIVGRUEN. Olive Wellblechhallen sind Feldunterstaende
+			# gegen Wetter und Sicht — unter 500 m Fels gibt es weder das eine noch das
+			# andere, und im Bild lasen sich neun blassgruene Roehren als Plastik. Ein
+			# Ton, der zum Beton der Sohle passt, sagt stattdessen: hier hineingebaut.
+			_tonnenhalle(node, Vector3(61.0 * sx, 0.0, z), 8.0, tiefe, -90.0 * sx,
+				Color(0.37, 0.375, 0.36).lerp(farbe, 0.08), true)
+			# Abstellmarkierung vor jedem Tor, zur Bahn hin.
+			_deco_box(node, Vector3(38.0 * sx, 0.11, z), Vector3(22.0, 0.02, 0.4), paint_y)
+	_add_ops_haus(node, Vector3(58.0, 0.0, -240.0))
+
+
 func _add_hangar(parent: Node3D, pos: Vector3, col: Color) -> void:
 	var oliv := Color(0.40, 0.44, 0.33).lerp(col, 0.10)   # Platzfarbe nur als leichter Stich
 	_tonnenhalle(parent, pos, 8.0, 20.0, 0.0, oliv, true)
@@ -3073,7 +3723,10 @@ func _gitterturm(parent: Node3D, pos: Vector3, hoehe: float, b_unten: float, b_o
 # 106 Zaunpfosten gegen die frueheren rund 740 Baeume. Bei 22 Dreiecken je Baum und 48 je
 # Felsbrocken sind das rund 13 000 statt rund 40 000 Dreiecke — der Saum wird also
 # BILLIGER, und zwar deutlich. Weiterhin drei MultiMeshes = drei Zeichenaufrufe je Platz.
-func _gruenguertel(wurzel: Node3D) -> void:
+## kaverne: der Platz steht unter Tage. Dann faellt alles weg, was Himmel braucht, und
+## uebrig bleiben Sturzbloecke am Wandfuss — das, was in einem gesprengten Stollen
+## tatsaechlich herumliegt.
+func _gruenguertel(wurzel: Node3D, kaverne := false) -> void:
 	# Eigener Unterknoten: so laesst sich der Saum im Messwerkzeug in einem Rutsch
 	# ausblenden und sein Anteil an der Bildzeit einzeln ablesen.
 	var node := Node3D.new()
@@ -3097,9 +3750,16 @@ func _gruenguertel(wurzel: Node3D) -> void:
 	# deutlich groessere Nahband haette sie einen Steinbruch ergeben. 0,55 x
 	# (1 - smoothstep(8, 95, d)) haelt die Gesamtzahl in der Groessenordnung der alten
 	# 151 Brocken und schiebt sie nach innen.
+	# UNTER TAGE WIRD NUR DAS BAND ZWISCHEN BAHNSCHULTER UND WANDFUSS GESTREUT. Die
+	# Halle ist HB_W_HALLE breit; ab 6 m vor der Wand steigt sie schon merklich an, ein
+	# Block dort haenge halb in der Luft.
+	var kav_x: float = Landmarks.HB_W_HALLE - 6.0
 	for versuch in 1700:
 		var x := rng.randf_range(-175.0, 320.0)
 		var z := rng.randf_range(-625.0, 625.0)
+		if kaverne:
+			x = rng.randf_range(-kav_x, kav_x)
+			z = rng.randf_range(-520.0, 520.0)
 		var d := _fp_abstand(x, z)
 		if d < 1.5 or d > 150.0:
 			continue
@@ -3109,13 +3769,14 @@ func _gruenguertel(wurzel: Node3D) -> void:
 			var s := rng.randf_range(0.45, 1.15)
 			felsen.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU))
 				.scaled(Vector3(s * 1.5, s * 0.8, s * 1.2)), Vector3(x, s * 0.2, z)))
-		elif d > 30.0 and rng.randf() < 0.42:
+		elif not kaverne and d > 30.0 and rng.randf() < 0.42:
 			# Einzelbaeume ab 30 m Abstand — sie fuellen die Luecke zwischen Bahnkante und
 			# dem Punkt, ab dem das Gelaende volle Dichte faehrt.
 			var s2 := rng.randf_range(0.8, 1.5)
 			baeume.append(Transform3D(Basis(Vector3.UP, rng.randf_range(0.0, TAU))
 				.scaled(Vector3(s2, s2 * rng.randf_range(0.85, 1.25), s2)), Vector3(x, 0.0, z)))
-	_trockenflecken(node, rng, felsen)
+	if not kaverne:
+		_trockenflecken(node, rng, felsen)
 	_multi(node, _baum_mesh(), baeume, null)
 	var fels := SphereMesh.new()
 	fels.radius = 1.1
@@ -3124,6 +3785,9 @@ func _gruenguertel(wurzel: Node3D) -> void:
 	fels.rings = 3
 	_multi(node, fels, felsen, _flat_mat(Color(0.46, 0.44, 0.40), 1.0))
 	# --- PLATZZAUN westlich der Bahn (in heimat_1 und heimat_2 laeuft er dort mit) ---
+	# Nicht unter Tage: der Berg IST die Umzaeunung.
+	if kaverne:
+		return
 	var pfosten: Array[Transform3D] = []
 	var zaun_x := -78.0
 	var zaun_z0 := -430.0
@@ -4911,6 +5575,16 @@ func _on_hud_changed(d: Dictionary) -> void:
 		flight_hud.mouse_fly = mf
 		flight_hud.lock_pos = d.get("lock", Vector2.ZERO)
 		flight_hud.lock_on = bool(d.get("lock_active", false)) and bool(d.get("lock_vis", false))
+		flight_hud.lock_stufe = int(d.get("lock_stufe", 0))
+		flight_hud.lock_dist = float(d.get("lock_dist", 0.0))
+		flight_hud.lock_name = String(d.get("lock_name", ""))
+		flight_hud.lock_sucher = String(d.get("lock_sucher", ""))
+		flight_hud.flares = int(d.get("flares", 0))
+		flight_hud.chaff = int(d.get("chaff", 0))
+		flight_hud.warn_aktiv = bool(d.get("warn_aktiv", false))
+		flight_hud.warn_winkel = float(d.get("warn_winkel", 0.0))
+		flight_hud.warn_zeit = float(d.get("warn_zeit", 0.0))
+		flight_hud.lenk_meldung = String(d.get("lenk_meldung", ""))
 		flight_hud.aim_pos = d.get("aim", Vector2.ZERO)
 		flight_hud.aim_vis = mf and bool(d.get("aim_vis", true))
 		flight_hud.nose_pos = d.get("nose", Vector2.ZERO)
@@ -5266,7 +5940,12 @@ func _hochgebirge() -> Array:
 	# also 9 m, geben aber die weissen Gipfel am Talschluss.
 	var quer_gipfel := [1250.0, 1080.0, 1250.0]
 	for j in range(-1, 2):
-		var p := TAL_START + TAL_RICHTUNG * (ADLERHORST_LAENGS + 1600.0) \
+		# SIE HING AM PLATZ (ADLERHORST_LAENGS + 1600) UND DAS WAR EINE FALLE. Als der
+		# Platz in den Berg zog (8800 -> 9820), wanderte die Querkette mit — 1000 m weiter
+		# weg —, und mit ihr verschwand der Fels ueber der Kaverne: gemessen fiel das
+		# Gelaende bei laengs 9550 von 618 auf 154 m. Der Talschluss ist ein ORT in der
+		# Landschaft und darf nicht davon abhaengen, wo gerade ein Flugplatz liegt.
+		var p := TAL_START + TAL_RICHTUNG * TAL_QUERKETTE_LAENGS \
 			+ quer * float(j) * 1500.0
 		out.append({"pos": Vector3(p.x, 0.0, p.y), "r": 2300.0,
 			"peak": float(quer_gipfel[j + 1]), "schaerfe": 0.85, "grat": 3.2})
@@ -5518,6 +6197,68 @@ func _spawn_flak() -> void:
 		flak.global_position = pos
 
 
+## RAKETENSTELLUNGEN. Sie sind der Grund, warum es Fackeln und Düppel gibt.
+##
+## WO SIE STEHEN, IST EINE AUSSAGE UEBER DIE KARTE. Die Flakzone im Sueden bekommt eine
+## Waermesuchende dazu — dort fliegt man tief und schnell, und genau da beisst sie. Der
+## Talschluss vor ADLERHORST bekommt zwei Radarstellungen: eine Basis im Berg, an die man
+## ueber ein enges Hochtal heranfliegt, ist der Ort, an dem eine weitreichende
+## Radarstellung wirklich weh tut — und an dem Tiefflug hinter den Flanken die richtige
+## Antwort ist, weil das Hoehenband der Radarstellung bei 70 m beginnt.
+##
+## Bewusst WENIGE. Vier Stellungen auf einer 20-km-Insel sind keine Flugabwehrdecke,
+## sondern vier Orte, an denen man aufpassen muss.
+## FLUGABWEHR AUF DER GROSSEN INSEL DER KETTE.
+##
+## WOFUER. Die neu gewonnenen acht Kilometer Aussenring hatten ausser zwei Flugplaetzen
+## und Landschaft keinen Inhalt. Eine verteidigte Insel macht aus einem langen Flug eine
+## Aufgabe: hinfliegen, tief bleiben, die Stellung ausschalten, wieder heraus. Sie nutzt
+## dieselben Bauwerke wie das Festland (SamSite, FlakGun) und ist damit sofort
+## verstaendlich — wer die Regeln am Talschluss gelernt hat, kennt sie hier.
+##
+## EINE Raketenstellung und ZWEI Flak, nicht mehr. Die Insel ist 1,5 km breit; wer sie
+## dichter besetzt, macht aus einer Aufgabe eine Wand.
+func _spawn_inselwehr() -> void:
+	var insel := Vector3(28600, 0, -10600)
+	var sam := SamSite.new()
+	sam.art = "radar"
+	sam.zerstoert.connect(_on_sam_zerstoert)
+	fly_world.add_child(sam)
+	var sp := insel + Vector3(-90.0, 0.0, 40.0)
+	sp.y = terrain.height_at(sp.x, sp.z)
+	sam.global_position = sp
+	for off in [Vector3(160.0, 0.0, -120.0), Vector3(-40.0, 0.0, -210.0)]:
+		var fp: Vector3 = insel + off
+		fp.y = terrain.height_at(fp.x, fp.z)
+		var flak := FlakGun.new()
+		flak.zone_center = insel
+		flak.zone_radius = 900.0
+		fly_world.add_child(flak)
+		flak.global_position = fp
+
+
+func _spawn_sam() -> void:
+	var stellungen := [
+		# Bei der Flakzone im Sueden: kurze Reichweite, schnelle Reaktion.
+		{"art": "ir", "pos": Vector3(430.0, 0.0, -2250.0)},
+		{"art": "ir", "pos": Vector3(60.0, 0.0, -2620.0)},
+	]
+	# Am Talschluss vor der Bergbasis, links und rechts der Anflugachse.
+	var quer := Vector2(TAL_RICHTUNG.y, -TAL_RICHTUNG.x)
+	for seite in [-1.0, 1.0]:
+		var tp: Vector2 = _tal_punkt(8300.0) + quer * (seite * 520.0)
+		stellungen.append({"art": "radar", "pos": Vector3(tp.x, 0.0, tp.y)})
+	for st in stellungen:
+		var pos: Vector3 = st["pos"]
+		if terrain != null:
+			pos.y = terrain.height_at(pos.x, pos.z)
+		var sam := SamSite.new()
+		sam.art = String(st["art"])
+		sam.zerstoert.connect(_on_sam_zerstoert)
+		fly_world.add_child(sam)
+		sam.global_position = pos
+
+
 func _rand_target_pos(ymin: float, ymax: float) -> Vector3:
 	# vor der Startbahn (Flieger schaut nach -Z), gut erreichbar
 	return Vector3(randf_range(-380.0, 380.0), randf_range(ymin, ymax), randf_range(-750.0, -30.0))
@@ -5528,6 +6269,21 @@ func _make_target(kind: String, pos: Vector3, col: Color, diff := 1.0) -> void:
 	targets_root.add_child(t)
 	t.setup(kind, pos, col, diff)
 	t.killed.connect(_on_target_killed)
+
+
+## Eine ausgeschaltete Raketenstellung: Geld, sonst nichts.
+##
+## BEWUSST NICHT ueber _on_target_killed. Der Weg der Ballons haengt zwei Dinge an einen
+## Abschuss, die hier beide falsch waeren: im Sandkasten setzt er nach sieben Sekunden
+## einen ERSATZBALLON in die Luft (eine Stellung ist kein Ballon), und im Ueberlebensmodus
+## zaehlt er den Abschuss auf den Wellenfortschritt an. Eine Welle waere damit auch ohne
+## einen einzigen getroffenen Ballon zu schaffen — das waere eine stille Aenderung an der
+## bestehenden Spielschleife, und die gehoert nicht in diese Neuerung.
+func _on_sam_zerstoert(reward: int, _pos: Vector3) -> void:
+	if game == null:
+		return
+	game.add_money(reward)
+	_toast("Raketenstellung ausgeschaltet! +%d" % reward)
 
 
 func _on_target_killed(reward: int, _pos: Vector3) -> void:

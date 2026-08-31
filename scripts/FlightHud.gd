@@ -17,6 +17,18 @@ var mode_text := ""         # aktive Sondermodi (Maus-Flug/Arcade/Invers) als Ba
 var mouse_fly := false
 var lock_pos := Vector2.ZERO       # erfasstes Lenkwaffen-Ziel
 var lock_on := false
+# --- LENKWAFFEN UND GEGENMASSNAHMEN ---------------------------------------------------
+# lock_stufe: 0 = nichts, 1 = der Sucher sieht etwas, 2 = aufgeschaltet und schussbereit.
+var lock_stufe := 0
+var lock_dist := 0.0
+var lock_name := ""            # Baumuster der Waffe, die als naechstes startet
+var lock_sucher := ""          # "ir" oder "radar" — faerbt die Klammern
+var flares := 0
+var chaff := 0
+var warn_aktiv := false
+var warn_winkel := 0.0         # Peilung der anfliegenden Rakete, 0 = voraus
+var warn_zeit := 0.0           # Sekunden bis zum Einschlag
+var lenk_meldung := ""
 var aim_pos := Vector2.ZERO
 var aim_vis := false
 var nose_pos := Vector2.ZERO
@@ -87,6 +99,7 @@ func _draw() -> void:
 	_draw_weapon_bar()
 	_draw_reticle()
 	_draw_lock()
+	_draw_lenk_panel()
 	_draw_stall()
 	_draw_minimap()
 
@@ -385,21 +398,94 @@ func _draw_reticle() -> void:
 		draw_circle(g, 1.5, gc)
 
 
-# --- Lenkwaffen-Lock: pulsierende Eck-Klammern auf dem erfassten Ziel -------
+# --- Lenkwaffen-Aufschaltung ------------------------------------------------
+#
+# ZWEI ZUSTAENDE, DIE MAN AUSEINANDERHALTEN MUSS, ohne hinzusehen. Vorher gab es nur
+# "LOCK" — die Anzeige sagte damit nicht, ob man schon schiessen kann. Jetzt:
+#
+#   Stufe 1  weite, langsam pulsende Klammern in Gelb: der Sucher SIEHT etwas, die
+#            Aufschaltung laeuft noch. Bei einer Radarwaffe heisst das: Nase halten.
+#   Stufe 2  enge, harte Klammern in Rot plus Entfernung: schussbereit.
+#
+# Die Farbe des Suchkopfs steht dabei mit im Bild, weil davon abhaengt, womit der Gegner
+# sich wehren kann — und weil man nach dem Schuss wissen muss, ob man abdrehen darf.
 func _draw_lock() -> void:
-	if not lock_on:
+	if not lock_on or lock_stufe <= 0:
 		return
-	var pulse := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.012)
-	var c := Color(1.0, 0.35, 0.3, 0.55 + 0.4 * pulse)
-	var s := 16.0
-	var arm := 7.0
+	var t := float(Time.get_ticks_msec()) * 0.001
+	var bereit := lock_stufe >= 2
+	var puls := 0.5 + 0.5 * sin(t * (16.0 if bereit else 7.0))
+	var c := (Color(1.0, 0.32, 0.28, 0.65 + 0.35 * puls) if bereit
+		else Color(1.0, 0.80, 0.25, 0.40 + 0.35 * puls))
+	# Die Klammern ziehen sich beim Aufschalten zusammen — die Bewegung sieht man auch
+	# aus dem Augenwinkel, die Farbe allein nicht.
+	var s := 16.0 if bereit else 26.0
+	var arm := 8.0 if bereit else 6.0
+	var dick := 2.4 if bereit else 1.6
 	for sx in [-1.0, 1.0]:
 		for sy in [-1.0, 1.0]:
 			var cn := lock_pos + Vector2(sx * s, sy * s)
-			draw_line(cn, cn - Vector2(sx * arm, 0), c, 2.0)
-			draw_line(cn, cn - Vector2(0, sy * arm), c, 2.0)
-	draw_string(_font, lock_pos + Vector2(-20.0, -s - 5.0), "LOCK",
-		HORIZONTAL_ALIGNMENT_CENTER, 40.0, 11, c)
+			draw_line(cn, cn - Vector2(sx * arm, 0), c, dick)
+			draw_line(cn, cn - Vector2(0, sy * arm), c, dick)
+	var kopf := ("IR" if lock_sucher == "ir" else "RDR")
+	var txt := ("%s  %s" % [kopf, lock_name]) if lock_name != "" else kopf
+	draw_string(_font, lock_pos + Vector2(-60.0, -s - 6.0), txt,
+		HORIZONTAL_ALIGNMENT_CENTER, 120.0, 11, c)
+	if bereit and lock_dist > 1.0:
+		draw_string(_font, lock_pos + Vector2(-60.0, s + 16.0),
+			"%d m" % int(lock_dist), HORIZONTAL_ALIGNMENT_CENTER, 120.0, 11, c)
+	else:
+		draw_string(_font, lock_pos + Vector2(-60.0, s + 16.0), "AUFSCHALTUNG",
+			HORIZONTAL_ALIGNMENT_CENTER, 120.0, 10, c)
+
+
+# --- Kassetten und Anflugwarnung --------------------------------------------
+#
+# Die Warnung ist eine PEILUNG, kein Blinken. Ein "MISSILE"-Schriftzug sagt einem nicht,
+# wohin man kurven soll; ein Zeiger, der auf die Rakete deutet, schon. Der Ring liegt um
+# das Zentrum des Bildes, damit die Richtung dort abzulesen ist, wo man ohnehin hinsieht.
+func _draw_lenk_panel() -> void:
+	var u := size.y / 1080.0
+	var fs := int(15.0 * u)
+	var x := size.x - 210.0 * u
+	var y := size.y - 128.0 * u
+	var leer := Color(0.85, 0.35, 0.30)
+	draw_string(_font, Vector2(x, y), "FACKELN", HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+		MUT if flares > 0 else leer)
+	draw_string(_font, Vector2(x + 118.0 * u, y), "%2d" % flares,
+		HORIZONTAL_ALIGNMENT_RIGHT, 60.0 * u, fs, TXT if flares > 0 else leer)
+	draw_string(_font, Vector2(x, y + 22.0 * u), "DUEPPEL", HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+		MUT if chaff > 0 else leer)
+	draw_string(_font, Vector2(x + 118.0 * u, y + 22.0 * u), "%2d" % chaff,
+		HORIZONTAL_ALIGNMENT_RIGHT, 60.0 * u, fs, TXT if chaff > 0 else leer)
+	draw_string(_font, Vector2(x, y + 42.0 * u), "K / L", HORIZONTAL_ALIGNMENT_LEFT, -1,
+		int(11.0 * u), Color(MUT.r, MUT.g, MUT.b, 0.55))
+
+	if lenk_meldung != "":
+		var m := Vector2(size.x * 0.5, size.y * 0.5 + 96.0 * u)
+		draw_string(_font, m - Vector2(200.0, 0.0), lenk_meldung,
+			HORIZONTAL_ALIGNMENT_CENTER, 400.0, int(20.0 * u), Color(1.0, 0.72, 0.25))
+
+	if not warn_aktiv:
+		return
+	# Je naeher der Einschlag, desto schneller das Blinken und desto voller der Ring.
+	var t := float(Time.get_ticks_msec()) * 0.001
+	var eile := clampf(1.0 - warn_zeit / 8.0, 0.0, 1.0)
+	var blink := 0.5 + 0.5 * sin(t * (6.0 + 22.0 * eile))
+	var wc := Color(1.0, 0.25, 0.22, 0.45 + 0.55 * blink)
+	var mitte := size * 0.5
+	var r := 150.0 * u
+	# Zeiger auf die Rakete. warn_winkel ist 0 voraus, positiv nach rechts — auf dem
+	# Bildschirm ist das eine Drehung um die Bildmitte, oben = voraus.
+	var ri := Vector2(sin(warn_winkel), -cos(warn_winkel))
+	var spitze := mitte + ri * r
+	var quer := Vector2(-ri.y, ri.x) * (16.0 * u)
+	draw_colored_polygon(PackedVector2Array([
+		spitze, spitze - ri * (30.0 * u) + quer, spitze - ri * (30.0 * u) - quer]), wc)
+	draw_arc(mitte, r, 0.0, TAU, 64, Color(wc.r, wc.g, wc.b, wc.a * 0.25), 1.5 * u)
+	draw_string(_font, mitte + Vector2(-200.0, -r - 14.0 * u),
+		"RAKETE  %.1f s" % warn_zeit, HORIZONTAL_ALIGNMENT_CENTER, 400.0,
+		int(19.0 * u), wc)
 
 
 # --- Modus-Badge unter dem Kompass (nur aktive Sondermodi) ------------------

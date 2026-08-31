@@ -39,6 +39,13 @@ func setup(p_kind: String, pos: Vector3, col: Color, diff := 1.0) -> void:
 
 func _ready() -> void:
 	add_to_group("target")
+	# SIGNATUREN FUER LENKWAFFEN-SUCHKOEPFE (siehe Missile._signal). Ein Luftschiff ist
+	# gross und traege — fuer Radar ein Scheunentor, fuer Waerme mangels Triebwerk aber
+	# kaum heller als ein Ballon. Genau deshalb ist es mit einer Radarlenkwaffe leicht
+	# und mit einem Waermesucher unangenehm zu bekaempfen.
+	set_meta("ir_signatur", 120.0 if kind == "airship" else 70.0)
+	set_meta("radar_signatur", 900.0 if kind == "airship" else 110.0)
+	set_meta("hit_radius", hit_radius)
 
 
 func _process(delta: float) -> void:

@@ -318,3 +318,138 @@ static func plan_flugplatz() -> Array:
 		{"typ": "Haus_Wasserturm", "pos": Vector2(120, 60), "yaw": 0.0},
 		{"typ": "Haus_Radarstation", "pos": Vector2(180, 20), "yaw": 3.14},
 	]
+
+
+## STRASSENNETZ — das, woran man eine Stadt aus der Luft ZUERST erkennt.
+##
+## WARUM ES DAS BRAUCHT. Der Stadtplan oben setzt Tuerme von Hand, baut Blockrand auf
+## einem 46-m-Raster und laesst die Vorstadt nach aussen ausduennen. Aus 1500 m Hoehe kam
+## davon trotzdem nichts an: die Abnahme las die Grossstadt als "rund 60 lose Kaesten auf
+## einer nackten Sandscheibe, ohne Strassenraster, ohne Blockstruktur, ohne Zufahrt — ein
+## Partikelstreuer mit dem Etikett Stadt". Und das stimmt: aus der Luft liest man eine
+## Stadt an ihren LINIEN, nicht an ihren Haeusern. Die Haeuser sind aus der Hoehe nur
+## Koernung, das Raster ist die Form.
+##
+## Vier Lagen, und jede beantwortet eine andere Entfernung:
+##   RASTER    Wohnstrassen alle 46 m im Kern — die Koernung, die aus 800 m traegt.
+##   ACHSEN    zwei Diagonalen durch die Mitte — die Form, die aus 3 km noch da ist.
+##   RING      eine geschlossene Ringstrasse als KANTE. Vorher franste die Stadt ins
+##             Gelaende aus und hatte gar keinen Rand; ein Ring gibt ihr eine Grenze.
+##   AUSFALL   drei Strassen, die den Ring verlassen und in die Landschaft laufen. Sie
+##             sind der Grund, warum die Stadt dort liegt, wo sie liegt.
+##
+## KOSTEN: ein einziges Mesh mit rund 90 Vierecken, ein Zeichenaufruf. Die Baender liegen
+## flach auf dem Gelaende und tasten ihre Hoehe stueckweise ab (terrain.height_at), damit
+## sie einer Mulde folgen statt darueber zu schweben.
+static func strassennetz(parent: Node3D, terrain, center: Vector3, r_kern := 250.0,
+		r_ring := 300.0, r_aus := 900.0) -> Node3D:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	# DUNKLER ALS ZUERST (0.24 / 0.20). Der Boden der Stadt liegt bei rund 0.62; ein
+	# Grau bei 0.24 hebt sich davon zwar rechnerisch ab, aber durch die Luftperspektive
+	# auf 1,6 km blieben davon gemessen nur rund 10 Prozent Wertunterschied uebrig — die
+	# Strassen waren da, ohne im Bild zu erscheinen. Ein Belag darf ruhig fast schwarz
+	# sein; genau so sieht frischer Asphalt aus der Luft aus.
+	var asphalt := Color(0.13, 0.128, 0.135)
+	var haupt := Color(0.10, 0.098, 0.107)
+
+	# --- Raster im Kern -------------------------------------------------------------
+	# Halbe Rasterweite versetzt, damit die Strassen ZWISCHEN den Hausreihen liegen und
+	# nicht durch sie hindurch: der Bauplan setzt die Haeuser auf Vielfache von 46.
+	var schritt := 46.0
+	var n := int(r_kern / schritt)
+	for i in range(-n, n + 1):
+		var o := (float(i) + 0.5) * schritt
+		if absf(o) > r_kern:
+			continue
+		# Laenge der Strasse in der Kreisscheibe (Sehne).
+		var halb := sqrt(maxf(r_kern * r_kern - o * o, 0.0))
+		_band(st, terrain, center, Vector2(-halb, o), Vector2(halb, o), 7.0, asphalt)
+		_band(st, terrain, center, Vector2(o, -halb), Vector2(o, halb), 7.0, asphalt)
+
+	# --- Diagonalachsen -------------------------------------------------------------
+	var dk := r_kern * 0.92
+	_band(st, terrain, center, Vector2(-dk, -dk), Vector2(dk, dk), 13.0, haupt)
+	_band(st, terrain, center, Vector2(-dk, dk), Vector2(dk, -dk), 13.0, haupt)
+
+	# --- Ringstrasse ----------------------------------------------------------------
+	var seiten := 32
+	for i in seiten:
+		var a0 := TAU * float(i) / float(seiten)
+		var a1 := TAU * float(i + 1) / float(seiten)
+		_band(st, terrain, center,
+			Vector2(cos(a0), sin(a0)) * r_ring, Vector2(cos(a1), sin(a1)) * r_ring,
+			12.0, haupt)
+
+	# --- Ausfallstrassen ------------------------------------------------------------
+	# Drei Richtungen, unterschiedlich lang. Sie enden nicht abrupt, sondern verjuengen
+	# sich (das letzte Stueck ist schmaler) — eine Strasse, die im Feld aufhoert, faellt
+	# sonst als abgeschnittenes Band auf.
+	for gr in [18.0, 142.0, 255.0]:
+		var r := deg_to_rad(gr)
+		var d := Vector2(cos(r), sin(r))
+		_band(st, terrain, center, d * r_ring, d * (r_aus * 0.75), 11.0, haupt)
+		_band(st, terrain, center, d * (r_aus * 0.75), d * r_aus, 7.0, asphalt)
+
+	# OHNE DAS BLEIBT DAS NETZ UNSICHTBAR. Ein SurfaceTool-Netz ohne Normalen bekommt vom
+	# Shader keine Beleuchtung — im ersten Anlauf war von den Strassen im Bild nichts zu
+	# sehen, obwohl sie gebaut wurden.
+	st.generate_normals()
+	var mi := MeshInstance3D.new()
+	mi.name = "Strassen"
+	mi.mesh = st.commit()
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.roughness = 0.92
+	mi.material_override = mat
+	# cast_shadow gehoert an die MeshInstance, NICHT an das Material — Godot meldet dort
+	# nur eine Warnung und ignoriert es. Eine flach aufliegende Strasse soll ohnehin
+	# keinen Schatten werfen.
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	mi.global_position = Vector3.ZERO
+	return mi
+
+
+## Ein Straßenband von a nach b (lokale Meter um "center"), auf das Gelände gelegt.
+##
+## Es wird in Stuecke von rund 24 m zerlegt und jedes Stueck tastet seine Ecken einzeln
+## ab. Ohne das liegt ein 500 m langes Band als Ebene ueber einer gewellten Wiese und
+## verschwindet in der ersten Mulde.
+static func _band(st: SurfaceTool, terrain, center: Vector3, a: Vector2, b: Vector2,
+		breite: float, col: Color) -> void:
+	var laenge := a.distance_to(b)
+	if laenge < 1.0:
+		return
+	var richtung := (b - a) / laenge
+	var quer := Vector2(-richtung.y, richtung.x) * (breite * 0.5)
+	var stuecke := maxi(1, int(laenge / 24.0))
+	for i in stuecke:
+		var t0 := float(i) / float(stuecke)
+		var t1 := float(i + 1) / float(stuecke)
+		var p0 := a.lerp(b, t0)
+		var p1 := a.lerp(b, t1)
+		# WICKLUNGSRICHTUNG — UND SIE WAR ZUERST FALSCH HERUM, MIT KOMPLETT UNSICHTBAREM
+		# ERGEBNIS. "quer" entsteht als (-y, x) der Fahrtrichtung; das ist die
+		# Linkssenkrechte in einer normalen x/y-Ebene, in der x/z-Ebene der Welt aber
+		# wegen der gespiegelten z-Achse die RECHTSsenkrechte. Alle Baender zeigten
+		# dadurch nach unten und wurden vom Rueckseitenkulling entfernt.
+		#
+		# GEFUNDEN NUR DURCH AUSSCHLUSS: das Netz existierte (1052 Dreiecke), war
+		# sichtbar, lag laut AABB genau ueber der Stadt — und blieb selbst als magentaner
+		# Streifen drei Meter ueber dem Boden bei NULL Pixeln. Erst ein einfacher Wuerfel
+		# am selben Ort (der erschien) und danach ein Lauf mit CULL_DISABLED (1905 Pixel
+		# mehr) haben die Ursache eingekreist.
+		var ecken := [p0 - quer, p1 - quer, p1 + quer, p0 + quer]
+		var w: Array[Vector3] = []
+		for e in ecken:
+			var wx: float = center.x + e.x
+			var wz: float = center.z + e.y
+			# 0,35 m ueber Grund: hoch genug gegen Z-Fighting, flach genug, dass keine
+			# Kante im streifenden Licht als Mauer steht.
+			w.append(Vector3(wx, terrain.height_at(wx, wz) + 0.35, wz))
+		st.set_color(col)
+		st.add_vertex(w[0]); st.add_vertex(w[1]); st.add_vertex(w[2])
+		st.set_color(col)
+		st.add_vertex(w[0]); st.add_vertex(w[2]); st.add_vertex(w[3])

@@ -78,7 +78,22 @@ func _physics_process(delta: float) -> void:
 	for t in get_tree().get_nodes_in_group("target"):
 		if not is_instance_valid(t):
 			continue
-		if _seg_dist(a, b, t.global_position) < t.hit_radius:
+		# DEN TREFFERRADIUS AUS DEM METADATUM LESEN, NICHT AUS DER EIGENSCHAFT.
+		#
+		# Der direkte Zugriff t.hit_radius setzt voraus, dass JEDES Mitglied der Gruppe
+		# "target" diese Eigenschaft hat. Target hat sie — SamSite nicht, das legt seinen
+		# Radius nur per set_meta ab. Im Spiel hiess das: sobald eine Flakstellung in der
+		# Gruppe stand, brach diese Schleife bei ihr mit "Invalid access to property
+		# 'hit_radius'" ab, und zwar in JEDEM Physikschritt jedes Geschosses. Folge war
+		# nicht bloss Fehlerrauschen im Protokoll, sondern dass die Bordwaffe SAM-
+		# Stellungen ueberhaupt nicht treffen konnte — und alle in der Liste danach
+		# ebenfalls nicht mehr geprueft wurden.
+		#
+		# get_meta mit Vorgabewert deckt beide Faelle ab: Target setzt das Metadatum auf
+		# denselben Wert wie seine Eigenschaft, SamSite setzt nur das Metadatum, und ein
+		# kuenftiges Ziel ohne beides bekommt 3 m statt eines Absturzes. Missile._sucher
+		# loest dasselbe Problem seit jeher so; hier fehlte es.
+		if _seg_dist(a, b, t.global_position) < float(t.get_meta("hit_radius", 3.0)):
 			t.hit(damage)
 			_boom()
 			queue_free()

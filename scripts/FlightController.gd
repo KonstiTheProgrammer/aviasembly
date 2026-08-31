@@ -240,6 +240,32 @@ var nose_visible := true        # Nasenmarker im Bild?
 var lock_screen := Vector2.ZERO # Pixelposition des erfassten Ziels (Lenkwaffen-Lock)
 var lock_visible := false       # Lock-Ziel im Bild?
 var lock_active := false        # Lenkwaffe an Bord + Ziel voraus erfasst?
+
+# --- AUFSCHALTUNG UND GEGENMASSNAHMEN --------------------------------------------------
+# lock_stufe: 0 = nichts, 1 = der Sucher SIEHT etwas, 2 = aufgeschaltet und schussbereit.
+# Zwischen 1 und 2 liegt bei Radarwaffen eine knappe Sekunde, in der man die Nase auf dem
+# Ziel halten muss — das ist die Spannung, die eine Waffe ohne Aufschaltzeit nicht hat.
+var lock_stufe := 0
+var lock_ziel: Node3D = null
+var lock_typ := ""              # Baumuster, das gerade aufschaltet (fuer die Anzeige)
+var _lock_zeit := 0.0
+const LOCK_DAUER := 0.85
+
+# Werferkassetten. Bewusst knapp: unbegrenzte Gegenmassnahmen machen jede Lenkwaffe
+# wertlos. Paarweise ausgestossen, weil eine einzelne Fackel selten reicht.
+var flares := 24
+var chaff := 24
+const CM_TAKT := 0.4
+var _cm_cd := 0.0
+var _flare_held := false
+var _chaff_held := false
+# Kurze Einblendung im HUD ("KEIN LOCK", "FACKELN LEER").
+var _lenk_meldung := ""
+var _lenk_meldung_t := 0.0
+# Anflugwarnung: naechste auf uns gerichtete Lenkwaffe (Richtung, Zeit bis Einschlag).
+var warn_aktiv := false
+var warn_winkel := 0.0          # relativ zur Nase, im Bogenmass (0 = voraus)
+var warn_zeit := 0.0
 # Survival-Upgrade-Multiplikatoren (von Main aus GameState gesetzt)
 var thrust_mult := 1.0
 var wing_mult := 1.0
@@ -247,6 +273,65 @@ var mass_mult := 1.0
 
 # Waffen (feuerbar): Mündungs-Offsets je Typ, aus dem Design gesammelt
 var weapons: Array = []        # [{type, off:Vector3 lokal, cd:float}]
+# --- LENKWAFFEN-BAUMUSTER --------------------------------------------------------------
+#
+# DREI STUECK, UND KEINES MEHR. Der Bauteilkatalog kennt drei Lenkwaffen; sie hiessen
+# bisher unterschiedlich, verhielten sich aber fast gleich (nur "turn" und "seek_range"
+# waren verschieden). Ihre Beschreibungen versprachen dabei schon immer IR- und
+# Radarsuchkoepfe — das loest diese Tabelle jetzt ein, ohne ein einziges neues Teil.
+#
+# Was ein Baumuster ausmacht, sind vier gegenlaeufige Groessen. Keine ist "besser":
+#
+#   IR-KURZ        wendig, kurze Reichweite, kein Lock noetig, faellt auf Fackeln herein.
+#                  Die Waffe fuer das Handgemenge — abdruecken und wegdrehen.
+#   RADAR-MITTEL   weit, traege, braucht Aufschaltung UND Beleuchtung bis zum Einschlag.
+#                  Wer nach dem Schuss abdreht, wirft ihn weg. Dueppel brechen sie.
+#   IR-SCHWER      Abwurfstart, mittlere Reichweite, grosser Gefechtskopf, mittelwendig.
+#                  Gegen Luftschiffe; gegen einen kurvenden Gegner zu traege.
+#
+# DIE ZAHLEN SIND EINGEFLOGEN, NICHT GERATEN. tools/_raketen_pruefstand.gd misst, was
+# aus ihnen folgt — Reichweite und Trefferquote stehen nirgends als Wert, sie ERGEBEN
+# sich aus Schub, Brenndauer, Widerstand, Querlast und Lenkgesetz. Stand der Messung:
+#
+#   Baumuster       Spitze   von vorn   von hinten   frei   1 Salve   Kassette
+#   IR-KURZ         520 m/s    >6000 m       1400 m   67 %      50 %       17 %
+#   RADAR-MITTEL    606 m/s    >6000 m       4000 m  100 %      17 %        0 %
+#   IR-SCHWER       518 m/s     5600 m       1800 m   67 %      33 %       17 %
+#
+# Zu lesen ist die Tabelle so: RADAR-MITTEL trifft ungestoert als einzige sicher, ist
+# dafuer die einzige, die eine Dueppelsalve vollstaendig ausschaltet. IR-KURZ ist gegen
+# Koeder am robustesten, hat aber im Verfolgungsschuss nur 1400 m — von hinten muss man
+# nah heran. Der Unterschied zwischen "von vorn" und "von hinten" ist nirgends
+# eingestellt; er folgt allein daraus, dass ein entgegenkommendes Ziel der Rakete
+# entgegenkommt und ein fliehendes ihr davonlaeuft, waehrend der Motor nur ein paar
+# Sekunden brennt.
+const LENKWAFFEN := {
+	"missile": {
+		"name": "IR-KURZ", "sucher": "ir", "koeder": "flare",
+		"schub": 210.0, "brenndauer": 1.7, "cw": 0.00022, "max_g": 30.0,
+		"start_v": 70.0, "lebensdauer": 11.0, "schwerkraft": 5.0,
+		"kegel": 55.0, "erfassung": 1700.0, "lenkfaktor": 4.2,
+		"zuender": 9.0, "kraft": 6.0, "cd": 0.8, "traegheit": 0.6,
+		"lock_noetig": false, "beleuchtung": false,
+	},
+	"missile_heavy": {
+		"name": "RADAR-MITTEL", "sucher": "radar", "koeder": "chaff",
+		"schub": 135.0, "brenndauer": 3.2, "cw": 0.00011, "max_g": 17.0,
+		"start_v": 95.0, "lebensdauer": 24.0, "schwerkraft": 6.5,
+		"kegel": 24.0, "erfassung": 4200.0, "lenkfaktor": 3.4,
+		"zuender": 15.0, "kraft": 14.0, "cd": 1.9, "traegheit": 3.0,
+		"lock_noetig": true, "beleuchtung": true,
+	},
+	"missile_drop": {
+		"name": "IR-SCHWER", "sucher": "ir", "koeder": "flare",
+		"schub": 185.0, "brenndauer": 2.5, "cw": 0.00017, "max_g": 19.0,
+		"start_v": -8.0, "lebensdauer": 16.0, "schwerkraft": 8.0,
+		"kegel": 44.0, "erfassung": 2500.0, "lenkfaktor": 3.6,
+		"zuender": 14.0, "kraft": 13.0, "cd": 1.5, "traegheit": 1.2,
+		"lock_noetig": false, "beleuchtung": false, "abwurf": 0.55,
+	},
+}
+
 # Waffengruppen (SimplePlanes-Stil): Leertaste feuert NUR die ausgewaehlte Gruppe.
 # Auswahl im Flug: Tasten 1-4 direkt, V zyklisch. Reihenfolge = WGROUPS-Reihenfolge.
 const WGROUPS := [
@@ -1023,6 +1108,21 @@ func _physics_process(delta: float) -> void:
 		_drop_bomb(true)   # B: ebenfalls eine Bombe pro Druck
 	_bomb_held = bomb_down
 
+	# --- Gegenmassnahmen: K = Waermefackeln, L = Dueppel ---------------------------
+	# EIGENE TASTEN, KEINE UMBELEGUNG. K und L waren die einzigen freien Buchstaben und
+	# liegen nebeneinander — im Gefecht greift man sie blind.
+	_cm_cd = maxf(0.0, _cm_cd - delta)
+	_lenk_meldung_t = maxf(0.0, _lenk_meldung_t - delta)
+	var f_down := Input.is_physical_key_pressed(KEY_K)
+	if f_down and not _flare_held:
+		_werfen("flare")
+	_flare_held = f_down
+	var c_down := Input.is_physical_key_pressed(KEY_L)
+	if c_down and not _chaff_held:
+		_werfen("chaff")
+	_chaff_held = c_down
+	_warnung_takt()
+
 	_wolken_ruetteln()
 	_emit_hud()
 
@@ -1118,33 +1218,13 @@ func _fire_primary(types: Array = [], single := false) -> void:
 						_spawn("missile", pos, av + d * 150.0, 6.0, 3.5)
 					w["cd"] = 1.0
 					fired = true
-				"missile":
-					var m := _spawn("missile", pos, av + fwd * 120.0, 8.0, 4.0)
-					m.guided = true
-					m.turn = 3.0
-					m.seek_range = 80.0
-					w["cd"] = 1.0
-					fired = true
-				"missile_heavy":
-					var mh := _spawn("missile", pos, av + fwd * 100.0, 11.0, 10.0)
-					mh.guided = true
-					mh.turn = 2.0
-					mh.seek_range = 110.0
-					w["cd"] = 1.7
-					fired = true
-				"missile_drop":
-					# Erst Freifall (physikalischer Abwurf), dann Turbo + Rauchfahne + Homing.
-					var dm := _spawn("missile_drop", pos, av + Vector3(0, -3.5, 0), 9.0, 9.0, 0.0, Color(1.0, 0.55, 0.15), 2.2)
-					if dm != null:
-						dm.guided = true
-						dm.home_anywhere = true
-						dm.turn = 3.2
-						dm.seek_range = 480.0
-						dm.boost_delay = 0.5
-						dm.boost_accel = 210.0
-						dm.boost_speed = 165.0
-					w["cd"] = 1.5
-					fired = true
+				"missile", "missile_heavy", "missile_drop":
+					# EIN Zweig fuer alle drei — was sie unterscheidet, steht in
+					# LENKWAFFEN und nicht hier. Wer eine vierte Lenkwaffe will, traegt
+					# sie dort ein und muss diese Funktion nicht anfassen.
+					if _lenkwaffe_starten(String(w["type"]), pos, fwd, av):
+						w["cd"] = float(LENKWAFFEN[w["type"]]["cd"])
+						fired = true
 		if fired:
 			# (Mündungsfeuer auf Wunsch entfernt — kein Blitz/Partikel beim Schießen.)
 			# Rückstoß: Impuls entgegen der Mündungsrichtung (nach hinten = -fwd).
@@ -1158,6 +1238,140 @@ func _fire_primary(types: Array = [], single := false) -> void:
 					aircraft.queue_detach(pidx)
 			if single:
 				return   # ein Klick = eine Rakete/Lenkwaffe (naechster Mount beim naechsten Klick)
+
+
+## Welches Lenkwaffen-Baumuster würde der nächste Klick abfeuern?
+##
+## Das ist nicht dasselbe wie "was ist an Bord": eine Zelle kann drei verschiedene
+## Lenkwaffen tragen, und die Aufschaltung muss die Werte DER Waffe verwenden, die
+## tatsaechlich als naechste von der Schiene geht — sonst zeigt das HUD einen Radar-Lock
+## an und es startet eine Waermesuchende.
+func _naechste_lenkwaffe() -> String:
+	if weapon_groups.is_empty():
+		return ""
+	var g: Dictionary = weapon_groups[weapon_sel]
+	if String(g["id"]) != "missile":
+		return ""
+	for w in weapons:
+		var ty := String(w["type"])
+		if not LENKWAFFEN.has(ty) or not (ty in g["types"]):
+			continue
+		if int(w["ammo"]) == 0:
+			continue
+		var pidx: int = int(w.get("part_idx", -1))
+		if pidx >= 0 and pidx < aircraft.parts.size() and aircraft.parts[pidx].get("broken", false):
+			continue
+		return ty
+	return ""
+
+
+## Eine Lenkwaffe von der Schiene lassen. Gibt false zurück, wenn die Bedingungen nicht
+## stimmen (dann laeuft auch kein Cooldown und die Waffe bleibt am Flugzeug).
+func _lenkwaffe_starten(typ: String, pos: Vector3, fwd: Vector3, av: Vector3) -> bool:
+	var spec: Dictionary = LENKWAFFEN.get(typ, {})
+	if spec.is_empty() or world_root == null:
+		return false
+	# RADARWAFFEN SCHIESSEN NICHT INS BLAUE. Ohne Aufschaltung gibt es nichts zu
+	# beleuchten, und die Rakete waere von der ersten Sekunde an blind. Lieber die Waffe
+	# behalten und es dem Piloten sagen.
+	if bool(spec.get("lock_noetig", false)) and (lock_stufe < 2 or lock_ziel == null):
+		_lenk_meldung = "KEIN LOCK"
+		_lenk_meldung_t = 1.5
+		return false
+	var m := Missile.new()
+	m.muster = String(spec["name"])
+	m.sucher = String(spec["sucher"])
+	m.koeder_gruppe = String(spec["koeder"])
+	m.feind_gruppe = "target"
+	m.schub = float(spec["schub"])
+	m.brenndauer = float(spec["brenndauer"])
+	m.cw = float(spec["cw"])
+	m.max_g = float(spec["max_g"])
+	m.lebensdauer = float(spec["lebensdauer"])
+	m.schwerkraft = float(spec["schwerkraft"])
+	m.sucher_kegel = float(spec["kegel"])
+	m.erfassung = float(spec["erfassung"])
+	m.lenkfaktor = float(spec["lenkfaktor"])
+	m.zuender = float(spec["zuender"])
+	m.sprengkraft = float(spec["kraft"])
+	m.braucht_beleuchtung = bool(spec.get("beleuchtung", false))
+	m.startverzug = float(spec.get("abwurf", 0.0))
+	m.traegheitsphase = float(spec.get("traegheit", 1.0))
+	m.traeger = aircraft
+	# VORGABE DES ZIELS. Der Sucher startet aufgeschaltet, statt sich erst selbst etwas zu
+	# suchen — sonst nimmt eine Waermesuchende beim Start das naechstbeste Objekt im
+	# Blickfeld, und das ist selten das, was der Pilot im Fadenkreuz hatte.
+	if lock_stufe >= 1 and is_instance_valid(lock_ziel):
+		m.ziel = lock_ziel
+	world_root.add_child(m)
+	m.global_position = pos
+	var start := av + fwd * float(spec["start_v"])
+	if m.startverzug > 0.0:
+		start += Vector3.DOWN * 3.0      # aus der Aufhaengung fallen lassen
+	m.v = start
+	return true
+
+
+## Kassette abfeuern. Paarweise, mit kurzer Sperre — Dauerdruck leert nur den Vorrat.
+func _werfen(art: String) -> void:
+	if _cm_cd > 0.0 or not is_instance_valid(aircraft) or world_root == null:
+		return
+	var vorrat := flares if art == "flare" else chaff
+	if vorrat <= 0:
+		_lenk_meldung = "FACKELN LEER" if art == "flare" else "DUEPPEL LEER"
+		_lenk_meldung_t = 1.4
+		return
+	var b := aircraft.global_transform.basis
+	var av := aircraft.linear_velocity
+	# NACH HINTEN UND ZUR SEITE AUSGESTOSSEN. Nach hinten, weil dort der Sucher hinsieht,
+	# der einen von hinten verfolgt; zur Seite, damit sich Koeder und Flugzeug trennen —
+	# ein Koeder, der genau mitfliegt, verdeckt nichts.
+	for seite in [-1.0, 1.0]:
+		var pos: Vector3 = aircraft.global_position + b * Vector3(seite * 1.2, -0.6, 1.8)
+		var stoss: Vector3 = b * Vector3(seite * 7.0, -5.0, 9.0)
+		Countermeasure.werfen(world_root, art, pos, av * 0.85 + stoss)
+	if art == "flare":
+		flares -= 1
+	else:
+		chaff -= 1
+	_cm_cd = CM_TAKT
+
+
+## Anflugwarnung: sucht die gefährlichste auf uns gerichtete Lenkwaffe.
+##
+## WARUM ES DIE BRAUCHT: Gegenmassnahmen ohne Warnung sind Raten. Erst wenn man weiss,
+## dass etwas kommt, aus welcher Richtung und wie lange man noch hat, wird aus "Taste
+## druecken" eine Entscheidung — jetzt werfen oder noch kurven?
+func _warnung_takt() -> void:
+	warn_aktiv = false
+	if not is_instance_valid(aircraft):
+		return
+	var beste_zeit := 1.0e20
+	var beste: Missile = null
+	for n in get_tree().get_nodes_in_group("missile"):
+		var m := n as Missile
+		if m == null or not is_instance_valid(m) or m.feind_gruppe != "player":
+			continue
+		var zu: Vector3 = aircraft.global_position - m.global_position
+		var d := zu.length()
+		if d < 1.0:
+			continue
+		# Nur was sich naehert. Eine Rakete, die schon vorbei ist, ist keine Warnung wert.
+		var nae := m.v.dot(zu / d)
+		if nae < 40.0:
+			continue
+		var t := d / nae
+		if t < beste_zeit:
+			beste_zeit = t
+			beste = m
+	if beste == null:
+		return
+	warn_aktiv = true
+	warn_zeit = beste_zeit
+	var b := aircraft.global_transform.basis
+	var rel: Vector3 = (beste.global_position - aircraft.global_position)
+	# Winkel in der Flugzeugebene: 0 = voraus, positiv = nach rechts.
+	warn_winkel = atan2(rel.dot(b.x), rel.dot(-b.z))
 
 
 func _drop_bomb(single := false) -> void:
@@ -1611,14 +1825,34 @@ func _has_guided_ammo() -> bool:
 	return false
 
 
-# Lenkwaffen-Lock: nächstes Ziel im Kegel voraus erfassen (nur wenn Lenkwaffe mit Munition).
+# --- AUFSCHALTUNG ----------------------------------------------------------------------
+#
+# WAS SICH GEAENDERT HAT UND WARUM. Vorher galt ein fester 30-Grad-Kegel und 230 m
+# Reichweite fuer ALLE Lenkwaffen — unabhaengig davon, welche gerade an der Reihe war.
+# Damit war die Anzeige eine Behauptung: sie zeigte "erfasst" auch dort, wo die Waffe
+# nichts sehen konnte, und blieb dunkel, wo eine Radarwaffe laengst haette schiessen
+# koennen. Jetzt liest die Aufschaltung ihre Werte aus dem Baumuster, das als naechstes
+# von der Schiene geht (_naechste_lenkwaffe) — die Anzeige sagt damit die Wahrheit.
+#
+# ZWEI STUFEN. Eine Waermesuchende ist sofort bereit, sobald ihr Sucher etwas hat; eine
+# halbaktive Radarwaffe braucht knapp eine Sekunde ruhige Nase, bevor sie aufgeschaltet
+# ist. Diese Wartezeit ist kein Schikane, sondern der Grund, warum die beiden Waffen sich
+# im Gefecht verschieden anfuehlen.
 func _update_lock() -> void:
 	lock_active = false
 	lock_visible = false
-	if camera == null or not camera.is_inside_tree() or not is_instance_valid(aircraft):
+	lock_typ = _naechste_lenkwaffe()
+	if lock_typ == "" or camera == null or not camera.is_inside_tree() \
+			or not is_instance_valid(aircraft):
+		lock_stufe = 0
+		lock_ziel = null
+		_lock_zeit = 0.0
 		return
-	if not _has_guided_ammo():
-		return
+	var spec: Dictionary = LENKWAFFEN[lock_typ]
+	# Der Aufschaltkegel ist ENGER als der Sucherkegel: der Pilot zielt, danach uebernimmt
+	# der Suchkopf und darf mehr sehen als der Pilot ihm vorgeben konnte.
+	var kegel := cos(deg_to_rad(minf(float(spec["kegel"]), 28.0)))
+	var reich := float(spec["erfassung"])
 	var origin := aircraft.global_position
 	var fwd := -aircraft.global_transform.basis.z
 	var best: Node3D = null
@@ -1626,20 +1860,33 @@ func _update_lock() -> void:
 	for t in get_tree().get_nodes_in_group("target"):
 		if not is_instance_valid(t):
 			continue
-		var to: Vector3 = t.global_position - origin
+		var to: Vector3 = (t as Node3D).global_position - origin
 		var dist := to.length()
-		if dist < 2.0 or dist > 230.0:
+		if dist < 2.0 or dist > reich:
 			continue
-		if fwd.dot(to / dist) < 0.86:        # ~30°-Kegel voraus
+		if fwd.dot(to / dist) < kegel:
 			continue
 		if dist < best_d:
 			best_d = dist
 			best = t
-	if best == null or camera.is_position_behind(best.global_position):
+	if best == null:
+		lock_stufe = 0
+		lock_ziel = null
+		_lock_zeit = 0.0
 		return
-	lock_screen = camera.unproject_position(best.global_position)
+	# Zielwechsel setzt die Uhr zurueck — man kann sich nicht von einem Ziel zum naechsten
+	# "durchschalten" und dabei die Aufschaltzeit mitnehmen.
+	if best != lock_ziel:
+		_lock_zeit = 0.0
+	lock_ziel = best
+	_lock_zeit += get_physics_process_delta_time()
 	lock_dist = best_d
-	lock_visible = true
+	lock_stufe = 1
+	if not bool(spec.get("lock_noetig", false)) or _lock_zeit >= LOCK_DAUER:
+		lock_stufe = 2
+	if not camera.is_position_behind(best.global_position):
+		lock_screen = camera.unproject_position(best.global_position)
+		lock_visible = true
 	lock_active = true
 
 
@@ -1652,6 +1899,16 @@ func _emit_hud() -> void:
 		"lock": lock_screen,
 		"lock_vis": lock_visible,
 		"lock_active": lock_active,
+		"lock_stufe": lock_stufe,
+		"lock_dist": lock_dist,
+		"lock_name": String(LENKWAFFEN[lock_typ]["name"]) if LENKWAFFEN.has(lock_typ) else "",
+		"lock_sucher": String(LENKWAFFEN[lock_typ]["sucher"]) if LENKWAFFEN.has(lock_typ) else "",
+		"flares": flares,
+		"chaff": chaff,
+		"warn_aktiv": warn_aktiv,
+		"warn_winkel": warn_winkel,
+		"warn_zeit": warn_zeit,
+		"lenk_meldung": _lenk_meldung if _lenk_meldung_t > 0.0 else "",
 		"mouse_fly": mouse_fly,
 		"zoom": (FOV_BASE / maxf(lerpf(FOV_BASE, FOV_ZOOM, zoom_t), 1.0)) if zoom_t > 0.02 else 0.0,
 		"arcade": arcade,

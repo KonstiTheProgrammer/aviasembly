@@ -187,6 +187,33 @@ func _ready() -> void:
 		_queue_break(_gear_part_indices())   # überlastete Reifen reißen ab (Trümmer), nicht einknicken
 
 
+# --- SIGNATUREN: was Suchköpfe von dieser Maschine sehen -------------------------------
+#
+# Beide Werte sind reine VERGLEICHSGROESSEN — sie stehen gegen die Spitzenwerte in
+# Countermeasure. Absolute Einheiten gibt es nicht und braucht es nicht: Missile._signal
+# vergleicht nur, wer lauter ist.
+#
+# WARUM DER SCHUB DIE WAERME BESTIMMT: ein Waermesucher sieht die Duese, nicht das
+# Flugzeug. Wer im Leerlauf gleitet, ist schwer zu treffen; wer mit Nachbrenner
+# davonrennt, ist eine Fackel mit Fluegeln. Das gibt dem Gashebel eine taktische Rolle,
+# die er vorher nicht hatte — Schub zurueck ist eine Ausweichmassnahme.
+const IR_GRUND := 26.0        # Restwaerme im Leerlauf (Zelle, Reibung)
+const IR_SCHUB := 210.0       # Anteil, den die Duese bei Vollgas beisteuert
+const IR_NACHBRENNER := 190.0 # Aufschlag ab 100 % — der Nachbrenner ist ein Leuchtfeuer
+
+func ir_signatur() -> float:
+	var thr := clampf(throttle, 0.0, 1.2)
+	var ab := clampf((thr - 1.0) / 0.2, 0.0, 1.0)
+	return IR_GRUND + IR_SCHUB * clampf(thr, 0.0, 1.0) + IR_NACHBRENNER * ab
+
+
+# Rueckstrahlflaeche. Waechst mit der Zellengroesse: ein grosser Bomber wird frueher
+# gesehen als ein kleiner Jaeger. parts.size() ist das einzige Groessenmass, das hier
+# ohne Rechnung zur Verfuegung steht, und es taugt dafuer.
+func radar_signatur() -> float:
+	return 34.0 + 1.6 * float(parts.size())
+
+
 func _process(delta: float) -> void:
 	# Abreißen/Reparenting/Explosion NUR hier (nicht in _integrate_forces).
 	if _explode_pending:

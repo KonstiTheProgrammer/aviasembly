@@ -918,13 +918,13 @@ static func _build() -> void:
 		"id": "missile", "name": "Zielsuchrakete", "category": CAT_WEAPON,
 		"mass": 95.0, "color": Color(0.85, 0.86, 0.9), "shape": "missile", "weapon": "missile",
 		"size": Vector3(0.34, 0.34, 2.4), "metal": 0.5, "rough": 0.4,
-		"desc": "Heat-Seeker (LEERTASTE) — fliegt geradeaus und kurvt aufs Ziel, sobald eins in die Nähe kommt. IR-Suchkopf, Vorder-Canards, Heckflossen mit Rollerons, Kabelkanal (Blender).",
+		"desc": "IR-KURZ (LEERTASTE): Wärmesuchkopf, sehr wendig (30 g), erfasst bis 1700 m und braucht KEINE Aufschaltung — abdrücken und wegdrehen. Von hinten trägt sie nur rund 1400 m, von vorn ein Vielfaches. Fällt auf Wärmefackeln herein.",
 	})
 	_add({
 		"id": "missile_heavy", "name": "Schwere Lenkrakete", "category": CAT_WEAPON,
 		"mass": 190.0, "color": Color(0.78, 0.8, 0.85), "shape": "missile", "weapon": "missile_heavy",
 		"size": Vector3(0.46, 0.46, 3.2), "metal": 0.5, "rough": 0.4,
-		"desc": "Großer Suchkopf + großer Knall, größere Reichweite, träger (LEERTASTE). Radar-Lenkrakete im Sparrow-Stil: dielektrisches Radom, Mittelflügel, Steuerflossen, Kabelkanal (Blender).",
+		"desc": "RADAR-MITTEL (LEERTASTE): halbaktive Radarlenkwaffe, erfasst bis 4200 m. Braucht eine Aufschaltung VOR dem Schuss und die Nase auf dem Ziel BIS ZUM EINSCHLAG — wer abdreht, wirft sie weg. Träge (17 g), dafür ungestört die treffsicherste. Düppel brechen sie.",
 	})
 	_add({
 		"id": "bomb", "name": "Bombe", "category": CAT_WEAPON,
@@ -936,7 +936,7 @@ static func _build() -> void:
 		"id": "missile_drop", "name": "Abwurf-Boost-Rakete", "category": CAT_WEAPON,
 		"mass": 130.0, "color": Color(0.55, 0.58, 0.63), "shape": "missile", "weapon": "missile_drop",
 		"size": Vector3(0.5, 0.5, 2.9), "metal": 0.5, "rough": 0.4,
-		"desc": "Lenkrakete mit Abwurf-Start (LEERTASTE/Linksklick): fällt erst frei aus der Aufhängung, zündet dann den Turbo-Motor mit dicker Rauchfahne und kurvt auf den nächsten Luftballon. Dicker Körper, großer Suchkopf.",
+		"desc": "IR-SCHWER (LEERTASTE): Abwurfstart — fällt erst frei aus der Aufhängung und zündet dann. Wärmesuchkopf bis 2500 m, großer Gefechtskopf, mittelwendig (19 g). Gegen große, träge Ziele. Im Tiefflug wegen des Zündverzugs mit Vorsicht.",
 	})
 
 

@@ -835,6 +835,14 @@ static func _tor_sockel(t: float, seite: float, s_w: float) -> float:
 ## geratene Reihenfolge schon einmal einen komplett schwarzen Bogen erzeugt.
 ## Die Helligkeit je Flaechenrichtung wird in die Vertexfarbe gebacken (wie bei den
 ## Haeusern): so bleibt die Form auch aus 1 km und bei flach stehender Sonne lesbar.
+## Richtung ZUR Sonne. Main setzt sie neben TerrainWorld.setze_sonne() — dieselbe Quelle
+## fuer beide, sonst zeigt die Temperatur des Fels woandershin als die des Gelaendes.
+static var sonne_zu := Vector3(0.55, 0.62, 0.55).normalized()
+## Wie stark Sonnen- und Schattenflaechen sich im FARBTON unterscheiden (siehe unten).
+const FELS_WARM := 0.34
+const FELS_KALT := 0.38
+
+
 static func _fels_tri(st: SurfaceTool, p0: Vector3, p1: Vector3, p2: Vector3,
 		m: Vector3, col: Color) -> void:
 	# DIE RICHTUNG DIESES VERGLEICHS WAR VERKEHRT HERUM, und das war der groesste einzelne
@@ -877,6 +885,20 @@ static func _fels_tri(st: SurfaceTool, p0: Vector3, p1: Vector3, p2: Vector3,
 	# lesbar macht statt als hellen Streifen.
 	var c2 := _shade(col, 0.94 + 0.10 * maxf(nn.y, 0.0) + 0.18 * minf(nn.y, 0.0)
 		+ 0.07 * nn.x)
+	# TEMPERATUR, NICHT NUR HELLIGKEIT. Die Zeile darueber unterscheidet Flaechen bereits
+	# im WERT — aber nur im Wert, und genau das war der Befund an der Schutthalde: "rund
+	# vierzig Broecken in einem einzigen Mittelbraun, Streuung plus/minus 25; das liest
+	# sich als flacher Stapel Pappkartons statt als Fels".
+	#
+	# Dieselbe Trennung hat das Gelaende seit dem Umstellen auf tiefe Sonne
+	# (TerrainWorld._warm_kalt): besonnte Flaeche warm, abgewandte kuehl. Ohne sie hier
+	# fielen Halde und Tor aus dem Bild heraus, sobald sie neben gefaerbtem Gelaende
+	# liegen — zwei Felsarten mit verschiedenen Regeln in einer Ansicht.
+	var ab := nn.dot(sonne_zu)
+	if ab > 0.0:
+		c2 = c2.lerp(Color(0.82, 0.70, 0.50), FELS_WARM * smoothstep(0.02, 0.55, ab))
+	else:
+		c2 = c2.lerp(Color(0.44, 0.47, 0.56), FELS_KALT * smoothstep(-0.02, -0.55, ab))
 	st.set_color(c2); st.add_vertex(p0)
 	st.set_color(c2); st.add_vertex(q1)
 	st.set_color(c2); st.add_vertex(q2)
@@ -1776,7 +1798,7 @@ static func build_felsentor(parent: Node3D, mitte: Vector3, spannweite: float,
 # nach dem Aufsetzen noch rollt und in der eine Halle als Kathedrale lesen kann. 700 m
 # liegen komplett unter dem Talschlussmassiv (Gelaende darueber 400 bis 1000 m, gemessen
 # mit tools/_kaverne_platz.gd).
-const HB_LAENGE := 700.0       # Tiefe in den Berg
+const HB_LAENGE := 1080.0      # Tiefe in den Berg
 # DIE EINFAHRT WAR ZU KLEIN, und zwar nicht ein bisschen. Gemessen im Abnahmebild
 # basis_anflug (Kamera 160 m davor, 64 Grad senkrecht, also rund 200 m Bildhoehe in der
 # Portalebene) fuellte das alte Loch 30 x 34 knapp ein Sechstel der Bildhoehe — in der
@@ -1796,8 +1818,14 @@ const HB_LAENGE := 700.0       # Tiefe in den Berg
 # und im Anflug endlich eine Oeffnung, die man treffen muss statt sie nur zu passieren.
 const HB_W_MUND := 30.0        # halbe Breite am Portal  (lichte Weite 60 m)
 const HB_H_MUND := 40.0        # lichte Hoehe am Portal  (10 m Kaempfer + 30 m Bogen)
-const HB_W_HALLE := 52.0       # halbe Breite der Halle (lichte Weite 104 m)
-const HB_H_HALLE := 54.0       # lichte Hoehe der Halle  (17 m Kaempfer + 37 m Bogen)
+# 78 STATT 52. Bei 104 m lichter Weite blieb neben der 30-m-Bahn auf jeder Seite ein
+# 37-m-Streifen — zu wenig, um die Bauten des Platzes unterzubringen, und deshalb standen
+# sie draussen im Fels: gemessen sassen zwei Hangars bei quer -54 und ragten durch die
+# Wand in die Halle. 156 m Weite geben beiderseits der Bahn einen 63-m-Streifen, auf dem
+# Hangars, Betriebsgebaeude und Abstellplaetze Platz haben. Der Berg darueber traegt es:
+# bei quer +-84 steht das Gelaende auf 500 bis 1000 m, die Roehre braucht 90 + 60.
+const HB_W_HALLE := 78.0       # halbe Breite der Halle (lichte Weite 156 m)
+const HB_H_HALLE := 60.0       # lichte Hoehe der Halle  (17 m Kaempfer + 43 m Bogen)
 # DER PORTALRAHMEN: ein umlaufendes Betonband, in den Fels gesetzt. Ohne ihn bleibt die
 # Einfahrt ein Loch im Berg — die Vorlage zeigt ein BAUWERK. Die drei Masse sind das,
 # was den Ring als Bauteil lesbar macht: eine Bandbreite, ein Vortritt vor die Felswand
@@ -1807,7 +1835,17 @@ const HB_RING_VOR := 7.0       # wie weit es vor die Wandebene der Stirn tritt
 const HB_RING_TIEF := 14.0     # wie weit es in den Stollen hineingreift
 const HB_RING_LAMPEN := 34     # Warnlichter im Kranz (nur ueber der Kaempferhoehe)
 const HB_LOCH_B := 9.0         # Breite der Laibung zwischen Wandloch und Stollenmund
-const HB_RINGE := 28           # Querschnitte laengs
+# QUERSCHNITTE LAENGS — AN DIE LAENGE GEKOPPELT, NICHT FEST. Als feste 28 gesetzt, war
+# das bei der kurzen Roehre richtig; nach der Verlaengerung auf 1080 m lagen die Ringe
+# 38,6 m auseinander, waehrend die Punkte im Ring nur 3,3 m Abstand haben. Dreiecke im
+# Verhaeltnis 12:1 schattieren nicht wie Fels, sondern wie Stoff: im Bild lief ein
+# Strahlenkranz aus langen Spitzen durch die ganze Halle. Rund 9 m Ringabstand macht sie
+# etwa quadratisch und kostet 12 000 Dreiecke — nichts.
+# 6 m, nicht 9: bei 9 m trugen nur zwei Rauschlagen (55 und 20 m), und das Ergebnis las
+# sich als verputzte Roehre. Die dritte Lage bei 13 m braucht rund 6 m Abtastung, sonst
+# aliast sie zurueck in Laengsstreifen. 180 Ringe sind 19 000 Dreiecke.
+const HB_RING_ABSTAND := 6.0   # Zielabstand der Querschnitte in Metern
+const HB_RINGE := int(HB_LAENGE / HB_RING_ABSTAND)
 # BREITE. Hier standen nacheinander 196 und 300 m halbe Breite, und beide Fassungen
 # lasen sich als Klumpen VOR der Wand — je groesser die Stirn, desto laenger ihr Umriss,
 # und der Umriss ist es, den das Auge als "aufgeklebt" erkennt. Die Talschlusswand selbst
@@ -1965,7 +2003,22 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	# Gelaendes daneben treffen. Beim ersten Anlauf trug sie den Innenton (0.30/0.25/0.20)
 	# und stand im Bild als dunkle Betonkiste an einem hellen Hang. Gemessen
 	# (tools/_bodenprobe.gd) liegt der Fels dort bei rund 0.56/0.51/0.45.
-	var fels := Color(0.32, 0.27, 0.22)
+	# DUNKLER ALS ES SICH ANFUEHLT, UND DAS IST DER PUNKT. Die Kaverne haengt am
+	# Welt-Ambient des Himmels — 500 m unter Tage physikalisch Unsinn, aber Godot kennt
+	# nur EIN Ambient fuer die ganze Szene, und der Versuch, es lokal mit vier
+	# ReflectionProbes (interior, AMBIENT_COLOR) zu ersetzen, hat nachweislich nichts
+	# bewirkt: selbst mit magentafarbenem Sondenlicht bei Energie 4 blieb jedes Pixel
+	# unveraendert — die Riesennetze der Schale bekommen offenbar keine Sonde zugewiesen.
+	# Bleibt der andere Hebel: WENIGER ALBEDO, MEHR LAMPE. Der Sockel aus Ambient faellt
+	# mit dem Albedo, der Lichtsee wird ueber die Energie zurueckgeholt — und erst
+	# dadurch bekommt der See Kontrast gegen den Rest. Gemessen lag das Verhaeltnis
+	# Lichtsee zu Zwischenraum vorher bei 1,6; das ist kein See, das ist eine Ahnung.
+	# ZWEITER SCHRITT DERSELBEN RECHNUNG. Nach der ersten Absenkung lag das Verhaeltnis
+	# Lichtsee zu Zwischenraum bei 1,9 — sichtbar, aber weit von dem entfernt, was eine
+	# kuenstlich beleuchtete Hoehle ausmacht. Der Ambient-Sockel skaliert mit dem Albedo,
+	# der Lichtsee mit Albedo MAL Energie; wer den Kontrast will, muss beides gegenlaeufig
+	# bewegen. Albedo noch einmal auf zwei Drittel, Lampen auf gut das Doppelte.
+	var fels := Color(0.165, 0.142, 0.120)
 	# DUNKLER ALS DIE WAND DAHINTER (0.47 statt 0.56): der Fuss einer 500-m-Wand liegt im
 	# eigenen Schatten. Der helle Ton der ersten Fassung stand als Iglu vor dem Hang.
 	var stirn_c := Color(0.47, 0.42, 0.36)
@@ -2001,8 +2054,24 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 				# aus wie Rauschen auf einem Rohr.
 				# Auch hier ueber die LAGE gewuerfelt und nicht ueber Ring und Punkt —
 				# sonst laufen die Ausbrueche als saubere Laengsrippen durch den Stollen.
-				var grob := _hb_rau(q.x * 0.045, q.y * 0.045 + z * 0.021)
-				var fein := _hb_rau(q.x * 0.16 + 4.0, q.y * 0.16 + z * 0.083)
+				# WERTRAUSCHEN, NICHT DER HASH. Hier stand _hb_rau, und genau davor warnt
+				# sein eigener Kommentar: benachbarte Eingaben liefern unkorrelierte Werte,
+				# jeder Netzpunkt bekommt seine eigene Zufallstiefe. Auf 12:1-Dreiecken wird
+				# daraus kein Fels, sondern Flimmern laengs der Spitzen. _hb_welle laeuft
+				# ueber mehrere Punkte und gibt Ausbrueche, die man als Brocken liest.
+				# Gewuerfelt wird ueber BOGENLAENGE und Tiefe, nicht ueber i und r: so
+				# haengt die Groesse eines Ausbruchs an Metern und nicht an der
+				# Netzaufloesung — sonst aendert jede Aenderung von HB_RINGE den Fels.
+				# Wellenlaengen 55 m und 20 m liegen beide ueber dem doppelten Ringabstand
+				# (18 m), werden also sauber abgetastet statt zu aliasen.
+				var bogen := float(i) * (wh.x + wh.y) * 2.4 / float(quer.size())
+				var grob := _hb_welle(bogen, z, 55.0)
+				var fein := _hb_welle(bogen + 210.0, z + 640.0, 22.0)
+				# DRITTE LAGE AUF FACETTENGROESSE. Ohne sie unterscheiden sich benachbarte
+				# Dreiecke kaum in der Neigung, und Flachschattierung allein macht daraus
+				# keine Kanten, sondern einen weichen Verlauf — im Bild eine Betonroehre.
+				# 13 m liegt knapp ueber der doppelten Ringteilung (12 m).
+				var kante := _hb_welle(bogen + 55.0, z + 1900.0, 13.0)
 				# AM PORTAL BLEIBT DIE ROEHRE GLATT, und das ist die Bedingung dafuer, dass
 				# der Rahmen ueberhaupt einer wird: der Betonring sitzt genau auf diesem
 				# Umriss. Sitzt er auf einer gebrochenen Kante, wandert sein Band um bis zu
@@ -2010,8 +2079,10 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 				# sondern eine Girlande. Erst ab rund 15 Prozent der Tiefe, wo der Ring
 				# aufhoert, bricht der Fels wieder auf.
 				var glatt := smoothstep(0.006, 0.045, t)
-				var f := 1.0 + (0.085 * grob + 0.040 * fein) * glatt
-				punkte.append(Vector3(q.x * f, q.y * f, z + 2.2 * grob * glatt))
+				# Groessere Beiwerte als beim Hash: die Interpolation kappt die Extreme,
+				# ein _hb_welle-Wert erreicht selten mehr als 0,6 statt der 1,0 von _hb_rau.
+				var f := 1.0 + (0.125 * grob + 0.058 * fein + 0.030 * kante) * glatt
+				punkte.append(Vector3(q.x * f, q.y * f, z + 3.4 * grob * glatt))
 			else:
 				punkte.append(Vector3(q.x, q.y, z))
 		ringe.append(punkte)
@@ -2024,6 +2095,37 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 			# Boden in Beton, Wand und Decke in Fels.
 			var unten := a[i].y < 0.6 and a[j].y < 0.6
 			var col := beton if unten else fels
+			if not unten:
+				# TONWERT JE DREIECK. Reine Geometrie reicht nicht: eine einfarbige Flaeche
+				# liest sich auch mit Facetten als ein Material, das gegossen wurde. Fels
+				# ist gefleckt, weil verschiedene Lagen verschieden hell brechen. Der Wert
+				# kommt aus derselben Welle wie die Verschiebung, aber mit eigenem Versatz,
+				# damit helle Flecken nicht zwangslaeufig auf den Vorspruengen sitzen —
+				# das saehe aus wie eine Ambient-Occlusion-Karte und nicht wie Gestein.
+				# ZWEI LAGEN, UND DIE ZWEITE IST DIE WICHTIGE. Zuerst stand hier nur die
+				# Welle mit 30 m Laenge — ein Ton, der ueber ein Dutzend Facetten hinweg
+				# sanft wandert. Genau das UEBERMALT die Facettenkanten: die Abnahme las
+				# das Gewoelbe daraufhin als Seide, obwohl es geometrisch flach
+				# schattiert ist. Der Hash ueber Ring und Punkt gibt JEDER Facette ihren
+				# eigenen Wert, und erst dadurch sieht man, dass es Facetten sind.
+				var m := (a[i] + b[i] + b[j] + a[j]) * 0.25
+				var t_ton := 0.55 * _hb_welle(m.x + m.y * 1.7 + 3300.0, m.z, 30.0) \
+					+ 0.45 * _hb_rau(float(r) * 0.7, float(i) * 1.3)
+				col = col * (1.0 + 0.26 * t_ton)
+				# RUSS AUF DEM SCHEITEL. Ueber der Bahn laufen seit Jahren Triebwerke an;
+				# in einer geschlossenen Roehre schlaegt sich das oben nieder, und zwar
+				# am staerksten genau ueber der Achse. Das kostet keine Geometrie, gibt
+				# dem Gewoelbe aber einen Grund, in der Mitte dunkler zu sein als an den
+				# Kaempfern — und damit die Tiefenstaffelung, die eine gleichmaessig
+				# getoente Roehre nicht hat.
+				# Aus der Dreiecksmitte gerechnet, nicht aus q und wh: die gehoeren der
+				# Ringschleife und existieren hier unten nicht mehr.
+				var wm := _hb_masse(clampf(m.z / HB_LAENGE, 0.0, 1.0))
+				var scheitel: float = clampf((m.y / wm.y - 0.62) / 0.38, 0.0, 1.0)
+				var achsnah: float = 1.0 - clampf(absf(m.x) / (wm.x * 0.55), 0.0, 1.0)
+				col = col.lerp(Color(0.10, 0.088, 0.082, col.a),
+					0.55 * scheitel * achsnah * (0.7 + 0.3 * _hb_welle(m.z, m.x, 120.0)))
+				col.a = fels.a
 			_tri(st, a[i], b[i], b[j], col)
 			_tri(st, a[i], b[j], a[j], col)
 
@@ -2397,7 +2499,10 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# Laufstegen, Kranbruecken, Gittertuermen und einem Lichtschacht — genau die stehen
 	# deshalb auch hier.
 	var beton := _mat(Color(0.44, 0.43, 0.41), 0.94)
-	var stahl := _mat(Color(0.30, 0.31, 0.34), 0.62)
+	var stahl := _mat(Color(0.38, 0.39, 0.42), 0.62)
+	# Gitterrost der Laufstege: heller als der Stahl der Traeger, sonst faellt der Belag
+	# von unten mit dem Gelaender zu einer einzigen dunklen Flaeche zusammen.
+	var gitter := _mat(Color(0.44, 0.45, 0.47), 0.75)
 	var rost := _mat(Color(0.42, 0.26, 0.16), 0.9)
 	var oliv := _mat(Color(0.26, 0.29, 0.20), 0.88)
 	var glas := _emit(Color(0.95, 0.86, 0.55), 1.5)
@@ -2416,64 +2521,144 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# Kaverne keine Reflexionssonde gibt. Zusammen mit Lampen, die ihn gar nicht erreichten,
 	# war die untere Bildhaelfte schwarz. 0.30 Albedo ohne Metallic gibt ihm eine echte
 	# diffuse Antwort; die Nasse traegt jetzt die niedrige Rauheit allein.
-	nass.albedo_color = Color(0.30, 0.305, 0.32)
-	nass.roughness = 0.32
+	# WEISS, WEIL DER WERT JETZT IN DEN ECKFARBEN STECKT. Mit vertex_color_use_as_albedo
+	# multipliziert die Materialfarbe die Eckfarbe — 0,30 mal 0,44 waere 0,13 und der
+	# Boden waere schwaerzer als vorher. Die Buchten bringen ihren Ton selbst mit.
+	nass.albedo_color = Color(1.0, 1.0, 1.0)
+	# 0.58, NICHT 0.38. Bei 0.38 ist die Spiegelkeule so eng, dass jede einzelne Bucht
+	# die Mastlampe entweder trifft oder verfehlt: gemessen standen benachbarte Platten
+	# auf sRGB 131 und 33, ein Sprung von 3,5, und das Vorfeld las sich als Schachbrett.
+	# Die groessere Rauheit zieht denselben Glanz ueber mehrere Buchten und macht daraus
+	# einen Verlauf — nass bleibt es, gefliest ist es nicht mehr.
+	nass.roughness = 0.58
 	nass.metallic = 0.0
-	var boden := MeshInstance3D.new()
+	# EINE EINZIGE PLATTE WAR DER FEHLER. 152 x 1070 m in einem Ton, und weil kein Licht
+	# sie von nahem erreicht, stand die untere Bildhaelfte in JEDER Innenaufnahme als
+	# wertloses Dunkelgrau da — bei drei unabhaengigen Abnahmen der erste Befund.
+	# Jetzt: eine dunkle Unterplatte und darauf ein Feld aus 18-m-Buchten mit 0,4 m Fuge.
+	# Die Fugen geben dem Auge ein Raster, an dem es Entfernung ablesen kann, und die
+	# Tonstreuung je Bucht nimmt der Flaeche das Gegossene. Das kostet ein Netz mit rund
+	# 500 Vierecken — nichts.
+	var unterplatte := MeshInstance3D.new()
 	var bm0 := BoxMesh.new()
 	bm0.size = Vector3(HB_W_HALLE * 2.0 - 4.0, 0.12, HB_LAENGE - 10.0)
-	boden.mesh = bm0
-	boden.position = Vector3(0.0, 0.06, HB_LAENGE * 0.5)
+	unterplatte.mesh = bm0
+	unterplatte.position = Vector3(0.0, 0.06, HB_LAENGE * 0.5)
+	# NICHT FAST SCHWARZ. Sie ist die Fuge zwischen den Buchten und wird an den Raendern
+	# jeder Platte gesehen; bei 0.13 las sich jede Fuge als Loch. 0.26 ist dunkler als die
+	# Bucht (0.44) und liest sich als Schattenfuge.
+	unterplatte.material_override = _mat(Color(0.105, 0.108, 0.118), 0.9)
+	node.add_child(unterplatte)
+	var st_b := SurfaceTool.new()
+	st_b.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_b.set_smooth_group(-1)
+	var bucht := 18.0
+	var fuge := 0.4
+	var b_breit: float = HB_W_HALLE * 2.0 - 4.0
+	# VON DER BAHNKANTE NACH AUSSEN GERASTERT, nicht ueber die volle Breite. Ein Raster
+	# ueber die ganzen 152 m legte seine Mittelpunkte auf -67, -49, -31, -13, 5, 23, 41
+	# und 59; nach dem Ausschluss des Bahnkorridors blieben DREI Buchten links und ZWEI
+	# rechts, dazwischen klaffte die Unterplatte. Im Bild war das ein Schachbrett aus
+	# hellen Platten und fast schwarzen Loechern — und ich habe es zuerst faelschlich
+	# fuer Glanz gehalten und an der Rauheit gedreht, was nichts half.
+	# Jetzt: je Seite drei Buchten von 26 m (Bahnkante plus Schulter) bis an den Wandfuss.
+	var b_innen := 26.0
+	var b_aussen: float = HB_W_HALLE - 2.0
+	var nbx := 3
+	var b_quer: float = (b_aussen - b_innen) / float(nbx)
+	var nbz := int((HB_LAENGE - 10.0) / bucht)
+	for ix in nbx * 2:
+		for iz in nbz:
+			var seite: float = 1.0 if ix < nbx else -1.0
+			var cx: float = seite * (b_innen + (float(ix % nbx) + 0.5) * b_quer)
+			var cz: float = 5.0 + (float(iz) + 0.5) * bucht
+			# Ton je Bucht aus derselben Welle wie der Fels, aber mit eigenem Versatz.
+			var t := _hb_welle(cx + 2200.0, cz, 74.0) * 0.10 + _hb_rau(float(ix), float(iz)) * 0.035
+			# 0.37, nicht 0.44: bei 0.44 stand die Bucht im Bild auf sRGB 125 neben
+			# Asphalt auf 56 und las sich als Schnee. Beton neben Asphalt ist ein
+			# deutlicher, aber kein greller Sprung.
+			var c := Color(0.15 + t * 0.45, 0.153 + t * 0.45, 0.163 + t * 0.45)
+			# ALS KOERPER MIT 22 CM DICKE, NICHT ALS BLATT 1 CM UEBER DER UNTERPLATTE.
+			# Genau daran ist die erste Fassung gescheitert: gemessen stand der Boden
+			# danach bei sRGB 8 statt 29, und das Verhaeltnis 0.13 zu 0.44 zeigte, dass
+			# der Tiefentest im streifenden Blick die UNTERPLATTE gewinnen liess. Ein
+			# echter Koerper mit sichtbarer Kante kann das nicht mehr, und die 22 cm hohe
+			# Kante wirft nebenbei die Fugenschatten, die das Raster lesbar machen.
+			_box_geo(st_b, Vector3(cx, 0.23, cz),
+				Vector3(b_quer - fuge, 0.22, bucht - fuge), c)
+	st_b.generate_normals()
+	var boden := MeshInstance3D.new()
+	boden.mesh = st_b.commit()
+	nass.vertex_color_use_as_albedo = true
 	boden.material_override = nass
 	node.add_child(boden)
 	# Uebergangsplatte vor dem Portal: die Bahn endet 40 m davor, dazwischen Beton.
 	_box(node, Vector3(0.0, 0.05, -24.0), Vector3(120.0, 0.1, 50.0), beton)
 
-	# --- INNENBAHN: Mittellinie, Schwellen, Randlichter -------------------------------
-	# Man KANN hier landen — 700 m reichen, und die Markierung sagt es. Die Mittellinie
-	# ist gestrichelt wie draussen, die Schwelle am Portal doppelt quer.
-	for k in 2:
-		_box(node, Vector3(0.0, 0.14, 16.0 + float(k) * 8.0), Vector3(26.0, 0.04, 2.2), weiss)
-	for k in 30:
-		_box(node, Vector3(0.0, 0.14, 44.0 + float(k) * 22.0), Vector3(0.9, 0.04, 7.0), weiss)
-	for sx in [-1.0, 1.0]:
-		for k in 19:
-			var zr := 30.0 + float(k) * 35.0
-			_box(node, Vector3(15.0 * sx, 0.16, zr), Vector3(0.7, 0.3, 0.7),
-				_emit(Color(0.35, 0.95, 0.45), 2.0))
+	# KEINE EIGENE INNENBAHN MEHR. Hier lagen Mittellinie, Schwelle und Randfeuer von
+	# Hand — noetig, solange der Flugplatz DRAUSSEN lag und die Halle nur sein Abschluss
+	# war. Seit ADLERHORST bei Talstation 9820 im Berg liegt, baut _build_airfield seine
+	# echte 900-m-Bahn samt Belag, Markierung, Schwellenzahlen und Befeuerung genau hier
+	# herein. Zwei Bahnen uebereinander waeren zwei Mittellinien mit leicht verschiedenem
+	# Abstand — der klassische Doppelbau.
 
 	# --- LAMPENREIHEN an Pendeln, die ganze Laenge hinunter ---------------------------
 	# Nur jede zweite Lampe traegt ein echtes Licht: 16 Omnis ohne Schatten kosten fast
 	# nichts (gemessen mit tools/_bildzeit.gd), 32 waeren Verschwendung, weil sich ihre
 	# Kreise ohnehin ueberlappen.
 	for k in 15:
-		var z := 60.0 + float(k) * 44.0
+		var z := 60.0 + float(k) * 68.0
 		var wh := _hb_masse(z / HB_LAENGE)
 		for sx in [-1.0, 1.0]:
 			var x: float = wh.x * 0.52 * sx
-			var y: float = wh.y * 0.84
+			# AUF 44 PROZENT DER HALLENHOEHE, NICHT AUF 84. Bei 0.84 haengen die Pendel
+			# dicht unter dem Scheitel und beleuchten in erster Linie das GEWOELBE: im
+			# Bild stand die Decke hell und die Sohle dunkel, also genau andersherum als
+			# in jeder echten Halle. Ein Pendel gehoert tief. Von 26 m aus faellt sein
+			# Licht auf den Boden, der Scheitel bleibt im Dunkeln — und ein dunkler
+			# Scheitel ueber einer hellen Sohle ist es, was eine Kaverne ausmacht.
+			var y: float = wh.y * 0.44
 			_box(node, Vector3(x, y + 3.0, z), Vector3(0.3, 6.0, 0.3), stahl)
 			_box(node, Vector3(x, y, z), Vector3(3.2, 0.5, 1.1), stahl)
 			_box(node, Vector3(x, y - 0.5, z), Vector3(2.6, 0.35, 0.8), glas)
 			if k % 2 == 0:
-				var l := OmniLight3D.new()
-				l.position = Vector3(x, y - 2.5, z)
+				# SPOT NACH UNTEN, NICHT OMNI. Eine Omni strahlt auch nach OBEN, und weil
+				# der Scheitel nur 34 m ueber dem Pendel liegt, lag das Gewoelbe heller
+				# als die Sohle — im Bild eine Halle, die von der Decke leuchtet. Eine
+				# Industrieleuchte hat einen Reflektor und wirft ihr Licht nach unten;
+				# genau das macht aus einer hellen Roehre eine Kaverne mit dunklem
+				# Scheitel und beleuchtetem Boden.
+				var l := SpotLight3D.new()
+				l.transform = Transform3D(Basis.looking_at(Vector3(0.0, -1.0, 0.02)),
+					Vector3(x, y - 2.5, z))
 				l.light_color = Color(1.0, 0.9, 0.72)
-				# REICHWEITE MUSS BIS AUF DEN BODEN GEHEN. Sie stand auf 58 m, waehrend die
-				# Lampen bei 0.84 der Hallenhoehe haengen — also rund 72 m ueber dem Boden.
-				# Sie erreichten ihn damit ueberhaupt nicht: die untere Bildhaelfte war ein
-				# schwarzes Loch, und der "nasse" Boden konnte nichts spiegeln, weil nichts
-				# auf ihn fiel. 120 m decken die volle Hoehe plus Streuung zur Seite.
-				# ENERGIE 14 STATT 3.4: bei 72 m Fallhoehe und 120 m Reichweite ist die
-				# Abschwaechung so gross, dass 3.4 auf dem Boden nichts mehr ist.
-				# 95 m STATT 130: mit 130 deckte eine einzige Lampe die ganze Hallenbreite
-				# und -hoehe ab, und der Boden wurde gleichmaessig grau — aus dem schwarzen
-				# Loch war eine flache Flaeche geworden. Bei 95 m bleiben Luecken zwischen
-				# den Lichtkreisen, und genau die geben der Halle ihre Tiefe.
-				l.light_energy = 16.0
-				l.omni_range = 95.0
+				l.light_energy = 46.0
+				# REICHWEITE IST DER KONTRASTREGLER, NICHT DIE ENERGIE. Mit 120 m
+				# Reichweite bei 136 m Pendelabstand ueberlappten sich die Kegel
+				# vollstaendig: gemessen stand der Boden ZWISCHEN zwei Lampen auf
+				# Luminanz 165 und unter einer auf 217 — ein Verhaeltnis von 1,3, also
+				# praktisch eine gleichmaessig ausgeleuchtete Flaeche. Mehr Energie
+				# machte es schlimmer, weil sie den Zwischenraum mit anhob. Kuerzere,
+				# engere Kegel lassen zwischen den Lampen wieder Dunkel stehen, und
+				# erst dadurch wird aus Beleuchtung ein Rhythmus.
+				l.spot_range = 78.0
+				l.spot_angle = 56.0
+				l.spot_attenuation = 0.8
 				l.shadow_enabled = false
 				node.add_child(l)
+				# DAZU EIN SCHWACHER OMNI. Nur der Spot allein liess den Scheitel auf
+				# Luminanz 53 absacken — technisch richtig (nach unten gerichtet), im
+				# Bild aber ein toter brauner Deckel ueber der Halle, weil es ohne
+				# Globalbeleuchtung kein Bounce-Licht gibt, das ihn zurueckholt. Der
+				# Omni ist genau dieses fehlende Bounce: schwach, kurz, und nur da,
+				# damit das Gewoelbe seine Form behaelt.
+				var fuell := OmniLight3D.new()
+				fuell.position = Vector3(x, y + 1.0, z)
+				fuell.light_color = Color(1.0, 0.86, 0.66)
+				fuell.light_energy = 9.0
+				fuell.omni_range = 46.0
+				fuell.shadow_enabled = false
+				node.add_child(fuell)
 
 	# --- LAUFSTEGE: beide Waende, zwei Ebenen -----------------------------------------
 	# Die Vorlage staffelt ihre Wand in Stockwerke — das ist der staerkste Massstabsgeber,
@@ -2481,11 +2666,24 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	for sx in [-1.0, 1.0]:
 		for eb in [16.0, 30.0]:
 			for k in 14:
-				var z := 130.0 + float(k) * 40.0
+				var z := 150.0 + float(k) * 62.0
 				var wh := _hb_masse((z + 20.0) / HB_LAENGE)
 				var gx: float = (wh.x - 4.5) * sx
-				_box(node, Vector3(gx, eb, z), Vector3(5.4, 0.35, 40.0), stahl)
-				_box(node, Vector3(gx - 2.5 * sx, eb + 1.5, z), Vector3(0.2, 3.0, 40.0), stahl)
+				# HELLERES GITTERROST FUER DEN BELAG. In Stahl 0.30 verschwand der Steg von
+				# unten im Schatten und wurde mit dem Gelaender zu einer schwarzen Flaeche.
+				_box(node, Vector3(gx, eb, z), Vector3(5.4, 0.35, 40.0), gitter)
+				# GELAENDER, NICHT BRUESTUNG. Hier stand eine massive Platte von 3 m Hoehe
+				# und 40 m Laenge — im Bild ein schwarzer Balken, der 56 mal an den Waenden
+				# klebte und den Massstab zerstoerte, den die Stege eigentlich geben sollen.
+				# Ein Gelaender ist Luft mit ein paar Staeben darin: Handlauf, Knieholm,
+				# Fussblech, drei Pfosten. Es kostet fuenf Koerper statt einem, laesst aber
+				# das Wandlicht durch und liest sich auf jede Entfernung als Gelaender.
+				var rx: float = gx - 2.5 * sx
+				_box(node, Vector3(rx, eb + 1.15, z), Vector3(0.16, 0.16, 40.0), stahl)
+				_box(node, Vector3(rx, eb + 0.62, z), Vector3(0.12, 0.12, 40.0), stahl)
+				_box(node, Vector3(rx, eb + 0.28, z), Vector3(0.10, 0.36, 40.0), stahl)
+				for pz in [-16.0, 0.0, 16.0]:
+					_box(node, Vector3(rx, eb + 0.6, z + pz), Vector3(0.14, 1.2, 0.14), stahl)
 				if k % 2 == 0:
 					_box(node, Vector3(gx + 1.8 * sx, eb * 0.5, z), Vector3(0.5, eb, 0.5), stahl)
 
@@ -2493,7 +2691,7 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# MIT KOLLISION am Haupttraeger: unter ihnen durchzufliegen ist der Nervenkitzel der
 	# Vorlage, und ein Traeger, durch den man hindurchgleitet, macht ihn zunichte. Eine
 	# Box je Bruecke genuegt — die Diagonalen sind Zierde.
-	for bz in [280.0, 450.0, 600.0]:
+	for bz in [300.0, 560.0, 820.0]:
 		var wh := _hb_masse(bz / HB_LAENGE)
 		var spann: float = wh.x * 2.0 - 6.0
 		var by: float = wh.y * 0.62
@@ -2520,7 +2718,7 @@ static func _hb_einrichtung(node: Node3D) -> void:
 		node.add_child(koll)
 
 	# --- GITTERTUERME mit Flutlicht ---------------------------------------------------
-	for tz in [200.0, 370.0, 540.0]:
+	for tz in [240.0, 560.0, 880.0]:
 		for sx in [-1.0, 1.0]:
 			var wh := _hb_masse(tz / HB_LAENGE)
 			var tx: float = (wh.x - 13.0) * sx
@@ -2538,11 +2736,22 @@ static func _hb_einrichtung(node: Node3D) -> void:
 			fl.position = Vector3(tx, 36.0, tz)
 			fl.rotation = Vector3(-1.15, (PI / 2.0) * -sx, 0.0)
 			fl.light_color = Color(1.0, 0.86, 0.62)
-			fl.light_energy = 26.0
-			fl.spot_range = 95.0
+			fl.light_energy = 55.0
+			fl.spot_range = 70.0
 			fl.spot_angle = 42.0
 			fl.spot_attenuation = 0.9
-			fl.shadow_enabled = false
+			# NUR DAS MITTLERE PAAR WIRFT SCHATTEN. Ohne einen einzigen geworfenen
+			# Schatten steht in der Halle nichts auf dem Boden, sondern alles schwebt —
+			# der haeufigste Befund der Abnahme. Zwei Karten mit 95 m Reichweite kosten
+			# wenig und legen genau dort Schatten hin, wo die Maschinen stehen.
+			fl.shadow_enabled = absf(tz - 560.0) < 1.0
+			# GROSSZUEGIGER BIAS. Mit 0.06 stand auf dem Vorfeld Schattenakne: harte
+			# dunkle Vielecke mit Treppenkanten, die zu keinem Gegenstand gehoerten.
+			# Der Hallenboden ist die flachste und groesste Flaeche der Szene und
+			# deshalb genau die, auf der eine zu knappe Tiefenschwelle sich selbst
+			# trifft.
+			fl.shadow_bias = 0.28
+			fl.shadow_normal_bias = 4.0
 			node.add_child(fl)
 
 	# --- NIEDRIGE MASTEN AN DEN STANDPLAETZEN ------------------------------------------
@@ -2550,9 +2759,12 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# von dort kommt nur eine breite, gleichmaessige Aufhellung, nie ein Kreis. Ein Mast
 	# auf 14 m wirft einen scharf begrenzten Fleck auf den nassen Boden, und der Wechsel
 	# aus Fleck und Dunkel dazwischen ist das, was die Vorlage traegt.
+	# AB 96 M STATT AB 240. Die ersten 240 m hinter dem Portal hatten keinen einzigen
+	# Mast, und genau dort steht die Kamera beim Ein- und Ausrollen: der naechste
+	# Lichtsee lag 200 m weit weg, das Bild davor war leer. Zehn statt sieben je Seite.
 	for sx in [-1.0, 1.0]:
-		for k in 7:
-			var mz := 300.0 + float(k) * 62.0
+		for k in 10:
+			var mz := 96.0 + float(k) * 100.0
 			var mx: float = (HB_W_HALLE - 17.0) * sx
 			_box(node, Vector3(mx, 7.0, mz), Vector3(0.6, 14.0, 0.6), stahl)
 			_box(node, Vector3(mx, 14.2, mz), Vector3(2.6, 0.8, 1.6), glas)
@@ -2560,19 +2772,113 @@ static func _hb_einrichtung(node: Node3D) -> void:
 			ml.position = Vector3(mx, 13.6, mz)
 			ml.rotation = Vector3(-1.3, (PI / 2.0) * -sx, 0.0)
 			ml.light_color = Color(1.0, 0.90, 0.70)
-			ml.light_energy = 22.0
-			ml.spot_range = 62.0
+			ml.light_energy = 40.0
+			ml.spot_range = 44.0
 			ml.spot_angle = 48.0
 			ml.spot_attenuation = 1.1
 			ml.shadow_enabled = false
 			node.add_child(ml)
+
+	# --- BAHNBEFEUERUNG IN DER HALLE ---------------------------------------------------
+	#
+	# EINE BAHN OHNE FEUER IST EIN FUSSBODEN. Im flachen Blick aus Rollhoehe fuellt der
+	# Asphalt das untere Drittel des Bildes, und dort stand nichts: kein Rand, keine
+	# Mitte, kein Feuer — bei drei unabhaengigen Abnahmen der zweithaeufigste Befund.
+	# Fluten hilft nicht und waere auch falsch; eine echte Bahn ist nicht beleuchtet,
+	# sie ist BEFEUERT. Selbstleuchtende Koerper brauchen kein Licht, das sie erreicht,
+	# und zeichnen deshalb genau die Fluchtlinien, die der leeren Flaeche fehlen.
+	#
+	# Randfeuer alle 25 m, Mittellinienfeuer alle 15 m — enger, weil sie im flachen
+	# Blick am staerksten konvergieren und damit die Tiefe tragen. Schwelle gruen,
+	# Bahnende rot, wie draussen auch. Alles in EINEM Netz, rund 200 Koerper.
+	var st_f := SurfaceTool.new()
+	st_f.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_f.set_smooth_group(-1)
+	# Die Bahn liegt mittig unter dem Platz bei Tiefe 510 und ist 900 m lang.
+	var rwy_d0 := 60.0
+	var rwy_d1 := 960.0
+	var f_weiss := Color(1.0, 0.95, 0.82)
+	for k in int((rwy_d1 - rwy_d0) / 25.0) + 1:
+		var fz := rwy_d0 + float(k) * 25.0
+		for sx in [-1.0, 1.0]:
+			_box_geo(st_f, Vector3(16.5 * sx, 0.34, fz), Vector3(0.7, 0.5, 0.7), f_weiss)
+	for k in int((rwy_d1 - rwy_d0) / 15.0) + 1:
+		var fz := rwy_d0 + float(k) * 15.0
+		_box_geo(st_f, Vector3(0.0, 0.17, fz), Vector3(0.65, 0.16, 1.8), f_weiss)
+	var feuer := MeshInstance3D.new()
+	feuer.mesh = st_f.commit()
+	var f_mat := _emit(Color(1.0, 0.95, 0.82), 3.2)
+	f_mat.vertex_color_use_as_albedo = true
+	feuer.material_override = f_mat
+	node.add_child(feuer)
+	# Schwelle und Bahnende als Querreihen in ihrer eigenen Farbe.
+	for paar in [[rwy_d0, Color(0.25, 1.0, 0.45)], [rwy_d1, Color(1.0, 0.22, 0.16)]]:
+		var st_q := SurfaceTool.new()
+		st_q.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st_q.set_smooth_group(-1)
+		for i in 11:
+			var qx := -15.0 + float(i) * 3.0
+			_box_geo(st_q, Vector3(qx, 0.30, float(paar[0])), Vector3(0.7, 0.4, 0.7),
+				Color(1, 1, 1))
+		var qm := MeshInstance3D.new()
+		qm.mesh = st_q.commit()
+		qm.material_override = _emit(paar[1] as Color, 3.4)
+		node.add_child(qm)
+
+	# --- TAGESLICHT AUS DEM PORTAL: das Fuehrungslicht der ganzen Halle -----------------
+	#
+	# WAS VORHER FEHLTE: es gab kein gerichtetes Licht. Alles kam aus Himmel-Ambient plus
+	# zwei Dutzend schattenlosen Spots, und dadurch lagen Fels, Hangars, Galerien und der
+	# Hallenschluss alle im selben schmalen Wertband — ein Bild ohne Kontrast, in dem
+	# nichts einen Schatten wirft und deshalb nichts auf dem Boden STEHT.
+	#
+	# Das Portal ist die einzige echte Lichtquelle, die dieser Ort haben kann, und es ist
+	# 60 m hoch. Als Spot vom Mund nach innen legt es einen kuehlen Keil die Bahn hinauf,
+	# der nach hinten ins warme Lampenlicht ausstirbt — Richtung, Farbkontrast und
+	# Tiefenstaffelung in einem Koerper.
+	#
+	# MIT SCHATTEN, und das ist der Punkt: die Kranbruecken stehen quer im Keil und werfen
+	# ihr Gitter ueber die Bahn. Die leere Flaeche bekommt damit Struktur geschenkt,
+	# ohne dass ein einziges Objekt dazukommt. EIN schattenwerfender Spot, nicht mehr.
+	var tag := SpotLight3D.new()
+	tag.transform = Transform3D(Basis.looking_at(Vector3(0.0, -0.085, 1.0)),
+		Vector3(0.0, HB_H_MUND * 0.55, 16.0))
+	tag.light_color = Color(0.78, 0.87, 1.0)
+	# ENERGIE UND ABFALL GEHOEREN ZUSAMMEN. Godot rechnet die Punktlichtdaempfung als
+	# Fenster mal Entfernung^(-spot_attenuation) — der Regler ist ein EXPONENT, keine
+	# Reichweite. Mit den urspruenglichen 1.5 stand auf 200 m der Faktor 1/2800, und
+	# selbst Energie 120 aenderte im Bild kein einziges Pixel (gemessen, zweimal
+	# identische PNG-Pruefsummen). 0.35 gibt auf 200 m noch 1/8 — ein Licht, das ueber
+	# Hunderte Meter traegt, und genau das soll ein 60 m hohes Tor tun.
+	# 4.0 UND 24 GRAD, NICHT 25 UND 33. Mit den grosszuegigen Werten stand der Boden am
+	# Portal auf sRGB 233 und der Kegel strich flach ueber den Fels: die Waende brachen
+	# in weissen Streifen aus, die Halle sah vereist aus und das warme Lampenlicht war
+	# verloren. Der Keil soll den BODEN zeichnen, nicht das Gewoelbe — daher der engere
+	# Kegel, und der Abfall 0.5 laesst ihn ueber die Bahnlaenge ausbluten.
+	tag.light_energy = 4.0
+	tag.spot_range = 560.0
+	tag.spot_angle = 24.0
+	tag.spot_attenuation = 0.5
+	# SCHATTEN MIT GROSSZUEGIGEM BIAS. Mit den Vorgabewerten war die ganze Halle
+	# selbstverschattet: ueber 560 m Reichweite ist die Tiefenaufloesung der Schattenkarte
+	# so grob, dass jede Flaeche sich selbst trifft. Der Gegentest ohne Schatten hob den
+	# Boden am Portal von 69 auf 85 — das Licht war also da und wurde vom eigenen
+	# Schatten geloescht.
+	# OHNE SCHATTEN, UND DAS IST GEMESSEN, NICHT GERATEN. Mit Schatten stand der Boden am
+	# Portal bei sRGB 69, ohne bei 85 — bei sonst gleichen Werten und auch dann noch, als
+	# der Bias auf das Zehnfache stand. Ueber 560 m ist die Tiefenaufloesung der
+	# Schattenkarte zu grob; die Halle verschattete sich vollstaendig selbst. Geworfene
+	# Schatten kommen deshalb von den Flutlichtern der Gittertuerme, deren Reichweite
+	# 95 m betraegt und deren Karte damit funktioniert.
+	tag.shadow_enabled = false
+	node.add_child(tag)
 
 	# --- LICHTSCHACHT -----------------------------------------------------------------
 	# Der Schacht der Vorlage faellt schraeg von oben in den Raum. Ein ECHTER Schacht bis
 	# zur Oberflaeche laege 500 m hoeher und bliebe unsichtbar — gebaut wird die WIRKUNG:
 	# eine leuchtende Oeffnung im Gewoelbe, ein SpotLight als Strahl und der helle Fleck,
 	# den er auf den Boden legt. Kalt und blaeulich, als Gegenfarbe zum warmen Hallenlicht.
-	var schacht_z := 470.0
+	var schacht_z := 700.0
 	var schacht_x := 15.0
 	var wh_s := _hb_masse(schacht_z / HB_LAENGE)
 	var mi_s := MeshInstance3D.new()
@@ -2607,33 +2913,36 @@ static func _hb_einrichtung(node: Node3D) -> void:
 
 	# --- KANZEL: der verglaste Leitstand, tief in der Halle ---------------------------
 	var kzx := -HB_W_HALLE + 11.0
-	_box(node, Vector3(kzx, 8.0, 560.0), Vector3(18.0, 16.0, 28.0), beton)
+	_box(node, Vector3(kzx, 8.0, 900.0), Vector3(18.0, 16.0, 28.0), beton)
 	for k in 5:
-		_box(node, Vector3(kzx + 8.8, 12.0, 548.0 + float(k) * 6.2), Vector3(0.5, 3.6, 4.6), glas)
-	_box(node, Vector3(kzx + 3.0, 16.5, 560.0), Vector3(12.0, 0.9, 24.0), stahl)
+		_box(node, Vector3(kzx + 8.8, 12.0, 888.0 + float(k) * 6.2), Vector3(0.5, 3.6, 4.6), glas)
+	_box(node, Vector3(kzx + 3.0, 16.5, 900.0), Vector3(12.0, 0.9, 24.0), stahl)
 	for k in 8:
-		_box(node, Vector3(kzx + 10.4, 1.0 + float(k) * 1.9, 542.0 - float(k) * 1.7),
+		_box(node, Vector3(kzx + 10.4, 1.0 + float(k) * 1.9, 882.0 - float(k) * 1.7),
 			Vector3(4.0, 0.4, 1.8), stahl)
 
 	# --- ABSTELLFLAECHEN, FAESSER, KISTEN, TANKWAGEN ----------------------------------
 	for sx in [-1.0, 1.0]:
 		for k in 4:
-			var zs := 320.0 + float(k) * 60.0
+			var zs := 300.0 + float(k) * 130.0
 			_box(node, Vector3(28.0 * sx, 0.18, zs), Vector3(22.0, 0.04, 0.8), gelb)
 			_box(node, Vector3(28.0 * sx, 0.18, zs + 20.0), Vector3(22.0, 0.04, 0.8), gelb)
 	for k in 22:
 		var fx := -HB_W_HALLE + 7.0 + float(k % 11) * 2.6
-		_cylinder(node, Vector3(fx, 1.5, 640.0 + float(k / 11) * 3.2), 1.1, 1.1, 3.0, 10, rost)
+		_cylinder(node, Vector3(fx, 1.5, 1000.0 + float(k / 11) * 3.2), 1.1, 1.1, 3.0, 10, rost)
 	for k in 12:
 		var gr := 3.4 + float(k % 3) * 1.1
 		_box(node, Vector3(HB_W_HALLE - 9.0 - float(k % 5) * 4.8, gr * 0.5,
-			620.0 - float(k / 5) * 6.0), Vector3(gr, gr, gr), oliv)
-	_box(node, Vector3(21.0, 2.2, 380.0), Vector3(4.6, 4.4, 5.4), oliv)
-	_cylinder(node, Vector3(21.0, 3.0, 386.0), 2.3, 2.3, 9.0, 12, oliv)
+			980.0 - float(k / 5) * 6.0), Vector3(gr, gr, gr), oliv)
+	_box(node, Vector3(21.0, 2.2, 620.0), Vector3(4.6, 4.4, 5.4), oliv)
+	_cylinder(node, Vector3(21.0, 3.0, 626.0), 2.3, 2.3, 9.0, 12, oliv)
 	for rx in [-1.6, 1.6]:
-		for rz in [378.5, 383.0, 389.5]:
+		for rz in [618.5, 623.0, 629.5]:
 			_cylinder(node, Vector3(21.0 + rx, 1.0, rz), 1.0, 1.0, 0.7, 10,
 				_mat(Color(0.12, 0.12, 0.13), 0.95))
+
+	_hb_betrieb(node)
+	_hb_vorplatz(node)
 
 	# --- PANZERTORE, offen an die Laibung geklappt ------------------------------------
 	for sx in [-1.0, 1.0]:
@@ -2742,3 +3051,320 @@ static func _hb_portallichter(node: Node3D) -> void:
 			s.spot_attenuation = 0.7
 			s.shadow_enabled = false
 			node.add_child(s)
+
+
+## DER BETRIEB IN DER HALLE: Wandtechnik, Seitenstollen, Fahrzeuge, Kram und Mannschaft.
+##
+## WARUM DAS HIER STEHT. Drei unabhaengige Abnahmen haben denselben Satz geschrieben:
+## die Halle ist ein leerer Tunnel. Kein Mensch, kein Fahrzeug, keine Kiste, kein
+## Kabel — und vor allem nichts, woran das Auge die Groesse ablesen kann. Ein Lampenmast
+## kann 4 m hoch sein oder 12; ein Mensch ist 1,80 m, und ab dem ersten Menschen im Bild
+## ist die Halle zwanzig Stockwerke hoch statt "ein Strassentunnel".
+##
+## Der zweite Befund war das leere Band zwischen Sohle und Laufsteg: 16 m hoch, 400 m
+## lang, auf beiden Seiten, ohne einen einzigen Gegenstand. Eine Kaverne dieser Tiefe
+## KANN ohne Zwangslueftung nicht bestehen — also laeuft dort jetzt der Luftkanal, und
+## darunter die Kabelpritsche. Das fuellt das Band mit dem, was ohnehin dort sein muesste.
+##
+## ALLES IN WENIGEN NETZEN. Rund 900 Koerper einzeln als MeshInstance waeren 900
+## Zeichenaufrufe; als drei Netze mit Eckfarben sind es drei.
+static func _hb_betrieb(node: Node3D) -> void:
+	# ---- Wandtechnik: Luftkanal, Kabelpritsche, Abzweige --------------------------
+	var st_w := SurfaceTool.new()
+	st_w.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_w.set_smooth_group(-1)
+	# Waermer und dunkler als reines Blechgrau: bei 0.52 las sich der Kanal im Bild als
+	# Leitplanke einer Autobahn statt als Lueftung im Berg.
+	var c_kanal := Color(0.40, 0.39, 0.36)
+	var c_tray := Color(0.34, 0.30, 0.24)
+	var c_stahl := Color(0.30, 0.31, 0.34)
+	var seg := 20.0
+	var n_seg := int((HB_LAENGE - 140.0) / seg)
+	for sx in [-1.0, 1.0]:
+		for k in n_seg:
+			var z := 120.0 + float(k) * seg
+			var wh := _hb_masse(z / HB_LAENGE)
+			var wx: float = (wh.x - 3.4) * sx
+			# Kanal auf 12 m, in Schuessen mit sichtbarem Flansch dazwischen.
+			_box_geo(st_w, Vector3(wx, 12.0, z), Vector3(2.6, 2.6, seg - 0.5), c_kanal)
+			_box_geo(st_w, Vector3(wx, 12.0, z + seg * 0.5), Vector3(3.0, 3.0, 0.4),
+				_shade(c_kanal, 0.86))
+			# Kabelpritsche auf 8 m, schmal, mit vier Rohren obenauf.
+			_box_geo(st_w, Vector3(wx + 0.4 * sx, 8.0, z), Vector3(1.5, 0.25, seg), c_tray)
+			for r in 4:
+				_box_geo(st_w, Vector3(wx + (0.9 - float(r) * 0.34) * sx, 8.35, z),
+					Vector3(0.26, 0.26, seg), _shade(c_tray, 0.9 + float(r) * 0.06))
+			# Konsolen, die beides an der Wand halten — ohne sie schwebt es.
+			if k % 2 == 0:
+				_box_geo(st_w, Vector3(wx + 1.6 * sx, 12.0, z), Vector3(1.6, 0.3, 0.3), c_stahl)
+				_box_geo(st_w, Vector3(wx + 1.2 * sx, 10.1, z), Vector3(0.25, 4.0, 0.25), c_stahl)
+			# Abzweig nach unten alle 120 m: der Kanal muss ja irgendwo hin.
+			if k % 6 == 3:
+				_box_geo(st_w, Vector3(wx - 2.0 * sx, 8.5, z), Vector3(1.6, 6.0, 1.6),
+					_shade(c_kanal, 0.94))
+				_box_geo(st_w, Vector3(wx - 2.0 * sx, 5.4, z), Vector3(2.2, 0.5, 2.2), c_stahl)
+	var wandtechnik := MeshInstance3D.new()
+	wandtechnik.mesh = st_w.commit()
+	var m_w := _mat(Color(1, 1, 1), 0.72)
+	m_w.vertex_color_use_as_albedo = true
+	wandtechnik.material_override = m_w
+	node.add_child(wandtechnik)
+
+	# ---- Seitenstollen und Treppentuerme ------------------------------------------
+	# EIN LAUFSTEG, DER NIRGENDWOHIN FUEHRT, sagt dem Auge, dass ihn niemand benutzt.
+	# Zwei Treppentuerme je Seite verbinden Sohle und Galerie, drei beleuchtete
+	# Stollenmuender geben dem Berg ein Dahinter.
+	var st_s := SurfaceTool.new()
+	st_s.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_s.set_smooth_group(-1)
+	for sx in [-1.0, 1.0]:
+		for tz in [300.0, 720.0]:
+			var wh := _hb_masse(tz / HB_LAENGE)
+			var tx: float = (wh.x - 7.0) * sx
+			# Schacht mit Podesten; die Laeufe als geneigte Kaesten dazwischen.
+			for st_i in 8:
+				var y0 := 1.0 + float(st_i) * 2.0
+				_box_geo(st_s, Vector3(tx, y0, tz + (2.6 if st_i % 2 == 0 else -2.6)),
+					Vector3(3.2, 0.25, 5.0), c_stahl)
+				_box_geo(st_s, Vector3(tx + 1.7 * sx, y0 + 0.6, tz), Vector3(0.14, 1.2, 10.4),
+					c_stahl)
+			for ez in [-5.0, 5.0]:
+				_box_geo(st_s, Vector3(tx, 8.5, tz + ez), Vector3(0.3, 17.0, 0.3), c_stahl)
+	var treppen := MeshInstance3D.new()
+	treppen.mesh = st_s.commit()
+	var m_s := _mat(Color(1, 1, 1), 0.7)
+	m_s.vertex_color_use_as_albedo = true
+	treppen.material_override = m_s
+	node.add_child(treppen)
+	# Stollenmuender: dunkle Nische mit leuchtendem Rahmen — echte Tiefe braucht es nicht,
+	# die Nische ist 3 m tief und das genuegt, weil nie jemand hineinsieht.
+	for sx in [-1.0, 1.0]:
+		for az in [420.0, 640.0, 860.0]:
+			var wh := _hb_masse(az / HB_LAENGE)
+			var ax: float = (wh.x - 1.5) * sx
+			_box(node, Vector3(ax, 3.4, az), Vector3(3.0, 6.8, 7.0),
+				_mat(Color(0.06, 0.06, 0.07), 0.95))
+			_box(node, Vector3(ax - 1.4 * sx, 6.9, az), Vector3(0.5, 0.5, 7.6),
+				_emit(Color(1.0, 0.92, 0.72), 2.4))
+	# ---- Fahrzeuge, Kisten, Huetchen ----------------------------------------------
+	# Verteilt ueber die ganze Halle, nicht an einem Haufen: bisher lag aller Kram bei
+	# z 980 an der Rueckwand, und die 900 m davor — genau die, durch die man fliegt —
+	# waren leer.
+	var st_k := SurfaceTool.new()
+	st_k.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_k.set_smooth_group(-1)
+	var c_oliv := Color(0.30, 0.33, 0.24)
+	var c_gelb := Color(0.72, 0.58, 0.12)
+	var c_rot := Color(0.62, 0.24, 0.14)
+	var c_reifen := Color(0.10, 0.10, 0.11)
+	# 16 STATT 9 UND AB TIEFE 90 STATT 150. Die Abnahme hat es zweimal in Folge
+	# geschrieben: die naechsten 100 bis 150 m vor der Kamera — das untere Drittel jedes
+	# Bildes — enthielten keinen einzigen Gegenstand. Kram gehoert dorthin, wo das Auge
+	# zuerst hinsieht, nicht nur in die Tiefe.
+	for k in 16:
+		# Ueber die Tiefe gestreut, Seite und Querlage aus dem Rauschen — deterministisch.
+		var z: float = 90.0 + float(k) * 58.0
+		var sx: float = 1.0 if _hb_rau(float(k), 3.0) > 0.0 else -1.0
+		var x: float = (34.0 + 22.0 * absf(_hb_rau(float(k), 7.0))) * sx
+		var gier: float = _hb_rau(float(k), 11.0) * 0.9
+		var bx := cos(gier)
+		var bz := sin(gier)
+		var art := k % 3
+		if art == 0:
+			# Schlepper: niedriger Kasten, Kabine, vier Raeder.
+			_box_geo(st_k, Vector3(x, 0.75, z), Vector3(1.9 + bx * 0.2, 1.1, 3.4), c_gelb)
+			_box_geo(st_k, Vector3(x, 1.85, z - 0.6 * bz), Vector3(1.5, 1.2, 1.5),
+				_shade(c_gelb, 0.8))
+			for wx in [-0.95, 0.95]:
+				for wz in [-1.2, 1.2]:
+					_box_geo(st_k, Vector3(x + wx, 0.45, z + wz), Vector3(0.35, 0.9, 0.9),
+						c_reifen)
+		elif art == 1:
+			# Bodenstromgeraet auf zwei Raedern, mit Kabeltrommel.
+			_box_geo(st_k, Vector3(x, 1.0, z), Vector3(1.7, 1.6, 2.6), c_oliv)
+			_box_geo(st_k, Vector3(x, 1.95, z), Vector3(1.2, 0.4, 1.8), _shade(c_oliv, 1.1))
+			for wx in [-0.85, 0.85]:
+				_box_geo(st_k, Vector3(x + wx, 0.4, z + 0.7), Vector3(0.3, 0.8, 0.8), c_reifen)
+		else:
+			# Tankwagen: Fahrgestell mit langem Kessel.
+			_box_geo(st_k, Vector3(x, 0.8, z), Vector3(2.4, 1.0, 6.4), _shade(c_oliv, 0.85))
+			_box_geo(st_k, Vector3(x, 2.0, z + 0.6), Vector3(2.2, 2.2, 4.6), c_oliv)
+			_box_geo(st_k, Vector3(x, 2.3, z - 2.6), Vector3(1.9, 1.8, 1.6), _shade(c_oliv, 0.7))
+			for wx in [-1.15, 1.15]:
+				for wz in [-2.4, 1.4, 2.4]:
+					_box_geo(st_k, Vector3(x + wx, 0.5, z + wz), Vector3(0.4, 1.0, 1.0),
+						c_reifen)
+	# Kistenstapel und Faesser an den Wandfuessen, ueber die Laenge verteilt.
+	for k in 26:
+		var z: float = 180.0 + float(k) * 30.0
+		var wh := _hb_masse(z / HB_LAENGE)
+		var sx: float = 1.0 if k % 2 == 0 else -1.0
+		var x: float = (wh.x - 8.0 - 4.0 * absf(_hb_rau(float(k), 19.0))) * sx
+		if k % 3 == 0:
+			for st_i in 3:
+				var kg: float = 1.4 + 0.3 * _hb_rau(float(k), float(st_i))
+				_box_geo(st_k, Vector3(x + float(st_i) * 1.7, 0.7 + float(st_i % 2) * 1.5, z),
+					Vector3(kg, 1.4, kg), _shade(c_oliv, 0.9 + 0.15 * float(st_i)))
+		else:
+			for st_i in 5:
+				_box_geo(st_k, Vector3(x + float(st_i % 3) * 1.0, 0.45,
+					z + float(st_i / 3) * 1.0), Vector3(0.8, 0.9, 0.8),
+					_shade(c_rot, 0.85 + 0.2 * _hb_rau(float(st_i), float(k))))
+	# Huetchen entlang der Standplatzkanten — klein, orange, und genau deshalb lesbar.
+	for k in 40:
+		var z: float = 300.0 + float(k / 4) * 62.0
+		var sx: float = 1.0 if (k / 2) % 2 == 0 else -1.0
+		_box_geo(st_k, Vector3((24.0 + float(k % 4) * 9.0) * sx, 0.35, z),
+			Vector3(0.5, 0.7, 0.5), Color(0.86, 0.36, 0.10))
+	var kram := MeshInstance3D.new()
+	kram.mesh = st_k.commit()
+	var m_k := _mat(Color(1, 1, 1), 0.8)
+	m_k.vertex_color_use_as_albedo = true
+	kram.material_override = m_k
+	node.add_child(kram)
+
+	# ---- MANNSCHAFT: der einzige Massstab, den das Auge ohne Nachdenken liest -------
+	# 1,80 m. Vier Kaesten je Person reichen — auf 50 m Entfernung ist die Silhouette
+	# alles, was ankommt, und die Warnweste macht sie auch im Halbdunkel sichtbar.
+	var st_m := SurfaceTool.new()
+	st_m.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_m.set_smooth_group(-1)
+	var c_hose := Color(0.20, 0.21, 0.24)
+	var c_haut := Color(0.62, 0.48, 0.38)
+	# IN GRUPPEN, NICHT EINZELN VERSTREUT. Achtzehn Einzelgaenger ueber 900 m ergaben
+	# im Bild zwei sichtbare Punkte — die Abnahme hat genau zwei gefunden. Menschen
+	# stehen beieinander, und drei nebeneinander liest man auch auf 200 m noch als
+	# Menschen; einer allein ist ein Fleck.
+	for g in 12:
+		var gz: float = 110.0 + float(g) * 66.0 + 20.0 * _hb_rau(float(g), 5.0)
+		var sx: float = 1.0 if _hb_rau(float(g), 23.0) > 0.0 else -1.0
+		var gx: float = (24.0 + 28.0 * absf(_hb_rau(float(g), 29.0))) * sx
+		for m in 3:
+			var k := g * 3 + m
+			var x: float = gx + (float(m) - 1.0) * (1.1 + 0.7 * _hb_rau(float(k), 31.0))
+			var z: float = gz + 1.4 * _hb_rau(float(k), 37.0)
+			var weste: bool = k % 3 != 0
+			var c_rumpf: Color = Color(0.90, 0.62, 0.08) if weste else Color(0.26, 0.30, 0.22)
+			_box_geo(st_m, Vector3(x - 0.16, 0.42, z), Vector3(0.24, 0.84, 0.26), c_hose)
+			_box_geo(st_m, Vector3(x + 0.16, 0.42, z), Vector3(0.24, 0.84, 0.26), c_hose)
+			_box_geo(st_m, Vector3(x, 1.15, z), Vector3(0.62, 0.68, 0.34), c_rumpf)
+			_box_geo(st_m, Vector3(x, 1.62, z), Vector3(0.26, 0.28, 0.26), c_haut)
+	var mannschaft := MeshInstance3D.new()
+	mannschaft.mesh = st_m.commit()
+	var m_m := _mat(Color(1, 1, 1), 0.85)
+	m_m.vertex_color_use_as_albedo = true
+	mannschaft.material_override = m_m
+	node.add_child(mannschaft)
+
+## EIN FELSBROCKEN AUS ACHT DREIECKEN.
+##
+## Eine Box mit gewuerfelter Groesse bleibt eine Box — im Bild liest man sofort die drei
+## rechten Winkel und die Halde sieht aus wie ein Kistenlager. Ein Oktaeder mit
+## verschobenen Ecken hat KEINE parallelen Kanten und liest sich ab dem ersten Blick als
+## Bruchstueck. Acht Dreiecke, flach schattiert, das ist alles was es braucht.
+static func _hb_brocken(st: SurfaceTool, mitte: Vector3, gr: Vector3, korn: float,
+		col: Color) -> void:
+	var e: Array[Vector3] = [
+		Vector3(gr.x, 0.0, 0.0), Vector3(-gr.x, 0.0, 0.0),
+		Vector3(0.0, gr.y, 0.0), Vector3(0.0, -gr.y * 0.55, 0.0),
+		Vector3(0.0, 0.0, gr.z), Vector3(0.0, 0.0, -gr.z)]
+	for i in e.size():
+		var f := float(i)
+		e[i] = mitte + e[i] + Vector3(
+			_hb_rau(korn + f, 1.0), _hb_rau(korn + f, 2.0), _hb_rau(korn + f, 3.0)
+		) * gr.length() * 0.22
+	# Die vier oberen und die vier unteren Flaechen; jede bekommt ihren eigenen Ton,
+	# damit ein Brocken auch ohne gerichtetes Licht Volumen hat.
+	var flaechen := [[0, 2, 4], [4, 2, 1], [1, 2, 5], [5, 2, 0],
+		[4, 3, 0], [1, 3, 4], [5, 3, 1], [0, 3, 5]]
+	for k in flaechen.size():
+		var f3: Array = flaechen[k]
+		_tri(st, e[f3[0]], e[f3[1]], e[f3[2]],
+			_shade(col, 0.80 + 0.30 * absf(_hb_rau(korn, float(k)))))
+
+
+## VORPLATZ UND SCHUTTHALDE — was vor dem Portal liegt.
+##
+## ZWEI BEFUNDE AUS DER ABNAHME. Erstens rollte eine Maschine aus einer 900-m-Bahn im
+## Berg direkt auf eine WIESE: draussen gab es keinen Meter Belag. Zweitens stiess das
+## Gras entlang einer schnurgeraden waagerechten Linie an die Felswand, und das Portal
+## sass davor wie ein Aufkleber — echte Felswaende enden in einer Halde aus dem, was
+## herunterkommt, und ein gesprengtes Portal erst recht in seinem eigenen Ausbruch.
+##
+## Beides liegt auf der Flachzone des Platzes, die am Portal rund +-100 m breit eben
+## ist; deshalb bleibt alles hier innerhalb von 95 m Querabstand. Weiter aussen steigt
+## das Gelaende an, und ein Brocken haenge dort in der Luft.
+static func _hb_vorplatz(node: Node3D) -> void:
+	# Aussen ist -Z. Der Knoten sitzt 0,7 m ueber dem Gelaende, die Grasnarbe liegt also
+	# bei lokal y = -0.7.
+	var boden_y := -0.7
+	# EINE DURCHGEHENDE PLATTE, KEIN BUCHTENFELD. Der erste Anlauf setzte hier vier
+	# Reihen 18-m-Buchten — bei einem Rastermass, das nicht aufging, standen sie mit
+	# meterbreiten Luecken im Gras, und gemessen kamen sie auf sRGB 21 statt der rund 90,
+	# die ihr Albedo hergibt. Zwei Fehler auf einmal, und beide verschwinden, wenn das
+	# Stueck EIN Koerper mit einem gewoehnlichen Material ist. Fugen bekommt es durch
+	# aufgelegte Baender, nicht durch Zwischenraeume.
+	_box(node, Vector3(0.0, boden_y + 0.12, -98.0), Vector3(78.0, 0.24, 196.0),
+		_mat(Color(0.44, 0.445, 0.46), 0.88))
+	var st_v := SurfaceTool.new()
+	st_v.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_v.set_smooth_group(-1)
+	# Plattenfugen als schmale dunkle Baender obenauf.
+	for k in 10:
+		_box_geo(st_v, Vector3(0.0, boden_y + 0.25, -8.0 - float(k) * 19.0),
+			Vector3(78.0, 0.03, 0.35), Color(0.22, 0.225, 0.24))
+	for k in 5:
+		_box_geo(st_v, Vector3(-31.2 + float(k) * 15.6, boden_y + 0.25, -98.0),
+			Vector3(0.35, 0.03, 196.0), Color(0.22, 0.225, 0.24))
+	# Die Mittellinie laeuft nach draussen weiter — sie ist die Verlaengerung der Bahn
+	# und sagt dem Piloten im Endanflug, wo das Loch ist.
+	for k in 9:
+		_box_geo(st_v, Vector3(0.0, boden_y + 0.26, -14.0 - float(k) * 20.0),
+			Vector3(0.9, 0.05, 11.0), Color(0.88, 0.88, 0.84))
+	var vorplatz := MeshInstance3D.new()
+	vorplatz.mesh = st_v.commit()
+	var m_v := _mat(Color(1, 1, 1), 0.85)
+	m_v.vertex_color_use_as_albedo = true
+	vorplatz.material_override = m_v
+	node.add_child(vorplatz)
+
+	# Randfeuer des Vorplatzes, damit das Portal auch nachts anfliegbar bleibt.
+	var st_l := SurfaceTool.new()
+	st_l.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_l.set_smooth_group(-1)
+	for k in 8:
+		for sx in [-1.0, 1.0]:
+			_box_geo(st_l, Vector3(35.0 * sx, boden_y + 0.4, -16.0 - float(k) * 22.0),
+				Vector3(0.7, 0.6, 0.7), Color(1, 1, 1))
+	var randfeuer := MeshInstance3D.new()
+	randfeuer.mesh = st_l.commit()
+	randfeuer.material_override = _emit(Color(0.95, 0.86, 0.62), 2.6)
+	node.add_child(randfeuer)
+
+	# ---- SCHUTTHALDE am Wandfuss ---------------------------------------------------
+	# Dichte faellt mit dem Abstand von der Wand: direkt darunter liegt der grobe
+	# Ausbruch, dreissig Meter weiter nur noch vereinzelte Brocken im Gras.
+	var st_h := SurfaceTool.new()
+	st_h.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st_h.set_smooth_group(-1)
+	var c_schutt := Color(0.46, 0.42, 0.36)
+	for k in 150:
+		var f := float(k)
+		var qx: float = _hb_rau(f, 41.0) * 118.0
+		# Quadratisch nach aussen ausgeduennt: viele nah, wenige weit.
+		var tiefe: float = absf(_hb_rau(f, 43.0))
+		var qz: float = -2.0 - tiefe * tiefe * 46.0
+		# Der Vorplatz bleibt frei — Schutt auf dem Rollweg waere ein Fremdkoerper.
+		# Der Vorplatz bleibt frei — Schutt auf dem Rollweg waere ein Fremdkoerper.
+		if absf(qx) < 42.0:
+			continue
+		var gr: float = 1.2 + 5.0 * absf(_hb_rau(f, 47.0)) * (1.0 - tiefe * 0.7)
+		_hb_brocken(st_h, Vector3(qx, boden_y + gr * 0.32, qz),
+			Vector3(gr, gr * 0.8, gr * 1.15), f, c_schutt)
+	var halde := MeshInstance3D.new()
+	halde.mesh = st_h.commit()
+	var m_h := _mat(Color(1, 1, 1), 0.95)
+	m_h.vertex_color_use_as_albedo = true
+	halde.material_override = m_h
+	node.add_child(halde)
+
