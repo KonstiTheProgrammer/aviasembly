@@ -576,14 +576,14 @@ func _draw_minimap() -> void:
 		return rect.position + (uv - win_min) / win_size * rect.size
 	# Marker in Reichweite
 	for af in mini_airfields:
-		var p: Vector2 = to_px.call(af["pos"])
-		if rect.has_point(p):
-			draw_rect(Rect2(p - Vector2(4.0 * ui, 4.0 * ui), Vector2(8.0 * ui, 8.0 * ui)), Color(0, 0, 0, 0.8))
-			draw_rect(Rect2(p - Vector2(3.0 * ui, 3.0 * ui), Vector2(6.0 * ui, 6.0 * ui)), af.get("color", Color.WHITE))
+		var ap: Vector2 = to_px.call(af["pos"])
+		if rect.has_point(ap):
+			draw_rect(Rect2(ap - Vector2(4.0 * ui, 4.0 * ui), Vector2(8.0 * ui, 8.0 * ui)), Color(0, 0, 0, 0.8))
+			draw_rect(Rect2(ap - Vector2(3.0 * ui, 3.0 * ui), Vector2(6.0 * ui, 6.0 * ui)), af.get("color", Color.WHITE))
 	for poi in mini_pois:
-		var p: Vector2 = to_px.call(poi["pos"])
-		if rect.has_point(p):
-			draw_circle(p, 3.2 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
+		var op: Vector2 = to_px.call(poi["pos"])
+		if rect.has_point(op):
+			draw_circle(op, 3.2 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
 	# Spieler-Pfeil (Blickrichtung), N-Kennung
 	var p: Vector2 = to_px.call(pp)
 	var fwd := -mini_player.global_transform.basis.z

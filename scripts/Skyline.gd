@@ -381,7 +381,7 @@ static func _t_scheibe(st: SurfaceTool, koerper: StaticBody3D, fuss: Vector3, br
 ## voraussetzen. Bei acht Seiten sieht man das Vieleck, bei zwanzig zahlt man Dreiecke
 ## fuer nichts.
 static func _t_rund(st: SurfaceTool, koerper: StaticBody3D, fuss: Vector3, breite: float,
-		hoehe: float, col: Color, yaw: float, rng: RandomNumberGenerator) -> void:
+		hoehe: float, col: Color, _yaw: float, rng: RandomNumberGenerator) -> void:
 	# r*1.14 ist bei abgesetztem Kopf der weiteste Punkt — der Faktor steckt hier drin.
 	var r := breite * 0.5 * rng.randf_range(0.78, 0.86)
 	var dreh := rng.randf() * TAU

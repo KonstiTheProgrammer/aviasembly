@@ -209,10 +209,10 @@ func _freie_sicht(plane: Node3D) -> bool:
 		return true
 	var von := global_position + Vector3(0, 7.5, 0)
 	var q := PhysicsRayQueryParameters3D.create(von, plane.global_position, 1)
-	var tr := welt.direct_space_state.intersect_ray(q)
-	if tr.is_empty():
+	var treffer := welt.direct_space_state.intersect_ray(q)
+	if treffer.is_empty():
 		return true
-	var wer = tr.get("collider")
+	var wer = treffer.get("collider")
 	return wer is Node and (wer as Node).is_in_group("player")
 
 

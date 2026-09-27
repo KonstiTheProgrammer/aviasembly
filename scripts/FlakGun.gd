@@ -230,24 +230,24 @@ func _make_shell() -> Node3D:
 	body.material_override = _glow(Color(1.0, 0.78, 0.32), 7.0)
 	s.add_child(body)
 	# Leucht-Trail (Welt-Koordinaten -> Schweif bleibt liegen, während die Granate fliegt)
-	var tr := CPUParticles3D.new()
-	tr.local_coords = false
-	tr.amount = 26
-	tr.lifetime = 0.55
-	tr.speed_scale = 1.0
-	tr.direction = Vector3.ZERO
-	tr.spread = 12.0
-	tr.initial_velocity_min = 0.0
-	tr.initial_velocity_max = 2.0
-	tr.gravity = Vector3.ZERO
-	tr.scale_amount_min = 0.6
-	tr.scale_amount_max = 1.1
+	var spur := CPUParticles3D.new()
+	spur.local_coords = false
+	spur.amount = 26
+	spur.lifetime = 0.55
+	spur.speed_scale = 1.0
+	spur.direction = Vector3.ZERO
+	spur.spread = 12.0
+	spur.initial_velocity_min = 0.0
+	spur.initial_velocity_max = 2.0
+	spur.gravity = Vector3.ZERO
+	spur.scale_amount_min = 0.6
+	spur.scale_amount_max = 1.1
 	var pm := SphereMesh.new()
 	pm.radius = 0.35
 	pm.height = 0.7
 	pm.material = _glow(Color(1.0, 0.6, 0.2), 5.0)
-	tr.mesh = pm
-	s.add_child(tr)
+	spur.mesh = pm
+	s.add_child(spur)
 	return s
 
 

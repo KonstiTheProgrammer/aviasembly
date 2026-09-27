@@ -1831,8 +1831,8 @@ func _sync_mirror(part: Node3D, sc: Vector3) -> void:
 
 
 # Versatz eines Rumpfendes (-1 = vorne/-Z, +1 = hinten/+Z), in Teil-Einheiten.
-func _end_shift(part: Node3D, sign: float) -> Vector2:
-	return part.get_meta("shift_front" if sign < 0.0 else "shift_back", Vector2.ZERO)
+func _end_shift(part: Node3D, seite: float) -> Vector2:
+	return part.get_meta("shift_front" if seite < 0.0 else "shift_back", Vector2.ZERO)
 
 
 # Schnittpunkt des Maus-Strahls mit der Ebene durch `punkt` senkrecht zu `normale`.

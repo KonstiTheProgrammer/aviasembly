@@ -167,16 +167,16 @@ func _gelaende_treffer(a: Vector3, b: Vector3) -> bool:
 	if welt == null:
 		return false
 	var q := PhysicsRayQueryParameters3D.create(a, b, 1)
-	var tr := welt.direct_space_state.intersect_ray(q)
-	if tr.is_empty():
+	var treffer := welt.direct_space_state.intersect_ray(q)
+	if treffer.is_empty():
 		return false
-	var wer = tr.get("collider")
+	var wer = treffer.get("collider")
 	# Das eigene Ziel ist kein Gelaende — dafuer ist der Naeherungszuender zustaendig,
 	# der schon eine Zeile vorher gelaufen ist.
 	if wer is Node and (wer as Node).is_in_group(feind_gruppe):
 		return false
 	_tot = true
-	_explosion(tr["position"])
+	_explosion(treffer["position"])
 	queue_free()
 	return true
 

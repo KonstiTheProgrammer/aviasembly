@@ -1874,11 +1874,11 @@ var tunnel: Array = []
 ## vier Ecken —, und bei leerer Liste kostet er gar nichts.
 func _im_tunnel(p: Vector3) -> bool:
 	for t in tunnel:
-		var basis: Vector3 = t["pos"]
-		var dy := p.y - basis.y
+		var ursprung: Vector3 = t["pos"]
+		var dy := p.y - ursprung.y
 		if dy < float(t["unten"]) or dy > float(t["oben"]):
 			continue
-		var d := Vector2(p.x - basis.x, p.z - basis.z)
+		var d := Vector2(p.x - ursprung.x, p.z - ursprung.z)
 		var dir: Vector2 = t["dir"]
 		var l := d.dot(dir)
 		if l < 0.0 or l > float(t["laenge"]):
@@ -2367,7 +2367,6 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 		if dx * dx + dz * dz > _ms_reich2[mi]:
 			continue
 		var ms: Dictionary = massifs[mi]
-		var mp: Vector3 = ms["pos"]
 		var mr := float(ms["r"])
 		var typ := String(ms.get("type", "berg"))
 		var dehn := float(ms.get("dehnung", 1.0))
@@ -6824,6 +6823,7 @@ static func _grobe_fassung(quelle: Mesh) -> Mesh:
 	for si0 in quelle.get_surface_count():
 		var a0v: Variant = quelle.surface_get_arrays(si0)[Mesh.ARRAY_VERTEX]
 		if a0v != null:
+			@warning_ignore("integer_division")
 			tris += (a0v as PackedVector3Array).size() / 3
 	if tris >= STELLV_AB_DREIECK and ab0.size.y > maxf(ab0.size.x, ab0.size.z) * 0.9:
 		return _stellvertreter(quelle)

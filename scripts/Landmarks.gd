@@ -2601,7 +2601,6 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	var oliv := _mat(Color(0.26, 0.29, 0.20), 0.88)
 	var glas := _emit(Color(0.95, 0.86, 0.55), 1.5)
 	var gelb := _mat(Color(0.72, 0.62, 0.18), 0.9)
-	var weiss := _emit(Color(0.92, 0.92, 0.90), 1.1)
 
 	# --- NASSER BODEN: die Rollflaeche als eigene, spiegelnde Platte ------------------
 	# Die Schale traegt Vertexfarben bei Rauheit 0.95 — darauf kann keine Lampe einen
@@ -2666,7 +2665,6 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	st_b.set_smooth_group(-1)
 	var bucht := 18.0
 	var fuge := 0.4
-	var b_breit: float = HB_W_HALLE * 2.0 - 4.0
 	# VON DER BAHNKANTE NACH AUSSEN GERASTERT, nicht ueber die volle Breite. Ein Raster
 	# ueber die ganzen 152 m legte seine Mittelpunkte auf -67, -49, -31, -13, 5, 23, 41
 	# und 59; nach dem Ausschluss des Bahnkorridors blieben DREI Buchten links und ZWEI
@@ -3116,12 +3114,12 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	strahl.shadow_enabled = false
 	node.add_child(strahl)
 	var fleck := MeshInstance3D.new()
-	var fz := CylinderMesh.new()
-	fz.top_radius = 13.0
-	fz.bottom_radius = 13.0
-	fz.height = 0.06
-	fz.radial_segments = 16
-	fleck.mesh = fz
+	var fleck_m := CylinderMesh.new()
+	fleck_m.top_radius = 13.0
+	fleck_m.bottom_radius = 13.0
+	fleck_m.height = 0.06
+	fleck_m.radial_segments = 16
+	fleck.mesh = fleck_m
 	fleck.position = Vector3(schacht_x, 0.20, schacht_z)
 	fleck.material_override = _emit(Color(0.62, 0.72, 0.88), 0.5)
 	node.add_child(fleck)
@@ -3144,11 +3142,11 @@ static func _hb_einrichtung(node: Node3D) -> void:
 			_box(node, Vector3(28.0 * sx, 0.18, zs + 20.0), Vector3(22.0, 0.04, 0.8), gelb)
 	for k in 22:
 		var fx := -HB_W_HALLE + 7.0 + float(k % 11) * 2.6
-		_cylinder(node, Vector3(fx, 1.5, 1000.0 + float(k / 11) * 3.2), 1.1, 1.1, 3.0, 10, rost)
+		_cylinder(node, Vector3(fx, 1.5, 1000.0 + floorf(k / 11.0) * 3.2), 1.1, 1.1, 3.0, 10, rost)
 	for k in 12:
 		var gr := 3.4 + float(k % 3) * 1.1
 		_box(node, Vector3(HB_W_HALLE - 9.0 - float(k % 5) * 4.8, gr * 0.5,
-			980.0 - float(k / 5) * 6.0), Vector3(gr, gr, gr), oliv)
+			980.0 - floorf(k / 5.0) * 6.0), Vector3(gr, gr, gr), oliv)
 	_box(node, Vector3(21.0, 2.2, 620.0), Vector3(4.6, 4.4, 5.4), oliv)
 	_cylinder(node, Vector3(21.0, 3.0, 626.0), 2.3, 2.3, 9.0, 12, oliv)
 	for rx in [-1.6, 1.6]:
@@ -3474,12 +3472,12 @@ static func _hb_betrieb(node: Node3D) -> void:
 		else:
 			for st_i in 5:
 				_box_geo(st_k, Vector3(x + float(st_i % 3) * 1.0, 0.45,
-					z + float(st_i / 3) * 1.0), Vector3(0.8, 0.9, 0.8),
+					z + floorf(st_i / 3.0) * 1.0), Vector3(0.8, 0.9, 0.8),
 					_shade(c_rot, 0.85 + 0.2 * _hb_rau(float(st_i), float(k))))
 	# Huetchen entlang der Standplatzkanten — klein, orange, und genau deshalb lesbar.
 	for k in 40:
-		var z: float = 300.0 + float(k / 4) * 62.0
-		var sx: float = 1.0 if (k / 2) % 2 == 0 else -1.0
+		var z: float = 300.0 + floorf(k / 4.0) * 62.0
+		var sx: float = 1.0 if int(floorf(k / 2.0)) % 2 == 0 else -1.0
 		_box_geo(st_k, Vector3((24.0 + float(k % 4) * 9.0) * sx, 0.35, z),
 			Vector3(0.5, 0.7, 0.5), Color(0.86, 0.36, 0.10))
 	var kram := MeshInstance3D.new()

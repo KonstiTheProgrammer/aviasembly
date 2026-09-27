@@ -35,13 +35,13 @@ var _win_size := Vector2.ONE
 var _label_rects: Array = []   # Label-Entzerrung (Overview-Cluster)
 
 
-static func generate_image(t: TerrainWorld, size := 640, world_r := WORLD_R) -> Image:
-	var img := Image.create(size, size, false, Image.FORMAT_RGB8)
+static func generate_image(t: TerrainWorld, kante := 640, world_r := WORLD_R) -> Image:
+	var img := Image.create(kante, kante, false, Image.FORMAT_RGB8)
 	var sea := TerrainWorld.SEA_Y
-	for py in size:
-		var wz := (float(py) / float(size - 1) * 2.0 - 1.0) * world_r
-		for px in size:
-			var wx := (float(px) / float(size - 1) * 2.0 - 1.0) * world_r
+	for py in kante:
+		var wz := (float(py) / float(kante - 1) * 2.0 - 1.0) * world_r
+		for px in kante:
+			var wx := (float(px) / float(kante - 1) * 2.0 - 1.0) * world_r
 			var h := t.height_at(wx, wz)
 			var c: Color
 			if h < sea - 10.0:
