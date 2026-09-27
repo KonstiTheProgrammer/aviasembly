@@ -4291,6 +4291,20 @@ func _set_mode(m: int) -> void:
 	if m == Mode.FLY and mode == Mode.BUILD and build_ctrl != null and build_ctrl.has_floating():
 		_toast("%d Teil(e) hängen frei (rot markiert) — erst verbinden, dann Start" % build_ctrl.floating_count())
 		return
+	# SURVIVAL: geflogen wird nur, was gekauft ist. Die Palette sperrte ungekaufte Teile
+	# zwar beim BAUEN, aber "Laden -> Vorlagen" oder ein Slot aus dem Sandkasten brachte
+	# sie ohne Kauf in den Hangar — und damit war die ganze Shop-Progression ausgehebelt
+	# (F-22 ab Minute eins). Der Entwurf darf trotzdem geladen und angesehen werden: er
+	# ist dann ein Ziel, auf das man hinspart.
+	if m == Mode.FLY and mode == Mode.BUILD and build_ctrl != null and game != null \
+			and not game.is_sandbox():
+		var gesperrt := _ungekaufte_teile()
+		if not gesperrt.is_empty():
+			var namen: Array = gesperrt.slice(0, 3)
+			var rest := gesperrt.size() - namen.size()
+			_toast("Noch nicht gekauft: %s%s — erst in der Teile-Palette freischalten"
+				% [", ".join(namen), (" (+%d)" % rest) if rest > 0 else ""])
+			return
 	var was_fly := (mode == Mode.FLY)
 	mode = m
 	var building := (m == Mode.BUILD)
@@ -4327,6 +4341,27 @@ func _set_mode(m: int) -> void:
 		if game != null and not game.flag("controls_hint"):
 			game.set_flag("controls_hint")
 			_show_controls_hint()
+
+
+## Namen der Teile im Entwurf, die im Survival noch gekauft werden muessen.
+##
+## NUR TEILE AUS DER PALETTE ZAEHLEN. Versteckte Teile (PartCatalog.PALETTE_HIDDEN) kann
+## man nicht kaufen: es sind Auto-Varianten, die der Editor beim Andocken selbst einsetzt
+## (fuselage_transport, fuselage_radial, die C-130-Ringe ...) oder Sonderteile der
+## Vorlagen. Wuerden sie sperren, waere jeder Entwurf mit so einem Rumpf fuer immer
+## flugunfaehig.
+func _ungekaufte_teile() -> Array:
+	var out: Array = []
+	if game == null or game.is_sandbox() or build_ctrl == null:
+		return out
+	var gesehen := {}
+	for it in build_ctrl.get_design():
+		var id := String(it.get("id", ""))
+		if gesehen.has(id) or not PartCatalog.in_palette(id) or game.is_unlocked(id):
+			continue
+		gesehen[id] = true
+		out.append(String(PartCatalog.get_part(id).get("name", id)))
+	return out
 
 
 func _input(event: InputEvent) -> void:
@@ -6688,7 +6723,7 @@ func _show_mode_select() -> void:
 	sandbox.pressed.connect(_choose_mode.bind(GameState.GameMode.SANDBOX))
 	v.add_child(sandbox)
 	var surv := Button.new()
-	surv.text = "SURVIVAL\nStarte klein · erfülle Missionen · verdiene Geld · kaufe & upgrade"
+	surv.text = "SURVIVAL\nStarte klein · überstehe Wellen · verdiene Geld · kaufe & upgrade"
 	surv.custom_minimum_size = Vector2(460, 70)
 	surv.add_theme_font_size_override("font_size", 18)
 	surv.pressed.connect(_choose_mode.bind(GameState.GameMode.SURVIVAL))
