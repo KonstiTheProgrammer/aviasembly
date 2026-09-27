@@ -33,6 +33,16 @@ const TRAIL_LEN := 9          # Anzahl gespeicherter Stützpunkte (länger = lä
 var _trail_mi: MeshInstance3D = null
 var _trail_pts: PackedVector3Array = PackedVector3Array()
 
+# SPRENGWIRKUNG. Kugeln treffen nur, was sie direkt beruehren; alles mit Sprengladung
+# wirkt im Umkreis. Vorher zaehlte auch bei der Bombe nur der Direkttreffer im Trefferradius
+# des Ziels — eine Bombe, die zwei Meter neben einer Raketenstellung einschlug, richtete
+# NICHTS aus. Innerhalb des Trefferradius des Ziels gibt es vollen Schaden, danach faellt
+# er linear bis zum Rand ab.
+const SPRENGRADIUS := {"bomb": 22.0, "missile": 6.0, "missile_drop": 9.0}
+# Unter diese Hoehe faellt nichts: Sicherheitsnetz, falls unter dem Geschoss noch kein
+# Gelaendechunk geladen ist (der Strahl findet dann nichts). Knapp unter dem Meeresspiegel.
+const BODEN_NOTFALL := -12.0
+
 
 func _ready() -> void:
 	_build_visual()
@@ -94,13 +104,66 @@ func _physics_process(delta: float) -> void:
 		# kuenftiges Ziel ohne beides bekommt 3 m statt eines Absturzes. Missile._sucher
 		# loest dasselbe Problem seit jeher so; hier fehlte es.
 		if _seg_dist(a, b, t.global_position) < float(t.get_meta("hit_radius", 3.0)):
-			t.hit(damage)
+			# Explodiert wird am Punkt der groessten Annaeherung, nicht am Frame-Ende:
+			# eine Kugel legt bis zu 13 m je Physikschritt zurueck und stuende sonst
+			# schon hinter dem Ziel.
+			var knall := _seg_punkt(a, b, t.global_position)
+			if SPRENGRADIUS.has(kind):
+				_sprengen(knall)      # trifft das Ziel selbst mit vollem Schaden
+			else:
+				t.hit(damage)
+			global_position = knall
 			_boom()
 			queue_free()
 			return
-	if (kind == "bomb" or kind == "missile_drop") and global_position.y <= 0.4:
+	# GELAENDE. Ohne diesen Strahl fielen Bomben durch jeden Huegel und zuendeten erst bei
+	# y <= 0,4 — ueber der 90 m hohen Talsohle vor ADLERHORST also unsichtbar tief im
+	# Fels, und ueber dem Meer (SEA_Y = -6) 6 m in der Luft. Kugeln und ungelenkte
+	# Raketen flogen durch Berge. Missile.gd prueft das seit jeher genauso; hier fehlte es.
+	# Ebene 1 = Gelaende, Bahnen, Bauwerke und die Wasserebene — das eigene Flugzeug
+	# liegt auf Ebene 4 (FlightController.AIRCRAFT_LAYER) und wird nie getroffen.
+	var boden: Variant = _gelaende_treffer(a, b)
+	if boden != null:
+		global_position = boden
+		if SPRENGRADIUS.has(kind):
+			_sprengen(boden)
 		_boom()
 		queue_free()
+		return
+	if global_position.y < BODEN_NOTFALL:
+		queue_free()
+
+
+## Schnittpunkt der Strecke a->b mit Gelaende/Bauwerken (Ebene 1), sonst null.
+## Nur im Physikschritt gueltig — _physics_process ist genau das.
+func _gelaende_treffer(a: Vector3, b: Vector3) -> Variant:
+	if not Engine.is_in_physics_frame() or not is_inside_tree():
+		return null
+	var welt := get_world_3d()
+	if welt == null:
+		return null
+	var q := PhysicsRayQueryParameters3D.create(a, b, 1)
+	var hit := welt.direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return null
+	return hit["position"]
+
+
+## Sprengwirkung im Umkreis: jedes Ziel der Gruppe "target" bekommt Schaden nach Abstand.
+func _sprengen(punkt: Vector3) -> void:
+	var r: float = float(SPRENGRADIUS.get(kind, 0.0))
+	if r <= 0.0:
+		return
+	for t in get_tree().get_nodes_in_group("target"):
+		if not is_instance_valid(t) or not (t is Node3D):
+			continue
+		var kern := float(t.get_meta("hit_radius", 3.0))
+		var d := punkt.distance_to((t as Node3D).global_position)
+		if d > r + kern:
+			continue
+		var anteil := clampf(1.0 - maxf(0.0, d - kern) / r, 0.0, 1.0)
+		if anteil > 0.0 and t.has_method("hit"):
+			t.hit(damage * anteil)
 
 
 func _home(delta: float) -> void:
@@ -220,12 +283,16 @@ func _start_smoke() -> void:
 
 
 func _seg_dist(a: Vector3, b: Vector3, p: Vector3) -> float:
+	return _seg_punkt(a, b, p).distance_to(p)
+
+
+## Punkt der Strecke a->b, der p am naechsten liegt.
+func _seg_punkt(a: Vector3, b: Vector3, p: Vector3) -> Vector3:
 	var ab := b - a
 	var l2 := ab.length_squared()
 	if l2 < 1e-6:
-		return a.distance_to(p)
-	var t := clampf((p - a).dot(ab) / l2, 0.0, 1.0)
-	return (a + ab * t).distance_to(p)
+		return a
+	return a + ab * clampf((p - a).dot(ab) / l2, 0.0, 1.0)
 
 
 func _build_visual() -> void:

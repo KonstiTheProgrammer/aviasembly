@@ -54,14 +54,55 @@ var _muzzle: Node3D
 var _shells: Array = []
 var _shader: Shader
 
+## Wird ausgeloest, wenn das Geschuetz zerstoert wird — Main verrechnet die Praemie.
+signal zerstoert(reward: int, pos: Vector3)
+
+# VERWUNDBAR. Bis hierher stand die Flak ausserhalb der Gruppe "target" und war damit
+# unzerstoerbar — genau das, was SamSite selbst als "kein Gegner, sondern ein
+# Naturereignis" beschreibt. 8 HP: eine Bombe in die Stellung oder eine Lenkwaffe raeumt
+# sie, mit der Bordkanone braucht es einen entschlossenen Anflug durch ihr eigenes Feuer.
+const REWARD := 200
+var hp := 8.0
+var _tot := false
+
 
 func _ready() -> void:
 	_build_model()
 	_cd = randf_range(0.8, FIRE_CD)   # Geschütze versetzt feuern lassen
+	add_to_group("target")
+	# Signaturen fuer Suchkoepfe (siehe Missile._signal): ein heisses Rohr, viel Blech.
+	set_meta("ir_signatur", 60.0)
+	set_meta("radar_signatur", 260.0)
+	set_meta("hit_radius", 5.0)
+
+
+## Treffer einstecken — gleiche Signatur wie Target.hit und SamSite.hit.
+func hit(dmg: float) -> void:
+	if _tot:
+		return
+	hp -= dmg
+	if hp > 0.0:
+		return
+	_tot = true
+	# SOFORT aus der Zielgruppe: sonst schaltet eine Lenkwaffe noch auf das Wrack auf,
+	# waehrend die Explosion laeuft.
+	remove_from_group("target")
+	_clear_shells()
+	zerstoert.emit(REWARD, global_position)
+	# Die Explosionseffekte haengen an diesem Knoten (add_child in _fx_*). Deshalb nicht
+	# sofort freigeben, sondern das Geschuetz verstecken, den Knall ausspielen lassen und
+	# danach aufraeumen.
+	for c in get_children():
+		if c is Node3D:
+			(c as Node3D).visible = false
+	_blast_fx(global_position + Vector3(0, 2.0, 0))
+	get_tree().create_timer(2.5).timeout.connect(queue_free)
 
 
 # ===========================================================================
 func _process(delta: float) -> void:
+	if _tot:
+		return
 	var plane := _find_player()
 	if plane == null:
 		_clear_shells()

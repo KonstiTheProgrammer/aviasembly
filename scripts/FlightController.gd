@@ -1423,7 +1423,10 @@ func _drop_bomb(single := false) -> void:
 		var pidx: int = int(w.get("part_idx", -1))
 		if pidx >= 0 and pidx < aircraft.parts.size() and aircraft.parts[pidx].get("broken", false):
 			continue   # Bombe schon weg/abgerissen
-		_spawn("bomb", _muzzle(w["off"]), av, 12.0, 6.0, 24.0)   # Bombe fällt (Schwerkraft)
+		# Schaden 15 (vorher 6): seit Bomben im Umkreis wirken (Projectile.SPRENGRADIUS)
+		# raeumt ein Treffer in die Stellung eine Raketenstellung (14 HP) wie die schwere
+		# Lenkwaffe — dafuer muss man sie aber auch ueberfliegen. Daneben braucht es zwei.
+		_spawn("bomb", _muzzle(w["off"]), av, 12.0, 15.0, 24.0)   # Bombe fällt (Schwerkraft)
 		add_shake(0.1)
 		w["cd"] = 0.8
 		if int(w["ammo"]) > 0:

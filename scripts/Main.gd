@@ -6315,6 +6315,7 @@ func _spawn_flak() -> void:
 		var flak := FlakGun.new()
 		flak.zone_center = center
 		flak.zone_radius = radius
+		flak.zerstoert.connect(_on_flak_zerstoert)
 		fly_world.add_child(flak)
 		flak.global_position = pos
 
@@ -6355,6 +6356,7 @@ func _spawn_inselwehr() -> void:
 		var flak := FlakGun.new()
 		flak.zone_center = insel
 		flak.zone_radius = 900.0
+		flak.zerstoert.connect(_on_flak_zerstoert)
 		fly_world.add_child(flak)
 		flak.global_position = fp
 
@@ -6406,6 +6408,15 @@ func _on_sam_zerstoert(reward: int, _pos: Vector3) -> void:
 		return
 	game.add_money(reward)
 	_toast("Raketenstellung ausgeschaltet! +%d" % reward)
+
+
+## Ein ausgeschaltetes Flakgeschuetz — derselbe Weg wie bei der Raketenstellung und aus
+## demselben Grund nicht ueber _on_target_killed (kein Ersatzballon, kein Wellenfortschritt).
+func _on_flak_zerstoert(reward: int, _pos: Vector3) -> void:
+	if game == null:
+		return
+	game.add_money(reward)
+	_toast("Flak ausgeschaltet! +%d" % reward)
 
 
 func _on_target_killed(reward: int, _pos: Vector3) -> void:
