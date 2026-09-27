@@ -881,7 +881,9 @@ func _explode() -> void:
 				cs.disabled = true
 			var vis = parts[i]["vis"]
 			parts[i]["broken"] = true
-			if not is_instance_valid(vis):
+			# Eingefahrene Raeder sind per Blob-Animation auf Skalierung 0 geschrumpft und
+			# unsichtbar — als Truemmer gaebe das nur einen leeren Koerper.
+			if not is_instance_valid(vis) or not (vis as Node3D).visible:
 				continue
 			var deb := RigidBody3D.new()
 			deb.add_to_group("debris")
@@ -889,7 +891,15 @@ func _explode() -> void:
 			deb.collision_mask = 1
 			deb.angular_damp = 0.12
 			par.add_child(deb)
-			deb.global_transform = vis.global_transform
+			# DER TRUEMMER-KOERPER BEKOMMT DIE DREHUNG DES FLUGZEUGS, NICHT DIE DES VISUALS.
+			# Das Visual traegt Teil-Skalierung (pscale), Spiegelung (det<0) und beim
+			# eingezogenen Fahrwerk sogar Skalierung 0. Ein RigidBody3D mit so einer Basis
+			# ist nicht invertierbar ("det == 0" beim Zerschellen mit eingefahrenem
+			# Fahrwerk, gemessen mit tools/_rundflug_alle.gd), und die Physik orthonormiert
+			# ihn im naechsten Schritt ohnehin — gespiegelte Teile klappten dabei um.
+			# So bleibt die Form als LOKALE Transformation am Visual erhalten.
+			deb.global_transform = Transform3D(global_transform.basis.orthonormalized(),
+				(vis as Node3D).global_position)
 			vis.reparent(deb, true)
 			var outward: Vector3 = deb.global_position - com_world
 			if outward.length() < 0.2:
