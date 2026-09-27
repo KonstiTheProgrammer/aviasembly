@@ -35,47 +35,89 @@ var _win_size := Vector2.ONE
 var _label_rects: Array = []   # Label-Entzerrung (Overview-Cluster)
 
 
+## Das Kartenbild. ZEILENWEISE PARALLEL ueber den WorkerThreadPool, wie die Fernschuerze.
+##
+## Vorher lief alles auf einem Thread: 512 x 512 Geländeproben, gemessen 6,6 s
+## (tools/_karte_zeit.gd) — beim Spielstart, wenn auch Chunks, Schuerze und Stadt um
+## die Kerne konkurrieren, spuerbar laenger, und so lange meldete M nur "Karte wird noch
+## gezeichnet". height_at und biome_at sind rein lesend und laufen im Pool ohnehin schon
+## (Fernschuerze, Chunk-Worker).
+##
+## HOHE PRIORITAET: beim Start rechnet die Fernschuerze gleichzeitig 577 Kacheln im
+## selben Pool. Ohne Vorrang standen die Kartenzeilen hinter ihr an — gemessen 12,6 s,
+## also LANGSAMER als der alte Einzelthread. Mit Vorrang ist die Karte in einem Bruchteil
+## davon fertig, und die Schuerze verliert dabei nur diese Zeit.
+##
+## BITGLEICH ZUM ALTEN BILD: jede Zeile wird weiter ueber Image.set_pixel quantisiert,
+## nicht von Hand in Bytes gerechnet — die Pruefsumme in _karte_zeit bleibt dieselbe.
 static func generate_image(t: TerrainWorld, kante := 640, world_r := WORLD_R) -> Image:
-	var img := Image.create(kante, kante, false, Image.FORMAT_RGB8)
+	# Die Vulkane EINMAL heraussuchen statt fuer jeden der 262 144 Bildpunkte ueber alle
+	# Massive zu laufen und dabei jedes Mal den Typ als String zu vergleichen.
+	var vulkane: Array = []
+	for ms in t.massifs:
+		if String(ms.get("type", "")) == "vulkan":
+			var mp: Vector3 = ms["pos"]
+			vulkane.append([Vector2(mp.x, mp.z), float(ms["r"]) * 1.05])
+	var zeilen: Array = []
+	zeilen.resize(kante)
+	var sperre := Mutex.new()
+	var gid := WorkerThreadPool.add_group_task(func(py: int) -> void:
+		var z := _zeile(t, py, kante, world_r, vulkane)
+		sperre.lock()
+		zeilen[py] = z
+		sperre.unlock(), kante, -1, true, "Weltkarte")
+	WorkerThreadPool.wait_for_group_task_completion(gid)
+	var daten := PackedByteArray()
+	for z in zeilen:
+		daten.append_array(z)
+	return Image.create_from_data(kante, kante, false, Image.FORMAT_RGB8, daten)
+
+
+static func _zeile(t: TerrainWorld, py: int, kante: int, world_r: float,
+		vulkane: Array) -> PackedByteArray:
+	var reihe := Image.create(kante, 1, false, Image.FORMAT_RGB8)
+	var wz := (float(py) / float(kante - 1) * 2.0 - 1.0) * world_r
+	for px in kante:
+		var wx := (float(px) / float(kante - 1) * 2.0 - 1.0) * world_r
+		reihe.set_pixel(px, 0, _farbe(t, wx, wz, vulkane))
+	return reihe.get_data()
+
+
+static func _farbe(t: TerrainWorld, wx: float, wz: float, vulkane: Array) -> Color:
 	var sea := TerrainWorld.SEA_Y
-	for py in kante:
-		var wz := (float(py) / float(kante - 1) * 2.0 - 1.0) * world_r
-		for px in kante:
-			var wx := (float(px) / float(kante - 1) * 2.0 - 1.0) * world_r
-			var h := t.height_at(wx, wz)
-			var c: Color
-			if h < sea - 10.0:
-				c = Color(0.10, 0.33, 0.60)                       # tiefer Ozean
-			elif h < sea - 1.0:
-				c = Color(0.10, 0.33, 0.60).lerp(Color(0.30, 0.76, 0.77),
-					clampf((h - (sea - 10.0)) / 9.0, 0.0, 1.0))   # Untiefen -> Tuerkis
-			elif h < sea + 1.6:
-				c = Color(0.93, 0.85, 0.62)                        # Strand
-			elif h > 188.0:
-				c = Color(0.92, 0.93, 0.95)                        # Schnee
-			elif h > 52.0:
-				c = Color(0.45, 0.39, 0.33).lerp(Color(0.60, 0.55, 0.48),
-					clampf((h - 52.0) / 120.0, 0.0, 1.0))          # Fels
-			else:
-				match t.biome_at(wx, wz):
-					TerrainWorld.Biome.WUESTE:
-						c = Color(0.89, 0.79, 0.55)
-					TerrainWorld.Biome.HEIDE:
-						c = Color(0.72, 0.65, 0.47)
-					_:
-						c = Color(0.42, 0.62, 0.30).lerp(Color(0.30, 0.50, 0.25),
-							clampf(h / 52.0, 0.0, 1.0))            # Wiese, hoeher = dunkler
-			for ms in t.massifs:
-				if String(ms.get("type", "")) == "vulkan" and h > 26.0 \
-						and Vector2(wx - ms["pos"].x, wz - ms["pos"].z).length() < float(ms["r"]) * 1.05:
-					# Dunkler als vorher (0.30/0.24/0.21), weil der Kegel im Gelaende kein
-					# brauner Berg mehr ist, sondern schwarzer Basalt mit Rostflecken
-					# (TerrainWorld.VULKAN_BASALT/_ROST). Die Karte muss dasselbe Zeichen
-					# zeigen wie das Fenster, sonst sucht man am Boden einen Berg, den man
-					# auf der Karte nicht wiedererkennt.
-					c = Color(0.17, 0.135, 0.125)
-			img.set_pixel(px, py, c)
-	return img
+	var h := t.height_at(wx, wz)
+	var c: Color
+	if h < sea - 10.0:
+		c = Color(0.10, 0.33, 0.60)                       # tiefer Ozean
+	elif h < sea - 1.0:
+		c = Color(0.10, 0.33, 0.60).lerp(Color(0.30, 0.76, 0.77),
+			clampf((h - (sea - 10.0)) / 9.0, 0.0, 1.0))   # Untiefen -> Tuerkis
+	elif h < sea + 1.6:
+		c = Color(0.93, 0.85, 0.62)                        # Strand
+	elif h > 188.0:
+		c = Color(0.92, 0.93, 0.95)                        # Schnee
+	elif h > 52.0:
+		c = Color(0.45, 0.39, 0.33).lerp(Color(0.60, 0.55, 0.48),
+			clampf((h - 52.0) / 120.0, 0.0, 1.0))          # Fels
+	else:
+		match t.biome_at(wx, wz):
+			TerrainWorld.Biome.WUESTE:
+				c = Color(0.89, 0.79, 0.55)
+			TerrainWorld.Biome.HEIDE:
+				c = Color(0.72, 0.65, 0.47)
+			_:
+				c = Color(0.42, 0.62, 0.30).lerp(Color(0.30, 0.50, 0.25),
+					clampf(h / 52.0, 0.0, 1.0))            # Wiese, hoeher = dunkler
+	if h > 26.0:
+		for v in vulkane:
+			if Vector2(wx, wz).distance_to(v[0]) < float(v[1]):
+				# Dunkler als vorher (0.30/0.24/0.21), weil der Kegel im Gelaende kein
+				# brauner Berg mehr ist, sondern schwarzer Basalt mit Rostflecken
+				# (TerrainWorld.VULKAN_BASALT/_ROST). Die Karte muss dasselbe Zeichen
+				# zeigen wie das Fenster, sonst sucht man am Boden einen Berg, den man
+				# auf der Karte nicht wiedererkennt.
+				c = Color(0.17, 0.135, 0.125)
+	return c
 
 
 func setup(map_img: Image, airfields: Array, pois: Array, player: Node3D) -> void:
