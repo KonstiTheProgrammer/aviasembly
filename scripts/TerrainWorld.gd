@@ -4406,6 +4406,7 @@ func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> vo
 		update_center(world_pos)
 	var r := int(ceil(radius / CHUNK)) + 1
 	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
+	var keys: Array[Vector2i] = []
 	for cy in range(cc.y - r, cc.y + r + 1):
 		for cx in range(cc.x - r, cc.x + r + 1):
 			var key := Vector2i(cx, cy)
@@ -4413,8 +4414,31 @@ func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> vo
 				continue
 			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > radius + CHUNK:
 				continue
-			var data := _make_chunk_data(key)
-			_attach_chunk(key, data["mesh"], data["shape"], data["flora"], data["rocks"])
+			keys.append(key)
+	# PARALLEL RECHNEN, IN DER ALTEN REIHENFOLGE EINHAENGEN. Beim Spielstart sind das
+	# rund 40 Chunks um den Spawn, und nacheinander auf dem Hauptthread kosteten sie
+	# gemessen 3,1 s — der groesste einzelne Posten, bevor der Hangar ueberhaupt
+	# erscheint. _make_chunk_data arbeitet nur mit lokalen Daten und liest die
+	# Gelaendeparameter bloss; sie laeuft deshalb seit jeher im Streaming-Worker neben
+	# dem Hauptthread, und height_at rechnet in der Fernschuerze auf allen Kernen
+	# zugleich. Das Ergebnis ist je Chunk deterministisch (Seed aus Schluessel und
+	# Weltseed), eingehaengt wird wie vorher Zeile fuer Zeile auf dem Hauptthread.
+	# HOHE PRIORITAET, damit die Aufgaben nicht hinter einer laufenden Fernschuerze
+	# anstehen (Aufrufe aus Werkzeugen und beim Zuruecksetzen kommen spaeter im Spiel).
+	var daten: Array = []
+	daten.resize(keys.size())
+	var sperre := Mutex.new()
+	var gid := WorkerThreadPool.add_group_task(func(i: int) -> void:
+		var d := _make_chunk_data(keys[i])
+		sperre.lock()
+		daten[i] = d
+		sperre.unlock(), keys.size(), -1, true, "Spawn-Chunks")
+	WorkerThreadPool.wait_for_group_task_completion(gid)
+	for i in keys.size():
+		if _chunks.has(keys[i]):
+			continue
+		var data: Dictionary = daten[i]
+		_attach_chunk(keys[i], data["mesh"], data["shape"], data["flora"], data["rocks"])
 	# HIER KEIN AUFSCHUB. _attach_chunk stellt die Flora nur in die Warteschlange, damit
 	# der Ruck beim Nachladen im Flug verschwindet. Diese Funktion ist aber der
 	# SYNCHRONE Weg — Spawnbereich und Renderwerkzeuge verlassen sich darauf, dass
