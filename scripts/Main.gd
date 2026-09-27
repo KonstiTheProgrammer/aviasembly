@@ -6929,6 +6929,10 @@ func _safe_name(n: String) -> String:
 		if ch in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
 			continue
 		out += ch
+	# KEIN PUNKT VORNE. "..", ".test" usw. wurden als versteckte Dateien gespeichert —
+	# DirAccess.get_files() listet die nicht, der Slot war danach unsichtbar und liess
+	# sich weder laden noch loeschen.
+	out = out.lstrip(".").strip_edges()
 	return out.substr(0, 40)
 
 
