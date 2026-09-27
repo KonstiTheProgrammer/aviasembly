@@ -1679,8 +1679,14 @@ func _process(delta: float) -> void:
 		# Kamerahöhe trotzdem tief im Bild. Höhe mit dem echten vertikalen FOV skalieren (32:9
 		# schmal) -> gleiches Framing auf jedem Seitenverhältnis. Abstand nur per Zoom.
 		var fov_fac := tan(ViewUtil.actual_vfov_rad(camera) * 0.5) / tan(deg_to_rad(FOV_BASE) * 0.5)
-		var cam_h := CAM_HEIGHT * fov_fac * cam_zoom
-		var cam_pos := t.origin - _cam_aim * (13.0 * cam_zoom) + Vector3.UP * cam_h
+		# ZIELZOOM AUCH HIER ZURUECKSETZEN. ZOOM_DIST galt bisher nur im Tastatur-Pfad
+		# (_cam_offset) — im Maus-Flug, dem STANDARD, blieb die Kamera bei 13 m stehen,
+		# waehrend das FOV von 64 auf 22 Grad ging: die eigene Zelle wuchs um das Dreifache
+		# und verdeckte genau das, was man heranzoomen wollte. Hoehe mitskalieren, sonst
+		# rutscht das Flugzeug im Bild nach oben.
+		var zd := lerpf(1.0, ZOOM_DIST, zoom_t)
+		var cam_h := CAM_HEIGHT * fov_fac * cam_zoom * zd
+		var cam_pos := t.origin - _cam_aim * (13.0 * cam_zoom * zd) + Vector3.UP * cam_h
 		# Geschwindigkeits-Vorhalt: der 8/s-Lerp hinkt sonst ~v/8 m hinterher (bei 100 m/s
 		# über 12 m extra Abstand!) -> Vorhalt hält die Distanz auch bei Highspeed stabil.
 		cam_pos += aircraft.linear_velocity * (CAM_LEAD / 8.0)
