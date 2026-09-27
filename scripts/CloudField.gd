@@ -364,6 +364,12 @@ static func _setze_puff(mi: MeshInstance3D, x: float, z: float, cov: FastNoiseLi
 static func dichte_bei(root: Node3D, pos: Vector3) -> float:
 	if root == null or not is_instance_valid(root) or not root.has_meta("zellen"):
 		return 0.0
+	# EIN AUSGEBLENDETES FELD IST KEINE WOLKE. Die Grafikeinstellung "Wolkenlagen"
+	# (Main.grafik_anwenden) schaltet das ganze Feld unsichtbar, nicht die einzelnen
+	# Wolken — die Pruefung unten auf mi.visible griff deshalb nicht, und unsichtbare
+	# Wolken erzeugten weiter Nebel-Weissabriss, Turbulenz und Deckung vor Flak/SAM.
+	if not root.visible:
+		return 0.0
 	var zellen: Dictionary = root.get_meta("zellen")
 	var spacing: float = root.get_meta("spacing", 340.0)
 	var zx := int(floorf(pos.x / spacing))
