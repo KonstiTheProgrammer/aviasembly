@@ -4530,9 +4530,19 @@ func _show_controls_hint() -> void:
 	var box := ColorRect.new()
 	box.color = Color(0.03, 0.06, 0.10, 0.85)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_rect(box, 0.5, 0, 0.5, 0, -300, 84, 300, 246)
+	# 880 STATT 600 BREIT, UND MIT UMBRUCH. Die laengste Zeile brauchte bei 15 pt schon
+	# rund 700 px; ein Label ohne Umbruch waechst dann ueber seinen Kasten hinaus (siehe
+	# CLAUDE.md, "UI laeuft aus dem Bild"). Dazu die Tasten, die bisher nirgends standen:
+	# Klappen, Zielzoom, Umschauen, Waffengruppen, Fackeln/Dueppel.
+	_rect(box, 0.5, 0, 0.5, 0, -440, 84, 440, 272)
 	ui.add_child(box)
-	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste / Linksklick = feuern    ·    B = Bombe    ·    G = Fahrwerk    ·    H = Bombenschacht\nM = KARTE    ·    N = Maus-/Tastatur-Flug (Start: MAUS)    ·    O = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\n"
+		+ "W/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)    ·    Q/E = gieren    ·    Shift / Strg = Schub / Bremse\n"
+		+ "Leertaste / Linksklick = feuern    ·    1–4 / X = Waffengruppe    ·    B = Bombe    ·    H = Bombenschacht    ·    K / L = Fackeln / Düppel\n"
+		+ "G = Fahrwerk    ·    F = Klappen    ·    V halten = Zielzoom    ·    C halten = Umschauen    ·    M = KARTE\n"
+		+ "N = Maus-/Tastatur-Flug (Start: MAUS)    ·    J = Arcade    ·    T = Assist    ·    O = G-Schutz\n"
+		+ "Enter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

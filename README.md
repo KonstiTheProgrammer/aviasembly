@@ -54,8 +54,13 @@ das Flugzeug längsstabil.
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
 | **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) · **lange halten = 🔄 Barrel Roll** |
-| **Q / E** | nach rechts / links gieren (Seitenleitwerk) — auch **C / Z** |
+| **Q / E** | nach rechts / links gieren (Seitenleitwerk) — **Z** = auch links |
+| **C halten** | **Free-Look**: Kamera frei ums Flugzeug schwenken, ohne zu lenken |
 | **G** | Einziehfahrwerk ein-/ausfahren |
+| **F** | Landeklappen: Aus → Start → Landung |
+| **H** | **Bombenschacht** auf/zu — Bomben IM Schacht fallen nur bei offener Klappe, offene Klappen bremsen |
+| **K / L** | **Fackeln / Düppel** werfen (gegen Wärme- bzw. Radar-Lenkwaffen) |
+| **O** | **G-Schutz** an/aus (an = Flügel können nicht abreißen; war früher **H**) |
 | **I** | Steuerung umkehren (alles in die andere Richtung) |
 | **T** | Assist an/aus (an = ruhig, aus = direkter „Pro"-Modus) |
 | **Enter** | Reset auf die Startbahn (repariert auch gebrochenes Fahrwerk) |
@@ -135,9 +140,15 @@ Bau Waffen an dein Flugzeug, ziel mit dem Fadenkreuz und feuere:
   **Dauerfeuer** (halten), Raketen/Lenkwaffen/Bomben als **Einzelschuss pro Klick**
   (jeder Klick löst den nächsten bereiten Mount aus). **Heat-Seeker fliegen erst geradeaus
   und kurven erst dann aufs Ziel, wenn eines in ihre Nähe kommt** — also vorher grob zielen.
-- **Taste B** — eine Bombe pro Druck (geht immer, egal welche Gruppe gewählt ist)
+- **Taste B** — eine Bombe pro Druck (geht immer, egal welche Gruppe gewählt ist;
+  Bomben im geschlossenen Schacht erst nach **H**)
 
 Jeder Abschuss gibt **Geld** (Ballon +120, Luftschiff +600) → so verdienst du im Survival.
+
+**Bodenziele:** Die **Flak-Geschütze** und **Raketenstellungen (SAM)** schießen zurück —
+und lassen sich zerstören (Flak +200, SAM +300/+450). Geschosse schlagen im Gelände ein,
+**Bomben wirken im Umkreis** (~22 m): ein Treffer in die Stellung räumt eine SAM-Stellung,
+daneben braucht es zwei. Lenkwaffen können auch Bodenstellungen aufschalten.
 Abgeschossene Ballons werden nach kurzer Zeit durch neue ersetzt.
 
 Mehr/größere **Steuerflächen** → mehr Wendigkeit. Mehr **Flügelfläche** → mehr
@@ -169,8 +180,14 @@ scripts/
   TerrainWorld.gd       Chunk-Terrain mit Biomen, Flüssen, Seen und Flora (Worker-Thread-Streaming)
   GameState.gd          Spielmodi, Geld, Freischaltungen, Upgrades (Persistenz)
   Projectile.gd/Target.gd/FlakGun.gd   Geschosse, Ziele, Flak-Zone
+  Missile.gd/SamSite.gd/Countermeasure.gd   Lenkwaffen, Raketenstellungen, Fackeln/Düppel
 tools/
   phys_test.gd          Headless-Physiktest (zum Nachtunen): Godot --headless --path . --script res://tools/phys_test.gd
+  _rundflug_alle.gd     Smoketest: jede Vorlage starten, fliegen, schießen, zurück in den Hangar
+  _undo_check.gd, _datei_rundlauf.gd, _survival_check.gd, _bodenkampf_check.gd,
+  _lenkwaffen_start.gd  Regressionstests für Verlauf, Speichern, Survival, Bodenkampf, Lenkwaffen
+                        (Tests, die Main laden, mit HOME=/tmp/avi_home starten — sonst
+                        überschreibt Main den echten Autosave)
   graph-update.ps1      Wissensgraph des Codes aktualisieren (graphify, siehe graphify-out/)
 ```
 
@@ -205,9 +222,11 @@ Speicherstand: `user://aircraft_design.json` (Buttons **Speichern/Laden** im Han
 Beim ersten Start wählst du einen **Modus**:
 
 - **🧰 Sandbox** — alle Teile frei, unbegrenzt bauen & fliegen, kein Geld-Stress.
-- **🪖 Survival** — du startest mit **🪙 1500** und nur Basis-Teilen. **Kaufe** weitere
+- **🪖 Survival** — du startest mit **🪙 2200** und nur Basis-Teilen. **Kaufe** weitere
   Teile (Schloss-Symbol + Preis in der Palette) und **upgrade** dein Flugzeug
-  (Triebwerks-Tuning, verstärkte Flügel, Leichtbau).
+  (Triebwerks-Tuning, verstärkte Flügel, Leichtbau). Vorlagen und gespeicherte Flugzeuge
+  darfst du laden und ansehen — **starten** geht aber erst, wenn alle Teile gekauft sind.
+  Geld gibt es für Abschüsse, Combos und jede überstandene **Welle**.
 
 Fortschritt (Geld, Freischaltungen, Upgrades) wird in
 `user://aviassembly_progress.json` gespeichert.
