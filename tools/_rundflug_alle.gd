@@ -36,7 +36,7 @@ func _process(delta: float) -> bool:
 		return false
 	if f < 20:
 		return false
-	var presets: Array = m.get("PRESETS")
+	var presets: Array = [["_standard", "Erststart"]] + (m.get("PRESETS") as Array)
 	if idx < 0:
 		idx = 0
 		_start(presets[idx][0])
@@ -89,9 +89,17 @@ func _process(delta: float) -> bool:
 
 func _start(id: String) -> void:
 	print("== %s" % id)
-	var ok: bool = m.call("_load_design_from", "res://designs/%s.json" % id)
-	if not ok:
-		print("  !! Vorlage nicht ladbar")
+	if id == "_standard":
+		# Das Erststart-Flugzeug (Main._default_design) — das, was ein neuer Spieler ohne
+		# Speicherstand als erstes fliegt. Es hing einmal mit frei schwebenden Raedern fest.
+		(m.get("build_ctrl") as Node).call("load_design", m.call("_default_design"))
+		var frei: int = (m.get("build_ctrl") as Node).call("floating_count")
+		if frei > 0:
+			print("  !! %d Teil(e) haengen frei — Start waere blockiert" % frei)
+	else:
+		var ok: bool = m.call("_load_design_from", "res://designs/%s.json" % id)
+		if not ok:
+			print("  !! Vorlage nicht ladbar")
 	phase = 0
 	t = 0.0
 	_max_h = 0.0

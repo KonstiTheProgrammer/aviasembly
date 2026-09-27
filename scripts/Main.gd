@@ -7167,10 +7167,17 @@ func _default_design() -> Array:
 	col.call("v_stab", Transform3D(Basis(Vector3(0, 1, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1)), Vector3(0, 0.55, 4.2)), red)
 	# Eine langsame Waffe (MG oben am Rumpf)
 	d.append({"id": "mg", "xform": Transform3D(Basis(), Vector3(0, 0.55, -1.2))})
-	# Festes Fahrwerk: 2 Haupträder + Hecksporn
-	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(1.3, -1.05, 0.3))})
-	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(-1.3, -1.05, 0.3))})
-	d.append({"id": "wheel_light", "xform": Transform3D(Basis(), Vector3(0, -0.85, 3.7))})
+	# Festes Fahrwerk: 2 Haupträder + Hecksporn.
+	# DIE HAUPTRAEDER MUESSEN DIE UNTERE TRAGFLAECHE BERUEHREN. Bei y = -1.05 endete ihre
+	# Box (1.2 hoch) bei -0.45, die Flaeche beginnt bei -0.17: 28 cm Luft bei 24 cm
+	# Toleranz (_connected_set, grow 0.12). Beide Raeder galten als FREI HAENGEND, und der
+	# Start war blockiert — ausgerechnet beim Erststart, mit dem Flugzeug, das ein neuer
+	# Spieler als erstes sieht. Jetzt 2,6 cm unter der Flaeche. Das Spornrad geht um
+	# dieselben 25 cm mit hoch (bleibt im Rumpf verankert), damit die Spornrad-Haltung
+	# von gut 5 Grad Nase hoch erhalten bleibt.
+	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(1.3, -0.80, 0.3))})
+	d.append({"id": "wheel", "xform": Transform3D(Basis(), Vector3(-1.3, -0.80, 0.3))})
+	d.append({"id": "wheel_light", "xform": Transform3D(Basis(), Vector3(0, -0.60, 3.7))})
 	return d
 
 
