@@ -33,6 +33,26 @@ Godot-Binary (macOS): `/Applications/Godot.app/Contents/MacOS/Godot`
   `Godot --headless --path . --script res://tools/phys_test.gd`
   → loggt Start/Steig/… Telemetrie. So wurde das Flugmodell getunt.
 
+- **TESTS, DIE `Main.tscn` LADEN, NUR MIT UMGEBOGENEM HOME:** Main laedt beim Start den
+  Autosave, markiert ihn dirty und schreibt ihn nach 2 s zurueck — `_do_load_preset`,
+  Slot-Speichern und Survival-Tests schreiben ebenfalls nach `user://`. Ohne Vorkehrung
+  ueberschreibt jeder Testlauf den ECHTEN Spielstand des Nutzers. Godot nimmt `user://`
+  unter macOS aus `$HOME` (`XDG_DATA_HOME` wirkt NICHT):
+  `HOME=/tmp/avi_home Godot --headless --fixed-fps 60 --path . --script res://tools/<t>.gd`
+  (vorher `aviassembly_progress.json` dorthin kopieren, sonst erscheint die Modus-Auswahl).
+  `--fixed-fps 60` = genau ein Physikschritt je Frame: schnell UND reproduzierbar.
+- **REGRESSIONS-SUITE (alle headless, alle mit Urteilszeile):** `_rundflug_alle` (Erststart-
+  Flugzeug + jede Vorlage: Start, Steigflug, alle Waffengruppen, Bombe, Fahrwerk, Schacht,
+  Reset, Hangar), `_undo_check`, `_datei_rundlauf` (jeder Entwurfsschluessel ueberlebt
+  Datei-Speichern/Laden), `_survival_check`, `_bodenkampf_check`, `_lenkwaffen_start`,
+  `_schaden_check`, `_grafik_check`, dazu die aelteren (`_dock_test`, `_fluegelsnap_check`,
+  `_lackieren_check`, `_raketen_pruefstand`, `_sam_pruefstand`, `_zielpruefung`,
+  `mousefly_test`, `mf_speed`, …). Messwerkzeuge: `_skriptzeit` (CPU je Flugframe, ~1 ms),
+  `_karte_zeit`, `_bildzeit` (GPU, braucht Fenster).
+- **FALLE `Performance.TIME_PROCESS`/`TIME_PHYSICS_PROCESS`:** das ist das MAXIMUM der letzten
+  Echtzeit-Sekunde, nur einmal je Sekunde erneuert — kein Frame-Wert. CPU je Frame misst man
+  headless ueber die Wandzeit zwischen zwei `_process`-Aufrufen (siehe `_skriptzeit`).
+
 ### Headless-Test-FALLE (mehrfach reingefallen!)
 In einem `extends SceneTree` `--script`-Lauf läuft `_initialize()` **bevor** die Nodes
 ihr `_ready()` bekommen. Daher Setup (BuildController/FlightController instanzieren,
@@ -110,8 +130,10 @@ scripts/FlightHud.gd     Canvas-HUD (Custom-_draw, Vorbild SimplePlanes-Mockup):
                          bricht als Warning-as-Error den ganzen Compile -> explizit typisieren;
                          Check via tools/_loadcheck.gd (der --editor-Grep uebersieht diese Klasse!).
 scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug): Image wird im Hintergrund-THREAD
-                         aus height_at/biome_at gesampelt (keine Chunks noetig, dauert Minuten bei
-                         512px × 17-km-Insel), Zoom 1/2.5/6 per Mausrad (_unhandled_input +
+                         aus height_at/biome_at gesampelt (keine Chunks noetig), ZEILENWEISE
+                         PARALLEL im WorkerThreadPool mit HOHER PRIORITAET (sonst steht sie hinter
+                         den 577 Fernschuerzen-Kacheln an): 512px in 1,7 s statt 6,6 s, bitgleich
+                         (Pruefsumme in tools/_karte_zeit.gd), Zoom 1/2.5/6 per Mausrad (_unhandled_input +
                          set_input_as_handled gegen Kamera-Zoom), spielerzentriertes geklemmtes
                          UV-Fenster via draw_texture_rect_region, Label-Declutter (_try_label),
                          km-Grid, Massstabsbalken, Marker + POIs.
@@ -127,7 +149,9 @@ scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 
                          Streaming um den Spieler auf WORKER-THREAD (Mesh+Trimesh-Shape im
                          Thread, ~7.5 ms/Chunk riss sonst den 120-fps-Frame -> Zucken beim
                          Nachladen; Main hängt nur fertige Daten ein, 1/Frame; update_center
-                         scannt nur bei Chunk-Zellenwechsel; build_now_around = Spawn synchron).
+                         scannt nur bei Chunk-Zellenwechsel; build_now_around = Spawn synchron, die Chunkdaten
+                         aber PARALLEL im WorkerThreadPool gerechnet und in alter Reihenfolge
+                         eingehaengt: 3,1 s -> 1,8 s beim Start, bitgleich).
                          Flugplätze werden EINGEEBNET (height *= smoothstep(r_flat,r_blend));
                          Meer y=-6 (Main: WorldBoundary dort = Wasser-/Sicherheitsboden).
                          Seed: GameState.world_seed (einmal gewürfelt, persistiert).
@@ -226,7 +250,26 @@ zu verschwinden. Deshalb laeuft der Block jetzt jeden Frame.
   (mass, drag, lift_part, ar, lift_coef, wing_cap, pitch/roll/yaw_a, thrust, jet, prop,
   gear_cap, pos, is_root). Abriss/Reparenting in `_process` (NICHT `_integrate_forces`),
   via `_break_pending`-Flag. `build_from_design` ruft `recompute_aero` auch beim Bau.
+- **Zerschellen** (`_explode`): jedes Teil wird ein eigener Trümmer-RigidBody. FALLE: der
+  Trümmer-Körper bekommt die (orthonormierte) Drehung des FLUGZEUGS, nicht die Transform des
+  Visuals — die trägt pscale, Spiegelung (det<0) und bei eingefahrenem Fahrwerk Skalierung 0
+  (Blob). Ein RigidBody damit ist singulär („det == 0"), und die Physik orthonormiert ihn
+  ohnehin, wodurch gespiegelte Trümmer umklappten. Die Form bleibt lokal am Visual.
+  Beleg: `tools/_schaden_check.gd` (Flügelbruch, Flak-Volltreffer, Absturz mit eingefahrenem
+  Fahrwerk, jeweils Reset).
 - **Reset (Enter)** ruft `build_from_design(design)` neu auf → repariert alles.
+
+### Bombenschacht (`bombbay`, Taste H)
+Rumpfsegment (`shape "bay_tube"`, `biends`) mit echtem Loch im Bauch, Laderaum mit
+Innenwänden und zwei Klappen-Drehknoten (Meta `bay_door` = Drehrichtung ±1). Kollisionsbox
+nur obere Hälfte (`col_size`/`col_offset`), damit der Bau-Strahl IN den Schacht trifft und
+man Bomben hineinsetzen kann. Im Hangar stehen die Klappen offen (`set_bay_open`), im Flug
+sammelt `recompute_aero` sie über das Meta (`_sammle_klappen`) und stellt sie zu. `H` fährt
+sie in ~0,6 s (`_bay_anim`); offene Klappen = +1,1 m² Widerstand je Schacht. Bomben, deren
+Aufhängepunkt im Lichtraum liegt (`PartCatalog.bay_hold`, in Schacht-Koordinaten geprüft),
+bekommen `w["schacht"]=true` und fallen nur bei `bay_frei()` (>85 % offen) — sonst HUD-
+Hinweis „ZU — H DRUECKEN". Vorlage „Nachtfalke". Belege: `_schacht_test`, `_schacht_system`,
+`_falke_check`, `_falke_flug`.
 
 ### Flügel-Orientierung bestimmt Funktion
 Beim Bauen via `R` kippbar. In `FlightController.build_from_design` wird pro Flügel
@@ -327,7 +370,8 @@ reine DATEN, keinen Node-Verweis, überlebt also Löschen und Moduswechsel) · A
 gehen über `_teil_schnappschuss` → `_teil_einsetzen` → `_form_uebernehmen`, also **denselben**
 Code wie `load_design`. Vorher trug `duplicate_selected` nur Farbe/Größe mit und verlor still
 Verjüngung, Enden-Versatz, Eckrundung und Beinlänge — inklusive am erzeugten Spiegel ·
-**Pfeiltasten** = ausgewähltes Teil fein verschieben (`nudge_selected`, 0.25er) ·
+**Pfeiltasten** = ausgewähltes Teil fein verschieben (`nudge_selected`, 0.25er; ruft wie jede
+Bearbeitung `_push_history()` UND `_notify_changed()` — ohne Letzteres gab es keinen Autosave) ·
 **`1`/`2`/`3` orthografische Blueprint-Ansicht** Front/Seite/Oben, **`4`** frei (`set_view`/`_ortho_view`,
 Kamera `PROJECTION_ORTHOGONAL`; manuelles Drehen → zurück Perspektive) · Tab=Testflug.
 Statistik hat eine **„Fliegt's?"-Ampel** (`_update_ampel`): grün/gelb/rot aus Stabilität
@@ -370,7 +414,7 @@ schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in Flig
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links; **lange halten → Fass-Roll**) · `Q`/`E` gieren = **rechts/links**
 (Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
-`V` (HALTEN) **Zielzoom** · `N` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `M` **Karte** (Vollbild-Inselkarte, Mausrad = Zoomstufen 1/2.5/6; Corner-Minimap läuft immer mit) · `H` **G-Schutz** (Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
+`V` (HALTEN) **Zielzoom** · `N` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `M` **Karte** (Vollbild-Inselkarte, Mausrad = Zoomstufen 1/2.5/6; Corner-Minimap läuft immer mit) · `H` **Bombenschacht** auf/zu (siehe unten) · `O` **G-Schutz** (lag frueher auf H; Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
 **Maus-Flug (GROSSKREIS-INSTRUCTOR, STANDARD; `N` = Tastatur-Modus):** Maus zeigt eine
 WELTRICHTUNG (`look_yaw/pitch`, ROH — kein Glättungs-Lag); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
 `mouse_fly=true` als Default; `set_active(true)` ruft `_reset_mouse_state()` (Aim an der
@@ -433,7 +477,9 @@ war der Engpass. Headless-Harness: `tools/mousefly_test.gd` (Konvergenz/Pendeln)
   (`Input.is_physical_key_pressed(KEY_V)` im Kamera-Update), damit HALTEN zaehlt — ueber
   `_unhandled_input` gaebe es nur den Tastendruck. Die Maus-Empfindlichkeit skaliert mit
   (`ZOOM_SENS=0.42`), sonst ist Zielen unmoeglich; das HUD zeigt den Faktor als Badge.
-  Gemessen/belegt mit `tools/_zoom_check.gd` (zwei Bilder derselben Szene).
+  Gemessen/belegt mit `tools/_zoom_check.gd` (zwei Bilder derselben Szene). Der Abstands-
+  faktor gilt in BEIDEN Kamerapfaden (`_cam_offset` UND Maus-Flug-Zweig in `_process`) — im
+  Maus-Flug fehlte er lange, die eigene Zelle wuchs beim Zoomen auf das 2,9-fache.
 - **Kamera-Framing:** look_at-Punkt `+UP·CAM_LOOK_ABOVE` (6.5) → Flieger sitzt **tief im
   unteren Bildbereich** (~0.78), nicht mittig.
 - **Fass-Roll (`barrel_roll`, A/D lange halten ≥ `BARREL_HOLD`):** FlightController trackt die
@@ -618,6 +664,14 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Leiste mit beiden Panels. FALLE dabei: die Leiste über die Baumform zu suchen brach beim
   nächsten Umbau still ab und die Probe mass etwas anderes — sie heisst jetzt `Werkzeugleiste`
   und wird über den Namen gefunden.
+- **`node.visible` ist nur der EIGENE Schalter.** Wer „ist das zu sehen?" meint, muss auch die
+  Eltern prüfen (oder den Zustand dort abfragen, wo er gesetzt wird). Beispiel: die Grafik-
+  einstellung „Wolkenlagen" blendet das ganze CloudField aus, `CloudField.dichte_bei` prüfte
+  nur `mi.visible` der einzelnen Wolke — unsichtbare Wolken machten weiter Nebel, Turbulenz
+  und Flak-Deckung. Beleg: `tools/_grafik_check.gd`.
+- **WorkerThreadPool-Gruppen stehen in einer Schlange.** Die Fernschürze legt beim Start 577
+  Kacheln hinein; alles, was danach kommt und zeitkritisch ist (Weltkarte, Spawn-Chunks),
+  braucht `high_priority=true`, sonst wird es LANGSAMER als der alte Einzelthread.
 - `:=` nur für NEUE lokale Variablen; Member mit `=` zuweisen.
 - Bei Variant-Inferenz (Dict-Zugriff `* float`) explizit typisieren (`var f: Vector3 = …`).
 - **Keine Node-Änderungen in `_integrate_forces`** (reparent/add/remove) → in `_process`
@@ -801,7 +855,12 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Persistiert nach `user://aviassembly_progress.json`. Signal `changed`.
 - **Modus-Auswahl** beim ersten Start (Overlay `_show_mode_select`, falls `mode==NONE`):
   **Sandbox** = alles frei (`start_mode` unlockt alle, money ∞); **Survival** = Starter-Teile
-  (`STARTER`) + `START_MONEY=1500`.
+  (`STARTER`) + `START_MONEY=2200`.
+- **SURVIVAL-STARTSPERRE** (`Main._ungekaufte_teile`, geprueft in `_set_mode`): geflogen wird
+  nur, was gekauft ist. Vorlagen/Sandbox-Slots darf man laden und ansehen, der Start meldet
+  „Noch nicht gekauft: …". Es zaehlen NUR Palettenteile (`PartCatalog.in_palette`) —
+  versteckte Auto-Varianten (fuselage_transport/_radial, C-130-Ringe) sind nicht kaufbar und
+  duerfen nie sperren. Beleg: `tools/_survival_check.gd`.
 - **Shop:** Palette-Kacheln zeigen 🔒+Preis (`PartCatalog.part_cost`) für gesperrte Teile;
   Klick kauft (`_on_pick_part` → `game.buy_part`), `_rebuild_palette` aktualisiert. Sandbox:
   alles frei.
@@ -812,7 +871,13 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   HINWEIS: Missionen wurden auf Wunsch wieder entfernt — Survival hat aktuell keine
   laufende Einnahmequelle (nur Startgeld). `GameState` hat noch ungenutzte Mission-Hooks
   (`missions_done`/`complete_mission`), falls man Missionen später wieder einbaut.
-- **Persistenz Design** (`_save_design`/`_load_design`): serialisiert id/xform/color/**scale**.
+- **Persistenz Design** (`_design_data`/`_load_design_from`): JEDER Schluessel aus
+  `get_design()` muss dort stehen — inkl. **`root`** (fehlte lange: `_ensure_root` riet nach
+  jedem Neustart die Wurzel). `tools/_datei_rundlauf.gd` vergleicht jeden Schluessel ueber
+  Datei-Speichern/Laden fuer alle Vorlagen; bei neuen Metas dort zuerst nachsehen.
+- **ERSTSTART-FLUGZEUG** (`Main._default_design`): muss `floating_count()==0` haben, sonst ist
+  der allererste Start blockiert (war so: Hauptraeder 28 cm unter der Flaeche bei 24 cm
+  Toleranz). `_rundflug_alle` fliegt es als erstes mit und meldet frei haengende Teile.
 
 ## Luftkampf: Waffen, Geschosse, Ziele
 - **Waffen-Bauteile** (`CAT_WEAPON`, Feld `weapon`): `cannon`→`gun`, `rocket`→`rocket`
@@ -827,6 +892,16 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Heat-Seeker fliegt erst stur geradeaus und kurvt erst rein, wenn ein Ziel in die Nähe
   kommt. Lenkung = `slerp` der Geschwindigkeit (`turn`·delta). Treffer via Segment-Abstand
   gegen Gruppe `"target"` (kein Durchtunneln); Knall-Partikel. Lebenszeit-begrenzt.
+  **GELAENDETREFFER** (`_gelaende_treffer`): Strahl ueber die Strecke des Physikschritts auf
+  Ebene 1 (Gelaende, Bahnen, Bauwerke, Wasserebene) — wie `Missile.gd`. Vorher fielen Bomben
+  durch jeden Huegel und zuendeten erst bei y<=0,4. Das eigene Flugzeug liegt auf Ebene 4
+  (`AIRCRAFT_LAYER`) und wird nie getroffen. **SPRENGRADIUS** Bombe 22 / Rakete 6 /
+  Drop-Rakete 9 m, voller Schaden im `hit_radius` des Ziels, dann linear; Bombe 15 Schaden
+  (raeumt eine SAM-Stellung mit 14 HP). Beleg: `tools/_bodenkampf_check.gd`.
+- **BODENZIELE:** `SamSite` (14 HP) und **`FlakGun` (8 HP, seit dieser Runde zerstoerbar)**
+  stehen in der Gruppe `"target"` (Metas `hit_radius`/`ir_signatur`/`radar_signatur`), Signal
+  `zerstoert(reward,pos)` → Main `_on_sam_zerstoert`/`_on_flak_zerstoert` (Geld, KEIN
+  Wellenfortschritt). Sie haengen unter `fly_world`, NICHT unter `targets_root`.
 - **`scripts/Target.gd`** (`class_name Target`, Gruppe `"target"`): Luftballon (1 HP, +120)
   oder Luftschiff (4 HP, +600). Schwebt/driftet, `hit(dmg)` mit `_dead`-Flag (kein
   Doppel-Reward), `_die()` → Signal `killed(reward,pos)` + Partikel. Main spawnt sie in
@@ -855,12 +930,8 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   -> Abschüsse sind die Survival-Einnahmequelle.
 
 ## Status & nächste Schritte
-- **Git:** lokal initialisiert, Branch `main`, alles committet (`.godot/` ignoriert).
-  GitHub-User (SSH funktioniert): **KonstiTheProgrammer**.
-- **GitHub-Push: NOCH OFFEN** — `gh` (2.93) ist installiert, aber `gh auth login`
-  (Device-Flow) wurde noch nicht autorisiert. Zum Abschließen: `gh auth login`
-  (GitHub.com → SSH), dann
-  `gh repo create aviasembly --public --source=. --remote=origin --push`.
+- **Git:** Branch `main`, Remote `origin` = `git@github.com:KonstiTheProgrammer/aviasembly.git`
+  (SSH). `.godot/` ignoriert.
 - **Ideen für später:** Lande-Score/Punkte, Cockpit-Kamera, Strömungslinien die sich
   am Modell verbiegen, Rumpf/Leitwerk auch abreißbar, Funken/Rauch, Missionen/Parcours,
   Teile freischalten.
