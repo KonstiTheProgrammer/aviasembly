@@ -119,6 +119,21 @@ const DRAG_K := 0.3           # parasitärer Modell-Widerstand (0.5 bremste ohne
 
 # Fahrwerk
 var gear_items: Array = []    # [{vis, cs, retract, base}]
+# --- BOMBENSCHACHT ---------------------------------------------------------------------
+#
+# Die Drehknoten der Klappen werden beim Zusammenbau EINMAL eingesammelt (recompute_aero)
+# und nicht in jedem Frame gesucht: die Suche liefe sonst pro Bild ueber den ganzen
+# Teilebaum, und das nur, um zwei Knoten wiederzufinden, die sich nie aendern.
+#
+# Jeder Knoten traegt seine Drehrichtung als Metadatum "bay_door" (siehe
+# PartCatalog build_visual, Fall "bay_tube"). Damit muss hier NICHT bekannt sein, welche
+# Seite links und welche rechts ist — sonst stuende dieselbe Regel an zwei Stellen und
+# liefe beim naechsten Umbau auseinander.
+var bay_open := false
+var bay_status := "keiner"
+var _bay_doors: Array = []
+var _bay_anim := 0.0          # 0 = zu, 1 = offen
+var _bay_n := 0               # Zahl der Schaechte (fuer den Widerstand)
 var gear_capacity := 0.0
 var gear_overloaded := false
 var gear_down := true         # ausgefahren?
@@ -369,6 +384,24 @@ func _process(delta: float) -> void:
 	for v in _vapor:
 		if is_instance_valid(v):
 			v.emitting = vap_on
+	# Bombenschachtklappen animieren.
+	#
+	# 1.7 statt der 1.35 des Fahrwerks: eine Schachtklappe ist leichter und faehrt in der
+	# Wirklichkeit spuerbar schneller als ein Fahrwerksbein. Eine halbe Sekunde von zu bis
+	# offen ist genug, dass man die Bewegung sieht, und kurz genug, dass man im Tiefflug
+	# nicht darauf wartet.
+	if not _bay_doors.is_empty():
+		var bt := 1.0 if bay_open else 0.0
+		if not is_equal_approx(_bay_anim, bt):
+			_bay_anim = move_toward(_bay_anim, bt, delta * 1.7)
+			# Weiche Ein- und Ausfahrt statt gleichfoermiger Drehung: eine Klappe, die mit
+			# voller Geschwindigkeit anschlaegt, sieht nach Schalter aus, nicht nach Mechanik.
+			var w := smoothstep(0.0, 1.0, _bay_anim) * BAY_WINKEL
+			for d in _bay_doors:
+				if is_instance_valid(d):
+					d.rotation.z = float(d.get_meta("bay_door")) * w
+			_update_bay_status()
+
 	# Einziehfahrwerk animieren
 	if not _collapsed:
 		var target := 0.0 if gear_down else 1.0
@@ -456,6 +489,54 @@ func _collapse_gear() -> void:
 			# zur Seite weggeknickt + abgesenkt -> sichtbarer Kollaps
 			vis.transform = g["base"] * Transform3D(Basis(Vector3.BACK, deg_to_rad(72.0)), Vector3(0, -0.12, 0))
 	_update_gear_status()
+
+
+# Oeffnungswinkel der Klappen. 102 Grad: weit genug, dass die Klappe im Luftstrom steht
+# und der Schacht wirklich frei ist, nicht so weit, dass sie sich in den Rumpf zurueckdreht.
+const BAY_WINKEL := deg_to_rad(102.0)
+# Zusaetzlicher Widerstand je offenem Schacht, in m2 Stirnflaeche.
+const BAY_WIDERSTAND := 1.1
+
+
+## Alle Klappen-Drehknoten unter einem Teilebaum.
+##
+## Gesucht wird ueber das Metadatum, NICHT ueber den Knotennamen: Namen bekommen in Godot
+## bei Doppelung ein Suffix ("Klappe_L2"), sobald ein Flugzeug zwei Schaechte hat — und
+## genau dann wuerde eine Namenssuche die zweite Klappe uebersehen.
+func _sammle_klappen(n: Node) -> Array:
+	var out: Array = []
+	if n.has_meta("bay_door"):
+		out.append(n)
+	for c in n.get_children():
+		out.append_array(_sammle_klappen(c))
+	return out
+
+
+## Ist der Schacht weit genug offen, um etwas fallen zu lassen?
+##
+## NICHT bay_open abfragen: das ist der SOLLWERT und steht schon auf "offen", waehrend die
+## Klappen noch fahren. Eine Bombe, die eine halb offene Klappe von innen trifft, ist
+## genau das Bild, das man nicht sehen will. 0.85 laesst den letzten Rest Fahrweg zu,
+## ohne dass man auf das Klacken warten muss.
+func bay_frei() -> bool:
+	return _bay_doors.is_empty() or _bay_anim > 0.85
+
+
+func toggle_bay() -> void:
+	if _bay_doors.is_empty():
+		return
+	bay_open = not bay_open
+
+
+func _update_bay_status() -> void:
+	if _bay_doors.is_empty():
+		bay_status = "keiner"
+	elif _bay_anim > 0.98:
+		bay_status = "offen"
+	elif _bay_anim < 0.02:
+		bay_status = "zu"
+	else:
+		bay_status = "faehrt"
 
 
 func toggle_gear() -> void:
@@ -596,6 +677,18 @@ func recompute_aero() -> void:
 	props = prp
 	surfaces = fl
 	gear_items = gi
+	_bay_doors = _sammle_klappen(self)
+	@warning_ignore("integer_division")
+	_bay_n = _bay_doors.size() / 2
+	# BEIM ZUSAMMENBAU AUSDRUECKLICH IN DIE AKTUELLE STELLUNG BRINGEN. Die Bauansicht
+	# laesst die Klappen offen stehen; die Animation unten laeuft aber nur, wenn sich der
+	# Sollwert AENDERT — ohne diese Zeile startete der Flug mit offenem Schacht und H
+	# muesste zweimal gedrueckt werden, bevor sich etwas ruehrt.
+	for d in _bay_doors:
+		if is_instance_valid(d):
+			(d as Node3D).rotation.z = float(d.get_meta("bay_door")) \
+				* smoothstep(0.0, 1.0, _bay_anim) * BAY_WINKEL
+	_update_bay_status()
 	wheels = whl
 	gear_capacity = gc
 	var tm_eff := tm * mass_mult
@@ -1595,8 +1688,14 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	wing_status = "GEBROCHEN " if wings_broken else "ok"
 
 	# --- Parasitärer Luftwiderstand des Modells (Bauform zählt) ------------
-	if drag_area > 0.0 and sp > 0.5:
-		tf += -v_lin.normalized() * (0.5 * rho * sp * sp * drag_area * DRAG_K)
+	# OFFENE SCHACHTKLAPPEN BREMSEN. Ohne das gaebe es keinen Grund, sie je wieder zu
+	# schliessen — und ein Schalter ohne Nachteil ist kein System, sondern Deko. Zwei
+	# quer im Luftstrom stehende Klappen sind eine ehrliche Bremse; 1,1 m2 je Schacht
+	# liegt in der Groessenordnung ihrer Stirnflaeche und ist im Flug deutlich spuerbar,
+	# ohne dass der Anflug zur Qual wird.
+	var luft := drag_area + BAY_WIDERSTAND * float(_bay_n) * _bay_anim
+	if luft > 0.0 and sp > 0.5:
+		tf += -v_lin.normalized() * (0.5 * rho * sp * sp * luft * DRAG_K)
 
 	# --- Fahrwerks-Widerstand (ausgefahren bremst; Bauchlandung = viel) ----
 	if sp > 0.5:

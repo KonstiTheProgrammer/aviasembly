@@ -49,6 +49,7 @@ const GOLD := Color(0.97, 0.80, 0.28)
 const TXT := Color(0.94, 0.96, 1.0)
 const MUT := Color(0.62, 0.70, 0.82)
 var gear_text := "—"
+var bay_text := "keiner"      # Bombenschacht; leer/"keiner" blendet die Zeile aus
 var flaps_text := "AUS"
 var steer_text := "normal"
 var assist_text := "AN"
@@ -115,12 +116,20 @@ func _draw_status_panel() -> void:
 		["G-Kraft", "%.1f g" % gforce, (GOLD if gforce > 4.0 else TXT)],
 		null,
 		["Fahrwerk (G)", gear_text, (GREEN if gear_text.begins_with("ausgef") else GOLD)],
+	]
+	# BOMBENSCHACHT nur zeigen, wenn das Flugzeug einen hat. Eine Zeile "Schacht: keiner"
+	# in jedem Jaeger waere Rauschen — und im Tiefflug ist jede Zeile, die man nicht
+	# braucht, eine, die die gesuchte verdeckt.
+	if bay_text != "" and bay_text != "keiner":
+		rows.append(["Schacht (H)", bay_text,
+			(GREEN if bay_text == "offen" else GOLD)])
+	rows.append_array([
 		["Klappen (F)", flaps_text, (TXT if flaps_text == "AUS" else CYAN)],
 		["Steuerung (I)", steer_text, (TXT if steer_text == "normal" else GOLD)],
 		null,
 		["Assist (T)", assist_text, (GREEN if assist_text.begins_with("AN") else MUT)],
 		["Maus-Flug (N)", mousefly_text, (GREEN if mousefly_text.begins_with("AN") else MUT)],
-	]
+	])
 	if wings_text != "ok":
 		rows.append(["Flügel", wings_text, GOLD])
 	if ammo_text != "":

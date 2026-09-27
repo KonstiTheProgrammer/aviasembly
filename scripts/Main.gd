@@ -266,6 +266,13 @@ const ADLERHORST_VORFELD_LAENGS := 8800.0
 # wenn der Flugplatz umzieht. Die Kaverne endet bei 10390 — also genau in ihrem Fuss.
 const TAL_QUERKETTE_LAENGS := 10400.0
 const ADLERHORST_HOEHE := 90.0
+# WIE HOCH DIE KAVERNE UEBER DEM FLUGFELD SITZT. Begruendung an der Baustelle
+# (Main._setup_world, "FELSENBASIS ADLERHORST"): koplanare Flaechen streiten um dieselbe
+# Tiefe. ALS KONSTANTE, weil die Zahl an DREI Stellen gebraucht wird — Aussparung im
+# Gelaende, Bauwerk, und der Hub der Bahn darin. Als Literal an drei Stellen waere sie
+# beim naechsten Umbau garantiert an zweien stehengeblieben, und die Bahn laege wieder
+# unter dem Hallenboden.
+const ADLERHORST_KAVERNE_HUB := 0.7
 # Abstand des Hoehlenportals von der Bahnachse, quer dazu. Begruendung an der Baustelle
 # (Main._setup_world, "FELSENBASIS ADLERHORST").
 # LAENGSSTATION DES KAVERNENPORTALS auf der Talachse. GEMESSEN (tools/_kaverne_platz.gd):
@@ -423,6 +430,7 @@ const PRESETS := [
 	["f22", "F-22 Raptor  ·  Stealth-Jäger"],
 	["sturmjet", "Sturmjet  ·  schwer bewaffnet"],
 	["jet", "Kampfjet  ·  Delta-Canard"],
+	["nachtfalke", "Nachtfalke  ·  Bomber mit Schacht (H)"],
 ]
 var sel_panel: Control             # Kontext-Panel für ausgewähltes Teil
 var sel_title: Label
@@ -686,8 +694,18 @@ func _setup_world() -> void:
 		# 762 m ueber dem Platz; quer zum Tal zu starten verlangte 17,9 Grad Steigwinkel.
 		# Laengs ist die eine Richtung frei (Talausgang), die andere fuehrt auf die
 		# Querkette zu — man startet also talauswaerts und dreht draussen.
+		# "bahn_hub" IST DER SCHLUESSEL, DER IHN VOM REST TRENNT. Die anderen sieben
+		# Plaetze liegen auf gewachsenem Grund; ADLERHORST liegt auf dem HALLENBODEN der
+		# Kaverne, und der steht ADLERHORST_KAVERNE_HUB (0,70 m) plus die Dicke der
+		# Unterplatte (0,12 m) ueber der Platzhoehe. Ohne diesen Hub lagen Belag,
+		# Markierung, Bahnnummern, Reifenspuren und PAPI 74 cm UNTER dem Hallenboden — der
+		# Bahnkorridor war im Bild eine schwarze Flaeche ohne eine einzige Markierung.
+		# Abgezogen wird RWY_BELAG_Y, weil der Hub die BELAGOBERKANTE treffen muss und
+		# nicht den Knoten: dann liegt der Belag exakt in der Ebene des Hallenbodens und
+		# es gibt an der Korridorkante weder Stufe noch Fuge.
 		{"name": "ADLERHORST", "pos": _adlerhorst_pos(), "heading": _adlerhorst_kurs(),
-			"color": Color(0.80, 0.86, 0.95)},
+			"color": Color(0.80, 0.86, 0.95), "anflug_len": 900.0,
+			"bahn_hub": ADLERHORST_KAVERNE_HUB + Landmarks.HB_BODEN_D - RWY_BELAG_Y},
 	]
 
 	# SEED-BASIERTES TERRAIN ersetzt die flache Platte + Deko-Berge/-See.
@@ -749,6 +767,23 @@ func _setup_world() -> void:
 			var z_rueck := z_portal - Landmarks.HB_LAENGE
 			rects.append([0.0, (z_portal + z_rueck) * 0.5, 175.0,
 				(z_portal - z_rueck) * 0.5 + 20.0])
+			# ZWEITES RECHTECK: DIE PORTALSTIRN UND DIE WAND DARUEBER.
+			#
+			# Das Rechteck oben deckt den ROEHRENGRUNDRISS — 175 m halbe Breite ab dem
+			# Portal nach hinten. Die Stirn steht 26 m DAVOR, ist 80 m halb breit und
+			# 72 m hoch, und die Talschlusswand, in der sie steckt, steigt gleich
+			# dahinter fast senkrecht auf. Beides lag ausserhalb: gemessen standen
+			# 19 Felsbroecken zwischen 108 und 488 m Hoehe bei quer 210 bis 296 an
+			# dieser Wand — im Anflug die ersten Koerper, die man sieht.
+			# Der Neigungsfilter in TerrainWorld raeumt sie inzwischen ohnehin ab; dieses
+			# Rechteck ist der zweite Riegel und haelt die Flaeche auch dann frei, wenn
+			# dort spaeter einmal flacherer Grund entsteht.
+			# TALWAERTS BIS VOR DIE STIRN, BERGWAERTS 240 M: so weit reicht die Wand, die
+			# im Anflug ueber dem Portal im Bild steht.
+			var z_stirn: float = z_portal + Landmarks.HB_STIRN_T
+			var z_wand := z_portal - 240.0
+			rects.append([0.0, (z_stirn + z_wand) * 0.5, 300.0,
+				(z_stirn - z_wand) * 0.5])
 		# ADLERHORST BEKOMMT SEINE ZONE WOANDERS. Der Platz liegt seit dem Umbau tief im
 		# Berg; eine Einebnung an seiner Stelle wuerde das Massiv ueber ihm abtragen. Sie
 		# sitzt deshalb vorn im Tal (ADLERHORST_VORFELD_LAENGS) und haelt dort den
@@ -1481,6 +1516,11 @@ func _setup_world() -> void:
 		# Talstation 9375 bei 1,45 m, waehrend sie weiter oben schon auf 7 m stand. Die
 		# Stirn schuetzt das Hoehentor, nicht dieser Kreis — er faengt nur die letzten
 		# Meter am Mund ab.
+		# 110 M SIND HIER SCHON EINMAL PROBIERT WORDEN UND WAREN DIE FALSCHE BAUSTELLE:
+		# die Felsspitzen ueber dem Portal kommen nicht aus diesem Relief, sondern aus der
+		# viel zu weiten Aussparung fuer den Lichtraum (siehe "halb_b"/"oben" bei
+		# terrain.tunnel). Mit 110 blieben sie stehen und die Wand ringsum wurde flach —
+		# das Bild wurde schlechter, nicht besser.
 		"fx": portal_p.x, "fz": portal_p.y, "fr": 40.0,
 	}]
 	fly_world.add_child(terrain)
@@ -1655,24 +1695,40 @@ func _setup_world() -> void:
 	#
 	# DIE MASSE SIND ABSICHTLICH ENGER ALS DIE HALLE. Ausgespart werden muss nur dort, wo
 	# die Hangflaeche die Roehre kreuzt, und das ist ein Band von rund 30 m gleich hinter
-	# dem Mund — tiefer im Berg liegt das Gelaende 600 m ueber der Halle. 52 m halbe
-	# Breite deckt den 30-m-Mund mit Reserve und bleibt zugleich weit innerhalb der 80 m
-	# halben Breite der Portalstirn: das Loch im Hang liegt damit vollstaendig hinter
-	# ihrer Silhouette und ist aus dem Tal nicht zu sehen.
+	# dem Mund — tiefer im Berg liegt das Gelaende 600 m ueber der Halle.
+	#
+	# SIE MUESSEN AUF DEN MUND ZUGESCHNITTEN SEIN UND NICHT AUF DIE HALLE, und das war
+	# der Fehler, der im Anflugbild als "Nadelbaeume auf der Portalstirn" gemeldet wurde.
+	# In Wahrheit standen dort FELSSPITZEN — die ausgefranste Oberkante eines viel zu
+	# grossen Lochs im Hang. Der Rechenweg: die Talschlusswand steigt hier gemessen
+	# (tools/_wandprofil.gd und die Hoehentabelle ueber dem Portal) um 60 bis 80 m je
+	# 12 m Strecke, ist also 80 Grad steil. Eine Gelaendezelle misst 8 m und ueberspannt
+	# damit 50 bis 80 HOEHENMETER. Ausgespart wird eine Zelle, sobald EINE ihrer Ecken im
+	# Lichtraum liegt (das muss so sein, sonst ragen Zipfel in den Flugweg) — mit einer
+	# Oberkante bei 66 m ueber dem Hallenboden reichte das Loch dadurch bis rund 230 m
+	# hinauf, waehrend die Portalstirn schon bei 163 m endet. Die letzten 70 m Loch
+	# standen also OFFEN ueber dem Bauwerk, und was von den halb weggeschnittenen Zellen
+	# uebrig blieb, waren schlanke Zacken vor dem Himmel.
+	#
+	# 36 UND 46 SIND DER MUND PLUS SECHS METER (HB_W_MUND 30, HB_H_MUND 40). Weiter
+	# hinten weitet sich die Roehre auf 78 x 60 — dort steht das Gelaende aber schon
+	# 500 m ueber der Halle und wird gar nicht mehr geschnitten. Mit 46 statt 66 sinkt
+	# die Oberkante des Lochs um gut 70 m und liegt damit UNTER der Stirnkante; mit 36
+	# statt 52 bleibt es auch quer weit innerhalb ihrer 80 m halben Breite.
 	#
 	# UNTEN 1 M UEBER DEM HALLENBODEN, nicht darunter: der Talboden vor dem Portal liegt
 	# auf exakt ADLERHORST_HOEHE und soll bleiben. Wuerde die Aussparung ihn erfassen,
 	# risse sie ein Loch in das Vorfeld, auf dem man gerade noch gerollt ist.
 	terrain.tunnel.append({
-		"pos": Vector3(kav_p.x, ADLERHORST_HOEHE + 0.7, kav_p.y),
+		"pos": Vector3(kav_p.x, ADLERHORST_HOEHE + ADLERHORST_KAVERNE_HUB, kav_p.y),
 		"dir": TAL_RICHTUNG.normalized(),
 		"laenge": 1080.0,          # Landmarks.HB_LAENGE
-		"halb_b": 52.0,
+		"halb_b": 36.0,            # Landmarks.HB_W_MUND + 6
 		"unten": 1.0,
-		"oben": 66.0,              # Landmarks.HB_H_HALLE + Reserve
+		"oben": 46.0,              # Landmarks.HB_H_MUND + 6
 	})
 	var kaverne := Landmarks.build_felsenbasis(fly_world,
-		Vector3(kav_p.x, ADLERHORST_HOEHE + 0.7, kav_p.y),
+		Vector3(kav_p.x, ADLERHORST_HOEHE + ADLERHORST_KAVERNE_HUB, kav_p.y),
 		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
 	# MASCHINEN AUF DEN STANDPLAETZEN. Ohne sie ist die Kaverne ein beleuchteter Korridor
 	# mit Markierungen auf dem Boden — ein Flugplatz wird sie erst durch das, was dort
@@ -2176,6 +2232,10 @@ func _emit_mat(c: Color, e: float) -> StandardMaterial3D:
 # Anflugbefeuerung, Rollweg zum Vorfeld (Beton-Apron) mit Hangars, Tower, Windsack & Tanks.
 const RWY_LEN := 900.0
 const RWY_W := 30.0
+# HOEHE DER BELAGOBERKANTE UEBER DEM PLATZKNOTEN. Stand als Literal 0.08 in _bahnbelag;
+# seit ADLERHORST seine Bahn auf den Hallenboden der Kaverne heben muss, wird die Zahl an
+# zwei Stellen gebraucht und darf nicht auseinanderlaufen.
+const RWY_BELAG_Y := 0.08
 # Sandschulter beidseits des Asphalts. Die Referenzbilder zeigen die Bahn NIE nackt im
 # Gras — sie sitzt in einem hellen Streifen, und genau der gibt ihr aus der Luft die
 # Breite. 9 m je Seite ist das Verhaeltnis aus den Vorlagen (Schulter ≈ 0,3 × Bahnbreite).
@@ -2211,7 +2271,13 @@ const FP_RECHTECKE := [
 func _build_airfield(af: Dictionary) -> void:
 	var node := Node3D.new()
 	node.name = "Flugplatz_" + String(af["name"])
-	node.position = af["pos"]
+	# DIE BAHN LIEGT NICHT ZWANGSLAEUFIG AUF DER PLATZHOEHE. Sieben Plaetze liegen auf
+	# gewachsenem Grund, ADLERHORST auf dem Hallenboden seiner Kaverne — der steht 82 cm
+	# ueber der eingeebneten Talsohle, und ohne diesen Hub verschwand dort der ganze
+	# Flugplatz darunter. Der Schluessel "bahn_hub" steht NUR bei ADLERHORST im
+	# Woerterbuch; fuer alle anderen ist er 0 und dieser Ausdruck ist af["pos"].
+	var bahn_hub: float = float(af.get("bahn_hub", 0.0))
+	node.position = (af["pos"] as Vector3) + Vector3(0.0, bahn_hub, 0.0)
 	node.rotation.y = af["heading"]
 	fly_world.add_child(node)
 	var hl := RWY_LEN * 0.5
@@ -2311,8 +2377,63 @@ func _build_airfield(af: Dictionary) -> void:
 	for se in [-1.0, 1.0]:
 		for x in [-12.0, -6.0, 0.0, 6.0, 12.0]:
 			_deco_light(node, Vector3(x, 0.4, se * (hl + 2.0)), Color(0.25, 1.0, 0.4))
-		for k in range(1, 6):
-			_deco_light(node, Vector3(0, 0.6, se * (hl + 20.0 + k * 28.0)), Color(1.0, 0.95, 0.8))
+	# --- ANFLUGBEFEUERUNG: eine LINIE, keine Punktreihe -------------------------------
+	#
+	# WARUM DIE ALTE NICHT REICHTE. Fuenf einzelne Leuchtkugeln von 0,35 m Radius auf
+	# 160 m Laenge. Aus 1,7 km — der Entfernung, aus der man den Anflug BEGINNT — misst
+	# eine solche Kugel 0,26 Bildpunkte. Sie ist damit nicht schwach zu sehen, sondern
+	# gar nicht. Im Bild (tools/_terrain_render, portal_fern) endete das Tal in einer
+	# Wand, und nichts darauf sagte, wo das Portal ist.
+	#
+	# Sichtbar aus der Ferne wird eine Befeuerung durch ihre LAENGE, nicht durch die
+	# Helligkeit der einzelnen Lampe: ein 14 m breiter Querbalken misst aus 1,7 km rund
+	# fuenf Bildpunkte, und fuenfzehn davon hintereinander ergeben eine Fluchtlinie, die
+	# genau dorthin zeigt, wo man hin will. Das ist auch in Wirklichkeit der Sinn eines
+	# Anflugbefeuerungssystems.
+	#
+	# NUR AUF EBENEM GRUND. Geprueft wird je Balken die Gelaendehoehe: ADLERHORST liegt
+	# im Berg, seine eine Bahnrichtung endet nach 60 m in Fels (gemessen mit
+	# tools/_anflug_profil.gd: dort steht das Gelaende auf 340 m statt 90). Balken dort
+	# waeren im Berg vergraben. So braucht kein Platz eine Sonderregel, und wer kuenftig
+	# einen Platz an einen Hang setzt, bekommt automatisch nur die Balken, die liegen.
+	var anf_len: float = float(af.get("anflug_len", 160.0))
+	var anf_takt := 60.0
+	# DIE PLATZHOEHE STEHT IN pos.y, NICHT IN EINEM SCHLUESSEL "y".
+	#
+	# Der erste Anlauf las af.get("y", 0.0) — den Schluessel gibt es bei den Plaetzen gar
+	# nicht, er gehoert zu den Flachzonen. Damit stand die Vergleichshoehe auf 0, das
+	# Gelaende bei ADLERHORST aber auf 90, und die Ebenheitspruefung verwarf JEDEN Balken.
+	# Im Bild aenderte sich dadurch nichts — der stillste aller Fehler.
+	var anf_y: float = float((af["pos"] as Vector3).y)
+	var anf_mat := _emit_mat(Color(1.0, 0.95, 0.82), 2.0)
+	var ch := cos(float(af["heading"]))
+	var sh := sin(float(af["heading"]))
+	var apos: Vector3 = af["pos"]
+	for se in [-1.0, 1.0]:
+		for k in range(1, int(anf_len / anf_takt) + 1):
+			var lz: float = se * (hl + 20.0 + float(k) * anf_takt)
+			# Ortsvektor von Hand drehen: node.global_transform ist hier noch nicht
+			# zuverlaessig, der Knoten haengt erst seit ein paar Zeilen im Baum.
+			var wx: float = apos.x + sh * lz
+			var wz: float = apos.z + ch * lz
+			if absf(terrain.height_at(wx, wz) - anf_y) > 2.0:
+				continue
+			# NUR DER BALKEN, KEINE EINZELLAMPEN DARAUF.
+			#
+			# Der erste Anlauf setzte drei Leuchtkugeln je Balken — 90 zusaetzliche
+			# Zeichenaufrufe fuer einen Platz. Gemessen kostete das an ADLERHORST 1 bis
+			# 2,5 ms je Bild (4,3 auf 6,9 ms in der Kaverne), waehrend der Tiefflug ueber
+			# Wald unveraendert blieb: also nicht die Maschine, sondern die Aufrufe. Der
+			# Balken traegt die Aussage ohnehin allein; die Kugeln waren aus der Ferne
+			# ohnehin unter einem Bildpunkt.
+			# DEN HUB HIER WIEDER ABZIEHEN. Die Balken sind das einzige Bauteil des
+			# Platzes, das AUSSERHALB der Halle auf gewachsenem Boden steht — bei
+			# ADLERHORST liegen alle fuenfzehn vor dem Portal im Tal. Wuerden sie den
+			# Hub des Hallenbodens mitnehmen, schwebten sie dort 1,3 m ueber der Wiese.
+			# Die Ebenheitspruefung darueber vergleicht aus demselben Grund mit
+			# af["pos"].y und nicht mit der Knotenhoehe.
+			_deco_box(node, Vector3(0.0, 0.55 - bahn_hub, lz),
+				Vector3(14.0, 0.45, 1.2), anf_mat)
 	# --- REIFENSPUREN in der Aufsetzzone (dunkle Abrieb-Streifen, leicht versetzt) ---
 	var rubber := _flat_mat(Color(0.09, 0.09, 0.10), 1.0)
 	for se in [-1.0, 1.0]:
@@ -2972,7 +3093,7 @@ func _bahnbelag(parent: Node3D, grund: Color) -> void:
 	if _fp_meshes.has("bahnbelag"):
 		var mi0 := MeshInstance3D.new()
 		mi0.mesh = _fp_meshes["bahnbelag"]
-		mi0.position = Vector3(0, 0.08, 0)
+		mi0.position = Vector3(0, RWY_BELAG_Y, 0)
 		mi0.material_override = _bahn_mat(grund)
 		parent.add_child(mi0)
 		return
@@ -3051,7 +3172,7 @@ func _bahnbelag(parent: Node3D, grund: Color) -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	_fp_meshes["bahnbelag"] = mi.mesh
-	mi.position = Vector3(0, 0.08, 0)
+	mi.position = Vector3(0, RWY_BELAG_Y, 0)
 	mi.material_override = _bahn_mat(grund)
 	parent.add_child(mi)
 
@@ -4376,7 +4497,7 @@ func _show_controls_hint() -> void:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rect(box, 0.5, 0, 0.5, 0, -300, 84, 300, 246)
 	ui.add_child(box)
-	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste / Linksklick = feuern    ·    B = Bombe    ·    G = Fahrwerk\nM = KARTE    ·    N = Maus-/Tastatur-Flug (Start: MAUS)    ·    H = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
+	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\nW/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)\nQ/E = gieren    ·    Shift / Strg = Schub / bremsen\nLeertaste / Linksklick = feuern    ·    B = Bombe    ·    G = Fahrwerk    ·    H = Bombenschacht\nM = KARTE    ·    N = Maus-/Tastatur-Flug (Start: MAUS)    ·    O = G-Schutz    ·    J = Arcade    ·    T = Assist\nEnter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
 	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -5541,6 +5662,7 @@ func _on_hud_changed(d: Dictionary) -> void:
 	if flight_hud:
 		flight_hud.mini_player = flight_ctrl.aircraft
 		flight_hud.gear_text = str(d.get("gear", "—"))
+		flight_hud.bay_text = str(d.get("bay", "keiner"))
 		flight_hud.flaps_text = str(d.get("flaps", "AUS"))
 		flight_hud.steer_text = inv_txt
 		flight_hud.assist_text = assist_txt

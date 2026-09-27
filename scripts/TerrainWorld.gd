@@ -4719,9 +4719,23 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			var open := _open_ground(cx, cz) * vulkan_bewuchs(cx, cz, hc)
 			if open <= 0.01:
 				continue
+			# AUF EINER SENKRECHTEN WAND LIEGT NICHTS. `slope` ist der groesste
+			# Hoehenunterschied ueber die 8-m-Zelle, 8 m sind also genau 45 Grad.
+			#
+			# WARUM DAS HIER FEHLTE UND WAS ES ANRICHTET: der Bewuchs hat so eine Schranke
+			# laengst (er blendet zwischen slope 2,8 und 4,6 aus, also 19 bis 30 Grad),
+			# die FELSBROCKEN nicht — im Gegenteil, ihre Wahrscheinlichkeit STEIGT mit der
+			# Neigung, weil Blockschutt an Haengen liegt. Das stimmt bis rund 40 Grad und
+			# ist darueber falsch: an der Talschlusswand vor ADLERHORST standen gemessen
+			# 19 Broecken zwischen 108 und 488 m Hoehe auf einer fast senkrechten Wand,
+			# also frei in der Luft und mitten im Anflugbild.
+			# DIE SCHRANKE GILT FUER JEDE STEILWAND DER WELT, nicht nur fuer diese eine —
+			# ein Rechteck um das Portal haette denselben Fehler an der Fjordwand, am
+			# Canyon und am Vulkankegel stehen lassen.
+			var steil := 1.0 - smoothstep(6.4, 8.0, slope)
 			# FELSEN: unabhaengig vom Wald, bevorzugt an Haengen und in Hochlagen.
 			# Auch oberhalb der Baumgrenze (dort tragen sie die Bergsilhouette).
-			if rng.randf() < open * (0.004 + clampf(slope * 0.012, 0.0, 0.05)
+			if rng.randf() < steil * open * (0.004 + clampf(slope * 0.012, 0.0, 0.05)
 					+ (0.02 if hc > 45.0 else 0.0)):
 				var rsc := Vector3(rng.randf_range(0.7, 2.6), rng.randf_range(0.5, 1.9),
 					rng.randf_range(0.7, 2.6))

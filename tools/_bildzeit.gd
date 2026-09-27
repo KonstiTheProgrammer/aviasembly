@@ -77,6 +77,10 @@ func _lauf() -> void:
 		# IM FJORD, auf Wasserhoehe zwischen den Waenden. Die Kuestenformen laufen bei
 		# JEDER Hoehenprobe der Welt mit (Polylinienabstand je Stuetzpunkt); wenn sie
 		# etwas kosten, dann hier, wo drei Formen zugleich im Bild sind.
+		# IN DER KAVERNE, auf Augenhoehe der Bahn. Der dichteste Lichtpunkt der Karte:
+		# dreissig Spots und dreissig Omnis auf 1080 m Roehre. Wenn die Zahl der Lampen
+		# irgendwo weh tut, dann hier.
+		["ADLERHORST Kaverne", Vector3(-5131, 95, -10045), Vector3(-4781, 112, -10495)],
 		["Fjord auf Wasserhoehe", Vector3(-21347, 45, -19629), Vector3(-15338, 90, -15772)],
 		["NEONBUCHT Schlucht", Vector3(2352, 55, -3480), Vector3(2510, 130, -3610)],
 		["NEONBUCHT von oben", Vector3(2700, 340, -3300), Vector3(2560, 240, -3620)],

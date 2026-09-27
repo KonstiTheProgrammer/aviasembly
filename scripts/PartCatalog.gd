@@ -147,6 +147,32 @@ static func _build() -> void:
 	# Rumpfsegment mit dem RETO-Profilquerschnitt (aus dem Blatt in reto_test.blend).
 	# Nicht in der Palette: entsteht automatisch, wenn man ein Rumpfsegment an den
 	# Reto-Motor (oder an ein weiteres Profil-Segment) andockt. Frei skalierbar.
+	# BOMBENSCHACHT — ein Rumpfsegment mit einem ECHTEN Loch im Bauch.
+	#
+	# WARUM ES EIN RUMPFSEGMENT IST UND KEIN ANBAUTEIL. Der naheliegende Weg waere eine
+	# Kiste, die man unter einen beliebigen Rumpf haengt. Das funktioniert nicht: die
+	# Rumpfroehren sind Lofts mit AUSSEN zeigenden Normalen. Eine Kiste darunter laesst die
+	# Rumpfhaut stehen — die Klappen gingen auf und darunter waere Blech. Schneidet man die
+	# Haut dagegen weg, sieht man von unten in den Rumpf hinein und dessen Innenseite ist
+	# wegkulliert: man saehe durch das Flugzeug in den Himmel.
+	#
+	# Deshalb bringt der Schacht BEIDES selbst mit: seine Haut ist am Bauch aufgeschnitten,
+	# und dahinter steht ein Laderaum mit nach INNEN zeigenden Waenden. Er wird wie jedes
+	# andere Rumpfsegment in die Kette gebaut und ist an beiden Enden frei formbar, passt
+	# sich also an den Rumpf davor und dahinter an.
+	#
+	# DIE KOLLISIONSBOX DECKT NUR DIE OBERE HAELFTE (col_size/col_offset). Das ist kein
+	# Versehen, sondern die Bedingung dafuer, dass man Bomben HINEIN setzen kann: der
+	# Bauplatz-Strahl faehrt von unten in den Schacht und trifft dort die Decke des
+	# Laderaums als Auflageflaeche. Mit einer vollen Box wuerde er schon an der
+	# Bauchunterseite haengenbleiben und alles davor kleben.
+	_add({
+		"id": "bombbay", "name": "Bombenschacht", "category": CAT_BODY,
+		"mass": 140.0, "color": C_BODY, "shape": "bay_tube",
+		"size": Vector3(1.2, 1.2, 2.4), "biends": true,
+		"col_size": Vector3(1.2, 0.53, 2.4), "col_offset": Vector3(0.0, 0.335, 0.0),
+		"desc": "Rumpfsegment mit Bombenschacht: echtes Loch im Bauch, Laderaum dahinter, zwei Klappen. Im Flug mit H auf und zu. Beide Enden einzeln formbar wie bei jedem Rumpfsegment — Bomben und anderes setzt man bei offener Klappe hinein.",
+	})
 	_add({
 		"id": "fuselage_reto", "name": "Profil-Rumpfsegment", "category": CAT_BODY,
 		"mass": 110.0, "color": C_BODY, "shape": "reto_tube",
@@ -1785,6 +1811,36 @@ static func build_visual(p: Dictionary, col_override := Color(0, 0, 0, 0), taper
 			root.add_child(_mi(tube, make_material(col, metal, rough, true), Vector3.ZERO,
 				Vector3.ZERO, size))
 
+		"bay_tube":
+			# BOMBENSCHACHT. Alles unter EINEM mitskalierten Knoten statt jedes Netz
+			# einzeln zu skalieren: die Klappen sind DREHKNOTEN, keine Netze, und ein
+			# Node3D nimmt kein size-Argument wie _mi. Haengen sie in derselben
+			# skalierten Gruppe, wachsen Loch, Laderaum und Klappen gemeinsam mit dem
+			# Segment — genau das ist die Anforderung "soll man skalieren koennen".
+			var bay := Node3D.new()
+			bay.name = "Schacht"
+			bay.scale = size
+			root.add_child(bay)
+			bay.add_child(_mi(_bay_tube(ef, eb, 32, shift_front, shift_back),
+				make_material(col, metal, rough, true)))
+			# Der Laderaum ist dunkler und matter als die Aussenhaut: er liegt im
+			# Schatten, und ein glaenzendes Inneres saehe aus wie eine Beule statt wie
+			# ein Hohlraum.
+			bay.add_child(_mi(_bay_hold(ef, eb, shift_front, shift_back),
+				make_material(col.darkened(0.55), 0.15, 0.85, false)))
+			for links in [true, false]:
+				var d := _bay_door(ef, eb, shift_front, shift_back, links)
+				var dreh := Node3D.new()
+				dreh.name = "Klappe_L" if links else "Klappe_R"
+				# Die Drehrichtung MERKT SICH DER KNOTEN SELBST. AircraftBody dreht im
+				# Flug nur noch "auf" oder "zu" und muss nicht wissen, welche Seite es
+				# ist — sonst stuende die Regel an zwei Stellen und liefe beim naechsten
+				# Umbau auseinander.
+				dreh.set_meta("bay_door", -1.0 if links else 1.0)
+				dreh.position = d[1]
+				dreh.add_child(_mi(d[0], make_material(col, metal, rough, true)))
+				bay.add_child(dreh)
+
 		"c130_tube":
 			# C-130-Rumpfring: dasselbe Profil wie der Cockpit-Anschluss, aber PROZEDURAL
 			# geloftet. Vorher kam der Ring aus einem glb - dann steigt build_visual in
@@ -2822,6 +2878,295 @@ static func _box_tube(ef: Vector2, eb: Vector2, segs := 24, of := Vector2.ZERO,
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b1)
 		st.set_normal(Vector3(0, 0, 1)); st.add_vertex(b0)
 	return st.commit()
+
+
+# ================================================================================
+# BOMBENSCHACHT
+# ================================================================================
+#
+# Alle Masse sind EINHEITSMASSE im Wuerfel -0.5..+0.5; die echte Groesse kommt spaeter
+# ueber die Skalierung des Teils. Dadurch wachsen Loch, Laderaum und Klappen automatisch
+# mit, wenn man das Segment streckt oder staucht — genau das war die Anforderung.
+const LUKE_HALB := deg_to_rad(44.0)   # halbe Oeffnungsbreite, gemessen von senkrecht unten
+const LUKE_Z := 0.36                  # halbe Laenge der Oeffnung (von 0.5 Segmenthalblaenge)
+const LADE_DECKE := 0.06              # Hoehe der Laderaumdecke ueber der Segmentmitte
+const UNTEN := -PI * 0.5              # Winkel "senkrecht nach unten" im Ring
+
+
+## Die Ringwinkel EINSCHLIESSLICH der beiden Schnittkanten.
+##
+## Ein gleichmaessig unterteilter Ring trifft die Kanten der Oeffnung fast nie genau; der
+## Schnitt liefe dann als Treppe die Ellipse entlang, und die Klappen passten nicht darauf.
+## Die beiden Kantenwinkel werden deshalb ausdruecklich eingefuegt und die Liste sortiert.
+static func _bay_winkel(segs: int) -> PackedFloat32Array:
+	var w := PackedFloat32Array()
+	for i in segs:
+		w.append(TAU * float(i) / float(segs))
+	for k in [UNTEN - LUKE_HALB, UNTEN + LUKE_HALB]:
+		w.append(fposmod(k, TAU))
+	var l := Array(w)
+	l.sort()
+	var out := PackedFloat32Array()
+	for a: float in l:
+		if out.is_empty() or absf(a - out[out.size() - 1]) > 0.0005:
+			out.append(a)
+	return out
+
+
+## Liegt dieser Ringwinkel in der Oeffnung?
+static func _in_luke(a: float) -> bool:
+	var d := fposmod(a - fposmod(UNTEN, TAU) + PI, TAU) - PI
+	return absf(d) < LUKE_HALB - 0.0005
+
+
+## DER LICHTRAUM DES LADERAUMS, in Teilkoordinaten und schon mit der Teilgroesse
+## verrechnet.
+##
+## WOFUER. Zwei Stellen ausserhalb dieser Datei muessen wissen, wo der Schacht innen
+## aufhoert: der Flugcode, um zu erkennen, welche Bomben IM Schacht haengen (und damit
+## geschlossene Klappen nicht durchfallen duerfen), und Pruefwerkzeuge. Beide duerften die
+## Masse sonst nachbauen — und wuerden beim naechsten Verstellen von LUKE_HALB still
+## falsch liegen. Eine Quelle, kein Nachrechnen.
+static func bay_hold(p: Dictionary, psc := Vector3.ONE) -> Dictionary:
+	var gs: Vector3 = Vector3(p.get("size", Vector3.ONE)) * psc
+	return {
+		"halb_x": sin(LUKE_HALB) * 0.5 * gs.x,
+		"halb_z": LUKE_Z * gs.z,
+		"oben": LADE_DECKE * gs.y,
+		"unten": -0.5 * gs.y,
+	}
+
+
+## Klappen eines gebauten Schacht-Visuals auf/zu stellen.
+##
+## Gebraucht in der BAUANSICHT: dort steht kein AircraftBody, der animiert, und die Klappen
+## blieben deshalb zu — man haette Bomben blind in einen zugedeckten Schacht setzen
+## muessen. Genau das war der groesste Mangel des ersten Wurfs.
+static func set_bay_open(wurzel: Node, offen: bool) -> void:
+	for n in _bay_doors(wurzel):
+		(n as Node3D).rotation.z = float(n.get_meta("bay_door")) \
+			* (deg_to_rad(102.0) if offen else 0.0)
+
+
+static func _bay_doors(n: Node) -> Array:
+	var out: Array = []
+	if n.has_meta("bay_door"):
+		out.append(n)
+	for c in n.get_children():
+		out.append_array(_bay_doors(c))
+	return out
+
+
+## Ein Punkt auf der Rumpfhaut bei Winkel a und Laengsstelle z.
+static func _bay_haut(a: float, z: float, ef: Vector2, eb: Vector2,
+		of: Vector2, ob: Vector2) -> Vector3:
+	var t := z + 0.5                       # 0 = vorne (-0.5), 1 = hinten (+0.5)
+	var rx := lerpf(0.5 * ef.x, 0.5 * eb.x, t)
+	var ry := lerpf(0.5 * ef.y, 0.5 * eb.y, t)
+	var ox := lerpf(of.x, ob.x, t)
+	var oy := lerpf(of.y, ob.y, t)
+	return Vector3(cos(a) * rx + ox, sin(a) * ry + oy, z)
+
+
+## DIE HAUT — dieselbe Ellipsen-Roehre wie ein normales Rumpfsegment, aber mit einem
+## Rechteck-Loch im Bauch.
+##
+## Die Roehre wird laengs in DREI Abschnitte geteilt (vorn, Luke, hinten). Nur im
+## mittleren fallen die Bauchflaechen weg. Ein normales Rumpfsegment hat in Z ueberhaupt
+## nur eine Unterteilung — ohne diese Teilung gaebe es keine Stelle, an der man schneiden
+## koennte, ohne das ganze Segment zu oeffnen.
+static func _bay_tube(ef: Vector2, eb: Vector2, segs := 32, of := Vector2.ZERO,
+		ob := Vector2.ZERO) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var winkel := _bay_winkel(segs)
+	var zs := [-0.5, -LUKE_Z, LUKE_Z, 0.5]
+	for zi in 3:
+		var z0: float = zs[zi]
+		var z1: float = zs[zi + 1]
+		var mitte := zi == 1                       # der Abschnitt mit der Oeffnung
+		for i in winkel.size():
+			var a0: float = winkel[i]
+			var a1: float = winkel[(i + 1) % winkel.size()]
+			if mitte and _in_luke((a0 + a1) * 0.5):
+				continue                           # hier ist das Loch
+			var p00 := _bay_haut(a0, z0, ef, eb, of, ob)
+			var p10 := _bay_haut(a1, z0, ef, eb, of, ob)
+			var p01 := _bay_haut(a0, z1, ef, eb, of, ob)
+			var p11 := _bay_haut(a1, z1, ef, eb, of, ob)
+			var n0 := Vector3(cos(a0) / maxf(ef.x, 0.001), sin(a0) / maxf(ef.y, 0.001), 0.0).normalized()
+			var n1 := Vector3(cos(a1) / maxf(ef.x, 0.001), sin(a1) / maxf(ef.y, 0.001), 0.0).normalized()
+			st.set_normal(n0); st.add_vertex(p00)
+			st.set_normal(n0); st.add_vertex(p01)
+			st.set_normal(n1); st.add_vertex(p10)
+			st.set_normal(n1); st.add_vertex(p10)
+			st.set_normal(n0); st.add_vertex(p01)
+			st.set_normal(n1); st.add_vertex(p11)
+	# Deckel vorn und hinten, wie beim normalen Segment.
+	for i in winkel.size():
+		var a0: float = winkel[i]
+		var a1: float = winkel[(i + 1) % winkel.size()]
+		st.set_normal(Vector3(0, 0, -1))
+		st.add_vertex(Vector3(of.x, of.y, -0.5))
+		st.add_vertex(_bay_haut(a0, -0.5, ef, eb, of, ob))
+		st.add_vertex(_bay_haut(a1, -0.5, ef, eb, of, ob))
+		st.set_normal(Vector3(0, 0, 1))
+		st.add_vertex(Vector3(ob.x, ob.y, 0.5))
+		st.add_vertex(_bay_haut(a1, 0.5, ef, eb, of, ob))
+		st.add_vertex(_bay_haut(a0, 0.5, ef, eb, of, ob))
+	return st.commit()
+
+
+## DER LADERAUM — was man sieht, wenn die Klappen offen sind.
+##
+## Ohne ihn waere das Loch ein Blick ins Nichts: die Rumpfhaut ist von innen wegkulliert,
+## man saehe durch das Flugzeug hindurch in den Himmel. Alle Flaechen zeigen deshalb nach
+## INNEN, und die Seitenwaende setzen genau an den beiden Schnittkanten der Haut an —
+## dieselben Winkel, die _bay_winkel ausdruecklich in den Ring eingefuegt hat.
+static func _bay_hold(ef: Vector2, eb: Vector2, of := Vector2.ZERO,
+		ob := Vector2.ZERO) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var aL := UNTEN - LUKE_HALB
+	var aR := UNTEN + LUKE_HALB
+	var kL0 := _bay_haut(aL, -LUKE_Z, ef, eb, of, ob)
+	var kL1 := _bay_haut(aL, LUKE_Z, ef, eb, of, ob)
+	var kR0 := _bay_haut(aR, -LUKE_Z, ef, eb, of, ob)
+	var kR1 := _bay_haut(aR, LUKE_Z, ef, eb, of, ob)
+	var dL0 := Vector3(kL0.x, LADE_DECKE, kL0.z)
+	var dL1 := Vector3(kL1.x, LADE_DECKE, kL1.z)
+	var dR0 := Vector3(kR0.x, LADE_DECKE, kR0.z)
+	var dR1 := Vector3(kR1.x, LADE_DECKE, kR1.z)
+	# Decke — Normale nach UNTEN, denn man sieht sie von innen.
+	_bay_quad(st, dL0, dR0, dR1, dL1, Vector3.DOWN)
+	# Seitenwaende, Normale nach innen (zur Mitte hin).
+	#
+	# Die Eckreihenfolge ist gegenueber dem ersten Anlauf UMGEKEHRT — sie war auf die alte
+	# Wicklung von _bay_quad abgestimmt und kippte mit, als die gedreht wurde. Die
+	# NORMALEN bleiben, wie sie waren: sie stehen ausdruecklich da und haengen nicht an
+	# der Umlaufrichtung, sonst muesste man bei jedem Dreh auch die Beleuchtung nachziehen.
+	_bay_quad(st, kL0, dL0, dL1, kL1, Vector3.RIGHT)
+	_bay_quad(st, kR1, dR1, dR0, kR0, Vector3.LEFT)
+	# Schotten vorn und hinten. Sie folgen der BAUCHKURVE, nicht einer geraden Linie —
+	# sonst klaffte zwischen Schott und Haut ein Spalt, weil der Bauch tiefer liegt als
+	# die Verbindung der beiden Kanten.
+	var n := 10
+	for k in n:
+		var a0: float = lerpf(aL, aR, float(k) / float(n))
+		var a1: float = lerpf(aL, aR, float(k + 1) / float(n))
+		var v0 := _bay_haut(a0, -LUKE_Z, ef, eb, of, ob)
+		var v1 := _bay_haut(a1, -LUKE_Z, ef, eb, of, ob)
+		_bay_quad(st, v1, Vector3(v1.x, LADE_DECKE, v1.z),
+			Vector3(v0.x, LADE_DECKE, v0.z), v0, Vector3.BACK)
+		var w0 := _bay_haut(a0, LUKE_Z, ef, eb, of, ob)
+		var w1 := _bay_haut(a1, LUKE_Z, ef, eb, of, ob)
+		_bay_quad(st, w0, Vector3(w0.x, LADE_DECKE, w0.z),
+			Vector3(w1.x, LADE_DECKE, w1.z), w1, Vector3.FORWARD)
+	return st.commit()
+
+
+## Ein Viereck a-b-c-d mit fester Normale.
+##
+## UMLAUFRICHTUNG GEDREHT gegenueber dem ersten Anlauf. Nachgewiesen mit dem Gruen/Rot-
+## Test in tools/_schacht_render.gd (Schalter "pruef"): die Laderaumdecke kam rot heraus,
+## war also von innen unsichtbar — und der Laderaum ist genau das, was man sehen soll.
+## Godot nimmt in der x/z-Ebene die Reihenfolge, die man nicht vermutet; im Hochhaus-
+## viertel steckte derselbe Fehler im ganzen Netz.
+static func _bay_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
+		n: Vector3) -> void:
+	st.set_normal(n)
+	st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
+	st.add_vertex(a); st.add_vertex(d); st.add_vertex(c)
+
+
+## Ein Viereck, das von BEIDEN Seiten sichtbar ist. Fuer schmale Kanten, bei denen die
+## Umlaufrichtung von der Einbaulage abhaengt und eine Fallunterscheidung mehr Zeilen
+## kostet als die acht zusaetzlichen Dreiecke.
+static func _bay_rand(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
+		n: Vector3) -> void:
+	_bay_quad(st, a, b, c, d, n)
+	_bay_quad(st, a, d, c, b, -n)
+
+
+## EINE KLAPPE — die gekruemmte Schale, die das halbe Loch schliesst.
+##
+## Sie ist ein Stueck derselben Ellipse wie die Haut, also passt sie geschlossen exakt in
+## den Ausschnitt; eine ebene Platte wuerde an den Raendern vorstehen und in der Mitte
+## einsinken. Die Punkte werden RELATIV ZUM SCHARNIER gebaut, damit der Elternknoten sich
+## einfach um seine Z-Achse drehen kann.
+##
+## Beidseitig beplankt: eine Schale mit nur einer Seite waere von innen unsichtbar, und
+## genau von innen sieht man sie, sobald sie offen steht.
+static func _bay_door(ef: Vector2, eb: Vector2, of: Vector2, ob: Vector2,
+		links: bool) -> Array:
+	var a_scharnier: float = (UNTEN - LUKE_HALB) if links else (UNTEN + LUKE_HALB)
+	var scharnier := _bay_haut(a_scharnier, 0.0, ef, eb, of, ob)
+	scharnier.z = 0.0
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 6
+	var dicke := 0.012
+	# BEIDE KLAPPEN IM SELBEN WINKELSINN AUFBAUEN, nicht jede von ihrem Scharnier zur
+	# Mitte. Der erste Anlauf lief links von -134 auf -90 Grad (aufwaerts) und rechts von
+	# -46 auf -90 (abwaerts) — dieselbe Reihenfolge der Eckpunkte ergibt dabei
+	# ENTGEGENGESETZTE Wicklungen, und im Gruen/Rot-Test war folgerichtig genau eine der
+	# beiden Klappen rot. Von klein nach gross gebaut, sind beide gleich.
+	var a_von: float = minf(a_scharnier, UNTEN)
+	var a_bis: float = maxf(a_scharnier, UNTEN)
+	for k in n:
+		var a0: float = lerpf(a_von, a_bis, float(k) / float(n))
+		var a1: float = lerpf(a_von, a_bis, float(k + 1) / float(n))
+		# EIN HAAR NACH AUSSEN GESETZT. Die Klappe ist ein Stueck DERSELBEN Ellipse wie
+		# die Haut — geschlossen liegt sie damit exakt in deren Flaeche, und an den
+		# Facettengrenzen streiten beide um dieselbe Tiefe. Im Gruen/Rot-Test zeigte sich
+		# das als Netz feiner roter Haarlinien auf der geschlossenen Klappe. 6 mm
+		# (Einheitsmass, mal Teilgroesse also gut 7 mm) sind unsichtbar und beenden den
+		# Streit.
+		var raus0 := Vector3(cos(a0), sin(a0), 0.0) * 0.006
+		var raus1 := Vector3(cos(a1), sin(a1), 0.0) * 0.006
+		for zi in 1:
+			var p00 := _bay_haut(a0, -LUKE_Z, ef, eb, of, ob) + raus0 - scharnier
+			var p10 := _bay_haut(a1, -LUKE_Z, ef, eb, of, ob) + raus1 - scharnier
+			var p01 := _bay_haut(a0, LUKE_Z, ef, eb, of, ob) + raus0 - scharnier
+			var p11 := _bay_haut(a1, LUKE_Z, ef, eb, of, ob) + raus1 - scharnier
+			var nn := Vector3(cos((a0 + a1) * 0.5), sin((a0 + a1) * 0.5), 0.0).normalized()
+			# BEIDE SCHALEN GEDREHT. Der erste Anlauf hatte die Aussenschale falsch
+			# gewickelt UND die Blechdicke nach aussen gelegt — die verkehrt herum
+			# liegende Innenschale deckte die verkehrt herum gewickelte Aussenschale
+			# gerade zu, und im Bild sah man nur noch feine Linien an den Facettengrenzen.
+			# Zwei Fehler, die sich gegenseitig verstecken; erst als die Dicke nach innen
+			# wanderte, kam die ganze Klappe rot heraus.
+			_bay_quad(st, p00, p10, p11, p01, nn)
+			# MINUS, NICHT PLUS. nn zeigt nach AUSSEN; mit + lag die "Innenschale" zwoelf
+			# Millimeter VOR der Aussenschale und zeigte dabei nach innen. An jeder
+			# Facettengrenze stach sie durch, und im Gruen/Rot-Test zog sich ein Netz
+			# feiner roter Linien ueber die geschlossene Klappe. Eine Blechdicke gehoert
+			# nach innen.
+			var i00 := p00 - nn * dicke
+			var i10 := p10 - nn * dicke
+			var i01 := p01 - nn * dicke
+			var i11 := p11 - nn * dicke
+			_bay_quad(st, i00, i01, i11, i10, -nn)
+			# DIE SCHMALSEITEN SCHLIESSEN. Zwei Schalen ohne Kante dazwischen sind keine
+			# Platte, sondern zwei Blaetter: an ihrem Rand sieht man zwischen ihnen
+			# hindurch, und im Gruen/Rot-Test lag dort ein durchgehender roter Strich.
+			# Bei geoeffneter Klappe steht genau diese Kante im Blickfeld.
+			#
+			# BEIDSEITIG, und das ist hier die richtige Antwort statt der eleganten. Die
+			# zwei Klappen sind Spiegelbilder; jede Kantenreihenfolge, die fuer die eine
+			# stimmt, steht bei der anderen falsch herum — dieselbe Falle, die schon die
+			# Klappenflaechen selbst hatte. Fuer einen 12 mm breiten Streifen lohnt sich
+			# die Fallunterscheidung nicht: doppelt gezeichnet kann er nicht falsch sein
+			# und kostet acht Dreiecke je Klappe.
+			_bay_rand(st, p00, i00, i10, p10, Vector3.FORWARD)
+			_bay_rand(st, p11, i11, i01, p01, Vector3.BACK)
+			if k == 0:
+				_bay_rand(st, p01, i01, i00, p00,
+					Vector3(-sin(a0), cos(a0), 0.0).normalized())
+			if k == n - 1:
+				_bay_rand(st, p10, i10, i11, p11,
+					Vector3(-sin(a1), cos(a1), 0.0).normalized())
+	return [st.commit(), scharnier]
 
 
 # RETO-Profilquerschnitt: aus dem flachen "Blatt"-Objekt in reto_test.blend extrahiert

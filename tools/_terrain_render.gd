@@ -42,6 +42,11 @@ var _shots: Array = [
 	["pan2", Vector3(3550, 360, 600), Vector3(2500, 90, 1450)],          # Blick aufs Bergmassiv
 	["spawn", Vector3(0, 110, 420), Vector3(0, 8, -250)],                # ueber dem Flugfeld HEIMAT
 	["grossstadt", Vector3(4300, 420, 4100), Vector3(4300, 60, 2500)],   # Skyline aus Sued
+	# DICHT AN DEN HAEUSERN. Aus 1600 m ist eine falsch gewickelte Wand nicht von einer
+	# richtigen zu unterscheiden — man sieht durch die Vorderseite die Innenseite der
+	# Rueckwand, und die traegt dieselbe Fassade. Genau daran ist im Hochhausviertel ein
+	# komplett verkehrt herum gebautes Netz lange unentdeckt geblieben.
+	["stadt_nah", Vector3(4300, 78.0, 2760), Vector3(4330, 58.0, 2480)],
 	["windpark", Vector3(-3900, 300, 900), Vector3(-3900, 40, -700)],    # Windpark + Weite
 	# Vulkaninsel von Norden. SIE STAND BEI (11800, 780, -4750) UND DAMIT IM BERG: das sind
 	# 850 m vom Mittelpunkt, und dort steht die Flanke seit der Vergroesserung auf 840 m —
@@ -105,10 +110,34 @@ var _shots: Array = [
 	["lagune", Vector3(-9337, 760.0, 25654), Vector3(-11013, 0.0, 30258)],
 	["portal_anflug", Vector3(-5567.0, 118.0, -9485.3), Vector3(-5272.3, 108.0, -9864.2)],
 	["portal_seite", Vector3(-6025.7, 430.0, -10133.4), Vector3(-5272.3, 120.0, -9864.2)],
+	# VOM PORTAL AUS NACH HINTEN. Alle anderen Kavernenkameras blicken zum Ausgang; mit
+	# ihnen war nicht zu pruefen, ob das ENDE der Roehre rechtzeitig zu erkennen ist —
+	# und genau das ist die Frage, wenn man mit Tempo hereinkommt.
+	# DER ANFLUG, WIE MAN IHN WIRKLICH FLIEGT: auf der Bahnachse, auf Flughoehe, aus
+	# zwei Entfernungen. Bisher gab es nur einen Standbild-Blick vom Platz aus — damit
+	# war nicht zu beurteilen, ob man das Portal aus 1,7 km ueberhaupt FINDET.
+	# ZWEI HOEHEN AUS DERSELBEN ENTFERNUNG. Aus 130 m verdeckt ein bewaldeter Ruecken
+	# den Talboden — kein Licht hilft gegen Gelaende. Die Frage ist, ab welcher Hoehe man
+	# die Befeuerung sieht, und das beantwortet nur der Vergleich.
+	["portal_hoch", Vector3(-6334.4, 300.0, -8498.7), Vector3(-5272.3, 100.0, -9864.2)],
+	["portal_mitte", Vector3(-5904.6, 175.0, -9051.2), Vector3(-5272.3, 100.0, -9864.2)],
+	["portal_fern", Vector3(-6334.4, 130.0, -8498.7), Vector3(-5272.3, 112.0, -9864.2)],
+	["portal_kurz", Vector3(-5567.0, 108.0, -9485.3), Vector3(-5272.3, 104.0, -9864.2)],
+	["kav_ende", Vector3(-5217.1, 112.0, -9935.2), Vector3(-4652.3, 100.0, -10661.4)],
 	["kav_tief", Vector3(-4732.1, 105, -10558.8), Vector3(-5284.6, 100, -9848.4)],
 	["kav_apron", Vector3(-5070.2, 112, -10213.7), Vector3(-4928.1, 95, -10331.2)],
 	["kav_niedrig", Vector3(-5131.1, 95, -10045.7), Vector3(-4781.2, 112, -10495.6)],
 	["kav_galerie", Vector3(-4930.3, 116, -10206.2), Vector3(-4874.6, 95, -10416.3)],
+	# --- PRUEFSTELLUNGEN DER ABNAHME (Achse: dir (0.614,-0.789), rechts (0.789,0.614),
+	# Portal (-5272.3, 90, -9864.2), Hallenboden y = 90.7) -----------------------------
+	["kav_schwelle", Vector3(-5198.6, 96, -9958.9), Vector3(-4928.4, 94, -10306.1)],
+	["kav_rueck", Vector3(-4731.8, 112, -10558.7), Vector3(-4610.2, 96, -10714.9)],
+	["kav_mast", Vector3(-5067.7, 108, -10211.8), Vector3(-4978.9, 92, -10345.5)],
+	["kav_senkrecht", Vector3(-5028.6, 145, -10216.5), Vector3(-5028.6, 90, -10216.4)],
+	["kav_schacht", Vector3(-4908.5, 116, -10341.4), Vector3(-4830.6, 147, -10407.4)],
+	["kav_ausblick", Vector3(-5131.0, 114, -10045.7), Vector3(-5272.3, 112, -9864.2)],
+	["portal_nah", Vector3(-5387.5, 105, -9833.4), Vector3(-5269.2, 125, -9868.1)],
+	["portal_schraeg", Vector3(-5622.3, 185, -9756.4), Vector3(-5272.3, 112, -9864.2)],
 	# Auf die Raketenstellung suedlich des Platzes — Werfer, Antenne, Bettung.
 	["sam_ir", Vector3(390.0, 28.0, -2200.0), Vector3(430.0, 6.0, -2250.0)],
 	# --- NEONBUCHT: das Hochhausviertel bei (2600, -3800) -----------------------------

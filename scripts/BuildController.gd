@@ -2220,6 +2220,11 @@ func _rebuild_visual(part: Node) -> void:
 	nv.name = "Visual"
 	nv.scale = part.get_meta("pscale", Vector3.ONE)
 	part.add_child(nv)
+	# IM HANGAR STEHT DER BOMBENSCHACHT OFFEN. Ohne das waeren die Klappen hier zu — es
+	# animiert ja kein AircraftBody — und man muesste Bomben blind in einen zugedeckten
+	# Laderaum setzen. Der Schacht ist genau dafuer da, also zeigt er sich beim Bauen.
+	# Im Flug schliesst AircraftBody sie beim Zusammenbau wieder (recompute_aero).
+	PartCatalog.set_bay_open(nv, true)
 	var pdef := PartCatalog.get_part(part.get_meta("part_id"))
 	PartCatalog.set_gear_length(nv, pdef, part.get_meta("gear_len", 1.0))
 	if part.has_meta("block_r"):

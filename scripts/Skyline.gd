@@ -594,18 +594,21 @@ static func _prisma(st: SurfaceTool, fuss: Vector3, r: float, h: float, seiten: 
 	for i in seiten:
 		var a0 := dreh + TAU * float(i) / float(seiten)
 		var a1 := dreh + TAU * float(i + 1) / float(seiten)
+		# Der Deckelfaecher geht nicht ueber _quad und musste deshalb EIGENS gedreht
+		# werden — beim Umdrehen der Wicklung ist genau so etwas die Stelle, die man
+		# vergisst und die dann als einziges Loch im sonst richtigen Netz uebrigbleibt.
 		st.set_color(_dachton(col))
 		st.add_vertex(Vector3(fuss.x, oben, fuss.z))
-		st.add_vertex(Vector3(fuss.x + cos(a0) * r, oben, fuss.z + sin(a0) * r))
 		st.add_vertex(Vector3(fuss.x + cos(a1) * r, oben, fuss.z + sin(a1) * r))
+		st.add_vertex(Vector3(fuss.x + cos(a0) * r, oben, fuss.z + sin(a0) * r))
 	if unterseite:
 		for i in seiten:
 			var a0 := dreh + TAU * float(i) / float(seiten)
 			var a1 := dreh + TAU * float(i + 1) / float(seiten)
 			st.set_color(_sch(col, 0.62))
 			st.add_vertex(Vector3(fuss.x, fuss.y, fuss.z))
-			st.add_vertex(Vector3(fuss.x + cos(a1) * r, fuss.y, fuss.z + sin(a1) * r))
 			st.add_vertex(Vector3(fuss.x + cos(a0) * r, fuss.y, fuss.z + sin(a0) * r))
+			st.add_vertex(Vector3(fuss.x + cos(a1) * r, fuss.y, fuss.z + sin(a1) * r))
 
 
 ## Ein Stumpf: unten b0 breit, oben b1 breit, mit SCHRAEGEN Waenden.
@@ -891,12 +894,29 @@ static func _kasten(st: SurfaceTool, mitte: Vector3, groesse: Vector3, col: Colo
 			Vector3(p[2].x, y0, p[2].y), Vector3(p[3].x, y0, p[3].y), _sch(col, 0.62))
 
 
+## Ein Viereck a-b-c-d.
+##
+## DIE UMLAUFRICHTUNG WAR HIER UMGEKEHRT — und zwar fuer das GANZE Viertel, Tuerme wie
+## Bloecke. Nachgewiesen mit einem Debug-Shader, der Vorderseiten gruen und Rueckseiten
+## rot faerbt: das komplette Fassadennetz kam rot heraus. Aufgefallen ist es lange nicht,
+## weil ein Kasten, dessen Aussenseiten alle wegkulliert sind, aus der Entfernung immer
+## noch aussieht wie ein Haus — man sieht durch die Vorderwand hindurch die INNENSEITE
+## der Rueckwand, und die traegt dasselbe Fassadenraster. Erst nah an einem niedrigen
+## Block, wo die Silhouette aufbricht, sieht man in ein offenes Gehaeuse.
+##
+## DER BEWEIS STAND DIE GANZE ZEIT IN DERSELBEN DATEI: _platte legt eine nach oben
+## zeigende Flaeche als (-,-) -> (+,-) -> (+,+), und dieser Wert ist dort dreimal
+## schmerzhaft erarbeitet worden. _kasten lief mit (-,-) -> (-,+) -> (+,+), also genau
+## andersherum. Godot nimmt in der x/z-Ebene die Reihenfolge, die man NICHT vermutet.
+##
+## Deshalb wird hier gedreht und nicht an den zwoelf Aufrufstellen: eine Stelle, an der es
+## richtig ist, statt zwoelf, an denen es wieder auseinanderlaufen kann.
 static func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
 		col: Color) -> void:
 	st.set_color(col)
-	st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
+	st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
 	st.set_color(col)
-	st.add_vertex(a); st.add_vertex(c); st.add_vertex(d)
+	st.add_vertex(a); st.add_vertex(d); st.add_vertex(c)
 
 
 ## Der Boden des Viertels: eine durchgehende Platte mit hellen Fahrbahnen darauf.

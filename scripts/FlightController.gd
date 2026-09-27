@@ -396,6 +396,7 @@ func build_from_design(d: Array) -> void:
 			continue
 		body_boxes.append(PartCatalog.part_box(bpp, it.get("xform", Transform3D()), it.get("scale", Vector3.ONE)))
 
+	var schaechte: Array = []      # Lichtraeume aller Bombenschaechte, siehe unten
 	# Vorab: {id, xform, pscale} aller Teile -> Sternmotor prüft damit, ob hinten ein Rumpfteil
 	# sitzt (dann offene Variante). Der Motor selbst stört nicht: rear_docked sieht nur Rumpfteile.
 	var dock_items: Array = []
@@ -549,6 +550,14 @@ func build_from_design(d: Array) -> void:
 				"yaw": pinfo["yaw_a"] = a
 				_: pinfo["roll_a"] = ctrl_part
 		part_infos.append(pinfo)
+		# SCHACHTVOLUMEN MERKEN. Welche Bombe im Schacht haengt, entscheidet spaeter, ob
+		# sie bei geschlossenen Klappen fallen darf — und das laesst sich nur GEOMETRISCH
+		# beantworten, weil man Bomben frei hineinsetzt und nicht an einen Aufhaengepunkt
+		# klickt. Die Masse kommen aus PartCatalog.bay_hold, damit sie nicht an zwei
+		# Stellen stehen.
+		if id == "bombbay":
+			var hd := PartCatalog.bay_hold(p, psc)
+			schaechte.append({"xf": xf, "h": hd})
 		var wp := String(p.get("weapon", ""))
 		if wp != "":
 			# ammo = -1 -> unbegrenzt (Geschütze); 1 -> Bombe/Rakete (verschwindet nach Schuss).
@@ -559,6 +568,24 @@ func build_from_design(d: Array) -> void:
 				went["spin"] = 0.0
 				went["barrels"] = vis.find_child("Barrels", true, false)   # rotierendes Laufbündel
 			weapons.append(went)
+
+	# WELCHE WAFFE HAENGT IM SCHACHT? Erst jetzt, nach der Schleife — ein Schacht kann im
+	# Bauplan HINTER der Bombe stehen, die in ihm liegt, und waere waehrend der Schleife
+	# noch nicht bekannt gewesen.
+	#
+	# Geprueft wird der Aufhaengepunkt der Waffe gegen den Lichtraum des Schachts, in
+	# dessen eigenen Koordinaten. Ein Schacht darf gedreht und skaliert sein; deshalb wird
+	# der Punkt mit der inversen Teiltransformation zurueckgerechnet und nicht in
+	# Weltachsen verglichen.
+	for w in weapons:
+		var wo: Vector3 = w["off"]
+		for sch in schaechte:
+			var lokal: Vector3 = (sch["xf"] as Transform3D).affine_inverse() * wo
+			var h: Dictionary = sch["h"]
+			if absf(lokal.x) < float(h["halb_x"]) and absf(lokal.z) < float(h["halb_z"]) \
+					and lokal.y < float(h["oben"]) and lokal.y > float(h["unten"]):
+				w["schacht"] = true
+				break
 
 	_rebuild_weapon_groups()
 
@@ -616,6 +643,8 @@ func _reset_to_runway() -> void:
 # Steuerung
 # ---------------------------------------------------------------------------
 func _physics_process(delta: float) -> void:
+	if _bay_warnung > 0.0:
+		_bay_warnung = maxf(0.0, _bay_warnung - delta)
 	if not is_instance_valid(aircraft):
 		return
 
@@ -1374,10 +1403,22 @@ func _warnung_takt() -> void:
 	warn_winkel = atan2(rel.dot(b.x), rel.dot(-b.z))
 
 
+var _bay_warnung := 0.0    # Restzeit des Hinweises "Schacht zu"
+
+
 func _drop_bomb(single := false) -> void:
 	var av := aircraft.linear_velocity
+	var gesperrt := false
 	for w in weapons:
 		if w["type"] != "bomb" or w["cd"] > 0.0 or int(w["ammo"]) == 0:
+			continue
+		# BOMBEN IM SCHACHT FALLEN NICHT DURCH GESCHLOSSENE KLAPPEN.
+		#
+		# Das ist die Regel, die aus der Klappe ueberhaupt ein System macht — ohne sie ist
+		# sie ein Schalter ohne Wirkung. Aussenlasten an Fluegeln oder Rumpf sind davon
+		# ausdruecklich NICHT betroffen: die haengen frei und koennen immer fallen.
+		if bool(w.get("schacht", false)) and not aircraft.bay_frei():
+			gesperrt = true
 			continue
 		var pidx: int = int(w.get("part_idx", -1))
 		if pidx >= 0 and pidx < aircraft.parts.size() and aircraft.parts[pidx].get("broken", false):
@@ -1391,6 +1432,11 @@ func _drop_bomb(single := false) -> void:
 				aircraft.queue_detach(pidx)   # Bombe verschwindet vom Modell -> Aero neu
 		if single:
 			return   # ein Druck = eine Bombe
+	# Wer auf Abwurf drueckt und nichts passiert, braucht die Begruendung SOFORT — sonst
+	# haelt er die Bombe fuer kaputt. Der Hinweis geht in dieselbe Zeile, die den Zustand
+	# ohnehin zeigt.
+	if gesperrt:
+		_bay_warnung = 2.0
 
 
 func _spawn(kind: String, pos: Vector3, vel: Vector3, life: float, dmg: float,
@@ -1463,7 +1509,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			# X = Waffengruppe durchschalten (war V; V ist jetzt der Zielzoom)
 			if weapon_groups.size() > 1:
 				weapon_sel = (weapon_sel + 1) % weapon_groups.size()
-		elif event.keycode == KEY_H:
+		elif event.keycode == KEY_H and is_instance_valid(aircraft):
+			# H = BOMBENSCHACHT auf/zu.
+			#
+			# H lag vorher auf dem G-Schutz. Der ist auf O umgezogen, weil H ausdruecklich
+			# fuer die Klappe gewuenscht war und von den Buchstaben nur noch O und U frei
+			# waren — alles andere ist im Flug schon belegt. Der G-Schutz ist ein Schalter,
+			# den man einmal im Flug setzt; die Schachtklappe drueckt man im Anflug auf ein
+			# Ziel, also gehoert sie auf die naeher liegende Taste.
+			aircraft.toggle_bay()
+		elif event.keycode == KEY_O:
 			g_protect = not g_protect
 		elif event.keycode == KEY_J:
 			_toggle_arcade()
@@ -1935,6 +1990,7 @@ func _emit_hud() -> void:
 		"wgroups": _wgroups_hud(),
 		"wsel": weapon_sel,
 		"gear": aircraft.gear_status,
+		"bay": ("ZU — H DRUECKEN" if _bay_warnung > 0.0 else aircraft.bay_status),
 		"wings": aircraft.wing_status,
 		"inverted": aircraft.inverted,
 		"land_msg": aircraft.landing_msg,
