@@ -6848,7 +6848,13 @@ func _design_data() -> Array:
 			"tuser_f": it.get("tuser_f", false), "tuser_b": it.get("tuser_b", false),
 			"glen": it.get("glen", 1.0), "br": it.get("br", []),
 			"sf": [sf.x, sf.y], "sb": [sb.x, sb.y], "bsc": [bsc.x, bsc.y, bsc.z],
-			"fill": it.get("fill", 0.0), "thrust_reverse": it.get("thrust_reverse", false)})
+			"fill": it.get("fill", 0.0), "thrust_reverse": it.get("thrust_reverse", false),
+			# DIE WURZEL gehoert mit in die Datei. BuildController.load_design stellt sie
+			# seit jeher "exakt wieder her (neue Saves)" — nur schrieb sie niemand hinein,
+			# und _ensure_root riet nach jedem Neustart: erstes Cockpit, sonst erstes Teil.
+			# Die Wurzel ist der Kern im Flug (bricht nie ab, ihr Versagen = Totalverlust)
+			# und der Startpunkt der Verbindungssuche fuer "haengt frei".
+			"root": it.get("root", false)})
 	return data
 
 
@@ -7086,6 +7092,10 @@ func _load_design_from(path: String) -> bool:
 			if it.has("tuser_f") or it.has("tuser_b"):
 				eintrag["tuser_f"] = bool(it.get("tuser_f", false))
 				eintrag["tuser_b"] = bool(it.get("tuser_b", false))
+			# Nur uebernehmen, wenn die Datei sie traegt: ALTE Saves und die Vorlagen haben
+			# keine, dann waehlt _ensure_root wie bisher (erstes Cockpit, sonst erstes Teil).
+			if it.has("root"):
+				eintrag["root"] = bool(it["root"])
 			arr.append(eintrag)
 	if arr.is_empty():
 		return false
