@@ -8,6 +8,18 @@
 ## GEMESSEN WIRD DER MEDIAN, nicht das Mittel: die ersten Bilder nach einem Kameraschwenk
 ## bauen Chunks nach und sind Ausreisser, die jeden Mittelwert unbrauchbar machen.
 ##
+## BEVORZUGT WIRD DIE GPU-ZEIT DES VIEWPORTS (RenderingServer.viewport_get_measured_render_
+## time_gpu), sonst die Wandzeit zwischen zwei Bildern. GRUND: auf macOS/Metal taktet das
+## System die Praesentation an das Display, egal ob VSync per API oder mit --disable-vsync
+## abgeschaltet wird — gemessen lagen alle Stellungen und Abschaltungen bei 8,0 bis 8,7 ms,
+## also bei den 120 Hz des Bildschirms (heisst nur: ueberall volle Bildrate). GPU-
+## Zeitstempel liefert der Metal-Treiber von Godot 4.6 aber NICHT (immer 0); dort bleibt
+## es bei der Wandzeit, und das Werkzeug warnt, wenn sie auf der Bildwiederholrate klebt.
+## Unter Vulkan/D3D12 (Windows) kommen echte GPU-Millisekunden.
+## PRAKTISCH AUF DEM MAC: liegt das Messfenster HINTER einem anderen Fenster, bindet macOS
+## es nicht ans Display, und die Wandzeit wird brauchbar (gemessen 2,7 bis 7,3 ms statt
+## ueberall 8,3). Vorne liegend misst man nur die 120 Hz.
+##
 ## Godot --path . --script res://tools/_bildzeit.gd
 extends SceneTree
 
@@ -20,6 +32,7 @@ var main: Node3D
 var cam: Camera3D
 var _f := 0
 var _fertig := false
+var _gpu_quelle := false      # kamen echte GPU-Zeitstempel? (Metal: nein)
 
 
 func _process(_d: float) -> bool:
@@ -40,6 +53,7 @@ func _lauf() -> void:
 	vp.msaa_3d = Viewport.MSAA_4X
 	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	get_root().add_child(vp)
+	RenderingServer.viewport_set_measure_render_time(vp.get_viewport_rid(), true)
 	main = load("res://scenes/Main.tscn").instantiate()
 	vp.add_child(main)
 	cam = Camera3D.new()
@@ -105,6 +119,14 @@ func _lauf() -> void:
 					Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
 		print(zeile, " ms   |  alles: %d Zeichenaufrufe, %d Primitiven" % [calls, prims])
 		_schalten("alles")
+	if _gpu_quelle:
+		print("Quelle: GPU-Zeitstempel des Viewports")
+	else:
+		var hz := DisplayServer.screen_get_refresh_rate()
+		print("Quelle: WANDZEIT — dieser Treiber liefert keine GPU-Zeitstempel.")
+		if hz > 0.0:
+			print("ACHTUNG: Werte um %.2f ms sind die Bildwiederholrate (%.0f Hz), nicht die Szene."
+				% [1000.0 / hz, hz])
 	_fertig = true
 	quit()
 
@@ -147,9 +169,16 @@ func _median() -> float:
 	for i in 12:
 		await RenderingServer.frame_post_draw      # einschwingen
 	var w := PackedFloat32Array()
+	var g := PackedFloat32Array()
 	for i in PROBEN:
 		var t0 := Time.get_ticks_usec()
 		await RenderingServer.frame_post_draw
 		w.append(float(Time.get_ticks_usec() - t0) / 1000.0)
+		g.append(RenderingServer.viewport_get_measured_render_time_gpu(vp.get_viewport_rid()))
 	w.sort()
-	return w[PROBEN / 2]
+	g.sort()
+	var gpu := g[int(PROBEN * 0.5)]
+	if gpu > 0.0:
+		_gpu_quelle = true
+		return gpu
+	return w[int(PROBEN * 0.5)]
