@@ -170,14 +170,33 @@ func _update_window() -> void:
 
 
 ## Label nur zeichnen, wenn es nicht mit einem bereits gezeichneten kollidiert (Marker bleibt).
-func _try_label(f: Font, pos: Vector2, txt: String, fs: int, col: Color) -> void:
-	var w := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x
-	var r := Rect2(pos - Vector2(0, fs * 0.8), Vector2(w, fs * 1.1))
-	for other in _label_rects:
-		if r.intersects(other):
+## Einen Namen neben seinen Marker setzen: rechts, sonst links, oben, unten. Nur wenn die
+## Stelle frei UND ganz in der Karte ist; sonst entfaellt der Name (Zoomen schafft Platz).
+## `weitere` = zusaetzliche Hindernisse neben den gesetzten Namen und Platzmarkern.
+func _name_setzen(p: Vector2, halb: float, txt: String, fs: int, col: Color, ui: float,
+		weitere: Array) -> void:
+	var w := F_SEMI.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x
+	var h := fs * 1.1
+	var abstand := halb + 4.0 * ui
+	var kandidaten := [
+		Vector2(p.x + abstand, p.y - h * 0.5),            # rechts
+		Vector2(p.x - abstand - w, p.y - h * 0.5),        # links
+		Vector2(p.x - w * 0.5, p.y - abstand - h),        # oben
+		Vector2(p.x - w * 0.5, p.y + abstand),            # unten
+	]
+	for ecke: Vector2 in kandidaten:
+		var r := Rect2(ecke, Vector2(w, h))
+		if not _map_rect.encloses(r):
+			continue
+		var frei := true
+		for other in _label_rects + weitere:
+			if r.intersects(other):
+				frei = false
+				break
+		if frei:
+			_label_rects.append(r)
+			_shadow_text(F_SEMI, ecke + Vector2(0, fs * 0.8), txt, fs, col)
 			return
-	_label_rects.append(r)
-	_shadow_text(f, pos, txt, fs, col)
 
 
 func _shadow_text(f: Font, pos: Vector2, txt: String, fs: int, col: Color) -> void:
@@ -251,23 +270,50 @@ func _draw() -> void:
 	draw_line(Vector2(bar_x, bar_y), Vector2(bar_x + step, bar_y), Color(1, 1, 1, 0.95), 3.0 * ui)
 	_shadow_text(F_SEMI, Vector2(bar_x, bar_y - 8.0 * ui), "%d km" % int(grid_km / 1000.0), int(16.0 * ui), C_TEXT)
 
-	# Flugplaetze: Quadrat mit Kontur + Label
+	# MARKER ZUERST, BESCHRIFTUNGEN DANACH — und beide durch die Entzerrung.
+	#
+	# Vorher liefen nur die POI-Namen ueber _try_label; die Flugplatznamen wurden direkt
+	# gezeichnet und nirgends als belegt eingetragen. Im dichten Zentrum (NORDFELD,
+	# OSTHAFEN, BERGPISTE, GROSSSTADT, Stadt, Canyon ...) lag deshalb Name ueber Name
+	# (Screenshot tools/_flug_bilder.gd). Ausserdem wurden Flugplaetze NICHT auf den
+	# Kartenausschnitt beschraenkt: beim Hineinzoomen standen die ausserhalb liegenden
+	# ueber dem Panelrand und dem abgedunkelten Hintergrund.
+	# Reihenfolge: alle Marker als belegte Flaeche eintragen (kein Name ueberdeckt einen
+	# Punkt), dann Flugplatznamen (Vorrang), dann POI-Namen. Passt ein Name rechts nicht,
+	# wird links, oben und unten probiert; passt er nirgends, entfaellt er — beim
+	# Hineinzoomen hat er dann Platz.
 	var fs_af := int(19.0 * ui)
 	var msz := 7.0 * ui
+	var fs_poi := int(17.0 * ui)
+	var namen: Array = []     # [marker_pos, halbe_markergroesse, text, fs, farbe, ist_platz]
+	var punkte: Array = []    # Rechtecke der POI-Punkte (nur fuer POI-Namen ein Hindernis)
+	var sichtbar := _map_rect.grow(4.0)
 	for af in _airfields:
 		var p := _world_to_map(af["pos"])
-		draw_rect(Rect2(p - Vector2(msz + 1.5 * ui, msz + 1.5 * ui), Vector2((msz + 1.5 * ui) * 2.0, (msz + 1.5 * ui) * 2.0)), Color(0, 0, 0, 0.8))
+		if not sichtbar.has_point(p):
+			continue
+		var ms := msz + 1.5 * ui
+		draw_rect(Rect2(p - Vector2(ms, ms), Vector2(ms * 2.0, ms * 2.0)), Color(0, 0, 0, 0.8))
 		draw_rect(Rect2(p - Vector2(msz, msz), Vector2(msz * 2.0, msz * 2.0)), af.get("color", Color.WHITE))
-		_shadow_text(F_SEMI, p + Vector2(msz + 6.0 * ui, fs_af * 0.36), String(af["name"]), fs_af, C_TEXT)
-	# POIs: Punkt mit Kontur + Label
-	var fs_poi := int(17.0 * ui)
+		_label_rects.append(Rect2(p - Vector2(ms, ms), Vector2(ms * 2.0, ms * 2.0)))
+		namen.append([p, ms, String(af["name"]), fs_af, C_TEXT, true])
 	for poi in _pois:
 		var p := _world_to_map(poi["pos"])
-		if not _map_rect.grow(4.0).has_point(p):
+		if not sichtbar.has_point(p):
 			continue
 		draw_circle(p, 6.5 * ui, Color(0, 0, 0, 0.8))
 		draw_circle(p, 5.0 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
-		_try_label(F_SEMI, p + Vector2(9.0 * ui, fs_poi * 0.36), String(poi["name"]), fs_poi, Color(0.92, 0.95, 1.0, 0.95))
+		punkte.append(Rect2(p - Vector2(6.5 * ui, 6.5 * ui), Vector2(13.0 * ui, 13.0 * ui)))
+		namen.append([p, 6.5 * ui, String(poi["name"]), fs_poi, Color(0.92, 0.95, 1.0, 0.95), false])
+	# FLUGPLAETZE HABEN VORRANG: ihre Namen duerfen einen POI-Punkt streifen (zum Landen
+	# sucht man den Platz, nicht das Windrad daneben), aber keinen anderen Namen und keinen
+	# Platzmarker. POI-Namen muessen allem ausweichen.
+	for n in namen:
+		if n[5]:
+			_name_setzen(n[0], n[1], n[2], n[3], n[4], ui, [])
+	for n in namen:
+		if not n[5]:
+			_name_setzen(n[0], n[1], n[2], n[3], n[4], ui, punkte)
 	# Spieler: grosser Pfeil mit weisser Kontur
 	if _player != null and is_instance_valid(_player):
 		var p := _world_to_map(_player.global_position)

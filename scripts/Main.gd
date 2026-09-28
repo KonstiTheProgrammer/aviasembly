@@ -5796,6 +5796,14 @@ func _on_hud_changed(d: Dictionary) -> void:
 	if land_label:
 		var lm: String = d.get("land_msg", "")
 		land_label.text = lm
+		# UNTER DAS MODUS-ABZEICHEN. Das HUD zeichnet es bei 172u..198u (u = Hoehe/1080,
+		# FlightHud._draw_modes); die Meldung stand fest bei 124..158 px und lag damit je
+		# nach Seitenverhaeltnis hinter "MAUS-FLUG · G-SCHUTZ AUS". Jetzt in derselben
+		# Einheit wie das HUD, knapp darunter.
+		if flight_hud != null:
+			var hu: float = flight_hud.size.y / 1080.0
+			land_label.offset_top = 206.0 * hu
+			land_label.offset_bottom = 206.0 * hu + 34.0
 		var low := lm.to_lower()
 		if "zerschell" in low or "abgerissen" in low or "überlast" in low:
 			land_label.add_theme_color_override("font_color", Color(1, 0.35, 0.3))

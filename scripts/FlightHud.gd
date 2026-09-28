@@ -456,19 +456,31 @@ func _draw_lock() -> void:
 func _draw_lenk_panel() -> void:
 	var u := size.y / 1080.0
 	var fs := int(15.0 * u)
-	var x := size.x - 210.0 * u
-	var y := size.y - 128.0 * u
+	# UEBER DER MINIKARTE, buendig an ihrer linken Kante. Vorher stand das Panel bei
+	# (size.x - 210u, size.y - 128u) — mitten in der HOEHEN-Box, genau auf der Zeile der
+	# Steigrate: "FACKELN" und "+1.6 m/s" lagen uebereinander und waren beide
+	# unleserlich (Screenshot tools/_flug_bilder.gd). Die Minikarte (_draw_minimap)
+	# beginnt bei size.y - floor(170u) - 286u; darueber ist freier Himmel.
+	var karte_oben := size.y - floorf(170.0 * u) - 286.0 * u
+	# EIGENER KASTEN in Minikartenbreite: frei ueber dem Himmel waren die hellgrauen
+	# Beschriftungen vor Wolken nicht zu lesen (im ersten Versuch sah man nur die Zahlen).
+	var kasten := Rect2(Vector2(size.x - floorf(170.0 * u) - 40.0 * u, karte_oben - 76.0 * u),
+		Vector2(floorf(170.0 * u), 68.0 * u))
+	draw_style_box(_panel_sb(8.0 * u), kasten)
+	var x := kasten.position.x + 12.0 * u
+	var y := kasten.position.y + 24.0 * u
+	var zahl_x := kasten.end.x - 12.0 * u - 60.0 * u
 	var leer := Color(0.85, 0.35, 0.30)
 	draw_string(_font, Vector2(x, y), "FACKELN", HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
 		MUT if flares > 0 else leer)
-	draw_string(_font, Vector2(x + 118.0 * u, y), "%2d" % flares,
+	draw_string(_font, Vector2(zahl_x, y), "%2d" % flares,
 		HORIZONTAL_ALIGNMENT_RIGHT, 60.0 * u, fs, TXT if flares > 0 else leer)
 	draw_string(_font, Vector2(x, y + 22.0 * u), "DUEPPEL", HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
 		MUT if chaff > 0 else leer)
-	draw_string(_font, Vector2(x + 118.0 * u, y + 22.0 * u), "%2d" % chaff,
+	draw_string(_font, Vector2(zahl_x, y + 22.0 * u), "%2d" % chaff,
 		HORIZONTAL_ALIGNMENT_RIGHT, 60.0 * u, fs, TXT if chaff > 0 else leer)
-	draw_string(_font, Vector2(x, y + 42.0 * u), "K / L", HORIZONTAL_ALIGNMENT_LEFT, -1,
-		int(11.0 * u), Color(MUT.r, MUT.g, MUT.b, 0.55))
+	draw_string(_font, Vector2(x, y + 38.0 * u), "K / L", HORIZONTAL_ALIGNMENT_LEFT, -1,
+		int(11.0 * u), Color(MUT.r, MUT.g, MUT.b, 0.7))
 
 	if lenk_meldung != "":
 		var m := Vector2(size.x * 0.5, size.y * 0.5 + 96.0 * u)
