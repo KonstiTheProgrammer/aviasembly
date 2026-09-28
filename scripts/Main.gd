@@ -7065,12 +7065,21 @@ func _do_save_slot(nm_raw: String) -> void:
 func _show_load_dialog() -> void:
 	var v := _dialog_shell("Flugzeug laden")
 	v.add_child(_lbl("Vorlagen", 14, Color(0.82, 0.9, 1.0)))
+	# ZWEI SPALTEN. Untereinander brauchten die 13 Vorlagen allein gut 530 px; mit eigenen
+	# Slots wurde der Dialog 1006 px hoch (gemessen mit 6 Slots) und lief auf einem
+	# 16:10-Vollbild (virtuell 857 px) unten aus dem Bild — "Schliessen" und die unteren
+	# Slots waren nicht mehr zu erreichen.
+	var raster := GridContainer.new()
+	raster.columns = 2
+	raster.add_theme_constant_override("h_separation", 8)
+	raster.add_theme_constant_override("v_separation", 6)
+	v.add_child(raster)
 	for pr in PRESETS:
 		var pb := Button.new()
 		pb.text = pr[1]
 		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		pb.pressed.connect(_do_load_preset.bind(pr[0], pr[1]))
-		v.add_child(pb)
+		raster.add_child(pb)
 	v.add_child(HSeparator.new())
 	v.add_child(_lbl("Eigene Flugzeuge", 14, Color(0.82, 0.9, 1.0)))
 	var slots := _list_slots()
@@ -7078,7 +7087,12 @@ func _show_load_dialog() -> void:
 		v.add_child(_lbl("(noch keine gespeichert — über »Speichern« anlegen)", 12, Color(0.7, 0.7, 0.78)))
 	else:
 		var scroll := ScrollContainer.new()
-		scroll.custom_minimum_size = Vector2(470, minf(slots.size() * 56.0, 300.0))
+		# NUR SO HOCH, WIE DER SCHIRM HERGIBT: was ueber der Liste steht, ist hier schon
+		# gebaut; dazu kommen der Schliessen-Knopf und etwas Rand. Mindestens eine Zeile.
+		var frei: float = get_viewport().get_visible_rect().size.y \
+			- v.get_combined_minimum_size().y - 110.0
+		scroll.custom_minimum_size = Vector2(470,
+			clampf(minf(slots.size() * 56.0, 300.0), 56.0, maxf(frei, 56.0)))
 		v.add_child(scroll)
 		var sv := VBoxContainer.new()
 		sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
