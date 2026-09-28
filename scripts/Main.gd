@@ -364,6 +364,8 @@ var land_label: Label
 var flight_hud: FlightHud           # Primary-Flight-Display (Kompass, Speed/Höhe, Zielkreis)
 var tool_label: Label
 var toast_label: Label
+var _toast_nr := 0                 # laufende Nummer der angezeigten Meldung (siehe _toast)
+var _lade_hinweis := ""            # Hinweis des letzten _load_design_from (unbekannte Teile)
 var pause_overlay: Control          # Pause-Menü (Esc)
 var _paused := false
 var _prev_mouse := Input.MOUSE_MODE_VISIBLE
@@ -6854,8 +6856,11 @@ func _on_load_pressed() -> void:
 	_show_load_dialog()
 
 
-func _on_toast_timeout() -> void:
-	if toast_label:
+func _on_toast_timeout(nr: int) -> void:
+	# NUR DIE EIGENE MELDUNG LOESCHEN. Jeder Toast startet einen eigenen Timer; ohne die
+	# Nummer raeumte der Timer einer ALTEN Meldung die neue weg — kam die zweite 1,5 s nach
+	# der ersten (Abschuss-Combos, Laden mit Hinweis), stand sie nur 0,1 s da.
+	if toast_label and nr == _toast_nr:
 		toast_label.text = ""
 
 
@@ -6863,8 +6868,9 @@ func _toast(msg: String) -> void:
 	if toast_label == null:
 		return
 	toast_label.text = msg
+	_toast_nr += 1
 	var t := get_tree().create_timer(1.6)
-	t.timeout.connect(_on_toast_timeout)
+	t.timeout.connect(_on_toast_timeout.bind(_toast_nr))
 
 
 # ===========================================================================
@@ -7070,7 +7076,7 @@ func _do_load_preset(id: String, title: String) -> void:
 		# gross an. Eigene Slots taten das schon, Vorlagen bisher nicht.
 		_slot_name = title.split("  ·  ")[0]
 		_write_design(SAVE_PATH)
-		_toast("Geladen: " + title)
+		_toast("Geladen: " + title + (("  —  " + _lade_hinweis) if _lade_hinweis != "" else ""))
 	else:
 		_toast("Vorlage nicht gefunden: " + id)
 	_close_dialog()
@@ -7080,7 +7086,7 @@ func _do_load_slot(nm: String) -> void:
 	if _load_design_from(_slot_path(nm)):
 		_slot_name = nm
 		_write_design(SAVE_PATH)
-		_toast("Geladen: " + nm)
+		_toast("Geladen: " + nm + (("  —  " + _lade_hinweis) if _lade_hinweis != "" else ""))
 	else:
 		_toast("Konnte nicht laden: " + nm)
 	_close_dialog()
@@ -7148,6 +7154,20 @@ func _load_design_from(path: String) -> bool:
 			arr.append(eintrag)
 	if arr.is_empty():
 		return false
+	# UNBEKANNTE TEILE MELDEN. load_design verwirft IDs, die der Katalog nicht (mehr)
+	# kennt — etwa die vier entfernten Kanzel-Varianten in alten Slots. Das ist richtig,
+	# geschah aber stumm: das Flugzeug fehlte ein Stueck, ohne dass jemand sagte, warum.
+	var unbekannt := {}
+	for e in arr:
+		if not PartCatalog.has(String(e["id"])):
+			unbekannt[String(e["id"])] = true
+	_lade_hinweis = ""
+	if not unbekannt.is_empty():
+		# Die Lade-Dialoge melden direkt danach "Geladen: ..." und wuerden diesen Toast
+		# ueberschreiben — sie haengen _lade_hinweis deshalb an ihre eigene Meldung an.
+		_lade_hinweis = "%d unbekannte Teilart(en) übersprungen: %s" % [unbekannt.size(),
+			", ".join(unbekannt.keys())]
+		_toast(_lade_hinweis)
 	build_ctrl.load_design(arr)
 	return true
 
