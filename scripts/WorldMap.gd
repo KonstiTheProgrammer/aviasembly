@@ -204,7 +204,7 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 	# Fels — punktgenau gibt das ein Tarnmuster. Gemischt bleiben Biome, Waelder und
 	# Gebirge lesbar, nur das Gesprenkel dazwischen tritt zurueck.
 	var f_weich := f_img.duplicate() as Image
-	f_weich.resize(maxi(8, n / 4), maxi(8, n / 4), Image.INTERPOLATE_LANCZOS)
+	f_weich.resize(maxi(8, int(n / 4.0)), maxi(8, int(n / 4.0)), Image.INTERPOLATE_LANCZOS)
 	f_weich.resize(kante, kante, Image.INTERPOLATE_CUBIC)
 	f_img.resize(kante, kante, Image.INTERPOLATE_CUBIC)
 	var fs := f_img.get_data().to_float32_array()
@@ -615,7 +615,7 @@ static func _box(m: Vector2, halb: Vector2, winkel: float) -> PackedVector2Array
 ## ein Symbol waeren. Rueckgabe: [Platzname, belegtes Rechteck] je gezeichnetem Platz,
 ## damit Namen ausweichen — und der eigene Name neben SEINER Bahn landet statt darauf.
 func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vector2,
-		ui: float, mini := false) -> Array:
+		ui: float, eck := false) -> Array:
 	var belegt: Array = []
 	var mpp := win_size.x * WORLD_R * 2.0 / rect.size.x
 	var sicht := Rect2(win_min.x * 2.0 * WORLD_R - WORLD_R, win_min.y * 2.0 * WORLD_R - WORLD_R,
@@ -696,7 +696,7 @@ func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vec
 			belegt.append([String(af["name"]), Rect2(m - ausdehnung, ausdehnung * 2.0)])
 		else:
 			# FLUGKARTEN-SYMBOL: Kreis in der Platzfarbe, die Bahn als Balken im wahren Kurs.
-			var r := (4.5 if mini else 7.0) * ui
+			var r := (4.5 if eck else 7.0) * ui
 			if not rect.has_point(m):
 				continue
 			ci.draw_circle(m, r + 1.6 * ui, Color(0, 0, 0, 0.85))
@@ -727,7 +727,7 @@ func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vec
 				continue
 			var tm: Vector2 = (o + Vector2(np.x, np.z) * k2)
 			if rect.grow(-3.0 * ui).has_point(tm):
-				var d := (3.2 if mini else 4.5) * ui
+				var d := (3.2 if eck else 4.5) * ui
 				var raute := PackedVector2Array([tm + Vector2(0, -d), tm + Vector2(d, 0),
 					tm + Vector2(0, d), tm + Vector2(-d, 0)])
 				ci.draw_colored_polygon(raute, C_ZIEL)
@@ -745,7 +745,7 @@ func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vec
 		_gestrichelt(ci, kreis, rect, Color(C_GEFAHR.r, C_GEFAHR.g, C_GEFAHR.b, 0.9),
 			maxf(1.2, 1.6 * ui), true)
 		if rect.has_point(zm):
-			var d := (3.5 if mini else 5.0) * ui
+			var d := (3.5 if eck else 5.0) * ui
 			if z[2] == "sam":
 				var dreieck := PackedVector2Array([zm + Vector2(0, -d * 1.2), zm + Vector2(d, d * 0.8),
 					zm + Vector2(-d, d * 0.8)])
@@ -765,7 +765,7 @@ func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vec
 		# DIE MINIMAP LAEUFT JEDES BILD: dort nur die letzten 150 Punkte (18 km) — in einem
 		# 7-km-Ausschnitt liegt aeltere Spur ohnehin fast nie, aber 2400 Durchlaeufe je Bild
 		# kosteten spuerbar Zeit im Flug.
-		for i in range(maxi(0, n - 151) if mini else 0, n - 1):
+		for i in range(maxi(0, n - 151) if eck else 0, n - 1):
 			var a := _spur[i]
 			var b := _spur[i + 1]
 			if not a.is_finite() or not b.is_finite():
@@ -776,14 +776,14 @@ func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vec
 			if not s.is_empty():
 				var alpha := lerpf(0.25, 0.95, float(i) / float(n - 1))
 				ci.draw_line(s[0], s[1], Color(C_SPUR.r, C_SPUR.g, C_SPUR.b, alpha),
-					(1.6 if mini else 2.2) * ui, true)
+					(1.6 if eck else 2.2) * ui, true)
 	if ac != null:
 		var pp := ac.global_position
 		var fwd := -ac.global_transform.basis.z
 		var flach := Vector2(fwd.x, fwd.z)
 		if flach.length() > 0.05:
 			flach = flach.normalized()
-			var weit := 2500.0 if mini else 6000.0
+			var weit := 2500.0 if eck else 6000.0
 			var pts := PackedVector2Array()
 			for k in 13:
 				var q := Vector2(pp.x, pp.z) + flach * (weit * float(k) / 12.0)
