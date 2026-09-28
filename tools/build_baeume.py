@@ -1,7 +1,8 @@
 # Baum-Baukasten fuer die Weltflora -> models/world_trees.glb
 #
 # WARUM: die bisherigen Baeume waren zwei Formen (Kegelstapel + Knolle) aus GDScript.
-# Hier entstehen SIEBEN Arten mit eigener Silhouette, damit ein Wald aus der Luft nicht
+# Hier entstehen DREIZEHN Arten mit eigener Silhouette (die sechs letzten fuer die
+# neuen Regionen: Schneetanne, Urwaldbaum, Baumfarn, Akazie, Mangrove, Kaktus), damit ein Wald aus der Luft nicht
 # wie ein Muster aussieht: Fichte, Kiefer, Birke, Eiche, Palme, Totholz, Busch.
 #
 # VERTEX-FARBEN sind Pflicht: TerrainWorld zeichnet alle Flora-MultiMeshes mit dem
@@ -23,7 +24,11 @@ import math
 import mathutils
 import random
 
-OUT = "C:/Users/Konst/Projects/aviasembly/models/world_trees.glb"
+import os
+# Relativ zum Skript statt fest verdrahtet — das Projekt liegt je nach Geraet woanders
+# (hier stand ein Windows-Pfad, auf dem Mac lief das Skript damit ins Leere).
+OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                   "models", "world_trees.glb")
 
 RINDE = (0.30, 0.21, 0.14)
 RINDE_HELL = (0.42, 0.31, 0.20)
@@ -38,6 +43,19 @@ BIRKENLAUB = (0.50, 0.66, 0.26)
 EICHE = (0.28, 0.47, 0.20)
 PALME = (0.30, 0.52, 0.24)
 BUSCH = (0.34, 0.50, 0.24)
+# --- neue Arten fuer die Regionen (Nord, Sued, West) ---
+NADEL_KALT = (0.10, 0.25, 0.17)
+SCHNEE = (0.88, 0.91, 0.95)
+RINDE_URWALD = (0.47, 0.42, 0.34)
+URWALD = (0.14, 0.38, 0.13)
+URWALD_HELL = (0.22, 0.48, 0.17)
+FARN = (0.28, 0.55, 0.20)
+FARN_STAMM = (0.26, 0.20, 0.15)
+AKAZIE = (0.36, 0.44, 0.19)
+RINDE_AKAZIE = (0.34, 0.26, 0.20)
+MANGROVE = (0.18, 0.35, 0.17)
+MANGROVE_WURZEL = (0.36, 0.30, 0.24)
+KAKTUS = (0.33, 0.47, 0.27)
 
 
 def _fmul(c, f):
@@ -294,9 +312,102 @@ def busch():
     return b.objekt()
 
 
+# --- die Arten der neuen Regionen ------------------------------------------------------
+def schneetanne():
+    """Nordland: schmale, dunkle Tanne, jeder Kranz traegt oben eine Schneekappe."""
+    b = Baum("Schneetanne", 88)
+    b.stamm((0, 0, 0), (0, 0, 2.0), 0.24, 0.16, RINDE)
+    kraenze = [(1.4, 4.8, 2.05), (3.2, 6.6, 1.65), (4.9, 8.3, 1.25), (6.5, 10.4, 0.80)]
+    for k, (z0, z1, r) in enumerate(kraenze):
+        b.kegel(z0, z1, r, NADEL_KALT, segs=7, zacken=0.24, hang=0.30)
+        # SCHNEE LIEGT AUF DER KRANZKANTE, nicht auf der Spitze: ein Band knapp ausserhalb
+        # des Nadelkegels, vom Rand bis ein Viertel hinauf. Eine Kappe oben verschwand
+        # unter dem naechsten Kranz — sichtbar blieb nur die Spitze. Von oben (und so sieht
+        # man Baeume im Flug) ergibt das weisse Ringe auf dunklem Gruen.
+        h = z1 - z0
+        phase = 0.3 * k
+        unten = b._ring((0, 0, z0 + 0.02), r * 0.99, 7, phase=phase, zacken=0.22)
+        oben = b._ring((0, 0, z0 + 0.24 * h), r * 0.82, 7, phase=phase, zacken=0.18)
+        b._bruecke(unten, oben, SCHNEE, streuung=0.04)
+    b.kegel(9.7, 10.55, 0.34, SCHNEE, segs=7, zacken=0.1, streuung=0.03)
+    return b.objekt()
+
+
+def urwaldbaum():
+    """Suedland: Urwaldriese — Brettwurzeln, hoher glatter Stamm, breite Schirmkrone."""
+    b = Baum("Urwaldbaum", 99)
+    for a in (0.3, 2.4, 4.4):
+        fuss = (math.cos(a) * 1.3, math.sin(a) * 1.3, 0.0)
+        b.stamm(fuss, (math.cos(a) * 0.25, math.sin(a) * 0.25, 2.4), 0.22, 0.16,
+                RINDE_URWALD, segs=4)
+    b.stamm((0, 0, 0), (0.2, 0.1, 6.0), 0.55, 0.42, RINDE_URWALD, segs=6)
+    b.stamm((0.2, 0.1, 6.0), (0.1, -0.1, 11.0), 0.42, 0.30, RINDE_URWALD, segs=6)
+    for spitze, rr, farbe in (((2.6, 0.6, 11.8), 2.4, URWALD), ((-2.2, 1.4, 11.5), 2.2, URWALD_HELL),
+                              ((0.4, -2.5, 11.9), 2.3, URWALD), ((0.1, 0.2, 13.0), 2.7, URWALD_HELL)):
+        b.stamm((0.1, -0.1, 10.6), spitze, 0.20, 0.10, RINDE_URWALD, segs=4)
+        b.knolle(spitze, rr, farbe, segs=8, ringe=1, quetsch=0.45)
+    return b.objekt()
+
+
+def baumfarn():
+    """Suedland: schlanker Stamm, ein Stern aus gebogenen Wedeln."""
+    b = Baum("Baumfarn", 111)
+    b.stamm((0, 0, 0), (0.15, 0.05, 2.4), 0.20, 0.17, FARN_STAMM, segs=5)
+    b.stamm((0.15, 0.05, 2.4), (0.25, 0.0, 4.6), 0.17, 0.15, FARN_STAMM, segs=5)
+    kopf = mathutils.Vector((0.25, 0.0, 4.6))
+    for i in range(9):
+        a = 2.0 * math.pi * i / 9 + 0.15
+        d = mathutils.Vector((math.cos(a), math.sin(a), 0.75))
+        b.wedel(kopf, d, 2.4, 0.55, FARN if i % 2 else _fmul(FARN, 0.85), knick=0.75)
+    return b.objekt()
+
+
+def akazie():
+    """Westland: kurzer Stamm, der sich gabelt, darauf eine flache Schirmkrone."""
+    b = Baum("Akazie", 122)
+    b.stamm((0, 0, 0), (0.1, 0.0, 2.2), 0.26, 0.20, RINDE_AKAZIE, segs=5)
+    for ende in ((1.4, 0.5, 4.6), (-1.2, 0.7, 4.4), (0.2, -1.3, 4.7)):
+        b.stamm((0.1, 0.0, 2.1), ende, 0.14, 0.08, RINDE_AKAZIE, segs=4)
+    for mitte, rr in (((0.9, 0.3, 5.0), 2.2), ((-1.0, 0.6, 4.9), 2.0), ((0.2, -0.9, 5.1), 2.0),
+                      ((0.0, 0.0, 5.3), 2.6)):
+        b.knolle(mitte, rr, AKAZIE, segs=8, ringe=1, quetsch=0.22)
+    return b.objekt()
+
+
+def mangrove():
+    """Suedland: Krone auf einem Buendel Stelzwurzeln ueber dem Schlamm."""
+    b = Baum("Mangrove", 133)
+    for i in range(6):
+        a = 2.0 * math.pi * i / 6 + 0.4
+        fuss = (math.cos(a) * 1.6, math.sin(a) * 1.6, -0.3)
+        knie = (math.cos(a) * 1.1, math.sin(a) * 1.1, 0.9)
+        b.stamm(fuss, knie, 0.10, 0.09, MANGROVE_WURZEL, segs=4)
+        b.stamm(knie, (0.0, 0.0, 1.8), 0.09, 0.12, MANGROVE_WURZEL, segs=4)
+    b.stamm((0, 0, 1.7), (0.1, 0.1, 3.4), 0.20, 0.15, MANGROVE_WURZEL, segs=5)
+    for mitte, rr in (((0.8, 0.2, 4.1), 1.6), ((-0.7, 0.5, 3.9), 1.5), ((0.1, -0.6, 4.6), 1.7)):
+        b.knolle(mitte, rr, MANGROVE, segs=7, ringe=2, quetsch=0.6)
+    return b.objekt()
+
+
+def kaktus():
+    """Westland: Saguaro — Saeule mit zwei Armen, gerippt."""
+    b = Baum("Kaktus", 144)
+    b.stamm((0, 0, 0), (0, 0, 5.2), 0.40, 0.36, KAKTUS, segs=8, streuung=0.08)
+    b.knolle((0, 0, 5.2), 0.37, KAKTUS, segs=8, ringe=1, quetsch=0.7, streuung=0.05)
+    for seite, hoehe, laenge in ((1.0, 2.2, 1.9), (-1.0, 3.0, 1.5)):
+        b.stamm((0, 0, hoehe), (seite * 0.9, 0, hoehe + 0.2), 0.24, 0.24, KAKTUS, segs=7,
+                streuung=0.06)
+        b.stamm((seite * 0.9, 0, hoehe + 0.2), (seite * 0.95, 0, hoehe + 0.2 + laenge),
+                0.24, 0.22, KAKTUS, segs=7, streuung=0.06)
+        b.knolle((seite * 0.95, 0, hoehe + 0.2 + laenge), 0.23, KAKTUS, segs=7, ringe=1,
+                 quetsch=0.7, streuung=0.05)
+    return b.objekt()
+
+
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    obs = [fichte(), kiefer(), birke(), eiche(), palme(), totholz(), busch()]
+    obs = [fichte(), kiefer(), birke(), eiche(), palme(), totholz(), busch(),
+           schneetanne(), urwaldbaum(), baumfarn(), akazie(), mangrove(), kaktus()]
     bpy.ops.object.select_all(action='SELECT')
     kw = dict(filepath=OUT, export_format='GLB', use_selection=False,
               export_apply=True, export_yup=True)

@@ -13,10 +13,10 @@ extends Control
 ##      im HUD dieselbe Funktion und zeigt automatisch das, was bei ihrem Massstab traegt.
 ##
 ## DESIGN-SPRACHE (crisp auf 1440p+): alle Masse skalieren mit Viewport-Hoehe (ui = vh/1080),
-## Projekt-Font Titillium, gerundetes Panel mit interner Titelleiste, Planquadrate (A-N,
-## 1-14, je 5 km) statt nacktem Gitter, Windrose, Massstab mit Wechselfeldern, Legende.
+## Projekt-Font Titillium, gerundetes Panel mit interner Titelleiste, Planquadrate (A-Q,
+## 1-17, je 10 km) statt nacktem Gitter, Windrose, Massstab mit Wechselfeldern, Legende.
 
-const WORLD_R := 34000.0       # halbe Kartenbreite (Sturmkap bis 32,1 km + Rand)
+const WORLD_R := 84000.0       # halbe Kartenbreite (die Landmassen reichen bis 82 km)
 const F_BOLD := preload("res://fonts/TitilliumWeb-Bold.ttf")
 const F_SEMI := preload("res://fonts/TitilliumWeb-SemiBold.ttf")
 
@@ -35,8 +35,9 @@ const C_GEFAHR := Color(1.0, 0.24, 0.18)
 const C_ZIEL := Color(1.0, 0.82, 0.25)
 const C_SPUR := Color(1.0, 0.62, 0.30)
 const C_WEG := Color(1.0, 0.86, 0.32)
-const QUADRAT := 5000.0        # Planquadrat-Kante (m)
-const BUCHSTABEN := "ABCDEFGHIJKLMN"
+const QUADRAT := 10000.0       # Planquadrat-Kante (m); 10 km, seit die Welt 168 km misst
+const BUCHSTABEN := "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const QUADRATE := 17           # ceil(2 * WORLD_R / QUADRAT) Spalten bzw. Zeilen
 const BAHN_LEN := 900.0        # = Main.RWY_LEN
 const BAHN_B := 45.0           # Bahn + Schultern (Main.RWY_W + 2 * RWY_SHOULDER)
 
@@ -131,8 +132,8 @@ const LINIEN_M := 50.0         # Hoehenlinien-Abstand
 const GLATT_M := 200.0         # Glaettung der Hoehen fuer Relief/Hoehenlinien
 const FARB_RUHE := 0.4         # Anteil des weichen Farbfelds (siehe generate_image)
 # Detailkacheln: dieselbe Karte, nur weniger generalisiert (siehe erzeuge_kachel).
-# ZWEI STUFEN: Stufe 1 = 8 x 8 Kacheln (8,5 km, 16,6 m je Punkt), Stufe 2 = 16 x 16
-# (4,25 km, 8,3 m je Punkt) fuer das starke Hineinzoomen. Stufe 0 ist die Grundkarte.
+# ZWEI STUFEN: Stufe 1 = 20 x 20 Kacheln (8,4 km, 16,4 m je Punkt), Stufe 2 = 40 x 40
+# (4,2 km, 8,2 m je Punkt) fuer das starke Hineinzoomen. Stufe 0 ist die Grundkarte.
 const KACHEL_PX := 512
 const KACHEL_RAND := 24
 const KACHEL_AB := 40.0                        # m je echtem Bildpunkt: darunter Stufe 1
@@ -354,7 +355,7 @@ static func _grobfarben(t: TerrainWorld, hs: PackedFloat32Array, hg: PackedFloat
 		var c := t._face_color(Vector3(wx, h, wz), nt.y, zelle, nt)
 		var w := t.wald_anteil(wx, wz, h, nt.y)
 		if w > 0.0:
-			c = c.lerp(K_WALD, clampf(w * 0.9, 0.0, 0.9))
+			c = c.lerp(t.wald_farbe(wx, wz), clampf(w * 0.9, 0.0, 0.9))
 		out[i] = Color(c.r, c.g, c.b, 1.0)
 	return out
 
@@ -798,8 +799,10 @@ func _kacheln_planen(sicht: Rect2, mpp: float, max_stufe: int) -> void:
 				call_deferred("_kachel_fertig", key, img))
 
 
+## Kacheln je Kante: so gewaehlt, dass eine Kachel ~8,4 km (Stufe 1) bzw. ~4,2 km
+## (Stufe 2) misst — bei 512 px also rund 16 bzw. 8 m je Punkt, egal wie gross die Welt.
 static func kachel_n(stufe: int) -> int:
-	return 8 if stufe == 1 else 16
+	return 20 if stufe == 1 else 40
 
 
 static func kachel_m(stufe: int) -> float:
@@ -841,10 +844,10 @@ func _exit_tree() -> void:
 	_kachel_thread = null
 
 
-## Planquadrat einer Weltposition, z. B. "F7" (Spalten A-N von West, Zeilen 1-14 von Nord).
+## Planquadrat einer Weltposition, z. B. "H8" (Spalten A-Q von West, Zeilen 1-17 von Nord).
 static func planquadrat(w: Vector3) -> String:
-	var sp := clampi(floori((w.x + WORLD_R) / QUADRAT), 0, BUCHSTABEN.length() - 1)
-	var ze := clampi(floori((w.z + WORLD_R) / QUADRAT), 0, 13)
+	var sp := clampi(floori((w.x + WORLD_R) / QUADRAT), 0, QUADRATE - 1)
+	var ze := clampi(floori((w.z + WORLD_R) / QUADRAT), 0, QUADRATE - 1)
 	return "%s%d" % [BUCHSTABEN[sp], ze + 1]
 
 
@@ -1377,7 +1380,7 @@ func _draw() -> void:
 	var mpp := _mpp()
 	zeichne_raster(self, _map_rect, sicht)
 
-	# PLANQUADRATE (5 km) — beim Hineinzoomen zusaetzlich ein feines 1-km-Netz.
+	# PLANQUADRATE (10 km) — beim Hineinzoomen zusaetzlich ein feines 1-km-Netz.
 	if mpp < 26.0:
 		_netz(sicht, 1000.0, Color(1, 1, 1, 0.06))
 	_netz(sicht, QUADRAT, Color(1, 1, 1, 0.15))
@@ -1444,11 +1447,33 @@ func _draw() -> void:
 			var er: Rect2 = eigene[String(af["name"])]
 			halb = maxf(halb, maxf(er.size.x, er.size.y) * 0.5 - 2.0 * ui)
 		namen.append([p, halb, String(af["name"]), fs_af, C_TEXT, true])
+	# REGIONSNAMEN zuerst: gross und zurueckhaltend ueber der Landmasse, nur solange man
+	# weit genug draussen ist, um die Region als Ganzes zu sehen. Andere Namen weichen aus.
+	if mpp > 30.0:
+		var fs_reg := int(30.0 * ui)
+		for poi in _pois:
+			if String(poi.get("art", "")) != "region":
+				continue
+			var p := _world_to_map(poi["pos"])
+			if not _map_rect.grow(-20.0).has_point(p):
+				continue
+			var txt := String(poi["name"])
+			var sp := " ".join(txt.split(""))            # gesperrt, wie auf Atlanten
+			var w := F_BOLD.get_string_size(sp, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_reg).x
+			var col: Color = poi.get("color", Color.WHITE)
+			var pos := p - Vector2(w * 0.5, -fs_reg * 0.35)
+			draw_string_outline(F_BOLD, pos, sp, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_reg,
+				maxi(3, int(fs_reg * 0.18)), Color(0, 0, 0, 0.45))
+			draw_string(F_BOLD, pos, sp, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_reg,
+				Color(col.r, col.g, col.b, 0.62))
+			_label_rects.append(Rect2(pos - Vector2(0, fs_reg * 0.85), Vector2(w, fs_reg * 1.1)))
 	for poi in _pois:
 		var p := _world_to_map(poi["pos"])
 		if not _map_rect.grow(-4.0).has_point(p):
 			continue
 		var art := String(poi.get("art", "wahrz"))
+		if art == "region":
+			continue
 		var col: Color = poi.get("color", Color(0.95, 0.85, 0.3))
 		var halb := 6.5 * ui
 		match art:
@@ -1570,14 +1595,14 @@ func _netz_beschriften(ui: float) -> void:
 	var fs_q := int(14.0 * ui)
 	var qc := Color(1, 1, 1, 0.66)
 	var links := maxf(_map_rect.position.x, _welt_zu_schirm(Vector2(-WORLD_R, 0)).x)
-	for sp in BUCHSTABEN.length():
+	for sp in QUADRATE:
 		var mx := (float(sp) + 0.5) * QUADRAT - WORLD_R
 		var gx := _welt_zu_schirm(Vector2(mx, 0)).x
 		if gx < _map_rect.position.x + 10.0 * ui or gx > _map_rect.end.x - 90.0 * ui:
 			continue
 		_shadow_text(F_BOLD, Vector2(gx - 4.0 * ui, _map_rect.position.y + fs_q + 4.0 * ui),
 			BUCHSTABEN[sp], fs_q, qc)
-	for ze in 14:
+	for ze in QUADRATE:
 		var mz := (float(ze) + 0.5) * QUADRAT - WORLD_R
 		var gy := _welt_zu_schirm(Vector2(0, mz)).y
 		if gy < _map_rect.position.y + 24.0 * ui or gy > _map_rect.end.y - 50.0 * ui:

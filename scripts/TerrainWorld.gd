@@ -1691,6 +1691,742 @@ var tal: Dictionary = {}
 ## fx/fz/fr halten einen Kreis frei, in dem gebaute Teile an das Gelaende anschliessen.
 var felswaende: Array = []
 
+# =====================================================================================
+# LANDMASSEN — die Welt jenseits der Hauptinsel, jede mit eigenem Klima
+# =====================================================================================
+#
+# WARUM NICHT EINFACH DIE INSEL AUFBLASEN. Um die Kueste der Hauptinsel haengt alles, was
+# vermessen an ihr steht: Sturmkap und Fjord, die Hakenzunge mit der Lagune, WESTKAP und
+# SUEDSTRAND an ihrer Wasserlinie, die Inselkette, das Wrack, die Schiffe. Ein groesserer
+# Radius haette das alles ins Binnenland geschoben — das ist bei der letzten
+# Vergroesserung schon einmal mit fuenf Inseln passiert. Die neuen Regionen liegen
+# deshalb JENSEITS dieser Kueste, durch Meeresstrassen getrennt, und die Hauptinsel bleibt
+# Bit fuer Bit, wie sie war (alles hier laeuft erst ab _lm_ab Abstand vom Ursprung).
+#
+# EIGENE KLIMAZONE JE LANDMASSE. Das ist der eigentliche Gewinn: Biome, die auf einer
+# gemaessigten Insel keinen Sinn ergaeben — Tundra, Taiga, Gletscher im Norden,
+# Dschungel, Mangroven und Kegelkarst im Sueden, Savanne und rote Tafelberge im Westen.
+#
+# DIE KUESTE IST EINE ISOLINIE, KEIN RADIUS. m = 1 - (d/r)^2 + rauh * fbm(x, z); Land
+# ist, wo m > 0. Das Rauschen schneidet Buchten, laesst Halbinseln stehen und
+# vorgelagerte Inseln auftauchen — ein Strahl vom Mittelpunkt darf mehrfach zwischen Land
+# und Wasser wechseln (genau das konnte r_coast nicht). Der quadratische Radialterm
+# garantiert dabei einen Kern: bis 0,55 r ist bei rauh 0,34 JEDER Seed Land, und dort
+# stehen Flugplatz und Ort.
+enum Region { HAUPT, NORD, SUED, WEST }
+## Eintrag: {"name", "pos": Vector2, "r": float, "rauh": float, "region": Region,
+##          "teile": [[Vector2 versatz, float r], ...]}
+## TEILE: eine Landmasse aus mehreren Lappen (je ein Kreis um pos + versatz). Die Maske
+## nimmt den staerksten Lappen — so entstehen Halbinseln, Landengen und breite Buchten
+## zwischen den Lappen, also Umrisse, die man wiedererkennt. Ohne "teile" ist es ein
+## einzelner Kreis mit Radius r.
+var landmassen: Array = []:
+	set(v):
+		landmassen = v
+		_lm_vorfilter_bauen()
+var _lm_x := PackedFloat64Array()
+var _lm_z := PackedFloat64Array()
+var _lm_r := PackedFloat64Array()
+var _lm_reich2 := PackedFloat64Array()
+var _lm_rauh := PackedFloat64Array()
+var _lm_region := PackedInt32Array()
+var _lm_teile: Array = []       # je Landmasse PackedFloat64Array [x, z, 1/r^2, reich^2, ...]
+var _region_mitte: Dictionary = {}   # Region -> Vector3(mitte_x, mitte_z, r)
+# Feste Zonen der Regionen (aus den Landmassen): Ruhe (x, z) um Flugplaetze und Orte, das
+# Karstfeld und die Seenplatte je Region als (x, z, r).
+var _lm_ruhe := PackedFloat64Array()
+var _lm_karst: Dictionary = {}          # Region -> Vector3(x, z, r)
+var _lm_seen: Dictionary = {}           # Region -> Vector3(x, z, r)
+const RUHE_INNEN := 1700.0             # hier ist die Landschaft ganz ruhig ...
+const RUHE_AUSSEN := 4200.0            # ... und ab hier wieder ganz sie selbst
+var _lm_ab := 1.0e18            # ab diesem Ursprungsabstand kann ueberhaupt eine liegen
+var _land: FastNoiseLite        # Kuestenrauschen der Landmassen
+var _region_n: FastNoiseLite    # grossraeumig: wo in einer Region Gebirge/Hochland steht
+const LM_REICH := 1.25          # Reichweite der Maske in Vielfachen von r (s. Kopf)
+
+
+func _lm_vorfilter_bauen() -> void:
+	_lm_x.clear()
+	_lm_z.clear()
+	_lm_r.clear()
+	_lm_reich2.clear()
+	_lm_rauh.clear()
+	_lm_region.clear()
+	_lm_teile.clear()
+	_region_mitte.clear()
+	_lm_ruhe.clear()
+	_lm_karst.clear()
+	_lm_seen.clear()
+	_lm_ab = 1.0e18
+	for lm in landmassen:
+		var p: Vector2 = lm["pos"]
+		var r: float = float(lm["r"])
+		var teile: Array = lm.get("teile", [[Vector2.ZERO, r]])
+		var pk := PackedFloat64Array()
+		var reich := 0.0
+		for t in teile:
+			var off: Vector2 = t[0]
+			var lr: float = float(t[1])
+			var lreich := lr * LM_REICH + 1500.0
+			pk.append(p.x + off.x)
+			pk.append(p.y + off.y)
+			pk.append(1.0 / (lr * lr))
+			pk.append(lreich * lreich)
+			reich = maxf(reich, off.length() + lreich)
+			# JE LAPPEN, nicht je Landmasse: der Umkreis aller Lappen des Nordlands
+			# reicht bis 20 km an den Ursprung heran und damit mitten in die Nordkueste
+			# der Hauptinsel — dort stand im Bild ein Streifen Taiga.
+			_lm_ab = minf(_lm_ab, (p + off).length() - lreich)
+		_lm_teile.append(pk)
+		_lm_x.append(p.x)
+		_lm_z.append(p.y)
+		_lm_r.append(r)
+		_lm_reich2.append(reich * reich)
+		_lm_rauh.append(float(lm.get("rauh", 0.34)))
+		_lm_region.append(int(lm.get("region", Region.HAUPT)))
+		var rg := int(lm.get("region", Region.HAUPT))
+		if not _region_mitte.has(rg):
+			_region_mitte[rg] = Vector3(p.x, p.y, r)
+		for q in lm.get("ruhe", []):
+			_lm_ruhe.append((q as Vector2).x)
+			_lm_ruhe.append((q as Vector2).y)
+		if lm.has("karst"):
+			_lm_karst[rg] = Vector3(lm["karst"][0].x, lm["karst"][0].y, lm["karst"][1])
+		if lm.has("seen"):
+			_lm_seen[rg] = Vector3(lm["seen"][0].x, lm["seen"][0].y, lm["seen"][1])
+
+
+
+## Zu welcher Region gehoert die Stelle? Nur Kreisvergleiche — laeuft je Dreieck.
+## Auch das Meer um eine Landmasse zaehlt zu ihr (Strand- und Schelffarben).
+func region_at(x: float, z: float) -> int:
+	for i in _lm_x.size():
+		var dx := x - _lm_x[i]
+		var dz := z - _lm_z[i]
+		if dx * dx + dz * dz >= _lm_reich2[i]:
+			continue
+		var pk: PackedFloat64Array = _lm_teile[i]
+		for k in range(0, pk.size(), 4):
+			var tx := x - pk[k]
+			var tz := z - pk[k + 1]
+			if tx * tx + tz * tz < pk[k + 3]:
+				return _lm_region[i]
+	return Region.HAUPT
+
+
+## (Absenkung 0..1 wie `fall` der Hauptinsel, Innenmass 0..1, Region) der Landmasse an
+## dieser Stelle; ausserhalb aller: (1, 0, HAUPT).
+func landmasse_bei(x: float, z: float) -> Vector3:
+	for i in _lm_x.size():
+		var dx := x - _lm_x[i]
+		var dz := z - _lm_z[i]
+		var d2 := dx * dx + dz * dz
+		if d2 >= _lm_reich2[i]:
+			continue
+		var pk: PackedFloat64Array = _lm_teile[i]
+		var kern := -1.0e9
+		var drin := false
+		for k in range(0, pk.size(), 4):
+			var tx := x - pk[k]
+			var tz := z - pk[k + 1]
+			var t2 := tx * tx + tz * tz
+			if t2 < pk[k + 3]:
+				drin = true
+			kern = maxf(kern, 1.0 - t2 * pk[k + 2])
+		if not drin:
+			continue
+		var m := kern + _lm_rauh[i] * _land.get_noise_2d(x, z)
+		return Vector3(smoothstep(0.10, -0.03, m), smoothstep(0.0, 0.65, m), _lm_region[i])
+	return Vector3(1.0, 0.0, Region.HAUPT)
+
+
+## Regionseigene Gelaendeformen, auf das Grundgelaende einer Landmasse gesetzt.
+## `innen` ist 0 an der Kueste und 1 tief im Land.
+func _region_form(x: float, z: float, h: float, reg: int, innen: float) -> float:
+	if innen <= 0.0:
+		return h
+	var ruhe := _ruhe_bei(x, z)                                          # 0 um Plaetze
+	var g := smoothstep(0.05, 0.55, _region_n.get_noise_2d(x, z)) * ruhe   # Gebirgsmaske
+	match reg:
+		Region.NORD:
+			# HOCHLAND MIT VERGLETSCHERTEN KETTEN. Eine Grundanhebung macht aus der
+			# Kuestenebene ein Fjell, darauf stehen Ketten aus demselben Ridged-Rauschen
+			# wie auf der Hauptinsel, aber hoeher und breiter — und weil die Schneegrenze
+			# hier tief liegt, tragen sie Gletscher.
+			var rdg := clampf(_ridge.get_noise_2d(x * 0.7, z * 0.7) * 0.5 + 0.5, 0.0, 1.0)
+			h += innen * innen * 38.0
+			# Die Gletscherkette (Main._region_formen) ist das Gebirge des Nordlands;
+			# das Rauschgebirge darf daneben nur noch Huegel und Einzelberge setzen.
+			h += pow(rdg, 1.7) * 380.0 * g * innen
+			# SEENPLATTE: in der flachen Tundra liegen Dutzende Seen, von Gletschern
+			# ausgeschliffen. Sie liegen auf Meereshoehe (die Wasserplatte zeichnet sie),
+			# nur im Flachland und nicht am Kuestensaum, damit sie Seen bleiben statt
+			# Buchten zu werden.
+			var see := _region_n.get_noise_2d(x * 4.2 + 3300.0, z * 4.2 - 7100.0)
+			var sz: Vector3 = _lm_seen.get(reg, Vector3(0, 0, 0))
+			var s_kreis := 0.0
+			if sz.z > 0.0:
+				s_kreis = 1.0 - smoothstep(sz.z * 0.7, sz.z, Vector2(x - sz.x, z - sz.y).length())
+			var s_k := smoothstep(-0.02, -0.20, see) * (1.0 - smoothstep(40.0, 90.0, h)) \
+				* smoothstep(0.10, 0.30, innen) * s_kreis * ruhe
+			if s_k > 0.0:
+				h = lerpf(h, SEA_Y - 5.0, s_k)
+		Region.SUED:
+			# KEGELKARST. Zellrauschen liefert je Zelle den Abstand zum naechsten Kern;
+			# unter einer Schwelle steht ein Turm mit steiler Wand und runder Kuppe. Die
+			# Hoehe wuerfelt ein zweites Zellrauschen je Zelle (gleiches Muster), damit
+			# nicht alle Tuerme gleich hoch sind. Nur wo die Karstmaske sitzt und nicht an
+			# der Kueste: Kegelkarst steht im Hinterland, davor liegt Schwemmland.
+			# DAS KARSTFELD STEHT FEST (Main.LANDMASSEN "karst"), damit es auf der Karte
+			# einen Namen tragen kann; am Rand franst es ueber das Rauschen aus.
+			var kz: Vector3 = _lm_karst.get(reg, Vector3(0, 0, 0))
+			var km := 0.0
+			if kz.z > 0.0:
+				var kd := Vector2(x - kz.x, z - kz.y).length() / kz.z \
+					- 0.25 * _region_n.get_noise_2d(x * 2.0 + 9100.0, z * 2.0 - 4700.0)
+				km = (1.0 - smoothstep(0.75, 1.0, kd)) * smoothstep(0.25, 0.6, innen) * ruhe
+			h += innen * 22.0 + pow(clampf(_ridge.get_noise_2d(x, z) * 0.5 + 0.5, 0.0, 1.0),
+				2.0) * 260.0 * g * innen
+			if km > 0.0:
+				h += _karst_turm(x, z) * km
+		Region.WEST:
+			# TAFELLAND. Ein Hochplateau, in Stufen gebrochen (Tafelberge, Zeugenberge),
+			# und darin Canyons aus dem Nulldurchgang eines Rauschens — die folgen wie
+			# Fluesse einer gewundenen Linie statt als Loecher dazustehen.
+			h += innen * 95.0 + pow(clampf(_ridge.get_noise_2d(x * 0.8, z * 0.8) * 0.5
+				+ 0.5, 0.0, 1.0), 2.2) * 160.0 * g * innen
+			var stufe := 26.0
+			var q := floorf(h / stufe) * stufe
+			var fr := (h - q) / stufe
+			h = lerpf(h, q + smoothstep(0.62, 0.92, fr) * stufe, 0.85 * innen)
+			var cn := absf(_region_n.get_noise_2d(x * 3.1 + 1300.0, z * 3.1 - 800.0))
+			var canyon := (1.0 - smoothstep(0.015, 0.075, cn)) * ruhe
+			if canyon > 0.0:
+				h = lerpf(h, maxf(SEA_Y + 3.0, h - 120.0), canyon * smoothstep(0.2, 0.5, innen))
+	return h
+
+## 0 an Flugplaetzen und Orten der Regionen, 1 fern davon: dort setzen Gebirge, Karst,
+## Canyons und Seen aus, damit Bahn und Haeuser auf ruhigem Grund stehen.
+func _ruhe_bei(x: float, z: float) -> float:
+	var k := 1.0
+	for i in range(0, _lm_ruhe.size(), 2):
+		var dx := x - _lm_ruhe[i]
+		var dz := z - _lm_ruhe[i + 1]
+		var d2 := dx * dx + dz * dz
+		if d2 < RUHE_AUSSEN * RUHE_AUSSEN:
+			k = minf(k, smoothstep(RUHE_INNEN, RUHE_AUSSEN, sqrt(d2)))
+	return k
+
+
+## KEGELKARST, ein Turm je Zelle eines verwuerfelten Rasters (KARST_ZELLE). Jeder Turm hat
+## eigenen Ort, Radius und Hoehe; das Profil ist eine Wand (steil zwischen 78 und 100 %
+## des Radius) unter einer runden Kuppe, davor ein flacher Schuttfuss. Ein Rauschen kann
+## das nicht: dessen Spitzen sind Kegel, keine Tuerme — im ersten Anlauf (Zellrauschen)
+## stand im Bild nur huegeliger Dschungel.
+const KARST_ZELLE := 380.0
+
+func _karst_turm(x: float, z: float) -> float:
+	var gx := floori(x / KARST_ZELLE)
+	var gz := floori(z / KARST_ZELLE)
+	var best := 0.0
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var cx := gx + dx
+			var cz := gz + dz
+			var r1 := _hash01(cx, cz, 1)
+			if r1 < 0.28:
+				continue                      # nicht jede Zelle traegt einen Turm
+			var px := (float(cx) + 0.18 + 0.64 * _hash01(cx, cz, 2)) * KARST_ZELLE
+			var pz := (float(cz) + 0.18 + 0.64 * _hash01(cx, cz, 3)) * KARST_ZELLE
+			var rad := KARST_ZELLE * (0.13 + 0.15 * _hash01(cx, cz, 4))
+			var ddx := x - px
+			var ddz := z - pz
+			var d2 := ddx * ddx + ddz * ddz
+			if d2 > rad * rad * 1.9:
+				continue
+			var u := sqrt(d2) / rad
+			var hoehe := 80.0 + 200.0 * _hash01(cx, cz, 5)
+			# ZUCKERHUT: die Wand ist steil, aber oben rundet sich der Turm deutlich zur
+			# Kuppe — mit fast flachem Deckel sahen sie aus wie abgesaegte Baumstuempfe.
+			var wand := 1.0 - smoothstep(0.80, 1.0, u)
+			var kuppe := sqrt(maxf(0.0, 1.0 - u * u * 0.85))
+			var fuss := (1.0 - smoothstep(1.0, 1.38, u)) * 0.10
+			best = maxf(best, hoehe * (wand * kuppe + fuss))
+	return best
+
+
+## Ganzzahl-Hash -> 0..1, deterministisch je Seed, Zelle und Kanal.
+func _hash01(ix: int, iz: int, kanal: int) -> float:
+	var n := ix * 374761393 + iz * 668265263 + kanal * 2246822519 + seed_value * 3266489917
+	n = (n ^ (n >> 13)) * 1274126177
+	n = n ^ (n >> 16)
+	return float(n & 0xFFFF) / 65535.0
+
+# =====================================================================================
+# BIOME DER NEUEN REGIONEN
+# =====================================================================================
+# Die Hauptinsel behaelt ihre Farb- und Bewuchsregeln unveraendert; jede Stelle einer
+# Landmasse (region_at != HAUPT) laeuft stattdessen hier durch. Die Regeln sind bewusst
+# eigenstaendig statt als Schalter in _face_color_grund verteilt: dort haengen Dutzende
+# vermessene Sonderfaelle (Hochtal, Vulkan, Halde, Bergsee), die in einer Tundra oder
+# einem Dschungel nichts zu suchen haben.
+#
+# DIE REGIONSMITTE wird fuer die Biomlage gebraucht (Taiga im Sueden des Nordlands,
+# Tundra an seiner Nordkueste) und beim Zuweisen der Landmassen gemerkt.
+
+## Biom an einer Stelle einer Region (Biome-Werte, siehe enum Biome).
+func region_biom(reg: int, x: float, z: float) -> int:
+	var bw := biome_wert(x, z)
+	match reg:
+		Region.NORD:
+			# Nach Norden hin karger: der Nordrand ist Tundra, der Sueden und die Senken
+			# tragen Taiga. `nord` ist -1 am Suedrand, +1 am Nordrand der Region.
+			var m: Vector3 = _region_mitte.get(reg, Vector3.ZERO)
+			var nord := clampf((m.y - z) / maxf(m.z, 1.0), -1.0, 1.0)
+			return Biome.TAIGA if bw * 0.9 - nord * 0.42 + 0.06 > 0.0 else Biome.TUNDRA
+		Region.SUED:
+			return Biome.GRASLAND if bw > 0.30 else Biome.DSCHUNGEL
+		Region.WEST:
+			return Biome.CANYON if bw < -0.06 else Biome.SAVANNE
+	return Biome.WALD
+
+
+## Wie tief steht die Stelle in ihrem Biom (0 an der Grenze, 1 im Kern)? Fuer weiche
+## Uebergaenge — dieselbe Idee wie "kern" auf der Hauptinsel.
+func _region_kern(reg: int, x: float, z: float) -> float:
+	var bw := biome_wert(x, z)
+	match reg:
+		Region.NORD:
+			var m: Vector3 = _region_mitte.get(reg, Vector3.ZERO)
+			var nord := clampf((m.y - z) / maxf(m.z, 1.0), -1.0, 1.0)
+			return smoothstep(-0.10, 0.10, bw * 0.9 - nord * 0.42 + 0.06)   # 1 = Taiga
+		Region.SUED:
+			return smoothstep(0.24, 0.40, bw)                                # 1 = Grasland
+		Region.WEST:
+			return smoothstep(-0.02, -0.14, bw)                              # 1 = Canyon
+	return 0.0
+
+
+## Obergrenze des Bewuchses je Region (m): im Norden die Baumgrenze, im Sueden waechst
+## der Dschungel bis auf die Karstkuppen.
+func _region_baumgrenze(reg: int) -> float:
+	match reg:
+		Region.NORD:
+			# 260 statt 150: mit 150 standen alle Huegelkaemme der Taiga ueber der
+			# Baumgrenze, und aus der Luft lag der Wald in parallelen kahlen Streifen da.
+			# Kahl sind jetzt die Berge, nicht die Huegel.
+			return 260.0
+		Region.SUED:
+			return 460.0
+		Region.WEST:
+			return 330.0
+	return FLORA_MAX_H
+
+
+## Walddichte 0..1 in einer Region — EINE Regel fuer Bodenfarbe, Karte, Fernschuerze und
+## die echten Baeume (dieselbe Zusage wie wald_anteil auf der Hauptinsel).
+func _region_dichte(reg: int, x: float, z: float, h: float, ny: float) -> float:
+	var grenze := _region_baumgrenze(reg)
+	if h < FLORA_MIN_H or h > grenze:
+		return 0.0
+	var slope := (1.0 - clampf(ny, 0.0, 1.0)) * 12.0
+	# Oben duennt der Wald allmaehlich aus (Rauschen verschiebt die Grenze um bis zu
+	# 18 %), statt an einer Hoehenlinie abzubrechen.
+	var gz := grenze * (1.0 + 0.18 * _patch.get_noise_2d(x * 0.21, z * 0.21))
+	var edge := _open_ground(x, z) * smoothstep(FLORA_MIN_H, FLORA_FULL_H, h) \
+		* (1.0 - smoothstep(gz * 0.62, gz, h)) \
+		* (1.0 - smoothstep(3.2, 5.2, slope))
+	if edge <= 0.005:
+		return 0.0
+	# WALDMUSTER DER REGIONEN: das Waldrauschen der Hauptinsel (260 m) laeuft auf einer
+	# gedrehten, gestreckten Achse — in der Taiga lag sein Muster sonst als parallele
+	# Streifen quer durchs Land (die Achsenausrichtung des Simplex faellt in grossen,
+	# gleichfoermigen Waeldern auf). Gedreht und mit einem zweiten, groeberen Anteil
+	# gemischt werden daraus unregelmaessige Lichtungen und Waldinseln.
+	var rx := x * 0.81 - z * 0.59
+	var rz := x * 0.59 + z * 0.81
+	var f := _forest.get_noise_2d(rx * 0.7 + 17000.0, rz * 0.7 - 9000.0) * 0.6 \
+		+ _forest.get_noise_2d(rz * 0.33 - 4100.0, rx * 0.33 + 2300.0) * 0.4
+	var dens := 0.0
+	match region_biom(reg, x, z):
+		Biome.TAIGA:
+			dens = smoothstep(-0.38, 0.10, f)
+		Biome.TUNDRA:
+			dens = smoothstep(0.15, 0.55, f) * 0.12
+		Biome.DSCHUNGEL:
+			dens = smoothstep(-0.62, -0.12, f)
+		Biome.GRASLAND:
+			dens = smoothstep(0.0, 0.5, f) * 0.28
+		Biome.SAVANNE:
+			dens = smoothstep(-0.25, 0.55, f) * 0.16
+		Biome.CANYON:
+			dens = smoothstep(0.20, 0.60, f) * 0.05
+	if reg == Region.SUED:
+		dens = maxf(dens, _mangrove(x, z, h) * 0.85)
+	return clampf(dens * edge, 0.0, 1.0)
+
+
+## BEWUCHS EINER ZELLE in einer neuen Region: Dichte aus _region_dichte (dieselbe Regel
+## wie Bodenfarbe, Karte und Fernschuerze), Arten nach Biom. Die Platzierung auf der
+## Dreiecksflaeche ist die der Hauptinsel (siehe _make_chunk_data).
+func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: float,
+		cz: float, hc: float, slope: float, x0: float, z0: float, step: float,
+		h00: float, h10: float, h01: float, h11: float) -> void:
+	var ny := 1.0 - slope / 12.0
+	var dens := _region_dichte(reg, cx, cz, hc, ny)
+	if dens <= 0.004:
+		return
+	var biom := region_biom(reg, cx, cz)
+	var mg := _mangrove(cx, cz, hc) if reg == Region.SUED else 0.0
+	var per_cell := FLORA_PER_CELL
+	if biom == Biome.DSCHUNGEL:
+		per_cell *= 1.12
+	var expect := per_cell * dens
+	var n := int(floor(expect))
+	if rng.randf() < expect - float(n):
+		n += 1
+	for k in n:
+		var u := rng.randf()
+		var v := rng.randf()
+		var hp := (h00 + u * (h10 - h00) + v * (h11 - h10)) if u >= v \
+			else (h00 + v * (h01 - h00) + u * (h11 - h01))
+		var art := "Busch"
+		var lo := 0.8
+		var hi := 1.6
+		var r := rng.randf()
+		match biom:
+			Biome.TAIGA:
+				if r < 0.58:
+					art = "Schneetanne"
+					lo = 1.0
+					hi = 1.9
+				elif r < 0.86:
+					art = "Fichte"
+					lo = 1.0
+					hi = 1.8
+				elif r < 0.95:
+					art = "Kiefer"
+					lo = 1.0
+					hi = 1.6
+				else:
+					art = "Birke"
+					lo = 0.7
+					hi = 1.2
+			Biome.TUNDRA:
+				# alles klein und geduckt: Zwergstraucher, Zwergbirken, Krueppeltannen
+				if r < 0.50:
+					art = "Busch"
+					lo = 0.45
+					hi = 0.95
+				elif r < 0.74:
+					art = "Birke"
+					lo = 0.45
+					hi = 0.8
+				elif r < 0.90:
+					art = "Schneetanne"
+					lo = 0.5
+					hi = 1.0
+				else:
+					art = "Totholz"
+					lo = 0.45
+					hi = 0.85
+			Biome.DSCHUNGEL, Biome.GRASLAND:
+				if mg > 0.25 and rng.randf() < mg:
+					art = "Mangrove"
+					lo = 0.8
+					hi = 1.4
+				elif biom == Biome.GRASLAND:
+					if r < 0.45:
+						art = "Palme"
+						lo = 1.0
+						hi = 1.7
+					elif r < 0.80:
+						art = "Busch"
+					else:
+						art = "Baumfarn"
+						lo = 0.8
+						hi = 1.4
+				elif r < 0.40:
+					art = "Urwaldbaum"
+					lo = 1.0
+					hi = 1.8
+				elif r < 0.62:
+					art = "Palme"
+					lo = 1.0
+					hi = 1.7
+				elif r < 0.84:
+					art = "Baumfarn"
+					lo = 0.8
+					hi = 1.5
+				elif r < 0.93:
+					art = "Eiche"
+					lo = 1.1
+					hi = 1.9
+				else:
+					art = "Busch"
+					lo = 1.0
+					hi = 1.8
+			Biome.SAVANNE:
+				if r < 0.62:
+					art = "Akazie"
+					lo = 0.9
+					hi = 1.6
+				elif r < 0.90:
+					art = "Busch"
+					lo = 0.6
+					hi = 1.3
+				else:
+					art = "Totholz"
+					lo = 0.7
+					hi = 1.2
+			_:
+				if r < 0.45:
+					art = "Kaktus"
+					lo = 0.8
+					hi = 1.5
+				elif r < 0.80:
+					art = "Busch"
+					lo = 0.5
+					hi = 1.0
+				else:
+					art = "Totholz"
+					lo = 0.6
+					hi = 1.1
+		var sc := rng.randf_range(lo, hi)
+		var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
+			Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)),
+			Vector3(x0 + u * step, hp - 0.15, z0 + v * step))
+		if not flora.has(art):
+			flora[art] = []
+		flora[art].append(xf)
+
+
+## Mangrovengurt: flaches Schwemmland im Sueden, in Flecken entlang der Kueste.
+func _mangrove(x: float, z: float, h: float) -> float:
+	var tief := 1.0 - smoothstep(SEA_Y + 2.5, SEA_Y + 7.5, h)
+	if tief <= 0.0:
+		return 0.0
+	var flur := _patch.get_noise_2d(x * _flur_takt + 4400.0, z * _flur_takt - 2600.0)
+	return tief * smoothstep(-0.15, 0.25, flur)
+
+
+## Farbe, in die Wald aus der Ferne einfaerbt (Karte, Fernschuerze, Bodenabdunklung).
+func wald_farbe(x: float, z: float) -> Color:
+	var reg := region_at(x, z)
+	match reg:
+		Region.NORD:
+			return Color(0.085, 0.175, 0.13)      # Taiga: fast schwarzgruen, kalt
+		Region.SUED:
+			return Color(0.075, 0.27, 0.085)      # Dschungel: sattes Tiefgruen
+		Region.WEST:
+			return Color(0.29, 0.31, 0.15)        # Savanne: Akazien, oliv
+	return Color(0.115, 0.235, 0.135)             # = Main.FERN_WALD
+
+
+## KLIMA-GEWICHTE an einer Stelle: (Nord, Sued, West), je 0..1, weich ueber die
+## Meeresstrassen ausgeblendet. Fuer alles, was sich beim Hinueberfliegen allmaehlich
+## aendern soll statt an einer Kreisgrenze umzuspringen (Wasserfarbe).
+func klima_gewicht(x: float, z: float) -> Vector3:
+	var w := Vector3.ZERO
+	for i in _lm_x.size():
+		var pk: PackedFloat64Array = _lm_teile[i]
+		var best := 0.0
+		for k in range(0, pk.size(), 4):
+			var tx := x - pk[k]
+			var tz := z - pk[k + 1]
+			var r := 1.0 / sqrt(pk[k + 2])
+			best = maxf(best, 1.0 - smoothstep(r * 1.05, r * 1.9, sqrt(tx * tx + tz * tz)))
+		match _lm_region[i]:
+			Region.NORD:
+				w.x = maxf(w.x, best)
+			Region.SUED:
+				w.y = maxf(w.y, best)
+			Region.WEST:
+				w.z = maxf(w.z, best)
+	return w
+
+
+# Wasserfarben je Klima: [flach, Lagune, tief, Ferne]. Die Hauptinsel behaelt die
+# Standardwerte des Shaders (water.gdshader).
+const WASSER_HAUPT := [Color(0.32, 0.80, 0.78), Color(0.15, 0.55, 0.68),
+	Color(0.06, 0.29, 0.55), Color(0.0, 0.233, 0.440)]
+const WASSER_NORD := [Color(0.30, 0.50, 0.52), Color(0.13, 0.34, 0.42),
+	Color(0.04, 0.19, 0.32), Color(0.02, 0.15, 0.26)]
+const WASSER_SUED := [Color(0.36, 0.90, 0.80), Color(0.10, 0.64, 0.72),
+	Color(0.04, 0.33, 0.56), Color(0.0, 0.26, 0.46)]
+const WASSER_WEST := [Color(0.34, 0.74, 0.72), Color(0.14, 0.50, 0.62),
+	Color(0.06, 0.27, 0.50), Color(0.0, 0.22, 0.42)]
+var _wasser_klima_pos := Vector3(1.0e9, 0.0, 0.0)
+
+
+## Das Meer (EINE mitwandernde Platte) nimmt die Farben des Klimas an, in dem der
+## Spieler gerade ist: im Norden kaltes, dunkles Graugruen statt Karibik-Tuerkis, im
+## Sueden noch leuchtender. Nur alle 150 m neu gerechnet.
+func _wasser_klima(pos: Vector3) -> void:
+	if _water == null or _lm_x.is_empty():
+		return
+	if Vector2(pos.x - _wasser_klima_pos.x, pos.z - _wasser_klima_pos.z).length() < 150.0:
+		return
+	_wasser_klima_pos = pos
+	var w := klima_gewicht(pos.x, pos.z)
+	var m := _water.material_override as ShaderMaterial
+	if m == null:
+		return
+	var namen := ["shallow_col", "mid_col", "deep_col", "far_col"]
+	for k in 4:
+		var c: Color = WASSER_HAUPT[k]
+		c = c.lerp(WASSER_NORD[k], w.x).lerp(WASSER_SUED[k], w.y).lerp(WASSER_WEST[k], w.z)
+		m.set_shader_parameter(namen[k], c)
+
+
+## BODENFARBE einer Region (ersetzt _face_color fuer alles ausserhalb der Hauptinsel).
+func _region_farbe(reg: int, cen: Vector3, ny: float, zelle: float, normale: Vector3) -> Color:
+	var x := cen.x
+	var z := cen.z
+	var h := cen.y
+	var t := _patch.get_noise_2d(x, z)
+	var flur := _patch.get_noise_2d(x * _flur_takt + 4400.0, z * _flur_takt - 2600.0)
+	var sn := _patch.get_noise_2d(x * _strand_takt, z * _strand_takt)
+	var steil := 1.0 - smoothstep(0.62, 0.88, ny)
+	var det := clampf((30.0 - zelle) / 18.0, 0.0, 1.0)
+	var c: Color
+	match reg:
+		Region.NORD:
+			c = _farbe_nord(x, z, h, ny, t, flur, sn, det)
+		Region.SUED:
+			c = _farbe_sued(x, z, h, ny, t, flur, sn, det)
+		_:
+			c = _farbe_west(x, z, h, ny, t, flur, sn, det)
+	return _warm_kalt(c, normale, steil)
+
+
+func _farbe_nord(x: float, z: float, h: float, ny: float, t: float, flur: float,
+		sn: float, det: float) -> Color:
+	# KIESSTRAND statt Sand: dunkel und nass an der Wasserlinie, heller dahinter.
+	if h < SEA_Y + 1.8 + STRAND_UNRUHE * sn:
+		return Color(0.40, 0.41, 0.40).lerp(Color(0.63, 0.63, 0.60),
+			clampf((h - SEA_Y) / 2.6, 0.0, 1.0)).lerp(Color(0.55, 0.53, 0.48),
+			clampf(sn * 0.5 + 0.5, 0.0, 1.0) * 0.35)
+	# TUNDRA: Moos, Flechte, rostiges Zwergstrauchwerk, nasse Senken.
+	var tundra := Color(0.50, 0.53, 0.37).lerp(Color(0.66, 0.66, 0.55),
+		clampf(flur * 1.2 + 0.45, 0.0, 1.0))
+	# Die Flecken sind 60 m gross: auf der groben Fernschuerze (64 m) waeren es einzelne
+	# gesprenkelte Dreiecke — dort bleiben sie weg (det = 0).
+	if t > 0.58:
+		tundra = tundra.lerp(Color(0.58, 0.43, 0.32), 0.38 * det)
+	elif t < -0.48:
+		tundra = tundra.lerp(Color(0.38, 0.43, 0.36), 0.55 * det)
+	# TAIGA-BODEN: Nadelstreu und Moos unter dunklem Wald.
+	var taiga := Color(0.30, 0.38, 0.27).lerp(Color(0.36, 0.37, 0.26),
+		clampf(t * 0.6 + 0.5, 0.0, 1.0))
+	var boden := tundra.lerp(taiga, _region_kern(Region.NORD, x, z))
+	boden = boden.lerp(Color(0.13, 0.22, 0.16), _region_dichte(Region.NORD, x, z, h, ny) * 0.58)
+	# FELS: kalter, dunkler Gneis; nach oben heller, in Rippen gezeichnet.
+	var fels := Color(0.24, 0.25, 0.28).lerp(Color(0.44, 0.45, 0.48),
+		clampf((h - 60.0) / 520.0, 0.0, 1.0))
+	if det > 0.0:
+		var rip := _fels.get_noise_2d(x, z)
+		fels = fels.lerp(Color(0.25, 0.26, 0.29) if rip < 0.0 else Color(0.62, 0.63, 0.66),
+			minf(1.0, absf(rip) * 1.6) * 0.45 * det)
+	var fels_k := maxf(1.0 - smoothstep(0.62, 0.80, ny), smoothstep(120.0, 190.0, h) * 0.6)
+	var c := boden.lerp(fels, fels_k)
+	# SCHNEE UND GLETSCHER. Flecken schon ab 30 m (Altschnee in Mulden), geschlossen ab
+	# rund 170 m; darueber Gletscher, der auch Steilstufen deckt — dort blaues Eis mit
+	# Spalten statt weissem Pulver.
+	var sk := _patch.get_noise_2d(x * _schnee_takt + 1700.0, z * _schnee_takt - 5300.0)
+	# Schneefelder von 150 m: grob abgetastet gemittelt statt als weisse Sprenkel.
+	var feld := lerpf(0.42, smoothstep(-0.25, 0.30, sk), det)
+	var schnee := clampf(smoothstep(30.0, 170.0, h) * feld * 0.9 + smoothstep(150.0, 260.0, h),
+		0.0, 1.0) * smoothstep(0.46, 0.72, ny + SCHNEE_KORN * sk)
+	# Gletscher deckt Mulden, Flanken und Grate — aber keine Steilwand: dort steht
+	# dunkler Fels, und genau dieser Schwarz-Weiss-Kontrast macht ein Hochgebirge aus.
+	var gletscher := smoothstep(260.0, 440.0, h)
+	schnee = maxf(schnee, gletscher * smoothstep(0.42, 0.64, ny))
+	if schnee > 0.001:
+		var weiss := Color(0.90, 0.92, 0.95)
+		var eis_k := gletscher * (1.0 - smoothstep(0.55, 0.80, ny))
+		if eis_k > 0.001:
+			var spalte := absf(_ridge.get_noise_2d(x * 5.0, z * 5.0))
+			weiss = weiss.lerp(Color(0.64, 0.80, 0.92).lerp(Color(0.42, 0.60, 0.78),
+				smoothstep(0.55, 0.9, 1.0 - spalte)), eis_k * 0.85)
+		c = c.lerp(weiss, schnee)
+	return c
+
+
+func _farbe_sued(x: float, z: float, h: float, ny: float, t: float, flur: float,
+		sn: float, det: float) -> Color:
+	# KORALLENSAND: fast weiss, an der Wasserlinie etwas dunkler.
+	if h < SEA_Y + 2.0 + STRAND_UNRUHE * sn:
+		return Color(0.86, 0.82, 0.70).lerp(Color(0.97, 0.94, 0.84),
+			clampf((h - SEA_Y) / 2.4, 0.0, 1.0))
+	var dichte := _region_dichte(Region.SUED, x, z, h, ny)
+	# DSCHUNGELBODEN: gesaettigtes Gruen, in lichten Stellen roter Laterit.
+	var boden := Color(0.21, 0.45, 0.16).lerp(Color(0.30, 0.54, 0.20),
+		clampf(flur * 1.1 + 0.5, 0.0, 1.0))
+	if t > 0.50:
+		boden = boden.lerp(Color(0.62, 0.37, 0.23), 0.55 * (1.0 - dichte))
+	# TROPENWIESE (Grasland): helles Limonengruen.
+	var gras := Color(0.50, 0.64, 0.26).lerp(Color(0.60, 0.66, 0.30),
+		clampf(t * 0.6 + 0.5, 0.0, 1.0))
+	boden = boden.lerp(gras, _region_kern(Region.SUED, x, z))
+	# MANGROVEN: dunkles Oliv ueber schlammigem Grund.
+	var mg := _mangrove(x, z, h)
+	if mg > 0.0:
+		boden = boden.lerp(Color(0.36, 0.34, 0.22).lerp(Color(0.16, 0.30, 0.18), mg), mg)
+	boden = boden.lerp(Color(0.08, 0.28, 0.09), dichte * 0.62)
+	# KARSTKALK: nur an den steilen Turmwaenden, die Kuppen bleiben gruen.
+	var fels := Color(0.70, 0.69, 0.62)
+	if det > 0.0:
+		var rip := _fels.get_noise_2d(x, z)
+		# Kalk verwittert in senkrechten dunklen Rinnen (Karren)
+		fels = fels.lerp(Color(0.44, 0.44, 0.40), smoothstep(0.1, 0.7, absf(rip)) * 0.6 * det)
+	# Selbst an den Waenden haelt sich Gruen: Moos, Farn, Luftwurzeln in Baendern.
+	fels = fels.lerp(Color(0.19, 0.37, 0.15),
+		smoothstep(-0.40, 0.35, _patch.get_noise_2d(x * 0.45, z * 0.45)) * 0.68)
+	var fels_k := 1.0 - smoothstep(0.44, 0.66, ny)
+	return boden.lerp(fels, fels_k)
+
+
+func _farbe_west(x: float, z: float, h: float, ny: float, t: float, flur: float,
+		sn: float, det: float) -> Color:
+	# GOLDSAND
+	if h < SEA_Y + 1.7 + STRAND_UNRUHE * sn:
+		return Color(0.82, 0.68, 0.48).lerp(Color(0.92, 0.80, 0.58),
+			clampf((h - SEA_Y) / 2.5, 0.0, 1.0))
+	# SAVANNE: goldenes Gras, oliv in feuchteren Senken, rote Erde in Flecken.
+	var sav := Color(0.80, 0.70, 0.41).lerp(Color(0.68, 0.61, 0.36),
+		clampf(flur * 1.2 + 0.5, 0.0, 1.0))
+	if t < -0.45:
+		sav = sav.lerp(Color(0.54, 0.55, 0.32), 0.6)
+	elif t > 0.48:
+		sav = sav.lerp(Color(0.70, 0.43, 0.28), 0.55)
+	# BADLANDS: rote, kahle Erde mit hellen Salzflecken.
+	var bad := Color(0.70, 0.43, 0.29).lerp(Color(0.62, 0.36, 0.24),
+		clampf(t * 0.6 + 0.5, 0.0, 1.0))
+	if flur > 0.45:
+		bad = bad.lerp(Color(0.86, 0.76, 0.62), 0.5)
+	var boden := sav.lerp(bad, _region_kern(Region.WEST, x, z))
+	boden = boden.lerp(Color(0.31, 0.33, 0.17), _region_dichte(Region.WEST, x, z, h, ny) * 0.55)
+	# SANDSTEIN IN SCHICHTEN: jede Wand zeigt ihre Baenke — rot, orange, creme, violett-
+	# braun. Die Bandhoehe wandert oertlich, sonst waere es eine Hoehenlinie.
+	var wandern: float = 16.0 * _patch.get_noise_2d(x * 0.35, z * 0.35)
+	var bank := fposmod((h + wandern) / 13.0, 4.0)
+	var schicht: Color
+	if bank < 1.0:
+		schicht = Color(0.68, 0.34, 0.21)
+	elif bank < 2.0:
+		schicht = Color(0.81, 0.52, 0.31)
+	elif bank < 3.0:
+		schicht = Color(0.86, 0.74, 0.56)
+	else:
+		schicht = Color(0.50, 0.30, 0.25)
+	if det > 0.0:
+		var rip := _fels.get_noise_2d(x, z)
+		schicht = schicht.darkened(smoothstep(0.2, 0.8, absf(rip)) * 0.25 * det)
+	var fels_k := maxf(1.0 - smoothstep(0.66, 0.84, ny), _region_kern(Region.WEST, x, z) * 0.30)
+	return boden.lerp(schicht, fels_k)
+
+
 ## KUESTENFORMEN — was ein Radius nicht kann.
 ##
 ## DAS EIGENTLICHE PROBLEM DER INSEL war nie ihre Groesse, sondern ihre Bauart: die Kueste
@@ -1803,13 +2539,19 @@ func _kf_land(x: float, z: float, h: float) -> float:
 		var t := 1.0 - smoothstep(float(kf["r_kern"]), r_aus, lage.x)
 		# Hoch 1.7: gibt der Flanke eine konkave Kurve statt einer Rampe. Ein linearer
 		# Abfall sieht aus wie ein Damm, ein konkaver wie ein Berg.
-		var berg := _kf_hoehe(kf["hs"], lage.y) * pow(t, 1.7)
+		# "fuss": die Hoehe, auf die die Flanke auslaeuft (Vorgabe 0). Die Formen der
+		# neuen Regionen stehen teils im Meer und laufen auf den Meeresgrund aus — mit 0
+		# hob ihr ganzer Rand den Grund auf 0 m, 6 m UEBER den Spiegel, und um jede Form
+		# lag ein Ring aus Land. Ohne den Schluessel rechnet sich alles Bit fuer Bit wie
+		# vorher (fuss 0: 0 + hs * t^1.7).
+		var fuss: float = float(kf.get("fuss", 0.0))
+		var berg := (_kf_hoehe(kf["hs"], lage.y) - fuss) * pow(t, 1.7)
 		var unruhe: float = float(kf.get("unruhe", 0.0))
 		if unruhe > 0.0:
 			# Der Kamm darf nicht schnurgerade laufen. Dasselbe Ridged-Rauschen wie bei
 			# den Bergketten, damit die Kette sich nicht als Fremdkoerper liest.
 			berg *= 1.0 - unruhe * (0.5 - 0.5 * _ridge.get_noise_2d(x * 1.6, z * 1.6))
-		h = maxf(h, berg)
+		h = maxf(h, fuss + berg)
 	return h
 
 
@@ -1829,7 +2571,14 @@ func _kf_wasser(x: float, z: float, h: float) -> float:
 		if lage.x >= r_aus:
 			continue
 		var sohle := SEA_Y + _kf_hoehe(kf["hs"], lage.y)
-		h = lerpf(sohle, h, smoothstep(float(kf["r_kern"]), r_aus, lage.x))
+		var h_neu := lerpf(sohle, h, smoothstep(float(kf["r_kern"]), r_aus, lage.x))
+		# "nur_senken": die Form darf nichts anheben. Die Formen der neuen Regionen
+		# laufen durch Schelf und offenes Meer; ohne das hoebe ihre Sohle den tieferen
+		# Meeresgrund als helle Rinne an. Die Formen der Hauptinsel heben absichtlich
+		# (die Schwelle vor dem Fjord) und haben den Schluessel nicht.
+		if kf.get("nur_senken", false):
+			h_neu = minf(h_neu, h)
+		h = h_neu
 		# EINE SCHMALE UFERBANK, und zwar nur hier — nicht der grosse Strandschelf.
 		#
 		# Der laeuft absichtlich VOR dieser Funktion, sonst waeren die Fjordwaende zu
@@ -1970,10 +2719,11 @@ var _flora_grob_ab := FLORA_GROB_AB
 var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
 var _flora_mat: ShaderMaterial  # wie _mat, zusätzlich Entfernungs-Schrumpfen
 
-const ARTEN := ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch"]
+const ARTEN := ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch",
+	"Schneetanne", "Urwaldbaum", "Baumfarn", "Akazie", "Mangrove", "Kaktus"]
 
 # Biom-Konstanten (aus _biome-Rauschen, -1..1)
-enum Biome { WALD, WUESTE, HOCHLAND, HEIDE }
+enum Biome { WALD, WUESTE, HOCHLAND, HEIDE, TUNDRA, TAIGA, DSCHUNGEL, GRASLAND, SAVANNE, CANYON }
 var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (im Worker unterwegs)
 var _mat: ShaderMaterial
@@ -2144,6 +2894,28 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_biome = FastNoiseLite.new()
 	_biome.seed = seedv * 31 + 13
 	_biome.frequency = 1.0 / 3200.0
+	_land = FastNoiseLite.new()
+	_land.seed = seedv * 41 + 19
+	_land.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_land.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_land.fractal_octaves = 6
+	_land.fractal_gain = 0.55
+	_land.frequency = 1.0 / 6500.0
+	# DOMAIN-WARPING: das Rauschen wird an einer selbst verzerrten Stelle abgefragt. Ohne
+	# das bestehen Kuesten aus runden Beulen; verzerrt ziehen sie sich zu Zungen, Haken
+	# und schmalen Buchten aus, wie sie Wind und Wasser formen.
+	_land.domain_warp_enabled = true
+	_land.domain_warp_type = FastNoiseLite.DOMAIN_WARP_SIMPLEX
+	_land.domain_warp_amplitude = 2600.0
+	_land.domain_warp_frequency = 1.0 / 9000.0
+	_land.domain_warp_fractal_type = FastNoiseLite.DOMAIN_WARP_FRACTAL_PROGRESSIVE
+	_land.domain_warp_fractal_octaves = 3
+	_region_n = FastNoiseLite.new()
+	_region_n.seed = seedv * 43 + 29
+	_region_n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_region_n.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_region_n.fractal_octaves = 3
+	_region_n.frequency = 1.0 / 5200.0
 	_vulkane_bauen()
 	# ERST HIER, nicht weiter oben: _talboden_bauen ruft height_at, und das braucht
 	# saemtliche Rauschquellen. Ein Aufruf vor _biome lieferte lauter Nullen.
@@ -2277,6 +3049,9 @@ func biome_wert(x: float, z: float) -> float:
 
 
 func biome_at(x: float, z: float) -> int:
+	var reg := region_at(x, z)
+	if reg != Region.HAUPT:
+		return region_biom(reg, x, z)
 	var b := biome_wert(x, z)
 	if b < -0.32:
 		return Biome.WUESTE
@@ -2327,6 +3102,12 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# unverwechselbarer — und sie kosten keine der bestehenden Inseln.
 	var r_coast := 27200.0 + rvar * 3800.0
 	var fall := smoothstep(r_coast - 1400.0, r_coast + 800.0, d)
+	# DIE NEUEN LANDMASSEN (siehe LANDMASSEN). Erst ab _lm_ab — die ganze Hauptinsel
+	# laeuft an dieser Stelle vorbei und bleibt bitgenau.
+	var lm := Vector3(1.0, 0.0, Region.HAUPT)
+	if fall > 0.0 and d > _lm_ab:
+		lm = landmasse_bei(x, z)
+		fall = minf(fall, lm.x)
 	if fall > 0.0:
 		h = lerpf(h, SEA_Y - 18.0, fall)
 	# MESA-TERRASSEN in der Wüste: gestufte Tafelberge/Canyon-Kanten (Low-Poly-Ikone).
@@ -2334,7 +3115,7 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# GEMERKT, WEIL DAS FELSRELIEF WEITER UNTEN DAVON ABHAENGT: die Mesa lebt von ihrer
 	# ebenen Deckflaeche, und Rippen darauf machen aus einem Tafelberg einen Huegel.
 	var wueste := false
-	if h > 8.0 and dist_k > 0.25 and _biome.get_noise_2d(x, z) < -0.32:
+	if lm.z < 0.5 and h > 8.0 and dist_k > 0.25 and _biome.get_noise_2d(x, z) < -0.32:
 		wueste = true
 		var step_h := 16.0
 		var q := floorf(h / step_h) * step_h
@@ -2854,6 +3635,8 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# _kf_ab_l/_kf_ab_w ist der kleinste Abstand, in dem ueberhaupt eine Form beginnt, und wird beim
 	# Zuweisen der Liste AUSGERECHNET. Eine von Hand gesetzte Grenze waere beim naechsten
 	# Verschieben einer Form still zu gross und wuerde deren Flanke abschneiden.
+	if lm.z > 0.5:
+		h = _region_form(x, z, h, int(lm.z), lm.y)
 	if d > _kf_ab_l:
 		h = _kf_land(x, z, h)
 	# FELSRELIEF: RIPPEN UND RUNSEN AUF ALLEM, WAS BERG IST.
@@ -4173,6 +4956,7 @@ func update_center(world_pos: Vector3) -> void:
 	# relativ zum Spieler still. Diese Zeilen duerfen also verschieben, was sie wollen.
 	_water.position.x = world_pos.x
 	_water.position.z = world_pos.z
+	_wasser_klima(world_pos)
 	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
 	if cc == _last_cc:
 		return   # gleiche Zelle -> Lade-Plan unverändert (kein Scan pro Frame)
@@ -4617,6 +5401,9 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 ## ueberhaupt sieht, ist ein Wald ohnehin nur eine dunkelgruene Flaeche. Das kostet KEIN
 ## einziges zusaetzliches Dreieck und keinen Zeichenaufruf.
 func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
+	var reg := region_at(x, z)
+	if reg != Region.HAUPT:
+		return _region_dichte(reg, x, z, h, ny)
 	if h < FLORA_MIN_H or h > FLORA_MAX_H:
 		return 0.0
 	# ny ist der Aufwaerts-Anteil der Flaechennormale; daraus die Neigung wie im Chunk.
@@ -4766,7 +5553,11 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 					Vector3(cx + rng.randf_range(-3.0, 3.0), hc - 0.3,
 						cz + rng.randf_range(-3.0, 3.0))))
 			# --- BEWUCHS ---
-			if hc < FLORA_MIN_H or hc > FLORA_MAX_H:
+			# NEUE REGIONEN: eigene Baumgrenze (Nordland tief, Dschungel bis auf die
+			# Karstkuppen), eigene Arten und Dichte — siehe _region_flora.
+			var reg := region_at(cx, cz)
+			var grenze := FLORA_MAX_H if reg == Region.HAUPT else _region_baumgrenze(reg)
+			if hc < FLORA_MIN_H or hc > grenze:
 				continue   # Strand/Wasser bzw. ueber der Baumgrenze
 			# DIE SCHRANKE MUSS DEN HOECHSTEN SEE KENNEN. Hier stand fest "hc < 34.0", und
 			# der Bergsee liegt auf 78 m: seine Wanne fiel komplett durch die Pruefung, und
@@ -4788,6 +5579,10 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			# ohne diese Zeile stuenden ueber der Aussparung Fichten auf einer Flaeche,
 			# die es nicht mehr gibt, also frei in der Luft ueber dem Tunnelmund.
 			if tunnel_chunk and _im_tunnel(Vector3(cx, hc, cz)):
+				continue
+			if reg != Region.HAUPT:
+				_region_flora(reg, rng, flora, cx, cz, hc, slope,
+					ox + float(i) * step, oz + float(j) * step, step, h00, h10, h01, h11)
 				continue
 			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
 			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.
@@ -4951,6 +5746,21 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 		faces.resize(fi)
 	var shape := ConcavePolygonShape3D.new()
 	shape.set_faces(faces)
+	# MISCHEN — sonst ist die Fernstufe gestreift. Sie zeigt nur ein Praefix der
+	# Transformationen (FLORA_GROB_ANTEIL, visible_instance_count), und der Kopfkommentar
+	# dort sagt zu Recht: das ist nur dann eine gleichmaessige Stichprobe, wenn die Liste
+	# zufaellig geordnet ist. Sie war es nie — gepflanzt wird Zeile fuer Zeile, also fiel
+	# in jedem fernen Chunk sein letztes Viertel (die suedlichsten Zeilen) weg. In der
+	# dichten Taiga lag der Wald deshalb in kahlen Streifen alle 384 m da; auf der
+	# Hauptinsel war es derselbe Fehler, nur unter dem lueckigeren Wald versteckt.
+	# Deterministisch (Chunk-RNG), damit derselbe Chunk immer dieselben Baeume zeigt.
+	for art in flora:
+		var l: Array = flora[art]
+		for k in range(l.size() - 1, 0, -1):
+			var q := rng.randi_range(0, k)
+			var tmp: Variant = l[k]
+			l[k] = l[q]
+			l[q] = tmp
 	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks}
 
 
@@ -6193,6 +7003,9 @@ func _vulkan_haut(vk: Dictionary, cen: Vector3, md: float, ux: float, uz: float,
 ## 0,85 ist es Plateau und bleibt unberuehrt; die Zeichnung gehoert an die Wand.
 func _face_color(cen: Vector3, ny: float, zelle: float = 8.0,
 		normale := Vector3.UP) -> Color:
+	var reg := region_at(cen.x, cen.z)
+	if reg != Region.HAUPT:
+		return _region_farbe(reg, cen, ny, zelle, normale)
 	var c := _face_color_grund(cen, ny)
 	# NUR STEILES. ny ist die y-Komponente der Flaechennormalen: 1 waagerecht, 0 senkrecht.
 	# Ueber 0,88 ist es Wiese, Plateau oder Gipfelflaeche und bleibt unberuehrt — die
@@ -6780,6 +7593,7 @@ static func _stellvertreter(quelle: Mesh) -> Mesh:
 	var ks := Vector3.ZERO
 	var ss := Vector3.ZERO
 	var kn := 0
+	var ksg := 0.0
 	var sn := 0
 	for si in quelle.get_surface_count():
 		var arr := quelle.surface_get_arrays(si)
@@ -6792,13 +7606,23 @@ static func _stellvertreter(quelle: Mesh) -> Mesh:
 		for i in mini(vp.size(), cp.size()):
 			var c := cp[i]
 			if vp[i].y - ab.position.y > h * 0.45:
-				ks += Vector3(c.r, c.g, c.b)
+				# SCHNEE ZAEHLT KAUM MIT. Die Schneetanne ist zur Haelfte weiss (die Baender
+				# auf den Kraenzen); gleich gewichtet war ihr Stellvertreter ein blassgrauer
+				# Kegel, und aus der Ferne lag die Taiga wie eine verwaschene Lichtung da.
+				# Aus der Luft sieht man vor allem die dunklen Flanken unter dem Schnee.
+				# Andere Arten haben oben kein Weiss und bleiben unveraendert.
+				if minf(c.r, minf(c.g, c.b)) > 0.75:
+					ks += Vector3(c.r, c.g, c.b) * 0.4
+					ksg += 0.4
+				else:
+					ks += Vector3(c.r, c.g, c.b)
+					ksg += 1.0
 				kn += 1
 			else:
 				ss += Vector3(c.r, c.g, c.b)
 				sn += 1
 	if kn > 0:
-		ks /= float(kn)
+		ks /= ksg
 		krone = Color(ks.x, ks.y, ks.z)
 	if sn > 0:
 		ss /= float(sn)
@@ -6898,9 +7722,9 @@ func _load_flora() -> Dictionary:
 		sc.free()
 	for art in ARTEN:
 		if not d.has(art):
-			if art == "Palme":
+			if art in ["Palme", "Baumfarn"]:
 				d[art] = _mesh_palm
-			elif art in ["Birke", "Eiche", "Busch"]:
+			elif art in ["Birke", "Eiche", "Busch", "Urwaldbaum", "Akazie", "Mangrove"]:
 				d[art] = _mesh_leaf
 			else:
 				d[art] = _mesh_conifer

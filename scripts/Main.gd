@@ -119,6 +119,23 @@ const NEBEL_KURVE := 1.7
 # Absenkung fahren.
 const FERN_ZELLE_GROB := 64.0
 const FERN_ZELLE_FEIN := 32.0
+# DIE SCHUERZE STREAMT MIT DEM SPIELER. Frueher entstand sie EINMAL fuer die ganze Insel;
+# seit die Welt drei neue Landmassen hat (168 km statt 68), haette das allein fuer die
+# grobe Stufe 63 s und 2,7 Mio. Dreiecke gekostet, die feine ueber 10 Mio. — fuer Land,
+# das man nie gleichzeitig sieht: die Kamera reicht KAMERA_FERN = 9 km weit.
+# Also zwei Ringe um den Spieler: grob bis FERN_GROB_R, fein bis FERN_FEIN_R. Fehlen im
+# Ring Kacheln, baut der Schuerzen-Thread sie nach (naechste zuerst, in Paketen), und die
+# jenseits von *_WEG gibt er frei. Beide Radien lassen reichlich Reserve fuer den Weg,
+# den ein Jet waehrend eines Nachbaus fliegt.
+# DIE RADIEN FOLGEN DER FERNEBENE (KAMERA_FERN = 9 km, gemessen: dahinter wird nichts
+# gezeichnet). Fein reicht mit 11,5 km ueber alles Sichtbare jenseits der Chunks hinaus;
+# die grobe Stufe ist damit vor allem die Reserve, solange ein feines Paket noch baut —
+# und sie weiss, wo ueberhaupt Land ist (fein wird nur dort gebaut).
+const FERN_GROB_R := 18000.0
+const FERN_GROB_WEG := 23000.0
+const FERN_FEIN_R := 11500.0
+const FERN_FEIN_WEG := 15000.0
+const FERN_PAKET := 90             # Kacheln je Auftrag (naechste zuerst)
 # Kantenlaenge einer Schuerzen-Kachel (24 Zellen). Groesser = weniger Draw-Calls, aber
 # groebere Sichtbarkeits-Auslese; 1536 m = vier Chunkbreiten hat sich als Mitte ergeben.
 # GROESSER GEWORDEN (1536), UND ZWAR ABSICHTLICH IM GLEICHEN SCHRITT WIE DIE WELT.
@@ -126,7 +143,11 @@ const FERN_ZELLE_FEIN := 32.0
 # 33 km Reichweite waeren das 2025 Kacheln statt bisher 961 — mehr als das Doppelte an
 # Netzen und Zeichenaufrufen fuer dieselbe Aufgabe. Mit 2200 m bleibt es bei 961: jede
 # Kachel deckt mehr Flaeche, die Aufloesung darin (FERN_ZELLE_*) bleibt unveraendert.
-const FERN_KACHEL := 2200.0
+# 2176 STATT 2200: die Kachel muss ein GANZES Vielfaches beider Zellweiten sein (34 x 64,
+# 68 x 32). Mit 2200 bekam jede Kachel int(2200/64) = 34 Zellen = 2176 m, und zwischen je
+# zwei Kacheln klaffte ein 24 m breiter Spalt — aus der Ferne dunkle Linien quer durchs
+# Land (bemerkt erst, als es jenseits der Hauptinsel weites Land zu sehen gab).
+const FERN_KACHEL := 2176.0
 # Halbe Kantenlaenge des abgesuchten Weltausschnitts. Muss den Kuestenradius aus
 # TerrainWorld.height_at abdecken (18000 +- 2400, also bis 20,4 km) plus den Auslauf.
 # Vorher standen hier 18500 fuer die kleinere Insel; die neue haette jenseits davon
@@ -136,7 +157,39 @@ const FERN_KACHEL := 2200.0
 # 35000 STATT 33000: das Sturmkap reicht bis 32,1 km hinaus (gemessen), die Schuerze
 # haette es mit 900 m Rest gerade noch gedeckt. Zwei Kilometer Reserve sind der
 # Unterschied zwischen 'passt gerade' und 'passt auch beim naechsten Umbau'.
-const FERN_WELT := 35000.0
+# 84000 STATT 35000: die neuen Landmassen (LANDMASSEN) reichen bis 82 km hinaus. Die
+# Kachelzahl waechst damit auf 78 x 78, aber reine Meereskacheln kosten nur ihre 9x9-
+# Vorprobe (siehe _fern_kachel) — bezahlt wird fuer Land, nicht fuer Flaeche.
+const FERN_WELT := 84000.0
+## DIE NEUEN REGIONEN (TerrainWorld.landmassen). pos = Mitte (x, z), r = Radius des
+## sicheren Kerns in der Kuestenmaske; die Kueste liegt je nach Rauschen bei 0,8 bis
+## 1,16 r. Alles, was dort gebaut wird, steht innerhalb von 0,55 r.
+const LANDMASSEN := [
+	# NORDLAND: breit wie eine Arktisinsel, drei Lappen von West nach Ost; zwischen ihnen
+	# oeffnen sich zwei grosse Buchten nach Norden und Sueden.
+	{"name": "Nordland", "pos": Vector2(0.0, -61000.0), "r": 15000.0, "rauh": 0.95,
+		"region": TerrainWorld.Region.NORD,
+		"teile": [[Vector2(0.0, 0.0), 15000.0], [Vector2(-17000.0, 3500.0), 10500.0],
+			[Vector2(18000.0, -2500.0), 11500.0], [Vector2(31000.0, 4500.0), 6000.0]],
+		# Seenplatte in der noerdlichen Tundra; Ruhe um Flugplatz und Ort
+		"seen": [Vector2(6000.0, -70500.0), 8500.0],
+		"ruhe": [Vector2(4000.0, -54500.0), Vector2(-2500.0, -53500.0)]},
+	# SUEDLAND: tropisch zerfranst — eine Hauptinsel, zwei grosse Nachbarinseln, und das
+	# starke Kuestenrauschen streut Eilande und Riffe davor.
+	{"name": "Suedland", "pos": Vector2(-2000.0, 60000.0), "r": 13000.0, "rauh": 1.15,
+		"region": TerrainWorld.Region.SUED,
+		"teile": [[Vector2(0.0, 0.0), 13000.0], [Vector2(-16000.0, 7500.0), 7500.0],
+			[Vector2(14500.0, 9000.0), 7000.0], [Vector2(3000.0, 14000.0), 6000.0]],
+		# Kegelkarst-Feld im Kern der Hauptinsel
+		"karst": [Vector2(-4500.0, 64500.0), 5200.0],
+		"ruhe": [Vector2(-3000.0, 54500.0), Vector2(3000.0, 55000.0)]},
+	# WESTLAND: kompaktes Tafelland mit einer langen Halbinsel nach Nordosten.
+	{"name": "Westland", "pos": Vector2(-63000.0, 6000.0), "r": 14000.0, "rauh": 0.85,
+		"region": TerrainWorld.Region.WEST,
+		"teile": [[Vector2(0.0, 0.0), 14000.0], [Vector2(-5000.0, 13000.0), 9000.0],
+			[Vector2(11000.0, -13000.0), 6500.0], [Vector2(17000.0, -20000.0), 4200.0]],
+		"ruhe": [Vector2(-58500.0, 2000.0), Vector2(-55500.0, 7000.0)]},
+]
 # Grundabsenkung im Ueberlappbereich. GEMESSEN an 40 000 Landproben: das echte 8-m-Gelaende
 # liegt gegenueber der 64-m-Interpolation im schlechtesten Fall 44 m tiefer, aber schon
 # bei 12 m sind 99,9 % erfasst. 14 m halten die Schuerze also praktisch ueberall unter
@@ -333,11 +386,18 @@ var _fern_thread: Thread
 # Rasterweite, mit der der Schuerzen-Thread GERADE baut, und der Knoten der zuletzt
 # eingehaengten Stufe (er wird beim Tausch freigegeben).
 var _fern_zelle := FERN_ZELLE_GROB
-var _fern_stufe_knoten: Node3D
+var _fern_stufe_knoten: Node3D          # die grobe Stufe (alle Landkacheln)
+var _fern_fein_knoten: Node3D           # die feinen Kacheln um den Spieler
 var _fern_mutex: Mutex
-var _fern_keys: Array[Vector2i] = []
-var _fern_meshes: Array = []
-var _fern_tris := 0
+var _fern_job: Array[Vector2i] = []     # die Kacheln des laufenden Laufs
+var _fern_ergebnis: Array = []          # [key, mesh, dreiecke] des laufenden Laufs
+var _fern_grob_mi: Dictionary = {}      # Vector2i -> MeshInstance3D (grob, nur Land)
+var _fern_grob_da: Dictionary = {}      # Vector2i -> true: grob gebaut (auch reines Meer)
+var _fern_fein_mi: Dictionary = {}      # Vector2i -> MeshInstance3D (fein)
+var _fern_letzte := Vector2(1.0e9, 1.0e9)   # Stelle der letzten Pruefung
+var _fern_offen := false                # im Ring fehlen noch Kacheln
+var _fern_stopp := false                # Main geht: Kacheln sofort liegen lassen
+var _fern_pruef_t := 0.0
 var showroom: ShowroomStage       # Praesentations-Buehne des Bau-Modus
 var airfields: Array = []
 var world_env: WorldEnvironment
@@ -486,6 +546,137 @@ func _ready() -> void:
 # ===========================================================================
 # WELT
 # ===========================================================================
+## ORTE DER NEUEN REGIONEN: ein Dorf je Landmasse (Plan aus CityBuilder).
+const REGION_ORTE := [
+	{"name": "Eisbucht", "pos": Vector3(-2500, 0, -53500), "plan": "dorf", "strassen": true},
+	{"name": "Palmdorf", "pos": Vector3(3000, 0, 55000), "plan": "dorf", "strassen": true},
+	{"name": "Minenstadt", "pos": Vector3(-55500, 0, 7000), "plan": "industrie",
+		"strassen": true},
+]
+var _region_ort_zonen: Array = []     # [Ort, Flachzone]
+
+
+## Median der Gelaendehoehe auf einem Ring um p — AUSSERHALB der Einebnung gemessen, also
+## das, worauf der Platz natuerlich stuende. Der Median, weil ein Ring auch mal ueber eine
+## Bucht oder einen Seitengrat laeuft.
+func _ring_hoehe(p: Vector3, r: float) -> float:
+	var hs: Array = []
+	for k in 24:
+		var a := TAU * float(k) / 24.0
+		hs.append(terrain.height_at(p.x + cos(a) * r, p.z + sin(a) * r))
+	hs.sort()
+	return maxf(float(hs[12]), 4.0)
+
+
+## Hoehen der Plaetze und Orte in den neuen Regionen nachtragen (siehe "region"). Nur
+## WERTE werden gesetzt, die Schluessel stehen schon seit vor setup() — der Chunk-Worker
+## liest diese Woerterbuecher bereits.
+func _region_hoehen() -> void:
+	for af in airfields:
+		if not af.get("region", false):
+			continue
+		var p: Vector3 = af["pos"]
+		var y := _ring_hoehe(p, 1500.0)
+		af["pos"] = Vector3(p.x, y, p.z)
+		(af["_fz"] as Dictionary)["y"] = y
+	for e in _region_ort_zonen:
+		var p: Vector3 = e[0]["pos"]
+		(e[1] as Dictionary)["y"] = _ring_hoehe(p, 800.0)
+
+
+## DIE WAHRZEICHEN DER NEUEN REGIONEN als Kuestenformen (Polylinien, siehe
+## TerrainWorld.kuestenformen). Sie stehen FEST und unabhaengig vom Welt-Seed — nur so
+## koennen sie auf der Karte einen Namen tragen und bei jedem Spieler dieselben sein.
+func _region_formen() -> Array:
+	var formen: Array = [
+		# --- NORDLAND: die GLETSCHERKETTE quer durchs Land. Zwei versetzte Kaemme statt
+		# eines Walls (ein einzelner breiter Kamm lag als weisse Wurst ueber der halben
+		# Insel), mit Gipfeln und tiefen PAESSEN im Wechsel und kurzen Seitengraten — so
+		# gliedert sich ein Gebirge. Die Paesse liegen unter der Gletschergrenze (~260 m):
+		# gruene Einschnitte, durch die man fliegen kann. Alle Kaemme enden UNTER dem
+		# Meeresgrund ("fuss"), statt als Landzunge ins Meer zu ragen.
+		{"art": "land", "fuss": -24.0,
+			"pts": PackedVector2Array([Vector2(-24000, -57800), Vector2(-19500, -58900),
+				Vector2(-15000, -60000), Vector2(-12500, -60600), Vector2(-10000, -61100),
+				Vector2(-6000, -61800), Vector2(-1500, -62200), Vector2(1200, -62300),
+				Vector2(3500, -62300), Vector2(7000, -61800), Vector2(10000, -61200)]),
+			"hs": PackedFloat32Array([-30.0, 480.0, 860.0, 190.0, 640.0, 940.0, 700.0,
+				170.0, 820.0, 420.0, -30.0]),
+			"r_kern": 900.0, "r_aus": 3900.0, "unruhe": 0.8},
+		{"art": "land", "fuss": -24.0,
+			"pts": PackedVector2Array([Vector2(2000, -66500), Vector2(6000, -65900),
+				Vector2(10000, -65200), Vector2(12500, -64800), Vector2(15000, -64200),
+				Vector2(18000, -63600), Vector2(22000, -62400), Vector2(26000, -61000)]),
+			"hs": PackedFloat32Array([-30.0, 540.0, 900.0, 180.0, 700.0, 960.0, 520.0, -30.0]),
+			"r_kern": 850.0, "r_aus": 3600.0, "unruhe": 0.8},
+		# Seitengrate (nach Sueden und Norden abfallend)
+		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(-15000, -60000), Vector2(-13500, -55500)]),
+			"hs": PackedFloat32Array([700.0, -30.0]), "r_kern": 600.0, "r_aus": 2600.0, "unruhe": 0.7},
+		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(-6000, -61800), Vector2(-7500, -66500)]),
+			"hs": PackedFloat32Array([760.0, -30.0]), "r_kern": 600.0, "r_aus": 2600.0, "unruhe": 0.7},
+		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(10000, -65200), Vector2(12500, -69500)]),
+			"hs": PackedFloat32Array([700.0, -30.0]), "r_kern": 600.0, "r_aus": 2500.0, "unruhe": 0.7},
+		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(18000, -63600), Vector2(19500, -59000)]),
+			"hs": PackedFloat32Array([780.0, -30.0]), "r_kern": 600.0, "r_aus": 2600.0, "unruhe": 0.7},
+		# --- NORDLAND: der EISFJORD, von der Nordkueste bis an den Fuss der Kette. Er
+		# WINDET sich (ein gerader Fjord lag im Bild wie ein Kanal) und wird nach innen
+		# enger. Er beginnt an der Kueste und senkt nur ("nur_senken"), damit er draussen
+		# keine Rinne durch den Schelf zieht.
+		{"art": "wasser", "nur_senken": true,
+			"pts": PackedVector2Array([Vector2(-8300, -79500),
+				Vector2(-7000, -76200), Vector2(-7700, -73600), Vector2(-6300, -71300),
+				Vector2(-4700, -69900), Vector2(-3400, -68000)]),
+			"hs": PackedFloat32Array([-18.0, -30.0, -34.0, -26.0, -16.0, -6.0]),
+			"r_kern": 260.0, "r_aus": 700.0},
+		# ... und die Waende. Sie beginnen landeinwaerts der Kueste, sonst stuenden sie als
+		# zwei Halbinseln im Meer, und werden zum Talschluss hoeher.
+		{"art": "land", "fuss": -24.0,
+			"pts": PackedVector2Array([Vector2(-7000, -76200), Vector2(-7700, -73600),
+				Vector2(-6300, -71300), Vector2(-4700, -69900), Vector2(-3400, -68000)]),
+			"hs": PackedFloat32Array([-30.0, 360.0, 470.0, 560.0, 620.0]),
+			"r_kern": 700.0, "r_aus": 2600.0, "unruhe": 0.55},
+		# --- SUEDLAND: der DSCHUNGELKAMM im Osten — gruen bis auf die Grate.
+		{"art": "land", "fuss": -24.0,
+			"pts": PackedVector2Array([Vector2(5500, 57000), Vector2(9500, 62500),
+				Vector2(11500, 68500)]),
+			"hs": PackedFloat32Array([160.0, 520.0, 300.0]),
+			"r_kern": 1400.0, "r_aus": 4200.0, "unruhe": 0.55},
+	]
+	# --- SUEDLAND: die MANGROVENLAGUNE. Kein Kreisbecken: eine gebogene, flache Bucht
+	# aus mehreren Armen, deren Ufer so niedrig liegen, wie Mangroven es brauchen. Die
+	# Einfahrt windet sich von der Nordkueste herein.
+	for arm in [
+			[PackedVector2Array([Vector2(-9800, 49300), Vector2(-8200, 50600),
+				Vector2(-6900, 50300), Vector2(-5600, 51500), Vector2(-5900, 53000)]), 700.0],
+			[PackedVector2Array([Vector2(-8200, 50600), Vector2(-8700, 52300),
+				Vector2(-7600, 53600)]), 520.0],
+			[PackedVector2Array([Vector2(-6900, 50300), Vector2(-5200, 49400)]), 450.0]]:
+		formen.append({"art": "wasser", "nur_senken": true, "pts": arm[0],
+			"hs": PackedFloat32Array([-3.4, -2.8, -2.4]), "r_kern": arm[1],
+			"r_aus": float(arm[1]) * 2.1})
+	formen.append({"art": "wasser", "nur_senken": true,
+		"pts": PackedVector2Array([Vector2(-9300, 45800), Vector2(-10000, 47400),
+			Vector2(-9300, 48500), Vector2(-9800, 49300)]),
+		"hs": PackedFloat32Array([-14.0, -8.0, -5.0, -3.6]), "r_kern": 260.0, "r_aus": 640.0})
+	# --- WESTLAND: der GROSSE CANYON. Er MAEANDERT — ein Flusslauf aus geraden Stuecken
+	# las sich als Kanal. Zwei Sinuswellen verschiedener Laenge geben Schleifen, die sich
+	# nicht wiederholen; die Breite schwankt mit. Er beginnt an der Westkueste und senkt
+	# nur, sonst zoege er draussen eine Rinne durch den Schelf.
+	var pts := PackedVector2Array()
+	var hs := PackedFloat32Array()
+	var n := 44
+	for k in n:
+		var t := float(k) / float(n - 1)
+		var x := lerpf(-77500.0, -52500.0, t)
+		var z := 8600.0 + 1500.0 * sin(t * 9.0) + 650.0 * sin(t * 23.0 + 1.3) \
+			+ 900.0 * sin(t * 3.1 + 0.4)
+		pts.append(Vector2(x, z))
+		hs.append(lerpf(-16.0, -2.0, t))
+	formen.append({"art": "wasser", "nur_senken": true, "pts": pts, "hs": hs,
+		"r_kern": 210.0, "r_aus": 440.0})
+	return formen
+
+
 func _setup_world() -> void:
 	CityBuilder.karte_leeren()   # Grundrisse fuer die Karte sammelt der Aufbau neu
 	# Umgebung / Himmel
@@ -712,6 +903,16 @@ func _setup_world() -> void:
 		{"name": "ADLERHORST", "pos": _adlerhorst_pos(), "heading": _adlerhorst_kurs(),
 			"color": Color(0.80, 0.86, 0.95), "anflug_len": 900.0,
 			"bahn_hub": ADLERHORST_KAVERNE_HUB + Landmarks.HB_BODEN_D - RWY_BELAG_Y},
+		# DIE PLAETZE DER NEUEN REGIONEN. "region": ihre Hoehe steht erst nach
+		# terrain.setup() fest (sie haengt am Seed) und wird dann aus dem Gelaende rings
+		# um den Platz bestimmt, siehe _region_hoehen. Sie stehen in den Ruhezonen der
+		# Landmassen (Main.LANDMASSEN "ruhe"), also auf ruhigem Grund.
+		{"name": "EISFJORD", "pos": Vector3(4000, 0, -54500), "heading": 1.35,
+			"color": Color(0.70, 0.88, 1.0), "region": true},
+		{"name": "PALMENBUCHT", "pos": Vector3(-3000, 0, 54500), "heading": 0.5,
+			"color": Color(0.35, 0.95, 0.70), "region": true},
+		{"name": "TAFELBERG", "pos": Vector3(-58500, 0, 2000), "heading": -0.8,
+			"color": Color(0.98, 0.62, 0.32), "region": true},
 	]
 
 	# SEED-BASIERTES TERRAIN ersetzt die flache Platte + Deko-Berge/-See.
@@ -866,6 +1067,11 @@ func _setup_world() -> void:
 			# Linse reichte laengs bis 8800 + 780 = 9580 m, also bis in den Talschluss, den
 			# die Querkette ab 9250 m dichtmacht. Jetzt endet sie bei 9420 m.
 			fz["quer_faktor"] = 0.88
+		if af.get("region", false):
+			# Platzhalter: der Schluessel muss VOR setup() existieren — danach wird nur
+			# noch sein Wert gesetzt, waehrend der Chunk-Worker schon liest.
+			fz["y"] = 0.0
+			af["_fz"] = fz
 		flat_zones.append(fz)
 	# FUER DIE KAVERNE AM TALSCHLUSS BRAUCHT ES KEINE EIGENE EINEBNUNG — und das ist kein
 	# Zufall, sondern der Grund, warum sie dort steht: die Bahn-Linse haelt das Gelaende
@@ -927,6 +1133,12 @@ func _setup_world() -> void:
 	flat_zones.append({"pos": dorf_pos, "r_flat": 260.0, "r_blend": 620.0})
 	flat_zones.append({"pos": burg_pos, "r_flat": 160.0, "r_blend": 420.0, "y": 78.0})
 	flat_zones.append({"pos": mil_pos, "r_flat": 200.0, "r_blend": 480.0})
+	# ORTE DER NEUEN REGIONEN (Hoehe wie bei deren Flugplaetzen erst nach setup(), siehe
+	# _region_hoehen). Sie stehen in den Ruhezonen der Landmassen.
+	for ort in REGION_ORTE:
+		var ofz := {"pos": ort["pos"], "r_flat": 240.0, "r_blend": 600.0, "y": 0.0}
+		_region_ort_zonen.append([ort, ofz])
+		flat_zones.append(ofz)
 	var see_p := _tal_punkt(SEE_LAENGS)
 	var lakes := [{"pos": lake_pos, "r": 175.0, "surf": -1.0},
 		{"pos": Vector3(-3300, 0, 5250), "r": 260.0, "surf": -2.0},   # Canyon-Endsee
@@ -1381,9 +1593,14 @@ func _setup_world() -> void:
 	var tor_q := _tal_punkt(TOR_LAENGS)
 	terrain.schutthalden = [Landmarks.tor_halde_zone(tor_q.x, tor_q.y,
 		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y), TOR_SPANN, TOR_SEED)]
+	# DIE WELT JENSEITS DER HAUPTINSEL: drei Landmassen mit eigenem Klima, durch 9 bis
+	# 15 km breite Meeresstrassen getrennt (Begruendung bei TerrainWorld.LANDMASSEN).
+	# VOR setup(): der Chunk-Worker startet darin und darf die Liste nie halb sehen.
+	terrain.landmassen = LANDMASSEN
 	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs,
 		{"start": TAL_START, "richtung": TAL_RICHTUNG, "laenge": TAL_LAENGE,
 			"halbbreite": tal_hb})
+	_region_hoehen()
 	# FELSWAND AM TALSCHLUSS. Ohne sie ist die Wand hinter ADLERHORST auf 480 m Breite
 	# um ganze 34 m gegliedert (gemessen, tools/_wandprofil.gd) — eine Ebene, die im
 	# Anflug 60 Prozent des Bildes fuellt und als Kulisse gelesen wird.
@@ -1500,7 +1717,7 @@ func _setup_world() -> void:
 			"hs": PackedFloat32Array([90.0, 62.0, 46.0, 38.0, 30.0, 12.0]),
 			"r_kern": 300.0, "r_aus": 1100.0, "unruhe": 0.25,
 		},
-	]
+	] + _region_formen()
 	terrain.felswaende = [{
 		# 900 STATT 620: mit 620 lief die Radialblende schon bei 340 m aus, und im weiten
 		# Blick auf den Talschluss standen die beiden Flanken links und rechts wieder
@@ -1564,6 +1781,20 @@ func _setup_world() -> void:
 		{"name": "Industriehafen", "pos": indu_pos, "color": Color(0.80, 0.70, 0.62), "art": "ort", "radius": 260.0},
 		{"name": "Landdorf", "pos": dorf_pos, "color": Color(0.72, 0.86, 0.60), "art": "ort", "radius": 200.0},
 		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90), "art": "ort", "radius": 110.0},
+		# --- DIE NEUEN REGIONEN ------------------------------------------------------
+		{"name": "NORDLAND", "pos": Vector3(6000, 0, -76500), "color": Color(0.80, 0.90, 1.0), "art": "region"},
+		{"name": "SÜDLAND", "pos": Vector3(4000, 0, 72500), "color": Color(0.70, 1.0, 0.80), "art": "region"},
+		{"name": "WESTLAND", "pos": Vector3(-66000, 0, -9000), "color": Color(1.0, 0.82, 0.62), "art": "region"},
+		{"name": "Gletscherkette", "pos": Vector3(-6000, 0, -61800), "color": Color(0.88, 0.94, 1.0), "art": "natur"},
+		{"name": "Eisfjord", "pos": Vector3(-6300, 0, -71300), "color": Color(0.55, 0.75, 0.90), "art": "natur"},
+		{"name": "Seenplatte", "pos": Vector3(7000, 0, -71000), "color": Color(0.50, 0.72, 0.88), "art": "natur"},
+		{"name": "Kegelkarst", "pos": Vector3(-4500, 0, 64500), "color": Color(0.80, 0.82, 0.74), "art": "natur"},
+		{"name": "Mangrovenlagune", "pos": Vector3(-7100, 0, 51200), "color": Color(0.40, 0.80, 0.70), "art": "natur"},
+		{"name": "Dschungelkamm", "pos": Vector3(9500, 0, 62500), "color": Color(0.45, 0.80, 0.40), "art": "natur"},
+		{"name": "Großer Canyon", "pos": Vector3(-66500, 0, 9000), "color": Color(0.90, 0.50, 0.32), "art": "natur"},
+		{"name": "Eisbucht", "pos": Vector3(-2500, 0, -53500), "color": Color(0.80, 0.88, 0.96), "art": "ort", "radius": 200.0},
+		{"name": "Palmdorf", "pos": Vector3(3000, 0, 55000), "color": Color(0.85, 0.95, 0.60), "art": "ort", "radius": 200.0},
+		{"name": "Minenstadt", "pos": Vector3(-55500, 0, 7000), "color": Color(0.90, 0.72, 0.55), "art": "ort", "radius": 220.0},
 	]
 	# KARTE ZWEISTUFIG, wie die Fernschuerze: erst 512 px mit Vorrang, damit M bald nach
 	# dem Start funktioniert, dann still die feine 1024-px-Fassung ohne Vorrang — die
@@ -1646,6 +1877,15 @@ func _setup_world() -> void:
 		CityBuilder.build(fly_world, terrain, dorf_pos, CityBuilder.plan_dorf(), "Landdorf")
 		CityBuilder.build(fly_world, terrain, burg_pos, CityBuilder.plan_burg(), "Burgberg")
 		CityBuilder.build(fly_world, terrain, mil_pos, CityBuilder.plan_militaer(), "Militaerposten")
+		for e in _region_ort_zonen:
+			var ort: Dictionary = e[0]
+			var op := Vector3((ort["pos"] as Vector3).x, float(e[1]["y"]),
+				(ort["pos"] as Vector3).z)
+			var plan: Array = CityBuilder.plan_industrie() if ort["plan"] == "industrie" \
+				else CityBuilder.plan_dorf()
+			if ort.get("strassen", false):
+				CityBuilder.strassennetz(fly_world, terrain, op, 90.0, 120.0, 420.0)
+			CityBuilder.build(fly_world, terrain, op, plan, String(ort["name"]))
 		for af in airfields:   # Hangars/Tower an die AUSSENfelder
 			# HEIMAT bekommt diesen Bausatz NICHT MEHR. Er setzt seine sieben Blender-Haeuser
 			# (zwei Hangars, Tower, Werkstatt, Tanklager, Wasserturm, Radarstation) 115 bis
@@ -2020,47 +2260,74 @@ void fragment() {
 	_fern_mat.set_shader_parameter("bias_aus_b", FERN_BIAS_AUS_B)
 
 	_fern_mutex = Mutex.new()
-	var half := int(ceil(FERN_WELT / FERN_KACHEL))
-	for ty in range(-half, half):
-		for tx in range(-half, half):
-			_fern_keys.append(Vector2i(tx, ty))
 	# Eigener Thread, damit der Start nicht haengt (wie bei der Karte). Er verteilt die
-	# Kacheln danach ueber den WorkerThreadPool — height_at kostet gemessen 11,15 us,
-	# und die Schuerze braucht rund 230 000 Proben. Auf einem Kern waeren das 2,6 s,
-	# ueber alle Kerne ist sie da, bevor der Spieler den Hangar verlaesst.
-	_fern_thread = Thread.new()
-	_fern_thread.start(_fern_bauen)
+	# Kacheln danach ueber den WorkerThreadPool (height_at kostet gemessen 11 bis 26 us).
+	# Gebaut wird nur, was um den Spieler liegt — siehe FERN_GROB_R und _fern_pruefen.
+	_fern_pruefen(Vector3(0.0, 0.0, -100.0))    # erster Ring um den Startplatz
 
 
-func _fern_bauen() -> void:
-	for zelle in [FERN_ZELLE_GROB, FERN_ZELLE_FEIN]:
-		var t0 := Time.get_ticks_msec()
-		_fern_zelle = zelle
-		# Sammelliste VOR dem Lauf leeren, und zwar hier auf dem Bauthread. Sie fruehe zu
-		# leeren war _fern_fertigs Aufgabe — das geht mit zwei Stufen nicht mehr, weil die
-		# zweite Stufe anlaufen kann, waehrend die erste noch eingehaengt wird.
-		_fern_mutex.lock()
-		_fern_meshes = []
-		_fern_tris = 0
-		_fern_mutex.unlock()
-		var gid := WorkerThreadPool.add_group_task(_fern_kachel, _fern_keys.size(),
-			-1, false, "Fernschuerze")
-		WorkerThreadPool.wait_for_group_task_completion(gid)
-		_fern_mutex.lock()
-		var fertig: Array = _fern_meshes
-		var tris := _fern_tris
-		_fern_meshes = []
-		_fern_mutex.unlock()
-		call_deferred("_fern_stufe_fertig", fertig, tris,
-			Time.get_ticks_msec() - t0, zelle)
+## Ein Auftrag des Schuerzen-Threads: die Kacheln `keys` in Rasterweite `zelle` bauen und
+## dem Main-Thread uebergeben.
+func _fern_auftrag(zelle: float, keys: Array[Vector2i]) -> void:
+	var t0 := Time.get_ticks_msec()
+	var paare := _fern_lauf(keys, zelle)
+	if not _fern_stopp:
+		call_deferred("_fern_auftrag_fertig", zelle, keys, paare, Time.get_ticks_msec() - t0)
 	call_deferred("_fern_thread_ende")
+
+
+## Alle Kacheln, deren Mitte naeher als `r` an `p` liegt, naechste zuerst.
+func _fern_ring(p: Vector2, r: float) -> Array[Vector2i]:
+	var half := int(ceil(FERN_WELT / FERN_KACHEL))
+	var x0 := maxi(floori((p.x - r) / FERN_KACHEL), -half)
+	var x1 := mini(floori((p.x + r) / FERN_KACHEL), half - 1)
+	var z0 := maxi(floori((p.y - r) / FERN_KACHEL), -half)
+	var z1 := mini(floori((p.y + r) / FERN_KACHEL), half - 1)
+	var raus: Array[Vector2i] = []
+	for kz in range(z0, z1 + 1):
+		for kx in range(x0, x1 + 1):
+			var key := Vector2i(kx, kz)
+			if _fern_kachel_mitte(key).distance_to(p) < r:
+				raus.append(key)
+	raus.sort_custom(func(u: Vector2i, v: Vector2i) -> bool:
+		return _fern_kachel_mitte(u).distance_squared_to(p) \
+			< _fern_kachel_mitte(v).distance_squared_to(p))
+	return raus
+
+
+func _fern_kachel_mitte(key: Vector2i) -> Vector2:
+	return (Vector2(key) + Vector2(0.5, 0.5)) * FERN_KACHEL
+
+
+## Baut die Kacheln `keys` in der Rasterweite `zelle` ueber den WorkerThreadPool und liefert
+## [key, mesh, dreiecke] je Kachel mit Land. Laeuft auf dem Schuerzen-Thread.
+func _fern_lauf(keys: Array[Vector2i], zelle: float) -> Array:
+	_fern_mutex.lock()
+	_fern_job = keys
+	_fern_zelle = zelle
+	_fern_ergebnis = []
+	_fern_mutex.unlock()
+	if keys.is_empty():
+		return []
+	var gid := WorkerThreadPool.add_group_task(_fern_kachel, keys.size(), -1, false,
+		"Fernschuerze")
+	WorkerThreadPool.wait_for_group_task_completion(gid)
+	_fern_mutex.lock()
+	var raus: Array = _fern_ergebnis
+	_fern_ergebnis = []
+	_fern_mutex.unlock()
+	return raus
 
 
 ## Eine Kachel. Laeuft im Pool, also nur lesende Zugriffe auf terrain (height_at,
 ## _face_color) — dieselben, die der Chunk-Worker und der Karten-Thread laengst
 ## nebenlaeufig fahren.
 func _fern_kachel(idx: int) -> void:
-	var key: Vector2i = _fern_keys[idx]
+	# Beim Beenden liegen lassen: sonst wartete _exit_tree auf eine ganze Stufe (bis zu
+	# einer Minute) — jeder Testlauf, der frueh endet, hing daran.
+	if _fern_stopp:
+		return
+	var key: Vector2i = _fern_job[idx]
 	var ox := float(key.x) * FERN_KACHEL
 	var oz := float(key.y) * FERN_KACHEL
 	# 1) Billige Vorprobe (9x9, 192 m Abstand): drei Viertel der Welt sind offenes
@@ -2117,8 +2384,7 @@ func _fern_kachel(idx: int) -> void:
 	st.generate_normals()
 	var mesh := st.commit()
 	_fern_mutex.lock()
-	_fern_meshes.append(mesh)
-	_fern_tris += tris
+	_fern_ergebnis.append([key, mesh, tris])
 	_fern_mutex.unlock()
 
 
@@ -2145,7 +2411,7 @@ func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, zelle: float
 	# Uebergang an der Chunkgrenze faellt nicht auf, weil dort dieselbe Regel gilt.
 	var w := terrain.wald_anteil(cen.x, cen.z, cen.y, absf(nn.y))
 	if w > 0.0:
-		col = col.lerp(FERN_WALD, clampf(w * 0.85, 0.0, 0.85))
+		col = col.lerp(terrain.wald_farbe(cen.x, cen.z), clampf(w * 0.85, 0.0, 0.85))
 	col.a = clampf(0.25 + cen.y / 60.0, 0.25, 1.0)
 	# ALPHA 0 = KAVERNENGRUNDRISS. Der Vertex-Shader DECKELT dort die Absenkung (siehe
 	# _fernschuerze_starten): Zellen ueber 220 m parken beim Absinken auf 220 — ueber dem
@@ -2170,39 +2436,108 @@ func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, zelle: float
 	st.add_vertex(c)
 
 
-## EINE Stufe einhaengen und die vorige wegraeumen.
-##
-## DER THREAD DARF HIER NICHT ABGEWARTET WERDEN. Frueher stand am Anfang dieser Funktion
-## _fern_thread.wait_to_finish() — mit zwei Stufen waere das ein Selbstblock: die erste
-## Stufe wird eingehaengt, waehrend derselbe Thread schon die zweite baut. Das Abwarten
-## steht deshalb in _fern_thread_ende, das der Thread als letztes selbst anstoesst.
-func _fern_stufe_fertig(meshes: Array, tris: int, ms: int, zelle: float) -> void:
+func _fern_mi(mesh: Mesh) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = _fern_mat
+	# Kein Schattenwurf: die Schuerze ist eine ABGESENKTE Naeherung des Bodens. Wuerfe
+	# sie, lege sie im Nahfeld aus 480 m Tiefe einen zweiten, falschen Schatten unter
+	# das echte Gelaende.
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Der Vertex-Shader schiebt Punkte bis FERN_TIEF+FERN_BIAS nach unten. Ohne
+	# Zuschlag wuerde Godot gegen die UNVERSCHOBENE AABB auslesen und Kacheln
+	# wegkullen, die erst durch die Absenkung ins Bild rutschen.
+	mi.extra_cull_margin = FERN_TIEF + FERN_BIAS + 16.0
+	return mi
+
+
+## Ergebnis eines Auftrags einhaengen. GROB: jede Kachel gilt als gebaut (auch reines
+## Meer, damit sie nicht wieder angefragt wird); ist sie schon fein, bleibt die grobe
+## unsichtbar. FEIN: ERST die feine einhaengen, DANN die grobe darunter ausblenden —
+## andersherum stuende fuer einen Frame ein Loch im Gelaende.
+func _fern_auftrag_fertig(zelle: float, keys: Array, paare: Array, ms: int) -> void:
 	if fern_root == null or not is_instance_valid(fern_root):
 		return
-	var vorige := _fern_stufe_knoten
-	var stufe := Node3D.new()
-	stufe.name = "Stufe%d" % int(zelle)
-	fern_root.add_child(stufe)
-	for m in meshes:
-		var mi := MeshInstance3D.new()
-		mi.mesh = m
-		mi.material_override = _fern_mat
-		# Kein Schattenwurf: die Schuerze ist eine ABGESENKTE Naeherung des Bodens. Wuerfe
-		# sie, lege sie im Nahfeld aus 480 m Tiefe einen zweiten, falschen Schatten unter
-		# das echte Gelaende.
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		# Der Vertex-Shader schiebt Punkte bis FERN_TIEF+FERN_BIAS nach unten. Ohne
-		# Zuschlag wuerde Godot gegen die UNVERSCHOBENE AABB auslesen und Kacheln
-		# wegkullen, die erst durch die Absenkung ins Bild rutschen.
-		mi.extra_cull_margin = FERN_TIEF + FERN_BIAS + 16.0
-		stufe.add_child(mi)
-	# ERST DIE NEUE STUFE HAENGT, DANN FAELLT DIE ALTE. Andersherum stuende fuer einen
-	# Frame gar keine Schuerze da, und das saehe man als aufblitzendes Loch am Horizont.
-	_fern_stufe_knoten = stufe
-	if vorige != null and is_instance_valid(vorige):
-		vorige.queue_free()
-	print("Fernschuerze %d m: %d Kacheln, %d Dreiecke, %.2f s"
-		% [int(zelle), meshes.size(), tris, ms / 1000.0])
+	var grob := zelle == FERN_ZELLE_GROB
+	var ziel: Node3D = _fern_stufe_knoten if grob else _fern_fein_knoten
+	if ziel == null:
+		ziel = Node3D.new()
+		ziel.name = "Grob" if grob else "Fein"
+		fern_root.add_child(ziel)
+		if grob:
+			_fern_stufe_knoten = ziel
+		else:
+			_fern_fein_knoten = ziel
+	if grob:
+		for key in keys:
+			_fern_grob_da[key] = true
+	var tris := 0
+	for e in paare:
+		var key: Vector2i = e[0]
+		var mi := _fern_mi(e[1])
+		ziel.add_child(mi)
+		tris += int(e[2])
+		if grob:
+			if _fern_grob_mi.has(key):
+				(_fern_grob_mi[key] as Node).queue_free()
+			_fern_grob_mi[key] = mi
+			mi.visible = not _fern_fein_mi.has(key)
+		else:
+			if _fern_fein_mi.has(key):
+				(_fern_fein_mi[key] as Node).queue_free()
+			_fern_fein_mi[key] = mi
+			if _fern_grob_mi.has(key):
+				(_fern_grob_mi[key] as Node3D).visible = false
+	print("Fernschuerze %d m: %d Kacheln (%d mit Land), %d Dreiecke, %.2f s"
+		% [int(zelle), keys.size(), paare.size(), tris, ms / 1000.0])
+
+
+## Einmal je Sekunde (auch im Hangar, dort um den Startplatz): Kacheln jenseits von
+## *_WEG freigeben, und fehlen im Ring welche, die naechsten davon bauen — in Paketen von
+## hoechstens FERN_PAKET, die sofort eingehaengt werden. So steht der Horizont am Start
+## nach wenigen Sekunden, statt dass der ganze Ring auf einmal kommt. Der grobe Ring hat
+## Vorrang: ohne ihn gaebe es gar keinen Horizont.
+func _fern_pruefen(pos: Vector3) -> void:
+	if _fern_thread != null or _fern_mat == null:
+		return
+	var p := Vector2(pos.x, pos.z)
+	if not _fern_offen and p.distance_to(_fern_letzte) < 1000.0:
+		return
+	_fern_letzte = p
+	for key in _fern_grob_da.keys():
+		if _fern_kachel_mitte(key).distance_to(p) > FERN_GROB_WEG:
+			_fern_grob_da.erase(key)
+			if _fern_grob_mi.has(key):
+				(_fern_grob_mi[key] as Node).queue_free()
+				_fern_grob_mi.erase(key)
+	for key in _fern_fein_mi.keys():
+		if _fern_kachel_mitte(key).distance_to(p) > FERN_FEIN_WEG:
+			(_fern_fein_mi[key] as Node).queue_free()
+			_fern_fein_mi.erase(key)
+			if _fern_grob_mi.has(key):
+				(_fern_grob_mi[key] as Node3D).visible = true
+	var neu: Array[Vector2i] = []
+	for key in _fern_ring(p, FERN_GROB_R):
+		if not _fern_grob_da.has(key):
+			neu.append(key)
+	var zelle := FERN_ZELLE_GROB
+	if neu.is_empty():
+		zelle = FERN_ZELLE_FEIN
+		for key in _fern_ring(p, FERN_FEIN_R):
+			# nur Land (die grobe Stufe weiss, wo welches ist) und noch nicht fein
+			if _fern_grob_mi.has(key) and not _fern_fein_mi.has(key):
+				neu.append(key)
+	_fern_offen = not neu.is_empty()
+	if neu.is_empty():
+		return
+	_fern_thread = Thread.new()
+	_fern_thread.start(_fern_auftrag.bind(zelle, neu.slice(0, FERN_PAKET)))
+
+
+## Fuer Werkzeuge: steht die Schuerze um `pos` (beide Ringe vollstaendig, kein Auftrag)?
+func fern_bereit(pos: Vector3) -> bool:
+	return _fern_thread == null and not _fern_offen \
+		and Vector2(pos.x, pos.z).distance_to(_fern_letzte) < 1000.0
 
 
 func _fern_thread_ende() -> void:
@@ -2214,6 +2549,7 @@ func _fern_thread_ende() -> void:
 func _exit_tree() -> void:
 	# Der Schuerzen-Thread liest terrain. Wird Main abgeraeumt, muss er vorher stehen.
 	if _fern_thread != null and _fern_thread.is_started():
+		_fern_stopp = true
 		_fern_thread.wait_to_finish()
 		_fern_thread = null
 	# DER KARTEN-THREAD GENAUSO. Auf ihn wurde bisher NUR in _on_map_image_ready
@@ -6594,6 +6930,15 @@ func _process(delta: float) -> void:
 			_save_design()
 	else:
 		_autosave_t = 0.0
+	# FERNSCHUERZE nachfuehren (siehe FERN_GROB_R): im Flug um das Flugzeug, sonst um den
+	# Startplatz — dort beginnt jeder Flug.
+	_fern_pruef_t += delta
+	if _fern_pruef_t > 1.0:
+		_fern_pruef_t = 0.0
+		var fp := Vector3(0.0, 0.0, -100.0)
+		if mode == Mode.FLY and flight_ctrl != null and is_instance_valid(flight_ctrl.aircraft):
+			fp = flight_ctrl.aircraft.global_position
+		_fern_pruefen(fp)
 	# Windraeder drehen (billig; nur sichtbar im Flug)
 	if mode == Mode.FLY:
 		for r in _wind_rotors:

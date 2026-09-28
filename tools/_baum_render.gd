@@ -1,4 +1,4 @@
-## Zwei Bilder: (1) alle sieben Arten nebeneinander, (2) ein echter Waldausschnitt aus
+## Zwei Bilder: (1) alle Arten (TerrainWorld.ARTEN) nebeneinander, (2) ein echter Waldausschnitt aus
 ## der Welt. Nur so ist beurteilbar, ob die Baeume auch wirklich gut aussehen.
 extends SceneTree
 var f := 0
@@ -33,11 +33,11 @@ func _process(_d: float) -> bool:
 		# 1) Artentafel: die sieben Baeume in einer Reihe auf einem Grasstreifen
 		var ps: PackedScene = load("res://models/world_trees.glb")
 		var sc: Node = ps.instantiate()
-		var x := -21.0
+		var x := -42.0
 		var mat := StandardMaterial3D.new()
 		mat.vertex_color_use_as_albedo = true
 		mat.roughness = 0.95
-		for art in ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch"]:
+		for art in TerrainWorld.ARTEN:
 			var q := sc.find_child(art, true, false) as MeshInstance3D
 			if q == null:
 				continue
@@ -49,13 +49,13 @@ func _process(_d: float) -> bool:
 			x += 7.0
 		var boden := MeshInstance3D.new()
 		var pm := PlaneMesh.new()
-		pm.size = Vector2(90, 40)
+		pm.size = Vector2(140, 40)
 		boden.mesh = pm
 		var bm := StandardMaterial3D.new()
 		bm.albedo_color = Color(0.30, 0.42, 0.22)
 		boden.material_override = bm
 		root3.add_child(boden)
-		cam.position = Vector3(0, 7.5, 30.0)
+		cam.position = Vector3(0, 9.0, 52.0)
 		cam.look_at(Vector3(0, 4.5, 0), Vector3.UP)
 		return false
 	if f == 10:

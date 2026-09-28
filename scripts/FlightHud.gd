@@ -608,7 +608,7 @@ func _draw_minimap() -> void:
 				draw_rect(Rect2(ap - Vector2(3.0 * ui, 3.0 * ui), Vector2(6.0 * ui, 6.0 * ui)), af.get("color", Color.WHITE))
 	for poi in mini_pois:
 		var op: Vector2 = to_px.call(poi["pos"])
-		if rect.grow(-3.0 * ui).has_point(op) and String(poi.get("art", "")) != "gefahr":
+		if rect.grow(-3.0 * ui).has_point(op) and not String(poi.get("art", "")) in ["gefahr", "region"]:
 			draw_circle(op, 3.6 * ui, Color(0, 0, 0, 0.75))
 			draw_circle(op, 2.6 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
 	# Spieler-Pfeil (Blickrichtung), N-Kennung
