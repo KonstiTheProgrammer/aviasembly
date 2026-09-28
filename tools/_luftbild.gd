@@ -79,7 +79,9 @@ func _process(_d: float) -> bool:
 	# ... und bis die Baeume eingehaengt sind (hoechstens zwei Chunks je Frame, siehe
 	# TerrainWorld.FLORA_PRO_FRAME) — sonst fehlen ganze Chunkreihen als Streifen im Wald.
 	if t0 > 0 and f - t0 >= 90 and f - t0 < 2400 \
-			and not (m.terrain.get("_flora_warteschlange") as Array).is_empty():
+			and (not (m.terrain.get("_flora_warteschlange") as Array).is_empty()
+				or not (m.terrain.get("_pending") as Dictionary).is_empty()
+				or not (m.terrain.get("_done") as Array).is_empty()):
 		return false
 	if t0 > 0 and f - t0 >= 90:
 		if OS.get_environment("LUFT_OHNE_FERN") != "" and m.fern_root != null:

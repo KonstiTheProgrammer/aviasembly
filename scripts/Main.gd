@@ -184,6 +184,26 @@ const LANDMASSEN := [
 		"karst": [Vector2(-4500.0, 64500.0), 5200.0],
 		"ruhe": [Vector2(-3000.0, 54500.0), Vector2(3000.0, 55000.0)]},
 	# WESTLAND: kompaktes Tafelland mit einer langen Halbinsel nach Nordosten.
+	# TRITTSTEINE in den Meeresstrassen: kleine Inseln im Klima ihres Ziels (Schaeren im
+	# Norden, Atolle im Sueden, Felsinseln im Westen). Ohne sie waren die Stroemungen
+	# zwischen den Landmassen 10 bis 15 km leeres Wasser. Ihre Reichweite endet vor 34 km
+	# Ursprungsabstand — die Hauptinsel bleibt unberuehrt (tools/_haupt_pruefsumme.gd).
+	{"name": "Schaeren", "pos": Vector2(-3000.0, -40500.0), "r": 1500.0, "rauh": 0.55,
+		"region": TerrainWorld.Region.NORD,
+		"teile": [[Vector2(0, 0), 1500.0], [Vector2(1800, -900), 1000.0]]},
+	{"name": "Schaeren Ost", "pos": Vector2(8500.0, -43000.0), "r": 1300.0, "rauh": 0.55,
+		"region": TerrainWorld.Region.NORD,
+		"teile": [[Vector2(0, 0), 1300.0], [Vector2(-1200, 1100), 800.0]]},
+	{"name": "Atoll", "pos": Vector2(3500.0, 40500.0), "r": 1500.0, "rauh": 0.55,
+		"region": TerrainWorld.Region.SUED,
+		"teile": [[Vector2(0, 0), 1500.0], [Vector2(-1500, 1300), 900.0]]},
+	{"name": "Atoll West", "pos": Vector2(-7500.0, 43000.0), "r": 1200.0, "rauh": 0.55,
+		"region": TerrainWorld.Region.SUED},
+	{"name": "Felsinsel", "pos": Vector2(-40500.0, 1500.0), "r": 1400.0, "rauh": 0.55,
+		"region": TerrainWorld.Region.WEST,
+		"teile": [[Vector2(0, 0), 1400.0], [Vector2(-1300, -1500), 900.0]]},
+	{"name": "Felsinsel Nord", "pos": Vector2(-43500.0, -7000.0), "r": 1100.0, "rauh": 0.55,
+		"region": TerrainWorld.Region.WEST},
 	{"name": "Westland", "pos": Vector2(-63000.0, 6000.0), "r": 14000.0, "rauh": 0.85,
 		"region": TerrainWorld.Region.WEST,
 		"teile": [[Vector2(0.0, 0.0), 14000.0], [Vector2(-5000.0, 13000.0), 9000.0],
@@ -907,7 +927,7 @@ func _setup_world() -> void:
 		# terrain.setup() fest (sie haengt am Seed) und wird dann aus dem Gelaende rings
 		# um den Platz bestimmt, siehe _region_hoehen. Sie stehen in den Ruhezonen der
 		# Landmassen (Main.LANDMASSEN "ruhe"), also auf ruhigem Grund.
-		{"name": "EISFJORD", "pos": Vector3(4000, 0, -54500), "heading": 1.35,
+		{"name": "EISHAFEN", "pos": Vector3(4000, 0, -54500), "heading": 1.35,
 			"color": Color(0.70, 0.88, 1.0), "region": true},
 		{"name": "PALMENBUCHT", "pos": Vector3(-3000, 0, 54500), "heading": 0.5,
 			"color": Color(0.35, 0.95, 0.70), "region": true},
@@ -1792,12 +1812,15 @@ func _setup_world() -> void:
 		{"name": "Mangrovenlagune", "pos": Vector3(-7100, 0, 51200), "color": Color(0.40, 0.80, 0.70), "art": "natur"},
 		{"name": "Dschungelkamm", "pos": Vector3(9500, 0, 62500), "color": Color(0.45, 0.80, 0.40), "art": "natur"},
 		{"name": "Großer Canyon", "pos": Vector3(-66500, 0, 9000), "color": Color(0.90, 0.50, 0.32), "art": "natur"},
+		{"name": "Schären", "pos": Vector3(-3000, 0, -40500), "color": Color(0.70, 0.80, 0.86), "art": "natur"},
+		{"name": "Atolle", "pos": Vector3(3500, 0, 40500), "color": Color(0.55, 0.90, 0.80), "art": "natur"},
+		{"name": "Felsinseln", "pos": Vector3(-40500, 0, 1500), "color": Color(0.90, 0.62, 0.45), "art": "natur"},
 		{"name": "Eisbucht", "pos": Vector3(-2500, 0, -53500), "color": Color(0.80, 0.88, 0.96), "art": "ort", "radius": 200.0},
 		{"name": "Palmdorf", "pos": Vector3(3000, 0, 55000), "color": Color(0.85, 0.95, 0.60), "art": "ort", "radius": 200.0},
 		{"name": "Minenstadt", "pos": Vector3(-55500, 0, 7000), "color": Color(0.90, 0.72, 0.55), "art": "ort", "radius": 220.0},
 	]
 	# KARTE ZWEISTUFIG, wie die Fernschuerze: erst 512 px mit Vorrang, damit M bald nach
-	# dem Start funktioniert, dann still die feine 1024-px-Fassung ohne Vorrang — die
+	# dem Start funktioniert, dann still die feine 2048-px-Fassung ohne Vorrang — die
 	# steht hinter der Schuerze an und wird ausgetauscht, sobald sie fertig ist.
 	_map_thread = Thread.new()
 	_map_thread.start(func() -> void:
@@ -1805,7 +1828,10 @@ func _setup_world() -> void:
 		if grob == null:
 			return
 		call_deferred("_on_map_image_ready", grob, false)
-		var fein := WorldMap.generate_image(terrain, 1024, WorldMap.WORLD_R, false, 4, _map_stopp)
+		# 2048 STATT 1024, seit die Welt 168 km misst: sonst laege ein Bildpunkt bei 164 m
+		# und die Hauptinsel waere in der Uebersicht gröber als vor der Vergroesserung.
+		# Bezahlbar, weil drei Viertel Meer sind (gemessen ~40 s im Hintergrund).
+		var fein := WorldMap.generate_image(terrain, 2048, WorldMap.WORLD_R, false, 4, _map_stopp)
 		if fein != null:
 			call_deferred("_on_map_image_ready", fein, true))
 	for af in airfields:

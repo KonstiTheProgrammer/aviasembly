@@ -132,7 +132,7 @@ scripts/FlightHud.gd     Canvas-HUD (Custom-_draw, Vorbild SimplePlanes-Mockup):
 scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + VEKTOR-EBENEN.
                          RASTER (generate_image, Hintergrund-Thread, keine Chunks noetig), ZWEISTUFIG
                          wie die Fernschuerze: Main erzeugt erst 512 px mit Vorrang (M geht nach ~6 s),
-                         dann 1024 px ohne Vorrang (~55 s, steht hinter der Schuerze) und tauscht still
+                         dann 2048 px ohne Vorrang (~40 s, drei Viertel sind Meer) und tauscht still
                          aus (`set_image`). Drei Durchgaenge: (1) height_at + Klasse Meer/See/Land fein,
                          (2) Farben aus _face_color/wald_anteil auf einem GROBRASTER (FARB_RASTER 250 m,
                          nur 4 Faeden — die beiden skalieren wegen atomarer Referenzzaehler auf geteilte
@@ -154,7 +154,7 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          Alles wird selbst auf das Kartenrechteck BESCHNITTEN (_clip_strecke/Liang-
                          Barsky, _flaeche/intersect_polygons) — CanvasItem kennt keinen Beschnitt je
                          Aufruf. `_poly` zeichnet nur Triangulierbares (sonst Logflut aus der Minimap).
-                         Rahmen: Planquadrate A-N/1-14 je 5 km (`planquadrat()`), Windrose, Massstab
+                         Rahmen: Planquadrate A-Q/1-17 je 10 km (`planquadrat()`), Windrose, Massstab
                          mit Wechselfeldern (runde Laenge), Innenschatten, Konturschrift.
                          POIs tragen `art` (ort/natur/gefahr/sonst Wahrzeichen) und bei Orten `radius`.
                          GROSS + INTERAKTIV: fast bildschirmfuellend (Rand 18 px) mit SEITENLEISTE
@@ -173,8 +173,8 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          WEGPUNKT: `wegpunkt`/`wegpunkt_name`, HUD-NAV-Pille zeigt ihn statt des
                          naechsten Platzes (Main._on_hud_changed -> `wegpunkt_text`), Linie + Fahne in
                          beiden Karten, loest sich unter 350 m auf (Signal `wegpunkt_erreicht` -> Toast).
-                         DETAILKACHELN (scharf beim Zoomen): Stufe 1 = 8x8 Kacheln a 8,5 km, Stufe 2 =
-                         16x16 a 4,25 km, je 512 px (16,6 / 8,3 m je Punkt), per `erzeuge_kachel`
+                         DETAILKACHELN (scharf beim Zoomen): Stufe 1 = 20x20 Kacheln a 8,4 km, Stufe 2 =
+                         40x40 a 4,2 km, je 512 px (16,4 / 8,2 m je Punkt), per `erzeuge_kachel`
                          (= generate_image mit `mitte`/`detail`, feinere STUFE_*-Generalisierung, 24 px
                          Ueberstand gegen Naehte, dann beschnitten). EIN Hintergrund-Thread, naechste zur
                          Bildmitte zuerst, LRU-Cache 48. Schwellen in ECHTEN Bildpunkten (`_skala` =
@@ -217,6 +217,44 @@ scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 
 tools/phys_test.gd       Headless-Flugtest (kein Spielinhalt, nur Dev-Werkzeug).
 README.md                Steuerung + Feature-Überblick (Spielersicht).
 ```
+
+## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
+Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Die HAUPTINSEL ist
+unveraendert — `tools/_haupt_pruefsumme.gd` belegt es (Hoehe, Farbe, Wald, Biom ueber ±34 km
+bitgleich); jede Aenderung an Regionen VORHER/NACHHER damit pruefen.
+- `Main.LANDMASSEN` → `TerrainWorld.landmassen` (vor setup()): Mitte, r, `rauh`, `region`,
+  `teile` (Lappen), optional `ruhe` (Punkte: Gebirge/Karst/Canyon/Seen setzen aus), `karst`,
+  `seen`. Kueste = Isolinie m = max_Lappen(1 − d²/r²) + rauh·fbm (Domain-Warp), NICHT ein
+  Radius. Alles laeuft erst ab `_lm_ab` (je LAPPEN gerechnet — je Landmasse reichte der
+  Umkreis des Nordlands in die Hauptinsel und faerbte deren Nordkueste). `region_at`,
+  `landmasse_bei`, `klima_gewicht` (Wasserfarbe folgt dem Klima, `_wasser_klima`).
+- Regionen: NORD (Tundra/Taiga, Gletscherkette mit Paessen, Eisfjord, Seenplatte, Kies),
+  SUED (Dschungel/Tropenwiese, Kegelkarst `_karst_turm` = ein Turm je verwuerfelter
+  380-m-Zelle, Mangroven `_mangrove`, Korallensand), WEST (Tafelland: Plateau-Maske
+  `_west_tafel` mit Schichtstufe, Zeugenberge `_zeugenberg`, maeandernder Canyon, Savanne).
+  Gelaende `_region_form`, Farben `_region_farbe` (_farbe_nord/_sued/_west), Wald
+  `_region_dichte` (EINE Regel fuer Boden, Karte, Schuerze und Baeume), Arten `_region_flora`,
+  Baumgrenze `_region_baumgrenze`. Biome-Enum um TUNDRA/TAIGA/DSCHUNGEL/GRASLAND/SAVANNE/CANYON
+  erweitert. Dichte Waelder: weniger, groessere Baeume (gemessen: sonst 3,3× Dreiecke/Chunk).
+- Feste Wahrzeichen als Kuestenformen (`Main._region_formen`, seed-unabhaengig, auf der Karte
+  benannt). Neue Schluessel: `fuss` (Landform laeuft auf diese Hoehe statt 0 aus — sonst ein
+  Landring um jede Form im Meer) und `nur_senken` (Wasserform hebt nie an).
+- Plaetze EISHAFEN/PALMENBUCHT/TAFELBERG (`"region": true`) und Orte `REGION_ORTE`: Hoehe
+  erst nach setup() aus dem Ring-Median (`_region_hoehen`); die Schluessel stehen vorher
+  (Chunk-Worker liest schon). Trittstein-Inseln in den Meeresstrassen.
+- 13 Baumarten (`tools/build_baeume.py`, Blender 5.2 `--background`), neu: Schneetanne,
+  Urwaldbaum, Baumfarn, Akazie, Mangrove, Kaktus. Fern-Stellvertreter: breite Kronen
+  (b > 0,55 h) als abgeflachte Raute statt Kegel; Schnee zaehlt in der Kronenfarbe nur 0,4.
+- FERNSCHUERZE STREAMT (Main._fern_pruefen, 1×/s, auch im Hangar): grob bis FERN_GROB_R,
+  fein bis FERN_FEIN_R um den Spieler, Pakete à FERN_PAKET, naechste zuerst. FERN_KACHEL
+  2176 (ganzes Vielfaches beider Zellweiten — mit 2200 klaffte ein 24-m-Spalt).
+- BEHOBEN (betraf auch die Hauptinsel): die Flora-Fernstufe zeigt ein Praefix der Instanzen
+  (FLORA_GROB_ANTEIL); die Liste war zeilenweise geordnet → Streifen im Wald. Jetzt je Chunk
+  deterministisch gemischt (_make_chunk_data).
+- Werkzeuge: `_welt_uebersicht.gd -- px [x z halb]` (Kartenbild eines Ausschnitts),
+  `_luftbild.gd -- name px py pz zx zy zz ...` (echtes Spielbild, wartet auf Schuerze,
+  Chunks und Baeume; LUFT_OHNE_FERN/…SCHATTEN/…STELLV zum Eingrenzen), `_skriptzeit` misst
+  jetzt auch Nord-Taiga, Sued-Dschungel, West-Tafelland.
 
 ## Flugmodell (AircraftBody.gd) — so funktioniert's
 **Bewusst „gebündelte Koeffizienten-Methode" (lumped), NICHT pro-Fläche.** Die volle

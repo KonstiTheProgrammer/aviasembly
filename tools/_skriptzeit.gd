@@ -16,6 +16,10 @@ const STELLEN := [
 	["Grossstadt", Vector3(-3000, 160, 2500), Vector3(0, 0, 1)],
 	["Flakzone", Vector3(250, 250, -1900), Vector3(0, 0, -1)],
 	["Hochtal", Vector3(-5000, 700, -8500), Vector3(-1, 0, -1)],
+	# die neuen Regionen (Main.LANDMASSEN) — dichtester Wald, Karst, Tafelland
+	["Nord-Taiga", Vector3(2500, 220, -52500), Vector3(1, 0, 0)],
+	["Sued-Dschungel", Vector3(-1000, 300, 60500), Vector3(0, 0, 1)],
+	["West-Tafelland", Vector3(-60000, 400, 3000), Vector3(-1, 0, 0)],
 ]
 const WARM := 90
 const PROBEN := 300

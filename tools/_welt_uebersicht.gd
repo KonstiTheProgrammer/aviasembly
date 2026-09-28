@@ -13,6 +13,10 @@ func _process(_d: float) -> bool:
 		m = load("res://scenes/Main.tscn").instantiate()
 		root.add_child(m)
 	if f == 6:
+		if m == null or m.get("terrain") == null:
+			print("UEBERSICHT FEHLER: Main/terrain nicht geladen")
+			quit(1)
+			return true
 		var a := OS.get_cmdline_user_args()
 		var px := 768 if a.size() < 1 else int(a[0])
 		var mitte := Vector2.ZERO

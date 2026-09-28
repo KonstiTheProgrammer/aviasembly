@@ -108,6 +108,20 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 
 ---
 
+## 🗺️ Die Welt
+
+Die Welt ist **168 × 168 km** groß: die gemäßigte **Hauptinsel** mit Heimatflugplatz, Großstadt,
+Vulkan und Hochtal — und drei Landmassen mit eigenem Klima, durch Meeresstraßen getrennt
+(mit kleinen Trittstein-Inseln dazwischen):
+
+| Region | Lage | Biome & Landschaft | Flugplatz / Ort |
+|---|---|---|---|
+| **Nordland** | ~55 km nördlich | Tundra, Taiga mit Schneetannen, **Gletscherkette** mit Pässen, gewundener **Eisfjord**, **Seenplatte**, Kiesstrände, kaltes dunkles Meer | EISHAFEN / Eisbucht |
+| **Südland** | ~55 km südlich | Dschungel (Urwaldriesen, Palmen, Baumfarne), Tropenwiesen, **Kegelkarst**-Türme, **Mangrovenlagune**, Korallensand, türkises Wasser | PALMENBUCHT / Palmdorf |
+| **Westland** | ~60 km westlich | Savanne mit Akazien, rote **Tafelberge** mit Sandsteinbändern, Zeugenberge, **Großer Canyon** mit Kakteen | TAFELBERG / Minenstadt |
+
+Alle Regionen stehen auf der Karte (**M**); ein Klick auf einen Flugplatz setzt dort einen Wegpunkt.
+
 ## 🧩 Bauteile
 
 - **Rumpf:** Cockpit (Basis), modernes Transport-Cockpit, B-29-Glasnase,

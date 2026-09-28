@@ -1890,20 +1890,58 @@ func _region_form(x: float, z: float, h: float, reg: int, innen: float) -> float
 			if km > 0.0:
 				h += _karst_turm(x, z) * km
 		Region.WEST:
-			# TAFELLAND. Ein Hochplateau, in Stufen gebrochen (Tafelberge, Zeugenberge),
-			# und darin Canyons aus dem Nulldurchgang eines Rauschens — die folgen wie
-			# Fluesse einer gewundenen Linie statt als Loecher dazustehen.
-			h += innen * 95.0 + pow(clampf(_ridge.get_noise_2d(x * 0.8, z * 0.8) * 0.5
-				+ 0.5, 0.0, 1.0), 2.2) * 160.0 * g * innen
-			var stufe := 26.0
+			# TAFELLAND, ZWEIGETEILT. Im ersten Anlauf lag ueber dem ganzen Westland
+			# dasselbe gestufte Rauschgebirge — von oben ein gleichmaessiges Tarnmuster ohne
+			# Lesbarkeit. Jetzt bestimmt EIN grosses Rauschen, wo Tafelland steht und wo
+			# Savannenebene: In der Ebene bleibt der Boden fast flach (sanfte Wellen,
+			# vereinzelte Zeugenberge), im Tafelland steht ein Plateau, dessen Rand als
+			# steile Stufe in die Ebene abbricht. Genau diese Kante — die Schichtstufe —
+			# ist das Bild des amerikanischen Westens.
+			var tafel := smoothstep(0.02, 0.16, _region_n.get_noise_2d(x * 0.75 + 5300.0,
+				z * 0.75 - 2100.0)) * innen * ruhe
+			h += innen * 18.0 + _noise.get_noise_2d(x * 0.6, z * 0.6) * 10.0 * innen
+			# Plateau: auf 140..230 m, mit zweiter Stufe darauf, wo das Rauschen hoch ist
+			var plateau := 140.0 + 90.0 * smoothstep(0.30, 0.45, _region_n.get_noise_2d(
+				x * 0.75 + 5300.0, z * 0.75 - 2100.0))
+			h = lerpf(h, maxf(h, plateau + _noise.get_noise_2d(x, z) * 3.0), tafel)
+			# ZEUGENBERGE in der Ebene: einzelne Tafelberge aus dem Karst-Raster, breiter
+			# und mit flachem Deckel (siehe _zeugenberg).
+			h = maxf(h, h + _zeugenberg(x, z) * (1.0 - tafel) * innen * ruhe)
+			# Stufen: Sandsteinbaenke quantisieren das Gelaende (Deckflaeche + Wand)
+			var stufe := 24.0
 			var q := floorf(h / stufe) * stufe
 			var fr := (h - q) / stufe
-			h = lerpf(h, q + smoothstep(0.62, 0.92, fr) * stufe, 0.85 * innen)
-			var cn := absf(_region_n.get_noise_2d(x * 3.1 + 1300.0, z * 3.1 - 800.0))
-			var canyon := (1.0 - smoothstep(0.015, 0.075, cn)) * ruhe
-			if canyon > 0.0:
-				h = lerpf(h, maxf(SEA_Y + 3.0, h - 120.0), canyon * smoothstep(0.2, 0.5, innen))
+			h = lerpf(h, q + smoothstep(0.55, 0.95, fr) * stufe, 0.8 * innen)
 	return h
+
+
+## ZEUGENBERG (Mesa/Butte) je Zelle eines verwuerfelten 1300-m-Rasters: flacher Deckel,
+## steile Wand, Schuttfuss. Nur jede fuenfte Zelle traegt einen — eine Ebene voller Berge
+## waere keine Ebene mehr.
+func _zeugenberg(x: float, z: float) -> float:
+	var zg := 1300.0
+	var gx := floori(x / zg)
+	var gz := floori(z / zg)
+	var best := 0.0
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var cx := gx + dx
+			var cz := gz + dz
+			if _hash01(cx, cz, 11) < 0.80:
+				continue
+			var px := (float(cx) + 0.2 + 0.6 * _hash01(cx, cz, 12)) * zg
+			var pz := (float(cz) + 0.2 + 0.6 * _hash01(cx, cz, 13)) * zg
+			var rad := zg * (0.07 + 0.17 * _hash01(cx, cz, 14))
+			var ddx := x - px
+			var ddz := z - pz
+			var d := sqrt(ddx * ddx + ddz * ddz) / rad
+			if d > 1.5:
+				continue
+			var hoehe := 55.0 + 120.0 * _hash01(cx, cz, 15)
+			best = maxf(best, hoehe * ((1.0 - smoothstep(0.86, 1.0, d))
+				+ (1.0 - smoothstep(1.0, 1.5, d)) * 0.12))
+	return best
+
 
 ## 0 an Flugplaetzen und Orten der Regionen, 1 fern davon: dort setzen Gebirge, Karst,
 ## Canyons und Seen aus, damit Bahn und Haeuser auf ruhigem Grund stehen.
@@ -1987,8 +2025,14 @@ func region_biom(reg: int, x: float, z: float) -> int:
 		Region.SUED:
 			return Biome.GRASLAND if bw > 0.30 else Biome.DSCHUNGEL
 		Region.WEST:
-			return Biome.CANYON if bw < -0.06 else Biome.SAVANNE
+			return Biome.CANYON if _west_tafel(x, z) + bw * 0.25 > 0.45 else Biome.SAVANNE
 	return Biome.WALD
+
+
+## Tafelland-Maske des Westlands (0 Ebene .. 1 Plateau) — dieselbe wie in _region_form,
+## damit Boden und Form zusammenpassen: das Plateau ist rot, die Ebene Savanne.
+func _west_tafel(x: float, z: float) -> float:
+	return smoothstep(0.02, 0.16, _region_n.get_noise_2d(x * 0.75 + 5300.0, z * 0.75 - 2100.0))
 
 
 ## Wie tief steht die Stelle in ihrem Biom (0 an der Grenze, 1 im Kern)? Fuer weiche
@@ -2003,7 +2047,7 @@ func _region_kern(reg: int, x: float, z: float) -> float:
 		Region.SUED:
 			return smoothstep(0.24, 0.40, bw)                                # 1 = Grasland
 		Region.WEST:
-			return smoothstep(-0.02, -0.14, bw)                              # 1 = Canyon
+			return smoothstep(0.35, 0.55, _west_tafel(x, z) + bw * 0.25)      # 1 = Canyon
 	return 0.0
 
 
@@ -2017,7 +2061,7 @@ func _region_baumgrenze(reg: int) -> float:
 			# Kahl sind jetzt die Berge, nicht die Huegel.
 			return 260.0
 		Region.SUED:
-			return 460.0
+			return 720.0      # Dschungel bis auf die Grate; kahl nur die Karstwaende
 		Region.WEST:
 			return 330.0
 	return FLORA_MAX_H
@@ -2033,9 +2077,12 @@ func _region_dichte(reg: int, x: float, z: float, h: float, ny: float) -> float:
 	# Oben duennt der Wald allmaehlich aus (Rauschen verschiebt die Grenze um bis zu
 	# 18 %), statt an einer Hoehenlinie abzubrechen.
 	var gz := grenze * (1.0 + 0.18 * _patch.get_noise_2d(x * 0.21, z * 0.21))
+	# Im Dschungel haelt sich der Wald auch an steilen Flanken (Wurzeln, Lianen) —
+	# kahl bleiben dort nur die Karstwaende.
+	var steil_ab := 5.4 if reg == Region.SUED else 3.2
 	var edge := _open_ground(x, z) * smoothstep(FLORA_MIN_H, FLORA_FULL_H, h) \
 		* (1.0 - smoothstep(gz * 0.62, gz, h)) \
-		* (1.0 - smoothstep(3.2, 5.2, slope))
+		* (1.0 - smoothstep(steil_ab, steil_ab + 2.0, slope))
 	if edge <= 0.005:
 		return 0.0
 	# WALDMUSTER DER REGIONEN: das Waldrauschen der Hauptinsel (260 m) laeuft auf einer
@@ -2056,7 +2103,7 @@ func _region_dichte(reg: int, x: float, z: float, h: float, ny: float) -> float:
 		Biome.DSCHUNGEL:
 			dens = smoothstep(-0.62, -0.12, f)
 		Biome.GRASLAND:
-			dens = smoothstep(0.0, 0.5, f) * 0.28
+			dens = smoothstep(-0.1, 0.45, f) * 0.40
 		Biome.SAVANNE:
 			dens = smoothstep(-0.25, 0.55, f) * 0.16
 		Biome.CANYON:
@@ -2078,9 +2125,15 @@ func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: 
 		return
 	var biom := region_biom(reg, cx, cz)
 	var mg := _mangrove(cx, cz, hc) if reg == Region.SUED else 0.0
+	# WENIGER, DAFUER GROESSERE BAEUME in den dichten Waeldern. Mit der vollen Dichte der
+	# Hauptinsel trug ein Dschungel-Chunk 1,02 Mio. Dreiecke, ein Taiga-Chunk 0,64 Mio. —
+	# 3,3 und 2,1 mal so viel wie der dichteste Wald der Hauptinsel (tools-Messung ueber
+	# _make_chunk_data). Groessere Kronen schliessen das Dach mit einem Bruchteil davon.
 	var per_cell := FLORA_PER_CELL
-	if biom == Biome.DSCHUNGEL:
-		per_cell *= 1.12
+	if biom == Biome.DSCHUNGEL or biom == Biome.GRASLAND:
+		per_cell *= 0.42
+	elif biom == Biome.TAIGA:
+		per_cell *= 0.58
 	var expect := per_cell * dens
 	var n := int(floor(expect))
 	if rng.randf() < expect - float(n):
@@ -2098,12 +2151,12 @@ func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: 
 			Biome.TAIGA:
 				if r < 0.58:
 					art = "Schneetanne"
-					lo = 1.0
-					hi = 1.9
+					lo = 1.2
+					hi = 2.1
 				elif r < 0.86:
 					art = "Fichte"
-					lo = 1.0
-					hi = 1.8
+					lo = 1.2
+					hi = 2.0
 				elif r < 0.95:
 					art = "Kiefer"
 					lo = 1.0
@@ -2148,20 +2201,20 @@ func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: 
 						hi = 1.4
 				elif r < 0.40:
 					art = "Urwaldbaum"
-					lo = 1.0
-					hi = 1.8
+					lo = 1.3
+					hi = 2.2
 				elif r < 0.62:
 					art = "Palme"
-					lo = 1.0
-					hi = 1.7
+					lo = 1.2
+					hi = 1.9
 				elif r < 0.84:
 					art = "Baumfarn"
-					lo = 0.8
-					hi = 1.5
+					lo = 1.1
+					hi = 1.8
 				elif r < 0.93:
 					art = "Eiche"
-					lo = 1.1
-					hi = 1.9
+					lo = 1.4
+					hi = 2.2
 				else:
 					art = "Busch"
 					lo = 1.0
@@ -2366,7 +2419,7 @@ func _farbe_sued(x: float, z: float, h: float, ny: float, t: float, flur: float,
 	if t > 0.50:
 		boden = boden.lerp(Color(0.62, 0.37, 0.23), 0.55 * (1.0 - dichte))
 	# TROPENWIESE (Grasland): helles Limonengruen.
-	var gras := Color(0.50, 0.64, 0.26).lerp(Color(0.60, 0.66, 0.30),
+	var gras := Color(0.44, 0.58, 0.25).lerp(Color(0.54, 0.60, 0.29),
 		clampf(t * 0.6 + 0.5, 0.0, 1.0))
 	boden = boden.lerp(gras, _region_kern(Region.SUED, x, z))
 	# MANGROVEN: dunkles Oliv ueber schlammigem Grund.
@@ -3637,6 +3690,10 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# Verschieben einer Form still zu gross und wuerde deren Flanke abschneiden.
 	if lm.z > 0.5:
 		h = _region_form(x, z, h, int(lm.z), lm.y)
+		# Tafelberge leben von ihrer EBENEN Deckflaeche (wie die Mesas der Hauptinsel,
+		# siehe dort): das Felsrelief der Gebirge wuerde sie zu Buckelpisten machen.
+		if int(lm.z) == Region.WEST:
+			wueste = true
 	if d > _kf_ab_l:
 		h = _kf_land(x, z, h)
 	# FELSRELIEF: RIPPEN UND RUNSEN AUF ALLEM, WAS BERG IST.
@@ -7649,14 +7706,41 @@ static func _stellvertreter(quelle: Mesh) -> Mesh:
 	var kr := b * 0.5
 	var ky := y0 + h * 0.28
 	var spitze := Vector3(0.0, y0 + h, 0.0)
+	# BREITE KRONEN (Eiche, Urwaldbaum, Akazie, Palme ...) bekommen eine RAUTE statt eines
+	# Kegels: breitester Ring in 62 % Hoehe, darunter spitz zum Stamm. Mit Kegeln sah ein
+	# Dschungel am Horizont aus wie ein Fichtenwald. Schlanke Baeume bleiben Kegel.
+	var breit := b > h * 0.55
+	var unten := Vector3(0.0, y0 + h * 0.34, 0.0)
+	if breit:
+		ky = y0 + h * 0.62
+	# Breite Kronen sind oben ABGEFLACHT (Stumpf mit Deckel statt Spitze) — eine Raute mit
+	# Spitze las sich von der Seite wieder als Nadelbaum.
+	var dy := y0 + h * 0.94
+	var dr := kr * 0.55
 	for i in 5:
 		var a0 := TAU * float(i) / 5.0
 		var a1 := TAU * float(i + 1) / 5.0
+		var r0 := Vector3(cos(a0) * kr, ky, sin(a0) * kr)
+		var r1 := Vector3(cos(a1) * kr, ky, sin(a1) * kr)
 		# Facettenweise leicht verschiedener Ton, wie bei den vollen Meshes.
 		st.set_color(krone.darkened(0.10 * (0.5 + 0.5 * sin(a0 * 3.0))))
-		st.add_vertex(Vector3(cos(a0) * kr, ky, sin(a0) * kr))
-		st.add_vertex(Vector3(cos(a1) * kr, ky, sin(a1) * kr))
-		st.add_vertex(spitze)
+		if not breit:
+			st.add_vertex(r0)
+			st.add_vertex(r1)
+			st.add_vertex(spitze)
+			continue
+		var d0 := Vector3(cos(a0) * dr, dy, sin(a0) * dr)
+		var d1 := Vector3(cos(a1) * dr, dy, sin(a1) * dr)
+		for v in [r0, r1, d1, r0, d1, d0]:
+			st.add_vertex(v)
+		st.set_color(krone.lightened(0.06))
+		st.add_vertex(d0)
+		st.add_vertex(d1)
+		st.add_vertex(Vector3(0.0, dy, 0.0))
+		st.set_color(krone.darkened(0.22))
+		st.add_vertex(r1)
+		st.add_vertex(r0)
+		st.add_vertex(unten)
 	st.generate_normals()
 	return st.commit()
 
