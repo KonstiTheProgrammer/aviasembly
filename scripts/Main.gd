@@ -358,6 +358,8 @@ var stats_label: Label
 # Praesentationstafel rechts: grosser Flugzeugname + Kennwerte (Showroom-Komposition)
 var praesent_titel: Label
 var praesent_werte: Label
+var praesent_box: Control          # die Tafel selbst (wird unter den Flug-Check gesetzt)
+var flugcheck_panel: Control       # Flug-Check-Panel oben rechts (Hoehe waechst mit Inhalt)
 var flight_check: FlightCheckPanel  # grafische Flug-Info (Balance / Stabilität / Kennwerte / Verdict)
 var hud_label: Label
 var land_label: Label
@@ -4870,6 +4872,7 @@ func _build_hangar_ui() -> void:
 	# Höhe wächst mit dem Inhalt (Diagramm + Balken + Detail-Zahlen + Windkanal-Report).
 	_rect(spanel, 1, 0, 1, 0, -340, 18, -18, 88)
 	build_root.add_child(spanel)
+	flugcheck_panel = spanel
 	var sv := VBoxContainer.new()
 	sv.add_theme_constant_override("separation", 6)
 	spanel.add_child(sv)
@@ -4894,7 +4897,12 @@ func _build_hangar_ui() -> void:
 	# (gemessen 398 px). Mit Umbruch bricht es auf zwei Zeilen, dafuer mehr Hoehe.
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.clip_text = true
-	_rect(hint, 0, 1, 1, 1, 512, -58, -18, -8)
+	# DREI ZEILEN, NICHT ZWEI. Bei 1366 px Breite braucht der Text drei; mit 50 px Hoehe
+	# schnitt clip_text die letzte ab und die Leiste endete mitten in "Strg+Z/Y:" — Undo
+	# und die Ansichtstaste standen nirgends. Unten ausgerichtet, damit zwei Zeilen auf
+	# breiten Schirmen weiter an derselben Stelle sitzen.
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_rect(hint, 0, 1, 1, 1, 512, -92, -18, -8)
 	build_root.add_child(hint)
 
 	# Toast (kurze Meldung)
@@ -5498,6 +5506,7 @@ func _build_praesentation_panel() -> void:
 	box.offset_right = -28.0
 	box.offset_top = 26.0
 	build_root.add_child(box)
+	praesent_box = box
 
 	praesent_titel = Label.new()
 	praesent_titel.text = _slot_name.to_upper()
@@ -5529,6 +5538,24 @@ func _build_praesentation_panel() -> void:
 	praesent_werte.add_theme_constant_override("shadow_offset_y", 2)
 	praesent_werte.add_theme_constant_override("shadow_outline_size", 4)
 	box.add_child(praesent_werte)
+
+
+## DIE TAFEL SITZT UNTER DEM FLUG-CHECK, NICHT DARIN.
+##
+## Beide waren oben rechts verankert — seit dem Showroom-Umbau lag der grosse Name samt
+## Kennwerten bei JEDER Aufloesung ueber der Ueberschrift und der Schwerpunkt-Leiste des
+## Flug-Checks (Screenshot tools/_ui_rand_check, 1366 x 768). Der Flug-Check waechst mit
+## seinem Inhalt (Windkanal-Bericht, Warnungen), deshalb wird die Tafel jedes Bild an
+## seine Unterkante gehaengt und ausgeblendet, wenn darunter bis zur Hinweisleiste kein
+## Platz mehr ist — rechts bleibt sie, wie die Komposition es will.
+func _praesentation_platzieren() -> void:
+	if praesent_box == null or flugcheck_panel == null or not is_instance_valid(praesent_box):
+		return
+	var unten := flugcheck_panel.position.y + flugcheck_panel.size.y + 14.0
+	praesent_box.offset_top = unten
+	var hoehe := praesent_box.get_combined_minimum_size().y
+	var schirm := get_viewport().get_visible_rect().size.y
+	praesent_box.visible = unten + hoehe <= schirm - 100.0   # ueber der 3-zeiligen Hinweisleiste
 
 
 func _aktualisiere_praesentation(stats: Dictionary) -> void:
@@ -6526,6 +6553,8 @@ func _process(delta: float) -> void:
 			if is_instance_valid(r):
 				r.rotate_z(delta * 1.1)
 	# Werkzeugleiste mit dem Editor-Zustand synchron halten (auch bei Tastenkürzeln)
+	if mode == Mode.BUILD:
+		_praesentation_platzieren()
 	if mode == Mode.BUILD and not _tb_view_btns.is_empty():
 		_sync_toolbar()
 	# Terrain-Chunks um den Spieler streamen (nur im Flug nötig)
@@ -6674,7 +6703,8 @@ func _build_upgrades_ui() -> void:
 		c.queue_free()
 	if game == null:
 		return
-	upgrade_box.add_child(_lbl("UPGRADES", 13, Color(0.6, 1.0, 0.8)))
+	# (Keine eigene "UPGRADES"-Zeile: der Reiter hat schon die Sektionsueberschrift, und
+	# doppelt uebereinander stand sie im Bild.)
 	var defs := [
 		{"key": "thrust", "name": "Triebwerks-Tuning (+15% Schub)"},
 		{"key": "wing", "name": "Verstärkte Flügel (+30% Last)"},
