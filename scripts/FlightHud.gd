@@ -550,6 +550,7 @@ func _draw_stall() -> void:
 # M-Karte offen ist. Wird am Ende von _draw() aufgerufen.
 # ---------------------------------------------------------------------------
 var mini_tex: Texture2D = null
+var mini_karte: WorldMap = null   # zeichnet Fluesse, Bahnen, Orte, Flugabwehr, Spur hinein
 var mini_player: Node3D = null
 var mini_airfields: Array = []
 var mini_pois: Array = []
@@ -586,16 +587,21 @@ func _draw_minimap() -> void:
 	var to_px := func(w: Vector3) -> Vector2:
 		var uv := Vector2(w.x / wr * 0.5 + 0.5, w.z / wr * 0.5 + 0.5)
 		return rect.position + (uv - win_min) / win_size * rect.size
-	# Marker in Reichweite
-	for af in mini_airfields:
-		var ap: Vector2 = to_px.call(af["pos"])
-		if rect.has_point(ap):
-			draw_rect(Rect2(ap - Vector2(4.0 * ui, 4.0 * ui), Vector2(8.0 * ui, 8.0 * ui)), Color(0, 0, 0, 0.8))
-			draw_rect(Rect2(ap - Vector2(3.0 * ui, 3.0 * ui), Vector2(6.0 * ui, 6.0 * ui)), af.get("color", Color.WHITE))
+	# Dieselben Ebenen wie die grosse Karte (Flugplaetze als echte Bahn im wahren Kurs,
+	# Gefahrenkreise, Spur, Kurslinie) — beschnitten auf den Ausschnitt.
+	if mini_karte != null and is_instance_valid(mini_karte):
+		mini_karte.zeichne_ebenen(self, rect, win_min, win_size, ui, true)
+	else:
+		for af in mini_airfields:
+			var ap: Vector2 = to_px.call(af["pos"])
+			if rect.has_point(ap):
+				draw_rect(Rect2(ap - Vector2(4.0 * ui, 4.0 * ui), Vector2(8.0 * ui, 8.0 * ui)), Color(0, 0, 0, 0.8))
+				draw_rect(Rect2(ap - Vector2(3.0 * ui, 3.0 * ui), Vector2(6.0 * ui, 6.0 * ui)), af.get("color", Color.WHITE))
 	for poi in mini_pois:
 		var op: Vector2 = to_px.call(poi["pos"])
-		if rect.has_point(op):
-			draw_circle(op, 3.2 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
+		if rect.grow(-3.0 * ui).has_point(op) and String(poi.get("art", "")) != "gefahr":
+			draw_circle(op, 3.6 * ui, Color(0, 0, 0, 0.75))
+			draw_circle(op, 2.6 * ui, poi.get("color", Color(0.95, 0.85, 0.3)))
 	# Spieler-Pfeil (Blickrichtung), N-Kennung
 	var p: Vector2 = to_px.call(pp)
 	var fwd := -mini_player.global_transform.basis.z

@@ -348,6 +348,7 @@ var env_sky: Environment
 var env_blueprint: Environment
 var world_map: WorldMap             # KARTE (Taste M im Flug), Bild kommt aus dem Thread
 var _map_thread: Thread
+var _map_stopp := [false]            # Main geht: Karten-Erzeugung sofort abbrechen
 var _map_pois: Array = []
 
 # UI
@@ -486,6 +487,7 @@ func _ready() -> void:
 # WELT
 # ===========================================================================
 func _setup_world() -> void:
+	CityBuilder.karte_leeren()   # Grundrisse fuer die Karte sammelt der Aufbau neu
 	# Umgebung / Himmel
 	# AVIASSEMBLY-HIMMEL: satter Blau-Verlauf + Sonne + fluffige prozedurale
 	# Kumuluswolken (Shader res://shaders/sky_clouds.gdshader). sun_dir passend
@@ -1531,14 +1533,17 @@ func _setup_world() -> void:
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	# KARTE: Bild im Hintergrund-Thread generieren (~100k height_at-Samples, kein Startup-Ruckler;
 	# height_at ist pure Noise-Mathematik und laeuft schon jetzt parallel im Chunk-Worker).
+	# art: "ort" (Siedlung, eckiges Zeichen + Flaeche mit `radius` in der Uebersicht),
+	# "natur" (Dreieck), "gefahr" (nur Name — die Zone zeichnet die Karte als Kreis),
+	# sonst Wahrzeichen (Punkt).
 	_map_pois = [
-		{"name": "Stadt", "pos": town_pos, "color": Color(0.95, 0.85, 0.35)},
+		{"name": "Stadt", "pos": town_pos, "color": Color(0.95, 0.85, 0.35), "art": "ort", "radius": 260.0},
 		{"name": "Luftschiffwerft", "pos": factory_pos, "color": Color(0.58, 0.76, 0.82)},
 		{"name": "Leuchtturm", "pos": lh_pos, "color": Color(0.95, 0.45, 0.40)},
-		{"name": "Bergdorf", "pos": village_pos, "color": Color(0.80, 0.70, 0.55)},
-		{"name": "Vulkan", "pos": Vector3(11800, 0, -5600), "color": Color(0.85, 0.35, 0.25)},
-		{"name": "FLAK-ZONE", "pos": Vector3(250, 0, -2400), "color": Color(1.0, 0.25, 0.2)},
-		{"name": "Canyon", "pos": Vector3(-5250, 0, 2800), "color": Color(0.90, 0.62, 0.30)},
+		{"name": "Bergdorf", "pos": village_pos, "color": Color(0.80, 0.70, 0.55), "art": "ort", "radius": 130.0},
+		{"name": "Vulkan", "pos": Vector3(11800, 0, -5600), "color": Color(0.85, 0.35, 0.25), "art": "natur"},
+		{"name": "FLAK-ZONE", "pos": Vector3(250, 0, -2400), "color": Color(1.0, 0.25, 0.2), "art": "gefahr"},
+		{"name": "Canyon", "pos": Vector3(-5250, 0, 2800), "color": Color(0.90, 0.62, 0.30), "art": "natur"},
 		{"name": "Windpark", "pos": Vector3(-3900, 0, -700), "color": Color(0.75, 0.88, 0.95)},
 		# AUF DAS ECHTE WRACK, nicht 7 km daneben. Das Etikett stand noch auf der
 		# Position von vor der Inselvergroesserung, das Wrack selbst wurde damals mit der
@@ -1551,19 +1556,27 @@ func _setup_world() -> void:
 		# aussen nur ein Spalt zwischen zwei Bergen; wer nicht weiss, dass er da ist,
 		# fliegt daran vorbei. Dasselbe gilt fuer die Lagune hinter der Nehrung — vom
 		# Festland aus sieht man nur Wasser, nicht dass es eingeschlossen ist.
-		{"name": "Sturmkap", "pos": Vector3(-17195, 0, -18831), "color": Color(0.72, 0.70, 0.66)},
-		{"name": "Fjordmund", "pos": Vector3(-24485, 0, -20912), "color": Color(0.36, 0.60, 0.72)},
-		{"name": "Lagune", "pos": Vector3(-9209, 0, 28341), "color": Color(0.42, 0.76, 0.70)},
-		{"name": "GROSSSTADT", "pos": city_pos, "color": Color(0.95, 0.90, 0.55)},
-		{"name": "NEONBUCHT", "pos": sky_pos, "color": Color(0.55, 0.80, 1.0)},
-		{"name": "Industriehafen", "pos": indu_pos, "color": Color(0.80, 0.70, 0.62)},
-		{"name": "Landdorf", "pos": dorf_pos, "color": Color(0.72, 0.86, 0.60)},
-		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90)},
+		{"name": "Sturmkap", "pos": Vector3(-17195, 0, -18831), "color": Color(0.72, 0.70, 0.66), "art": "natur"},
+		{"name": "Fjordmund", "pos": Vector3(-24485, 0, -20912), "color": Color(0.36, 0.60, 0.72), "art": "natur"},
+		{"name": "Lagune", "pos": Vector3(-9209, 0, 28341), "color": Color(0.42, 0.76, 0.70), "art": "natur"},
+		{"name": "GROSSSTADT", "pos": city_pos, "color": Color(0.95, 0.90, 0.55), "art": "ort", "radius": 340.0},
+		{"name": "NEONBUCHT", "pos": sky_pos, "color": Color(0.55, 0.80, 1.0), "art": "ort", "radius": 300.0},
+		{"name": "Industriehafen", "pos": indu_pos, "color": Color(0.80, 0.70, 0.62), "art": "ort", "radius": 260.0},
+		{"name": "Landdorf", "pos": dorf_pos, "color": Color(0.72, 0.86, 0.60), "art": "ort", "radius": 200.0},
+		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90), "art": "ort", "radius": 110.0},
 	]
+	# KARTE ZWEISTUFIG, wie die Fernschuerze: erst 512 px mit Vorrang, damit M bald nach
+	# dem Start funktioniert, dann still die feine 1024-px-Fassung ohne Vorrang — die
+	# steht hinter der Schuerze an und wird ausgetauscht, sobald sie fertig ist.
 	_map_thread = Thread.new()
 	_map_thread.start(func() -> void:
-		var img := WorldMap.generate_image(terrain, 512)
-		call_deferred("_on_map_image_ready", img))
+		var grob := WorldMap.generate_image(terrain, 512, WorldMap.WORLD_R, true, 4, _map_stopp)
+		if grob == null:
+			return
+		call_deferred("_on_map_image_ready", grob, false)
+		var fein := WorldMap.generate_image(terrain, 1024, WorldMap.WORLD_R, false, 4, _map_stopp)
+		if fein != null:
+			call_deferred("_on_map_image_ready", fein, true))
 	for af in airfields:
 		_build_airfield(af)
 	_build_obstacles()   # solider Hindernis-Parcours nahe HEIMAT (Tore, Pylonen, Felsen, Sperrballons)
@@ -2211,6 +2224,7 @@ func _exit_tree() -> void:
 	# und laesst Objekte im ObjectDB zurueck. Schlimmer als die Meldung ist die Ursache:
 	# der Thread liest waehrenddessen `terrain`, das gerade abgeraeumt wird.
 	if _map_thread != null and _map_thread.is_started():
+		_map_stopp[0] = true    # laufende Stufe abbrechen statt auf sie zu warten
 		_map_thread.wait_to_finish()
 		_map_thread = null
 
@@ -6357,19 +6371,24 @@ func _build_windfarm(center: Vector3) -> void:
 		_wind_rotors.append(rotor)
 
 
-func _on_map_image_ready(img: Image) -> void:
-	if _map_thread != null:
+func _on_map_image_ready(img: Image, fertig := true) -> void:
+	if fertig and _map_thread != null:
 		_map_thread.wait_to_finish()
 		_map_thread = null
-	var lay := CanvasLayer.new()
-	lay.layer = 30                      # ueber dem Flug-HUD
-	add_child(lay)
-	world_map = WorldMap.new()
-	lay.add_child(world_map)
-	world_map.setup(img, airfields, _map_pois, null)
+	if world_map != null:
+		world_map.set_image(img)        # feine Stufe ersetzt die grobe
+	else:
+		var lay := CanvasLayer.new()
+		lay.layer = 30                  # ueber dem Flug-HUD
+		add_child(lay)
+		world_map = WorldMap.new()
+		lay.add_child(world_map)
+		world_map.setup(img, airfields, _map_pois, null, terrain, flight_ctrl)
 	# Corner-Minimap im Flug-HUD mit derselben Karte fuettern
+	# (dieselbe Textur, kein zweites Bild im Speicher) und denselben Vektor-Ebenen.
 	if flight_hud != null:
-		flight_hud.mini_tex = ImageTexture.create_from_image(img)
+		flight_hud.mini_tex = world_map.textur()
+		flight_hud.mini_karte = world_map
 		flight_hud.mini_airfields = airfields
 		flight_hud.mini_pois = _map_pois
 

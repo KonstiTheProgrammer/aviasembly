@@ -129,14 +129,37 @@ scripts/FlightHud.gd     Canvas-HUD (Custom-_draw, Vorbild SimplePlanes-Mockup):
                          Fonts, alles skaliert mit u = size.y/1080. FALLE: `var x := dict/Variant`
                          bricht als Warning-as-Error den ganzen Compile -> explizit typisieren;
                          Check via tools/_loadcheck.gd (der --editor-Grep uebersieht diese Klasse!).
-scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug): Image wird im Hintergrund-THREAD
-                         aus height_at/biome_at gesampelt (keine Chunks noetig), ZEILENWEISE
-                         PARALLEL im WorkerThreadPool mit HOHER PRIORITAET (sonst steht sie hinter
-                         den 577 Fernschuerzen-Kacheln an): 512px in 1,7 s statt 6,6 s, bitgleich
-                         (Pruefsumme in tools/_karte_zeit.gd), Zoom 1/2.5/6 per Mausrad (_unhandled_input +
-                         set_input_as_handled gegen Kamera-Zoom), spielerzentriertes geklemmtes
-                         UV-Fenster via draw_texture_rect_region, Label-Declutter (_try_label),
-                         km-Grid, Massstabsbalken, Marker + POIs.
+scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + VEKTOR-EBENEN.
+                         RASTER (generate_image, Hintergrund-Thread, keine Chunks noetig), ZWEISTUFIG
+                         wie die Fernschuerze: Main erzeugt erst 512 px mit Vorrang (M geht nach ~6 s),
+                         dann 1024 px ohne Vorrang (~55 s, steht hinter der Schuerze) und tauscht still
+                         aus (`set_image`). Drei Durchgaenge: (1) height_at + Klasse Meer/See/Land fein,
+                         (2) Farben aus _face_color/wald_anteil auf einem GROBRASTER (FARB_RASTER 250 m,
+                         nur 4 Faeden — die beiden skalieren wegen atomarer Referenzzaehler auf geteilte
+                         Dict-Arrays nicht: 1 Faden 5,6 s, 4 Faeden 3,9 s, 12 Faeden 5,6 s),
+                         (3) Relief/Hoehenlinien/Kueste je Pixel. Geglaettet wird NATIV per
+                         Image.resize (vormultiplizierte Farben kubisch hoch; Hoehen auf GLATT_M 200 m
+                         herunter und wieder hoch; FARB_RUHE mischt ein ~1-km-Farbfeld unter) — punkt-
+                         genau war die Insel ein braunes Tarnmuster (jede Kuppe >50 m traegt Fels),
+                         bilinear gab Karomuster. Hoehenlinien 50 m, im Steilen ausgeduennt.
+                         Abbruch ueber `stopp`-Array (Main._map_stopp in _exit_tree), sonst wartete
+                         Beenden bis zu einer Minute. Mipmaps im Thread.
+                         VEKTOREN (`zeichne_ebenen`, nutzt AUCH die HUD-Minimap): Fluesse
+                         (terrain.rivers), Strassen + echte Hausgrundrisse (CityBuilder.karte_strassen/
+                         karte_haeuser, gesammelt in build/_band, geleert in Main._setup_world), Bahnen
+                         im wahren Kurs (Flugkarten-Symbol bzw. echtes 900-m-Rechteck ab 16 px),
+                         Flugabwehr-Reichweiten (SamSite WERTE.reichweite, FlakGun zone_radius — nur
+                         solange die Stellung steht), Ziele, Flugspur (je Flugzeug-Instanz, Luecke bei
+                         Sprung >1,5 km) und Kurslinie. Was erscheint, haengt am Massstab (m/px).
+                         Alles wird selbst auf das Kartenrechteck BESCHNITTEN (_clip_strecke/Liang-
+                         Barsky, _flaeche/intersect_polygons) — CanvasItem kennt keinen Beschnitt je
+                         Aufruf. `_poly` zeichnet nur Triangulierbares (sonst Logflut aus der Minimap).
+                         Rahmen: Planquadrate A-N/1-14 je 5 km (`planquadrat()`, auch im Kopf),
+                         Windrose, Massstab mit Wechselfeldern, Legende, Innenschatten, Zoom-Pillen.
+                         POIs tragen `art` (ort/natur/gefahr/sonst Wahrzeichen) und bei Orten `radius`.
+                         Zoom 1/2.5/6 per Mausrad (set_input_as_handled gegen Kamera-Zoom).
+                         Messen: tools/_karte_zeit.gd (misst MAINS Erzeugung, Stufenzeiten), Bilder:
+                         tools/_flug_bilder.gd (flug_karte*.png, flug_hud_stadt.png).
 scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 384-m-Chunks,
                          8-m-Raster, Flatshading via Vertex-Colors + Mini-Shader ALBEDO=COLOR.
                          HÖHE (height_at): sanfte fBm-Grundwelligkeit + RIDGED-Noise-Bergketten,

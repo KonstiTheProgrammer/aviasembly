@@ -29,6 +29,19 @@ static var _meshes: Dictionary = {}     # "Haus_Kirche" -> ArrayMesh (Fernstufe)
 static var _meshes_hd: Dictionary = {}  # dieselbe Form mit Nahdetails
 static var _loaded := false
 
+## FUER DIE KARTE (WorldMap): Grundrisse aller gesetzten Haeuser und Strassenstuecke in
+## Weltkoordinaten. Die Karte zeichnet daraus beim Hineinzoomen die ECHTE Bebauung statt
+## eines Symbols. Main leert beides am Anfang von _setup_world (karte_leeren), sonst
+## sammelten sich bei jedem neuen Main (Testlaeufe) Duplikate an.
+## Haus: [Vector2 mitte, Vector2 halbe_groesse, float yaw]; Strasse: [Vector2 a, Vector2 b, breite]
+static var karte_haeuser: Array = []
+static var karte_strassen: Array = []
+
+
+static func karte_leeren() -> void:
+	karte_haeuser.clear()
+	karte_strassen.clear()
+
 
 static func _sammeln(pfad: String, ziel: Dictionary) -> void:
 	var ps: PackedScene = load(pfad)
@@ -105,6 +118,10 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 			var b := Basis(Vector3.UP, float(e.get("yaw", 0.0)) + dreh).scaled(Vector3(sc, sc, sc))
 			xf[i] = Transform3D(b, p)
 			mm.set_instance_transform(i, xf[i])
+			var bb: AABB = (_meshes[t] as Mesh).get_aabb()
+			karte_haeuser.append([Vector2(wx, wz) + Vector2(bb.get_center().x, bb.get_center().z).rotated(
+				-(float(e.get("yaw", 0.0)) + dreh)) * sc,
+				Vector2(bb.size.x, bb.size.z) * (0.5 * sc), float(e.get("yaw", 0.0)) + dreh])
 		# NAHSTUFE: dieselben Transforms mit dem Detail-Mesh
 		if _meshes_hd.has(t):
 			var mh := MultiMesh.new()
@@ -422,6 +439,7 @@ static func _band(st: SurfaceTool, terrain, center: Vector3, a: Vector2, b: Vect
 	var laenge := a.distance_to(b)
 	if laenge < 1.0:
 		return
+	karte_strassen.append([Vector2(center.x, center.z) + a, Vector2(center.x, center.z) + b, breite])
 	var richtung := (b - a) / laenge
 	var quer := Vector2(-richtung.y, richtung.x) * (breite * 0.5)
 	var stuecke := maxi(1, int(laenge / 24.0))
