@@ -922,10 +922,6 @@ func nudge_selected(delta_world: Vector3) -> void:
 	_move_kids = []
 	_emit_selection()
 	_push_history()
-	# Wie jede andere Bearbeitung: ohne das blieben Schwerpunkt-Marker, Ampel, Schwebe-
-	# Warnung, Auto-Taper und der AUTOSAVE (design_changed -> _design_dirty) stehen —
-	# ein nur per Pfeiltaste justiertes Teil war nach dem Beenden wieder am alten Ort.
-	_notify_changed()
 
 
 # Blueprint-Ansichten: 0=frei (Perspektive), 1=Front, 2=Seite, 3=Oben (orthografisch).

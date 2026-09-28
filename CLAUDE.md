@@ -370,8 +370,8 @@ reine DATEN, keinen Node-Verweis, überlebt also Löschen und Moduswechsel) · A
 gehen über `_teil_schnappschuss` → `_teil_einsetzen` → `_form_uebernehmen`, also **denselben**
 Code wie `load_design`. Vorher trug `duplicate_selected` nur Farbe/Größe mit und verlor still
 Verjüngung, Enden-Versatz, Eckrundung und Beinlänge — inklusive am erzeugten Spiegel ·
-**Pfeiltasten** = ausgewähltes Teil fein verschieben (`nudge_selected`, 0.25er; ruft wie jede
-Bearbeitung `_push_history()` UND `_notify_changed()` — ohne Letzteres gab es keinen Autosave) ·
+**Pfeiltasten** = ausgewähltes Teil fein verschieben (`nudge_selected`, 0.25er; `_notify_changed()`
+kommt dort — wie bei nudge_scale/rotate/tilt — schon aus `_apply_sel_transform`) ·
 **`1`/`2`/`3` orthografische Blueprint-Ansicht** Front/Seite/Oben, **`4`** frei (`set_view`/`_ortho_view`,
 Kamera `PROJECTION_ORTHOGONAL`; manuelles Drehen → zurück Perspektive) · Tab=Testflug.
 Statistik hat eine **„Fliegt's?"-Ampel** (`_update_ampel`): grün/gelb/rot aus Stabilität
