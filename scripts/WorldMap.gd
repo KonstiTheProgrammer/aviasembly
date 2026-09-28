@@ -34,6 +34,7 @@ const C_BAHN := Color(0.20, 0.21, 0.23)
 const C_GEFAHR := Color(1.0, 0.24, 0.18)
 const C_ZIEL := Color(1.0, 0.82, 0.25)
 const C_SPUR := Color(1.0, 0.62, 0.30)
+const C_WEG := Color(1.0, 0.86, 0.32)
 const QUADRAT := 5000.0        # Planquadrat-Kante (m)
 const BUCHSTABEN := "ABCDEFGHIJKLMN"
 const BAHN_LEN := 900.0        # = Main.RWY_LEN
@@ -53,12 +54,45 @@ var _n_strassen := -1
 var _n_haeuser := -1
 var _spur_id := 0
 var _map_rect := Rect2()
-# Zoom (Mausrad / +-): 1 = ganze Insel, gezoomt = spielerzentriert (geklemmt)
-const ZOOMS := [1.0, 2.5, 6.0]
-var _zoom_i := 0
-var _win_min := Vector2.ZERO   # sichtbares Weltfenster in UV [0..1]
-var _win_size := Vector2.ONE
 var _label_rects: Array = []   # Label-Entzerrung (Overview-Cluster)
+var _terrain: TerrainWorld = null
+
+# ANSICHT: stufenloser Zoom (Mausrad/Pinch, zum Cursor hin), Ziehen verschiebt.
+const ZOOM_MIN := 1.0
+const ZOOM_MAX := 14.0
+const ZOOM_SCHRITT := 1.3
+var _zoom := 1.0
+var _zoom_ziel := 1.0
+var _mitte := Vector2.ZERO             # Weltmitte der Ansicht (x, z)
+var _folgen := true                    # Ansicht haengt am Flugzeug
+var _anker_welt := Vector2.ZERO
+var _anker_schirm := Vector2(-1, -1)
+var _ziehen := false
+var _zieh_weg := 0.0
+var _maus := Vector2(-1, -1)           # letzte Mausposition (Tooltip)
+var _maus_vorher := Input.MOUSE_MODE_VISIBLE
+var _knopf_folgen := Rect2()
+var _seiten_klick: Array = []          # [Rect2, Flugplatz] der Liste in der Seitenleiste
+
+# WEGPUNKT (Welt x/z; INF = keiner)
+const WEGPUNKT_ERREICHT := 350.0
+signal wegpunkt_erreicht(titel: String)
+var wegpunkt := Vector2.INF
+var wegpunkt_name := ""
+
+# DETAILKACHELN
+const KEINE_KACHEL := Vector3i(-1, -1, -1)
+var _kacheln: Dictionary = {}          # Vector3i (Spalte, Zeile, Stufe) -> ImageTexture
+var _kachel_alter: Dictionary = {}     # Vector3i -> Zugriffszaehler (LRU)
+var _kachel_zaehler := 0
+var _kachel_wunsch: Array = []
+var _kachel_laeuft := KEINE_KACHEL
+var _rand_farbe := Color(0.1, 0.3, 0.5)  # Meer am Weltrand (aus dem Kartenbild)
+var _mini_sicht := Rect2()             # Ausschnitt der Minimap (zuletzt gezeichnet)
+var _mini_mpp := 100.0
+var _mini_frame := -100
+var _kachel_thread: Thread = null
+var _kachel_stopp := [false]
 
 
 ## Das Kartenbild: eine RELIEFKARTE der echten Welt.
@@ -96,17 +130,38 @@ const UEBERHOEHUNG := 3.2      # Relief ueberhoeht, sonst verschwinden 100-m-Hue
 const LINIEN_M := 50.0         # Hoehenlinien-Abstand
 const GLATT_M := 200.0         # Glaettung der Hoehen fuer Relief/Hoehenlinien
 const FARB_RUHE := 0.4         # Anteil des weichen Farbfelds (siehe generate_image)
+# Detailkacheln: dieselbe Karte, nur weniger generalisiert (siehe erzeuge_kachel).
+# ZWEI STUFEN: Stufe 1 = 8 x 8 Kacheln (8,5 km, 16,6 m je Punkt), Stufe 2 = 16 x 16
+# (4,25 km, 8,3 m je Punkt) fuer das starke Hineinzoomen. Stufe 0 ist die Grundkarte.
+const KACHEL_PX := 512
+const KACHEL_RAND := 24
+const KACHEL_AB := 40.0                        # m je echtem Bildpunkt: darunter Stufe 1
+const KACHEL_AB2 := 12.0                       # ... darunter Stufe 2
+const KACHEL_MAX := 48                         # so viele bleiben im Speicher (je ~1 MB)
+# Generalisierung je Stufe [Grundkarte, Stufe 1, Stufe 2]: je naeher, desto feiner.
+const STUFE_FARB := [250.0, 70.0, 32.0]        # Farbraster (m)
+const STUFE_GLATT := [200.0, 50.0, 24.0]       # Glaettung der Hoehen (m)
+const STUFE_RELIEF := [130.0, 55.0, 28.0]      # Messbasis der Schattierung (m)
+const STUFE_RUHE := [0.4, 0.2, 0.12]           # Anteil des weichen Farbfelds
 
 
 ## `stopp` = [bool], von aussen auf true gesetzt bricht die Erzeugung ab (jede Zeile
 ## kehrt sofort zurueck, Rueckgabe null). Sonst wartete Main beim Beenden bis zu einer
 ## Minute auf eine Karte, die niemand mehr sieht.
+## `mitte` verschiebt den Ausschnitt (Detailkacheln), `detail` (Stufe 1/2) schaltet auf
+## die feineren Generalisierungswerte der Kacheln (STUFE_*) und laesst die Mipmaps weg —
+## die Kachel wird danach noch beschnitten.
 static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
-		vorrang := true, faeden := 4, stopp: Array = [false]) -> Image:
+		vorrang := true, faeden := 4, stopp: Array = [false], mitte := Vector2.ZERO,
+		detail := 0) -> Image:
 	var zelle := 2.0 * world_r / float(kante - 1)
 	var sperre := Mutex.new()
 	var t0 := Time.get_ticks_usec()
-	stufen_ms.clear()
+	var zeiten: Array = []
+	var farb_m: float = FARB_RASTER if detail == 0 else STUFE_FARB[detail]
+	var glatt_m: float = GLATT_M if detail == 0 else STUFE_GLATT[detail]
+	var relief_m: float = RELIEF_BASIS if detail == 0 else STUFE_RELIEF[detail]
+	var ruhe: float = FARB_RUHE if detail == 0 else STUFE_RUHE[detail]
 	# Seen: [x, z, r^2, Spiegel]. _rmax statt r beim gelappten Bergsee (sein Arm reicht
 	# ueber r hinaus) — wie TerrainWorld._submerged.
 	var seen: Array = []
@@ -127,9 +182,9 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 		r.resize(kante)
 		var k := PackedByteArray()
 		k.resize(kante)
-		var wz := (float(py) / float(kante - 1) * 2.0 - 1.0) * world_r
+		var wz := mitte.y + (float(py) / float(kante - 1) * 2.0 - 1.0) * world_r
 		for px in kante:
-			var wx := (float(px) / float(kante - 1) * 2.0 - 1.0) * world_r
+			var wx := mitte.x + (float(px) / float(kante - 1) * 2.0 - 1.0) * world_r
 			var h := t.height_at(wx, wz)
 			r[px] = h
 			var art := 2
@@ -155,7 +210,7 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 	for i in kante:
 		hs.append_array(zeilen_h[i])
 		ks.append_array(zeilen_k[i])
-	stufen_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	zeiten.append((Time.get_ticks_usec() - t0) / 1000.0)
 
 	# GEGLAETTETE HOEHEN (fuer Relief, Hoehenlinien UND die Farbwahl): auf GLATT_M
 	# herunter und kubisch wieder hoch.
@@ -165,20 +220,20 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 	# Eine Karte GENERALISIERT: Fels ist, was auf 200 m steil ist. Kueste und Wasser
 	# kommen weiter aus dem feinen Raster.
 	var h_img := Image.create_from_data(kante, kante, false, Image.FORMAT_RF, hs.to_byte_array())
-	var klein := clampi(roundi(2.0 * world_r / GLATT_M), 16, kante)
+	var klein := clampi(roundi(2.0 * world_r / glatt_m), 16, kante)
 	h_img.resize(klein, klein, Image.INTERPOLATE_LANCZOS)
 	h_img.resize(kante, kante, Image.INTERPOLATE_CUBIC)
 	var hg := h_img.get_data().to_float32_array()
 
 	# --- 2. Farben, grob (teuer, nur vier Faeden — Begruendung oben) ------------------
-	var schritt := maxi(1, roundi(FARB_RASTER / zelle))
+	var schritt := maxi(1, roundi(farb_m / zelle))
 	var n := ceili(float(kante - 1) / float(schritt)) + 1
 	var zeilen_c: Array = []
 	zeilen_c.resize(n)
 	var g2 := WorkerThreadPool.add_group_task(func(j: int) -> void:
 		if stopp[0]:
 			return
-		var z := _grobfarben(t, hs, hg, ks, j, n, schritt, kante, world_r, zelle)
+		var z := _grobfarben(t, hs, hg, ks, j, n, schritt, kante, world_r, zelle, mitte)
 		sperre.lock()
 		zeilen_c[j] = z
 		sperre.unlock(), n, faeden, vorrang, "Weltkarte Farben")
@@ -188,7 +243,7 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 	var cs := PackedColorArray()
 	for z in zeilen_c:
 		cs.append_array(z)
-	stufen_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	zeiten.append((Time.get_ticks_usec() - t0) / 1000.0)
 
 	# --- 2b. Glaetten, nativ ueber Image.resize (C++, Millisekunden) --------------------
 	# FARBEN: vormultipliziert mit der Landmaske, kubisch auf volle Groesse — bilinear
@@ -210,11 +265,11 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 	var fs := f_img.get_data().to_float32_array()
 	var fw := f_weich.get_data().to_float32_array()
 	for i in fs.size():
-		fs[i] = lerpf(fs[i], fw[i], FARB_RUHE)
-	stufen_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+		fs[i] = lerpf(fs[i], fw[i], ruhe)
+	zeiten.append((Time.get_ticks_usec() - t0) / 1000.0)
 
 	# --- 3. Zusammensetzen (billig, alle Faeden) --------------------------------------
-	var basis := maxi(1, roundi(RELIEF_BASIS / zelle))
+	var basis := maxi(1, roundi(relief_m / zelle))
 	var zeilen: Array = []
 	zeilen.resize(kante)
 	var g3 := WorkerThreadPool.add_group_task(func(py: int) -> void:
@@ -233,9 +288,30 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 	var img := Image.create_from_data(kante, kante, false, Image.FORMAT_RGB8, daten)
 	# MIPMAPS GLEICH HIER IM THREAD: in der Uebersicht wird das Bild fast auf die Haelfte
 	# verkleinert, ohne Mipmaps flimmern dort Hoehenlinien und Kueste.
-	img.generate_mipmaps()
-	stufen_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	if detail == 0:
+		img.generate_mipmaps()
+	zeiten.append((Time.get_ticks_usec() - t0) / 1000.0)
+	if detail == 0:
+		stufen_ms = zeiten   # Kacheln laufen nebenher und sollen die Messung nicht stoeren
 	return img
+
+
+## DETAILKACHEL (key = Spalte, Zeile, Stufe), scharf fuer das Hineinzoomen.
+## Erzeugt mit KACHEL_RAND Punkten Ueberstand und danach beschnitten: Glaettung und
+## Reliefnachbarn laufen sonst am Kachelrand ins Leere, und die Naehte waeren zu sehen.
+## Pixelmitten liegen bei kachel_min + (i + 0.5) * zelle, genau wie beim Zeichnen.
+static func erzeuge_kachel(t: TerrainWorld, key: Vector3i, stopp: Array) -> Image:
+	var km := kachel_m(key.z)
+	var zelle := km / float(KACHEL_PX)
+	var k := KACHEL_PX + 2 * KACHEL_RAND
+	var halb := zelle * float(k - 1) * 0.5
+	var mitte := _kachel_mitte(key)
+	var img := generate_image(t, k, halb, false, 4, stopp, mitte, key.z)
+	if img == null:
+		return null
+	var aus := img.get_region(Rect2i(KACHEL_RAND, KACHEL_RAND, KACHEL_PX, KACHEL_PX))
+	aus.generate_mipmaps()
+	return aus
 
 
 # Kartenpalette (sRGB, wie die Vertexfarben des Gelaendes).
@@ -254,11 +330,11 @@ const K_LICHT := Vector3(-0.55, 0.62, -0.55)   # Licht aus Nordwest (-x West, -z
 ## Mischen nicht mit — sonst liefe Meerblau in die Kueste.
 static func _grobfarben(t: TerrainWorld, hs: PackedFloat32Array, hg: PackedFloat32Array,
 		ks: PackedByteArray, j: int, n: int, schritt: int, kante: int, world_r: float,
-		zelle: float) -> PackedColorArray:
+		zelle: float, mitte: Vector2) -> PackedColorArray:
 	var out := PackedColorArray()
 	out.resize(n)
 	var py := mini(j * schritt, kante - 1)
-	var wz := (float(py) / float(kante - 1) * 2.0 - 1.0) * world_r
+	var wz := mitte.y + (float(py) / float(kante - 1) * 2.0 - 1.0) * world_r
 	var o := py * kante
 	var o_hoch := maxi(py - 1, 0) * kante
 	var o_tief := mini(py + 1, kante - 1) * kante
@@ -267,7 +343,7 @@ static func _grobfarben(t: TerrainWorld, hs: PackedFloat32Array, hg: PackedFloat
 		if ks[o + px] != 2:
 			out[i] = Color(0, 0, 0, 0)
 			continue
-		var wx := (float(px) / float(kante - 1) * 2.0 - 1.0) * world_r
+		var wx := mitte.x + (float(px) / float(kante - 1) * 2.0 - 1.0) * world_r
 		# Hoehe fein nur am Wasser (Strand, Uferkies), sonst geglaettet; Neigung immer
 		# aus dem geglaetteten Raster.
 		var h := hs[o + px]
@@ -378,6 +454,7 @@ func setup(map_img: Image, airfields: Array, pois: Array, player: Node3D,
 			_orte.append([Vector2(pw.x, pw.z), float(poi["radius"])])
 	_player = player
 	_flug = flug
+	_terrain = terrain
 	_fluesse.clear()
 	if terrain != null:
 		for rv in terrain.rivers:
@@ -397,6 +474,10 @@ func setup(map_img: Image, airfields: Array, pois: Array, player: Node3D,
 ## Kartenbild austauschen (die feine Stufe ersetzt die grobe, siehe Main).
 func set_image(map_img: Image) -> void:
 	_tex = ImageTexture.create_from_image(map_img)
+	# Jenseits des Weltrands wird mit genau der Farbe des Kartenrands weitergemalt — mit
+	# einer festen Palettenfarbe stand dort eine sichtbare Kante (das Randmeer ist nur
+	# 18 m tief, also heller als K_TIEF).
+	_rand_farbe = map_img.get_pixel(0, map_img.get_height() >> 1)
 	queue_redraw()
 
 
@@ -420,10 +501,31 @@ func flieger() -> Node3D:
 	return null
 
 
-func _process(_dt: float) -> void:
+func _process(dt: float) -> void:
 	_spur_aufzeichnen()
-	if visible:
-		queue_redraw()   # Spieler-Pfeil bewegt sich live
+	_wegpunkt_pruefen()
+	if not visible:
+		# Minimap: die Kacheln um das Flugzeug still vorladen (nur Stufe 1), solange sie
+		# ueberhaupt gezeichnet wird.
+		_kachel_wunsch.clear()
+		if Engine.get_process_frames() - _mini_frame < 5:
+			_kacheln_planen(_mini_sicht.grow(1500.0), _mini_mpp, 1)
+		return
+	# WEICHES ZOOMEN: _zoom laeuft dem Ziel nach; der Weltpunkt unter dem Anker (Cursor
+	# beim Mausrad) bleibt dabei stehen — so zoomt man GENAU dorthin, wo man hinzeigt.
+	if absf(_zoom - _zoom_ziel) > 0.0005:
+		_zoom = lerpf(_zoom, _zoom_ziel, 1.0 - exp(-14.0 * dt))
+		if absf(_zoom - _zoom_ziel) < 0.001:
+			_zoom = _zoom_ziel
+		if not _folgen and _anker_schirm.x >= 0.0:
+			_mitte = _anker_welt - (_anker_schirm - _map_rect.get_center()) * _mpp()
+	if _folgen:
+		var ac := flieger()
+		if ac != null:
+			_mitte = Vector2(ac.global_position.x, ac.global_position.z)
+	_klemmen()
+	_kacheln_planen(_sicht(), _mpp() / _skala(), 2)
+	queue_redraw()   # Spieler-Pfeil bewegt sich live
 
 
 ## FLUGSPUR: alle 120 m ein Punkt, je Flug (neues Flugzeug = neue Spur, also auch nach
@@ -447,35 +549,296 @@ func _spur_aufzeichnen() -> void:
 			_spur = _spur.slice(400)
 
 
+# --- WEGPUNKT ----------------------------------------------------------------------
+# Klick in die Karte setzt ihn, Rechtsklick loescht ihn, ein Klick auf einen Flugplatz in
+# der Seitenleiste legt ihn dorthin. Das HUD fuehrt dann statt zum naechsten Flugplatz
+# zum Wegpunkt (Main._on_hud_changed), Karte und Minimap zeigen Linie und Fahne. Beim
+# Ueberfliegen (unter WEGPUNKT_ERREICHT) loest er sich auf und meldet sich per Signal.
+
+func hat_wegpunkt() -> bool:
+	return wegpunkt.is_finite()
+
+
+func setze_wegpunkt(w: Vector2, titel := "") -> void:
+	wegpunkt = w
+	wegpunkt_name = titel
+	queue_redraw()
+
+
+func loesche_wegpunkt() -> void:
+	wegpunkt = Vector2.INF
+	wegpunkt_name = ""
+	queue_redraw()
+
+
+## "WEGPUNKT   3.2 km   045°" fuer die NAV-Pille im HUD.
+func wegpunkt_text(von: Vector3) -> String:
+	var d := wegpunkt - Vector2(von.x, von.z)
+	var brg := fposmod(rad_to_deg(atan2(d.x, -d.y)), 360.0)
+	var n := wegpunkt_name if wegpunkt_name != "" else "WEGPUNKT"
+	return "%s   %.1f km   %03d°" % [n, d.length() / 1000.0, int(round(brg)) % 360]
+
+
+func _wegpunkt_pruefen() -> void:
+	if not hat_wegpunkt():
+		return
+	var ac := flieger()
+	if ac == null:
+		return
+	if Vector2(ac.global_position.x, ac.global_position.z).distance_to(wegpunkt) < WEGPUNKT_ERREICHT:
+		var n := wegpunkt_name
+		loesche_wegpunkt()
+		wegpunkt_erreicht.emit(n)
+
+
+# --- ANSICHT: Mitte (Welt x/z) + Zoom -> Ausschnitt im Kartenrechteck ----------------
+# Zoom 1 = die ganze Welthoehe (68 km) passt ins Rechteck. Das Rechteck ist BREITER als
+# hoch; seitlich jenseits des Weltrands zeigt die Karte offenes Meer.
+
+func _mpp() -> float:
+	if _map_rect.size.y <= 1.0:
+		return 1.0
+	return 2.0 * WORLD_R / _zoom / _map_rect.size.y
+
+
+## Sichtbarer Weltausschnitt (x, z) als Rechteck.
+func _sicht() -> Rect2:
+	var groesse := _map_rect.size * _mpp()
+	return Rect2(_mitte - groesse * 0.5, groesse)
+
+
+func _klemmen() -> void:
+	var halb := _map_rect.size * _mpp() * 0.5
+	for ax in 2:
+		if halb[ax] >= WORLD_R:
+			_mitte[ax] = 0.0
+		else:
+			_mitte[ax] = clampf(_mitte[ax], -WORLD_R + halb[ax], WORLD_R - halb[ax])
+
+
+func _welt_zu_schirm(w: Vector2) -> Vector2:
+	return _map_rect.get_center() + (w - _mitte) / _mpp()
+
+
+func _schirm_zu_welt(p: Vector2) -> Vector2:
+	return _mitte + (p - _map_rect.get_center()) * _mpp()
+
+
 func _world_to_map(w: Vector3) -> Vector2:
-	var uv := Vector2(w.x / WORLD_R * 0.5 + 0.5, w.z / WORLD_R * 0.5 + 0.5)
-	return _map_rect.position + (uv - _win_min) / _win_size * _map_rect.size
+	return _welt_zu_schirm(Vector2(w.x, w.z))
 
 
-func _unhandled_input(event: InputEvent) -> void:
+## Zoom auf `ziel`, wobei der Weltpunkt unter `schirm` stehen bleibt (schirm.x < 0: Mitte).
+func _zoom_auf(ziel: float, schirm := Vector2(-1, -1)) -> void:
+	_zoom_ziel = clampf(ziel, ZOOM_MIN, ZOOM_MAX)
+	if schirm.x < 0.0 or _folgen:
+		_anker_schirm = Vector2(-1, -1)
+		return
+	_anker_schirm = schirm
+	_anker_welt = _schirm_zu_welt(schirm)
+
+
+## Von aussen (Werkzeuge, Main): Zoomstufe direkt setzen, auf den Spieler zentriert.
+func set_zoom(z: float) -> void:
+	_folgen = true
+	_zoom_ziel = clampf(z, ZOOM_MIN, ZOOM_MAX)
+	_zoom = _zoom_ziel
+	_anker_schirm = Vector2(-1, -1)
+
+
+func zoom() -> float:
+	return _zoom
+
+
+# --- EINGABE ----------------------------------------------------------------------
+# Solange die Karte offen ist, ist die Maus FREI (toggle) und die Karte faengt alle
+# Mausereignisse ab (mouse_filter STOP) — sonst lenkte jede Kartenbewegung im Maus-Flug
+# das Flugzeug, und das Mausrad zoomte die Flugkamera mit.
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_zoom_auf(_zoom_ziel * ZOOM_SCHRITT, mb.position)
+		elif mb.pressed and mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_zoom_auf(_zoom_ziel / ZOOM_SCHRITT, mb.position)
+		elif mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_MIDDLE:
+			if mb.pressed:
+				_ziehen = _map_rect.has_point(mb.position)
+				_zieh_weg = 0.0
+			else:
+				if _zieh_weg < 5.0 and mb.button_index == MOUSE_BUTTON_LEFT:
+					_klick(mb.position)
+				_ziehen = false
+		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			if _map_rect.has_point(mb.position):
+				loesche_wegpunkt()
+		accept_event()
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		_maus = mm.position
+		if _ziehen:
+			_zieh_weg += mm.relative.length()
+			if _zieh_weg >= 5.0:
+				_folgen = false
+				_anker_schirm = Vector2(-1, -1)
+				_mitte -= mm.relative * _mpp()
+				_klemmen()
+		accept_event()
+	elif event is InputEventMagnifyGesture:
+		var mg := event as InputEventMagnifyGesture
+		_zoom_auf(_zoom_ziel * mg.factor, mg.position)
+		accept_event()
+	elif event is InputEventPanGesture:
+		# Zwei-Finger-Wischen auf dem Trackpad verschiebt die Karte
+		var pg := event as InputEventPanGesture
+		_folgen = false
+		_anker_schirm = Vector2(-1, -1)
+		_mitte += pg.delta * 12.0 * _mpp()
+		_klemmen()
+		accept_event()
+
+
+func _klick(pos: Vector2) -> void:
+	# Knopf "Zu mir" im Kopf
+	if _knopf_folgen.has_point(pos):
+		_folgen = true
+		_anker_schirm = Vector2(-1, -1)
+		return
+	# Flugplatzliste in der Seitenleiste
+	for zeile in _seiten_klick:
+		if (zeile[0] as Rect2).has_point(pos):
+			var af: Dictionary = zeile[1]
+			var ap: Vector3 = af["pos"]
+			setze_wegpunkt(Vector2(ap.x, ap.z), String(af["name"]))
+			return
+	if _map_rect.has_point(pos):
+		setze_wegpunkt(_schirm_zu_welt(pos))
+
+
+func toggle() -> void:
+	if visible:
+		schliessen()
+	else:
+		oeffnen()
+
+
+func oeffnen() -> void:
+	if visible:
+		return
+	visible = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	_maus_vorher = Input.mouse_mode
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# Beim Oeffnen auf das Flugzeug zentriert; ein gewaehlter Zoom bleibt erhalten.
+	_folgen = true
+	_ziehen = false
+	_maus = Vector2(-1, -1)
+	queue_redraw()
+
+
+func schliessen() -> void:
 	if not visible:
 		return
-	if event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_zoom_i = mini(_zoom_i + 1, ZOOMS.size() - 1)
-			get_viewport().set_input_as_handled()   # nicht an die Flug-Kamera durchreichen
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_zoom_i = maxi(_zoom_i - 1, 0)
-			get_viewport().set_input_as_handled()
+	visible = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ziehen = false
+	_kachel_wunsch.clear()
+	Input.mouse_mode = _maus_vorher
 
 
-## Sichtfenster (UV) aus Zoom + Spielerposition bestimmen; am Weltrand geklemmt.
-func _update_window() -> void:
-	var z: float = ZOOMS[_zoom_i]
-	var half := 0.5 / z
-	var c := Vector2(0.5, 0.5)
-	var ac := flieger()
-	if z > 1.0 and ac != null:
-		var pp := ac.global_position
-		c = Vector2(pp.x / WORLD_R * 0.5 + 0.5, pp.z / WORLD_R * 0.5 + 0.5)
-	c = c.clamp(Vector2(half, half), Vector2(1.0 - half, 1.0 - half))
-	_win_min = c - Vector2(half, half)
-	_win_size = Vector2(half, half) * 2.0
+func offen() -> bool:
+	return visible
+
+
+# --- DETAILKACHELN -----------------------------------------------------------------
+# Die Grundkarte hat 66 m je Bildpunkt. Beim Hineinzoomen wird sie weich; dann kommen
+# scharfe Kacheln mit 16,6 m je Punkt dazu, EINE nach der anderen im Hintergrund, die
+# naechstgelegene zuerst. Bis eine fertig ist, liegt dort die Grundkarte — man sieht also
+# nie ein Loch, nur wie es schaerfer wird. Fertige Kacheln bleiben im Speicher
+# (hoechstens KACHEL_MAX, die am laengsten ungenutzten fliegen zuerst).
+
+## Kacheln fuer den Ausschnitt `sicht` anfordern. `mpp` = Meter je ECHTEM Bildpunkt
+## (nicht je virtuellem UI-Punkt): auf einem Retina-Schirm ist derselbe Zoom doppelt so
+## fein aufgeloest und braucht die schaerfere Stufe frueher.
+func _kacheln_planen(sicht: Rect2, mpp: float, max_stufe: int) -> void:
+	_kachel_wunsch.clear()
+	if _terrain == null or mpp >= KACHEL_AB:
+		return
+	var stufe := 2 if mpp < KACHEL_AB2 and max_stufe >= 2 else 1
+	var km := kachel_m(stufe)
+	var n := kachel_n(stufe)
+	var i0 := clampi(floori((sicht.position.x + WORLD_R) / km), 0, n - 1)
+	var i1 := clampi(floori((sicht.end.x + WORLD_R) / km), 0, n - 1)
+	var j0 := clampi(floori((sicht.position.y + WORLD_R) / km), 0, n - 1)
+	var j1 := clampi(floori((sicht.end.y + WORLD_R) / km), 0, n - 1)
+	for j in range(j0, j1 + 1):
+		for i in range(i0, i1 + 1):
+			var key := Vector3i(i, j, stufe)
+			if _kacheln.has(key):
+				_kachel_zaehler += 1
+				_kachel_alter[key] = _kachel_zaehler
+			elif key != _kachel_laeuft:
+				_kachel_wunsch.append(key)
+	# Naechste zur Bildmitte zuerst
+	var m := _mitte
+	_kachel_wunsch.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return _kachel_mitte(a).distance_squared_to(m) < _kachel_mitte(b).distance_squared_to(m))
+	if not _kachel_wunsch.is_empty() and (_kachel_thread == null or not _kachel_thread.is_alive()):
+		if _kachel_thread != null:
+			_kachel_thread.wait_to_finish()
+		var key: Vector3i = _kachel_wunsch[0]
+		_kachel_laeuft = key
+		var t := _terrain
+		var stopp := _kachel_stopp
+		_kachel_thread = Thread.new()
+		_kachel_thread.start(func() -> void:
+			var img := WorldMap.erzeuge_kachel(t, key, stopp)
+			if img != null:
+				call_deferred("_kachel_fertig", key, img))
+
+
+static func kachel_n(stufe: int) -> int:
+	return 8 if stufe == 1 else 16
+
+
+static func kachel_m(stufe: int) -> float:
+	return 2.0 * WORLD_R / float(kachel_n(stufe))
+
+
+static func _kachel_mitte(key: Vector3i) -> Vector2:
+	var km := kachel_m(key.z)
+	return Vector2(-WORLD_R + (float(key.x) + 0.5) * km, -WORLD_R + (float(key.y) + 0.5) * km)
+
+
+func _kachel_fertig(key: Vector3i, img: Image) -> void:
+	_kachel_laeuft = KEINE_KACHEL
+	_kacheln[key] = ImageTexture.create_from_image(img)
+	_kachel_zaehler += 1
+	_kachel_alter[key] = _kachel_zaehler
+	while _kacheln.size() > KACHEL_MAX:
+		var alt := key
+		var alt_n := _kachel_zaehler + 1
+		for k in _kachel_alter:
+			if int(_kachel_alter[k]) < alt_n:
+				alt_n = int(_kachel_alter[k])
+				alt = k
+		_kacheln.erase(alt)
+		_kachel_alter.erase(alt)
+	queue_redraw()
+
+
+## Fertig = fuer den aktuellen Ausschnitt liegt keine Kachel mehr in der Warteschlange
+## (auch wenn gar keine noetig sind). Fuer Werkzeuge, die auf die scharfe Karte warten.
+func kacheln_bereit() -> bool:
+	return _kachel_wunsch.is_empty() and _kachel_laeuft == KEINE_KACHEL
+
+
+func _exit_tree() -> void:
+	_kachel_stopp[0] = true
+	if _kachel_thread != null and _kachel_thread.is_started():
+		_kachel_thread.wait_to_finish()
+	_kachel_thread = null
 
 
 ## Planquadrat einer Weltposition, z. B. "F7" (Spalten A-N von West, Zeilen 1-14 von Nord).
@@ -789,6 +1152,30 @@ func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vec
 				var q := Vector2(pp.x, pp.z) + flach * (weit * float(k) / 12.0)
 				pts.append((o + Vector2(q.x, q.y) * k2))
 			_gestrichelt(ci, pts, rect, Color(1, 1, 1, 0.75), maxf(1.0, 1.3 * ui), false)
+
+	# --- Wegpunkt: gestrichelte Linie vom Flugzeug, Fahne am Ziel -----------------------
+	if hat_wegpunkt():
+		var wm := o + wegpunkt * k2
+		if ac != null:
+			var pa := o + Vector2(ac.global_position.x, ac.global_position.z) * k2
+			var n_str := clampi(int(pa.distance_to(wm) / (7.0 * ui)), 2, 240)
+			var lin := PackedVector2Array()
+			for k in n_str + 1:
+				lin.append(pa.lerp(wm, float(k) / float(n_str)))
+			_gestrichelt(ci, lin, rect, Color(0, 0, 0, 0.6), maxf(2.0, 3.2 * ui), false)
+			_gestrichelt(ci, lin, rect, C_WEG, maxf(1.2, 1.8 * ui), false)
+		if rect.grow(-2.0).has_point(wm):
+			var g := (0.7 if eck else 1.0) * ui
+			var fuss := wm
+			var spitze := wm + Vector2(0, -20.0 * g)
+			ci.draw_line(fuss, spitze, Color(0, 0, 0, 0.85), 3.4 * g)
+			ci.draw_line(fuss, spitze, Color(1, 1, 1, 0.95), 1.6 * g)
+			var fahne := PackedVector2Array([spitze, spitze + Vector2(13.0 * g, 4.5 * g),
+				spitze + Vector2(0, 9.0 * g)])
+			ci.draw_colored_polygon(fahne, C_WEG)
+			ci.draw_polyline(fahne + PackedVector2Array([fahne[0]]), Color(0, 0, 0, 0.85), 1.2 * g, true)
+			ci.draw_circle(fuss, 3.2 * g, Color(0, 0, 0, 0.85))
+			ci.draw_circle(fuss, 2.0 * g, C_WEG)
 	return belegt
 
 
@@ -860,58 +1247,46 @@ func _windrose(m: Vector2, r: float, ui: float) -> void:
 	_shadow_text(F_BOLD, m + Vector2(-w * 0.5, -r - 5.0 * ui), "N", fs, C_TEXT)
 
 
-## Legende unten rechts in der Karte. Liefert ihr Rechteck (Namen weichen aus).
-func _legende(ui: float) -> Rect2:
-	var fs := int(14.0 * ui)
-	var zeile := 21.0 * ui
-	var eintraege := ["Flugplatz", "Ort", "Wahrzeichen", "Natur", "Flugabwehr", "Ziel",
-		"Fluss", "Flugspur"]
-	var breit := 0.0
-	for e in eintraege:
-		breit = maxf(breit, F_SEMI.get_string_size(e, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x)
-	var pad := 10.0 * ui
-	var groesse := Vector2(pad * 2.0 + 26.0 * ui + breit, pad * 2.0 + zeile * eintraege.size()
-		+ 20.0 * ui)
-	var r := Rect2(_map_rect.end - groesse - Vector2(12, 12) * ui, groesse)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.05, 0.07, 0.78)
-	sb.set_corner_radius_all(int(8.0 * ui))
-	sb.border_color = Color(1, 1, 1, 0.18)
-	sb.set_border_width_all(1)
-	draw_style_box(sb, r)
-	for i in eintraege.size():
-		var y := r.position.y + pad + zeile * (float(i) + 0.5)
-		var ic := Vector2(r.position.x + pad + 9.0 * ui, y)
-		match i:
-			0:
-				draw_circle(ic, 6.0 * ui, Color(0.9, 0.9, 0.95))
-				draw_line(ic - Vector2(9, -5) * ui, ic + Vector2(9, -5) * ui, Color(0, 0, 0, 0.9), 3.6 * ui)
-				draw_line(ic - Vector2(9, -5) * ui, ic + Vector2(9, -5) * ui, Color.WHITE, 1.8 * ui)
-			1:
-				draw_rect(Rect2(ic - Vector2(6, 6) * ui, Vector2(12, 12) * ui), Color(0, 0, 0, 0.85))
-				draw_rect(Rect2(ic - Vector2(4.5, 4.5) * ui, Vector2(9, 9) * ui), Color(0.95, 0.88, 0.55))
-			2:
-				draw_circle(ic, 6.0 * ui, Color(0, 0, 0, 0.85))
-				draw_circle(ic, 4.5 * ui, Color(0.58, 0.76, 0.82))
-			3:
-				_dreieck_icon(self, ic, 6.5 * ui, Color(0.90, 0.62, 0.30), ui)
-			4:
-				draw_circle(ic, 7.0 * ui, Color(C_GEFAHR.r, C_GEFAHR.g, C_GEFAHR.b, 0.22))
-				draw_arc(ic, 7.0 * ui, 0.0, TAU, 20, C_GEFAHR, 1.5 * ui, true)
-			5:
-				var d := 4.5 * ui
-				draw_colored_polygon(PackedVector2Array([ic + Vector2(0, -d), ic + Vector2(d, 0),
-					ic + Vector2(0, d), ic + Vector2(-d, 0)]), C_ZIEL)
-			6:
-				draw_line(ic - Vector2(9, 2) * ui, ic + Vector2(9, -2) * ui, C_FLUSS.lightened(0.12), 3.0 * ui, true)
-			7:
-				draw_line(ic - Vector2(9, 0) * ui, ic + Vector2(9, 0) * ui, C_SPUR, 2.4 * ui, true)
-		_shadow_text(F_SEMI, Vector2(r.position.x + pad + 26.0 * ui, y + fs * 0.36),
-			eintraege[i], fs, C_TEXT)
-	var fuss := "Höhenlinien alle %d m" % int(LINIEN_M)
-	draw_string(F_SEMI, Vector2(r.position.x + pad, r.end.y - pad + 2.0 * ui), fuss,
-		HORIZONTAL_ALIGNMENT_LEFT, -1.0, int(12.0 * ui), C_MUTED)
-	return r
+const LEGENDE := ["Flugplatz", "Ort", "Wahrzeichen", "Natur", "Flugabwehr", "Ziel",
+	"Fluss", "Flugspur", "Wegpunkt", "Kurs"]
+
+
+## Zeichen Nummer i der Legende an Stelle ic (dieselben Zeichen wie auf der Karte).
+func _legende_icon(i: int, ic: Vector2, ui: float) -> void:
+	match i:
+		0:
+			draw_circle(ic, 6.0 * ui, Color(0.9, 0.9, 0.95))
+			draw_line(ic - Vector2(9, -5) * ui, ic + Vector2(9, -5) * ui, Color(0, 0, 0, 0.9), 3.6 * ui)
+			draw_line(ic - Vector2(9, -5) * ui, ic + Vector2(9, -5) * ui, Color.WHITE, 1.8 * ui)
+		1:
+			draw_rect(Rect2(ic - Vector2(6, 6) * ui, Vector2(12, 12) * ui), Color(0, 0, 0, 0.85))
+			draw_rect(Rect2(ic - Vector2(4.5, 4.5) * ui, Vector2(9, 9) * ui), Color(0.95, 0.88, 0.55))
+		2:
+			draw_circle(ic, 6.0 * ui, Color(0, 0, 0, 0.85))
+			draw_circle(ic, 4.5 * ui, Color(0.58, 0.76, 0.82))
+		3:
+			_dreieck_icon(self, ic, 6.5 * ui, Color(0.90, 0.62, 0.30), ui)
+		4:
+			draw_circle(ic, 7.0 * ui, Color(C_GEFAHR.r, C_GEFAHR.g, C_GEFAHR.b, 0.22))
+			draw_arc(ic, 7.0 * ui, 0.0, TAU, 20, C_GEFAHR, 1.5 * ui, true)
+		5:
+			var d := 4.5 * ui
+			draw_colored_polygon(PackedVector2Array([ic + Vector2(0, -d), ic + Vector2(d, 0),
+				ic + Vector2(0, d), ic + Vector2(-d, 0)]), C_ZIEL)
+		6:
+			draw_line(ic - Vector2(9, 2) * ui, ic + Vector2(9, -2) * ui, C_FLUSS.lightened(0.12), 3.0 * ui, true)
+		7:
+			draw_line(ic - Vector2(9, 0) * ui, ic + Vector2(9, 0) * ui, C_SPUR, 2.4 * ui, true)
+		8:
+			var sp := ic + Vector2(-3, 7) * ui
+			draw_line(sp, sp + Vector2(0, -14) * ui, Color(1, 1, 1, 0.95), 1.6 * ui)
+			draw_colored_polygon(PackedVector2Array([sp + Vector2(0, -14) * ui,
+				sp + Vector2(10, -10.5) * ui, sp + Vector2(0, -7) * ui]), C_WEG)
+		9:
+			for k in 3:
+				var x0 := -9.0 + 7.0 * k
+				draw_line(ic + Vector2(x0, 0) * ui, ic + Vector2(x0 + 4.0, 0) * ui,
+					Color(1, 1, 1, 0.8), 1.4 * ui)
 
 
 static func _dreieck_icon(ci: CanvasItem, m: Vector2, d: float, col: Color, ui: float) -> void:
@@ -963,18 +1338,25 @@ func _draw() -> void:
 		return
 	var vs := get_viewport_rect().size
 	var ui := vs.y / 1080.0                              # Skalierung: crisp auf 1440p/4K
-	var s := floorf(minf(vs.y * 0.74, vs.x * 0.55))
-	var head := floorf(52.0 * ui)
-	var panel := Rect2(floorf((vs.x - s) * 0.5), floorf((vs.y - s - head) * 0.5),
-		s, s + head)
-	_map_rect = Rect2(panel.position + Vector2(0, head), Vector2(s, s)).grow(-floorf(10.0 * ui))
-	_map_rect.position = _map_rect.position.floor()
 	var ac := flieger()
+
+	# GROSSES LAYOUT: fast bildschirmfuellend, rechts eine Seitenleiste. Vorher war die
+	# Karte ein Quadrat von 74 % der Bildhoehe mitten im Bild, links und rechts lag das
+	# abgedunkelte HUD brach.
+	var rand := floorf(18.0 * ui)
+	var pad := floorf(12.0 * ui)
+	var head := floorf(50.0 * ui)
+	var panel := Rect2(rand, rand, vs.x - 2.0 * rand, vs.y - 2.0 * rand)
+	var seite_b := floorf(clampf(340.0 * ui, 0.0, panel.size.x * 0.32))
+	_map_rect = Rect2(panel.position + Vector2(pad, head),
+		Vector2(panel.size.x - 3.0 * pad - seite_b, panel.size.y - head - pad)).abs()
+	_map_rect.position = _map_rect.position.floor()
+	_map_rect.size = _map_rect.size.floor()
+	var seite := Rect2(_map_rect.end.x + pad, _map_rect.position.y, seite_b, _map_rect.size.y)
+	_klemmen()
 
 	# Hintergrund kraeftig abdunkeln -> das HUD dahinter lenkt nicht mehr ab
 	draw_rect(Rect2(Vector2.ZERO, vs), Color(0.02, 0.03, 0.05, 0.72))
-
-	# Panel: gerundet + Rand + interne Titelleiste (keine Kollision mit dem Kompass-HUD)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_PANEL
 	sb.set_corner_radius_all(int(12.0 * ui))
@@ -987,76 +1369,27 @@ func _draw() -> void:
 	hb.bg_color = C_HEADER
 	hb.corner_radius_top_left = int(12.0 * ui)
 	hb.corner_radius_top_right = int(12.0 * ui)
-	draw_style_box(hb, Rect2(panel.position, Vector2(panel.size.x, head)))
-	var fs_title := int(26.0 * ui)
-	var titel_x := panel.position.x + 18.0 * ui
-	var mitte_y := panel.position.y + head * 0.5
-	_shadow_text(F_BOLD, Vector2(titel_x, mitte_y + fs_title * 0.36), "KARTE", fs_title, C_TEXT)
-	titel_x += F_BOLD.get_string_size("KARTE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_title).x + 16.0 * ui
-	# Zoomstufen als Pillen, die aktive hervorgehoben
-	var fs_chip := int(15.0 * ui)
-	for i in ZOOMS.size():
-		var txt := ("%.1f×" % ZOOMS[i]).replace(".0×", "×").replace(".", ",")
-		var tw := F_SEMI.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_chip).x
-		var chip := Rect2(titel_x, mitte_y - 12.0 * ui, tw + 16.0 * ui, 24.0 * ui)
-		var cb := StyleBoxFlat.new()
-		cb.set_corner_radius_all(int(12.0 * ui))
-		cb.bg_color = Color(0.25, 0.75, 0.95, 0.9) if i == _zoom_i else Color(1, 1, 1, 0.08)
-		draw_style_box(cb, chip)
-		draw_string(F_SEMI, Vector2(chip.position.x + 8.0 * ui, mitte_y + fs_chip * 0.36), txt,
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_chip,
-			Color(0.02, 0.05, 0.08) if i == _zoom_i else C_MUTED)
-		titel_x = chip.end.x + 6.0 * ui
-	# Position des Spielers: Planquadrat + Hoehe
-	if ac != null:
-		var pos_txt := "%s  ·  %d m" % [planquadrat(ac.global_position), roundi(ac.global_position.y)]
-		_shadow_text(F_SEMI, Vector2(titel_x + 12.0 * ui, mitte_y + fs_chip * 0.36), pos_txt,
-			fs_chip, C_PLAYER.lightened(0.35))
-	var hint := "Mausrad — Zoom  ·  M — schließen"
-	var fs_hint := int(16.0 * ui)
-	var hw := F_SEMI.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_hint).x
-	_shadow_text(F_SEMI, Vector2(panel.end.x - hw - 18.0 * ui, mitte_y + fs_hint * 0.36), hint,
-		fs_hint, C_MUTED)
+	draw_style_box(hb, Rect2(panel.position, Vector2(panel.size.x, head - 6.0 * ui)))
+	_kopf(panel, head - 6.0 * ui, ui)
 
-	# Karte (sichtbares Fenster je Zoom)
-	_update_window()
-	_label_rects.clear()
-	var ts := Vector2(_tex.get_width(), _tex.get_height())
-	draw_texture_rect_region(_tex, _map_rect, Rect2(_win_min * ts, _win_size * ts))
-	var win_world := _win_size.x * WORLD_R * 2.0
-	var px_m := _map_rect.size.x / win_world
+	# --- Karte ------------------------------------------------------------------------
+	var sicht := _sicht()
+	var mpp := _mpp()
+	zeichne_raster(self, _map_rect, sicht)
 
 	# PLANQUADRATE (5 km) — beim Hineinzoomen zusaetzlich ein feines 1-km-Netz.
-	var x0 := _win_min.x * 2.0 * WORLD_R - WORLD_R
-	var z0 := _win_min.y * 2.0 * WORLD_R - WORLD_R
-	if _zoom_i > 0:
-		var k := ceilf(x0 / 1000.0) * 1000.0
-		while k < x0 + win_world:
-			var gx := _map_rect.position.x + (k - x0) * px_m
-			draw_line(Vector2(gx, _map_rect.position.y), Vector2(gx, _map_rect.end.y), Color(1, 1, 1, 0.05), 1.0)
-			k += 1000.0
-		k = ceilf(z0 / 1000.0) * 1000.0
-		while k < z0 + win_world:
-			var gy := _map_rect.position.y + (k - z0) * px_m
-			draw_line(Vector2(_map_rect.position.x, gy), Vector2(_map_rect.end.x, gy), Color(1, 1, 1, 0.05), 1.0)
-			k += 1000.0
-	var q0 := ceilf((x0 + WORLD_R) / QUADRAT) * QUADRAT - WORLD_R
-	var q := q0
-	while q < x0 + win_world:
-		var gx := _map_rect.position.x + (q - x0) * px_m
-		draw_line(Vector2(gx, _map_rect.position.y), Vector2(gx, _map_rect.end.y), Color(1, 1, 1, 0.14), 1.0)
-		q += QUADRAT
-	q = ceilf((z0 + WORLD_R) / QUADRAT) * QUADRAT - WORLD_R
-	while q < z0 + win_world:
-		var gy := _map_rect.position.y + (q - z0) * px_m
-		draw_line(Vector2(_map_rect.position.x, gy), Vector2(_map_rect.end.x, gy), Color(1, 1, 1, 0.14), 1.0)
-		q += QUADRAT
+	if mpp < 26.0:
+		_netz(sicht, 1000.0, Color(1, 1, 1, 0.06))
+	_netz(sicht, QUADRAT, Color(1, 1, 1, 0.15))
 
 	# VEKTOR-EBENEN
-	var belegt := zeichne_ebenen(self, _map_rect, _win_min, _win_size, ui)
+	var win_min := (sicht.position + Vector2(WORLD_R, WORLD_R)) / (2.0 * WORLD_R)
+	var win_size := sicht.size / (2.0 * WORLD_R)
+	var belegt := zeichne_ebenen(self, _map_rect, win_min, win_size, ui)
+	_label_rects.clear()
 
 	# Innenschatten am Kartenrand: gibt der Karte Tiefe, als laege sie unter Glas
-	var schatten := 14.0 * ui
+	var schatten := 16.0 * ui
 	var dunkel := Color(0, 0, 0, 0.38)
 	var klar := Color(0, 0, 0, 0.0)
 	var r := _map_rect
@@ -1074,54 +1407,16 @@ func _draw() -> void:
 		PackedColorArray([klar, dunkel, dunkel, klar]))
 	draw_rect(_map_rect, Color(0, 0, 0, 0.6), false, maxf(1.0, 1.5 * ui))
 
-	# Planquadrat-Beschriftung: Buchstaben oben, Zahlen links, je in Feldmitte
-	var fs_q := int(13.0 * ui)
-	var qc := Color(1, 1, 1, 0.62)
-	var sp := floorf((x0 + WORLD_R) / QUADRAT)
-	while true:
-		var mx := (sp + 0.5) * QUADRAT - WORLD_R
-		if mx > x0 + win_world:
-			break
-		if sp >= 0 and sp < BUCHSTABEN.length() and mx > x0 + 6.0 / px_m \
-				and mx < x0 + win_world - 14.0 / px_m:
-			var gx := _map_rect.position.x + (mx - x0) * px_m
-			var t := BUCHSTABEN[int(sp)]
-			_shadow_text(F_BOLD, Vector2(gx - 4.0 * ui, _map_rect.position.y + fs_q + 3.0 * ui), t, fs_q, qc)
-		sp += 1.0
-	var ze := floorf((z0 + WORLD_R) / QUADRAT)
-	while true:
-		var mz := (ze + 0.5) * QUADRAT - WORLD_R
-		if mz > z0 + win_world:
-			break
-		if ze >= 0 and ze < 14 and mz > z0 + 14.0 / px_m and mz < z0 + win_world - 10.0 / px_m:
-			var gy := _map_rect.position.y + (mz - z0) * px_m
-			_shadow_text(F_BOLD, Vector2(_map_rect.position.x + 5.0 * ui, gy + fs_q * 0.36), str(int(ze) + 1), fs_q, qc)
-		ze += 1.0
+	_netz_beschriften(ui)
 
 	# Windrose oben rechts
-	var rose_r := 24.0 * ui
-	var rose_m := Vector2(_map_rect.end.x - rose_r - 18.0 * ui, _map_rect.position.y + rose_r + 26.0 * ui)
+	var rose_r := 26.0 * ui
+	var rose_m := Vector2(_map_rect.end.x - rose_r - 20.0 * ui, _map_rect.position.y + rose_r + 30.0 * ui)
 	_windrose(rose_m, rose_r, ui)
 	_label_rects.append(Rect2(rose_m - Vector2(rose_r + 6.0 * ui, rose_r + 22.0 * ui),
 		Vector2(rose_r + 6.0 * ui, rose_r + 14.0 * ui) * 2.0))
 
-	# MASSSTAB unten links: vier Wechselfelder wie auf einer Wanderkarte
-	var grid_km := 5000.0 if _zoom_i == 0 else (2000.0 if _zoom_i == 1 else 1000.0)
-	var feld := grid_km * px_m / 4.0
-	var bar_y := _map_rect.end.y - 24.0 * ui
-	var bar_x := _map_rect.position.x + 20.0 * ui
-	var bh := 6.0 * ui
-	draw_rect(Rect2(bar_x - 1.5 * ui, bar_y - 1.5 * ui, feld * 4.0 + 3.0 * ui, bh + 3.0 * ui), Color(0, 0, 0, 0.8))
-	for i in 4:
-		draw_rect(Rect2(bar_x + feld * i, bar_y, feld, bh), Color(1, 1, 1, 0.95) if i % 2 == 0 else Color(0.12, 0.13, 0.15))
-	var fs_bar := int(14.0 * ui)
-	_shadow_text(F_SEMI, Vector2(bar_x - 3.0 * ui, bar_y - 6.0 * ui), "0", fs_bar, C_TEXT)
-	var km_txt := "%d km" % int(grid_km / 1000.0)
-	_shadow_text(F_SEMI, Vector2(bar_x + feld * 4.0 - 6.0 * ui, bar_y - 6.0 * ui), km_txt, fs_bar, C_TEXT)
-	_label_rects.append(Rect2(bar_x - 6.0 * ui, bar_y - 24.0 * ui, feld * 4.0 + 50.0 * ui, 36.0 * ui))
-
-	# Legende unten rechts
-	_label_rects.append(_legende(ui))
+	_label_rects.append(_massstab(mpp, ui))
 
 	# MARKER ZUERST, BESCHRIFTUNGEN DANACH — und beide durch die Entzerrung.
 	# Reihenfolge: alle Marker als belegte Flaeche eintragen (kein Name ueberdeckt einen
@@ -1129,8 +1424,8 @@ func _draw() -> void:
 	# wird links, oben und unten probiert; passt er nirgends, entfaellt er — beim
 	# Hineinzoomen hat er dann Platz. Flugplaetze zeichnet zeichne_ebenen (Symbol oder
 	# echte Bahn); ihre Flaeche kommt als `belegt` zurueck.
-	var fs_af := int(18.0 * ui)
-	var fs_poi := int(16.0 * ui)
+	var fs_af := int(19.0 * ui)
+	var fs_poi := int(17.0 * ui)
 	var namen: Array = []     # [marker_pos, halbe_markergroesse, text, fs, farbe, ist_platz]
 	var punkte: Array = []    # Rechtecke der POI-Punkte (nur fuer POI-Namen ein Hindernis)
 	var eigene: Dictionary = {}
@@ -1187,16 +1482,353 @@ func _draw() -> void:
 	# Spieler: grosser Pfeil mit weisser Kontur
 	if ac != null:
 		var p := _world_to_map(ac.global_position)
-		var fwd := -ac.global_transform.basis.z
-		var a := atan2(fwd.x, fwd.z)
-		var dirv := Vector2(sin(a), cos(a))
-		var side := Vector2(-dirv.y, dirv.x)
-		var L := 16.0 * ui
-		var pts := PackedVector2Array([p + dirv * L, p - dirv * L * 0.55 + side * L * 0.62,
-			p - dirv * L * 0.27, p - dirv * L * 0.55 - side * L * 0.62])
-		draw_colored_polygon(pts, C_PLAYER)
-		draw_polyline(pts + PackedVector2Array([pts[0]]), Color(1, 1, 1, 0.95), maxf(1.5, 2.0 * ui))
+		if _map_rect.grow(-2.0).has_point(p):
+			var fwd := -ac.global_transform.basis.z
+			var a := atan2(fwd.x, fwd.z)
+			var dirv := Vector2(sin(a), cos(a))
+			var side := Vector2(-dirv.y, dirv.x)
+			var L := 17.0 * ui
+			var pts := PackedVector2Array([p + dirv * L, p - dirv * L * 0.55 + side * L * 0.62,
+				p - dirv * L * 0.27, p - dirv * L * 0.55 - side * L * 0.62])
+			draw_colored_polygon(pts, C_PLAYER)
+			draw_polyline(pts + PackedVector2Array([pts[0]]), Color(1, 1, 1, 0.95), maxf(1.5, 2.0 * ui))
+
+	_tooltip(ac, ui)
+	_seitenleiste(seite, ac, ui)
 
 
-func toggle() -> void:
-	visible = not visible
+## RASTER in ein Kartenrechteck: Meer jenseits des Weltrands, Grundkarte, darueber die
+## fertigen Detailkacheln (Stufe 1, dann 2 — was fehlt, faellt auf die groebere Stufe
+## zurueck statt auf ein Loch). Fuer die grosse Karte UND die Minimap (`eck`); die
+## Minimap meldet dabei ihren Ausschnitt, damit _process dort Kacheln vorlaedt.
+func zeichne_raster(ci: CanvasItem, rect: Rect2, sicht: Rect2, eck := false) -> void:
+	if _tex == null:
+		return
+	var k2 := rect.size / sicht.size
+	var o := rect.position - sicht.position * k2
+	ci.draw_rect(rect, _rand_farbe)
+	var welt := Rect2(-WORLD_R, -WORLD_R, 2.0 * WORLD_R, 2.0 * WORLD_R)
+	var g := sicht.intersection(welt)
+	if g.has_area():
+		var ts := Vector2(_tex.get_width(), _tex.get_height())
+		ci.draw_texture_rect_region(_tex, Rect2(o + g.position * k2, g.size * k2),
+			Rect2((g.position - welt.position) / welt.size * ts, g.size / welt.size * ts))
+	var mpp := sicht.size.x / rect.size.x / _skala()
+	if eck:
+		_mini_sicht = sicht
+		_mini_mpp = mpp
+		_mini_frame = Engine.get_process_frames()
+	if mpp >= KACHEL_AB:
+		return
+	var kpx := float(KACHEL_PX)
+	for stufe in [1, 2]:
+		var km := kachel_m(stufe)
+		for key in _kacheln:
+			if key.z != stufe:
+				continue
+			var kr := Rect2(-WORLD_R + float(key.x) * km, -WORLD_R + float(key.y) * km, km, km)
+			var teil := kr.intersection(sicht)
+			if not teil.has_area():
+				continue
+			ci.draw_texture_rect_region(_kacheln[key], Rect2(o + teil.position * k2, teil.size * k2),
+				Rect2((teil.position - kr.position) / km * kpx, teil.size / km * kpx))
+
+
+## Echte Bildpunkte je virtuellem UI-Punkt (Fensterskalierung canvas_items).
+func _skala() -> float:
+	if not is_inside_tree():
+		return 1.0
+	return maxf(0.25, get_viewport().get_final_transform().get_scale().x)
+
+
+func _welt_rect_zu_schirm(w: Rect2) -> Rect2:
+	var a := _welt_zu_schirm(w.position)
+	var b := _welt_zu_schirm(w.end)
+	return Rect2(a, b - a)
+
+
+## Gitterlinien im Abstand `schritt` (Welt, vom Weltrand -R aus gezaehlt).
+func _netz(sicht: Rect2, schritt: float, col: Color) -> void:
+	var k := ceilf((sicht.position.x + WORLD_R) / schritt) * schritt - WORLD_R
+	while k < minf(sicht.end.x, WORLD_R + 1.0):
+		if k >= -WORLD_R:
+			var gx := _welt_zu_schirm(Vector2(k, 0)).x
+			draw_line(Vector2(gx, _map_rect.position.y), Vector2(gx, _map_rect.end.y), col, 1.0)
+		k += schritt
+	k = ceilf((sicht.position.y + WORLD_R) / schritt) * schritt - WORLD_R
+	while k < minf(sicht.end.y, WORLD_R + 1.0):
+		if k >= -WORLD_R:
+			var gy := _welt_zu_schirm(Vector2(0, k)).y
+			var x0 := maxf(_map_rect.position.x, _welt_zu_schirm(Vector2(-WORLD_R, 0)).x)
+			var x1 := minf(_map_rect.end.x, _welt_zu_schirm(Vector2(WORLD_R, 0)).x)
+			draw_line(Vector2(x0, gy), Vector2(x1, gy), col, 1.0)
+		k += schritt
+
+
+## Planquadrat-Beschriftung: Buchstaben oben, Zahlen links, je in Feldmitte.
+func _netz_beschriften(ui: float) -> void:
+	var fs_q := int(14.0 * ui)
+	var qc := Color(1, 1, 1, 0.66)
+	var links := maxf(_map_rect.position.x, _welt_zu_schirm(Vector2(-WORLD_R, 0)).x)
+	for sp in BUCHSTABEN.length():
+		var mx := (float(sp) + 0.5) * QUADRAT - WORLD_R
+		var gx := _welt_zu_schirm(Vector2(mx, 0)).x
+		if gx < _map_rect.position.x + 10.0 * ui or gx > _map_rect.end.x - 90.0 * ui:
+			continue
+		_shadow_text(F_BOLD, Vector2(gx - 4.0 * ui, _map_rect.position.y + fs_q + 4.0 * ui),
+			BUCHSTABEN[sp], fs_q, qc)
+	for ze in 14:
+		var mz := (float(ze) + 0.5) * QUADRAT - WORLD_R
+		var gy := _welt_zu_schirm(Vector2(0, mz)).y
+		if gy < _map_rect.position.y + 24.0 * ui or gy > _map_rect.end.y - 50.0 * ui:
+			continue
+		_shadow_text(F_BOLD, Vector2(links + 6.0 * ui, gy + fs_q * 0.36), str(ze + 1), fs_q, qc)
+
+
+## Massstab unten links: runde Laenge (0,5/1/2/5/10 km), die auf ~150 px passt, in vier
+## Wechselfeldern wie auf einer Wanderkarte. Liefert das belegte Rechteck.
+func _massstab(mpp: float, ui: float) -> Rect2:
+	var soll := 150.0 * ui * mpp
+	var laenge := 500.0
+	for kand in [500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0]:
+		if kand <= soll:
+			laenge = kand
+	var feld := laenge / mpp / 4.0
+	var bar_y := _map_rect.end.y - 26.0 * ui
+	var bar_x := _map_rect.position.x + 22.0 * ui
+	var bh := 6.0 * ui
+	draw_rect(Rect2(bar_x - 1.5 * ui, bar_y - 1.5 * ui, feld * 4.0 + 3.0 * ui, bh + 3.0 * ui), Color(0, 0, 0, 0.8))
+	for i in 4:
+		draw_rect(Rect2(bar_x + feld * i, bar_y, feld, bh),
+			Color(1, 1, 1, 0.95) if i % 2 == 0 else Color(0.12, 0.13, 0.15))
+	var fs_bar := int(15.0 * ui)
+	_shadow_text(F_SEMI, Vector2(bar_x - 3.0 * ui, bar_y - 7.0 * ui), "0", fs_bar, C_TEXT)
+	var txt := ("%.1f km" % (laenge / 1000.0)).replace(".0 km", " km").replace(".", ",")
+	_shadow_text(F_SEMI, Vector2(bar_x + feld * 4.0 - 8.0 * ui, bar_y - 7.0 * ui), txt, fs_bar, C_TEXT)
+	return Rect2(bar_x - 6.0 * ui, bar_y - 26.0 * ui, feld * 4.0 + 60.0 * ui, 40.0 * ui)
+
+
+## Kopfzeile: Titel, Zoomfaktor, Knopf "Zu mir", Hinweis.
+func _kopf(panel: Rect2, head: float, ui: float) -> void:
+	var fs_title := int(27.0 * ui)
+	var x := panel.position.x + 20.0 * ui
+	var mitte_y := panel.position.y + head * 0.5
+	_shadow_text(F_BOLD, Vector2(x, mitte_y + fs_title * 0.36), "KARTE", fs_title, C_TEXT)
+	x += F_BOLD.get_string_size("KARTE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_title).x + 18.0 * ui
+	var fs := int(16.0 * ui)
+	var ztxt := ("%.1f×" % _zoom).replace(".", ",")
+	var zb := StyleBoxFlat.new()
+	zb.set_corner_radius_all(int(12.0 * ui))
+	zb.bg_color = Color(1, 1, 1, 0.08)
+	var zw := F_SEMI.get_string_size(ztxt, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x + 20.0 * ui
+	var zr := Rect2(x, mitte_y - 13.0 * ui, zw, 26.0 * ui)
+	draw_style_box(zb, zr)
+	draw_string(F_SEMI, Vector2(zr.position.x + 10.0 * ui, mitte_y + fs * 0.36), ztxt,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs, C_TEXT)
+	x = zr.end.x + 10.0 * ui
+	# Knopf: zurueck zum Flugzeug (leuchtet, solange die Karte ihm folgt)
+	var ktxt := "◎  ZU MIR"
+	var kw := F_SEMI.get_string_size(ktxt, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x + 24.0 * ui
+	_knopf_folgen = Rect2(x, mitte_y - 13.0 * ui, kw, 26.0 * ui)
+	var kb := StyleBoxFlat.new()
+	kb.set_corner_radius_all(int(12.0 * ui))
+	var ueber := _knopf_folgen.has_point(_maus)
+	kb.bg_color = Color(0.25, 0.75, 0.95, 0.92) if _folgen else (Color(1, 1, 1, 0.22) if ueber else Color(1, 1, 1, 0.10))
+	draw_style_box(kb, _knopf_folgen)
+	draw_string(F_SEMI, Vector2(_knopf_folgen.position.x + 12.0 * ui, mitte_y + fs * 0.36), ktxt,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs, Color(0.02, 0.05, 0.08) if _folgen else C_TEXT)
+	var hint := "M / Esc — schließen"
+	var fs_hint := int(16.0 * ui)
+	var hw := F_SEMI.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_hint).x
+	_shadow_text(F_SEMI, Vector2(panel.end.x - hw - 20.0 * ui, mitte_y + fs_hint * 0.36), hint,
+		fs_hint, C_MUTED)
+
+
+## Tooltip am Cursor: Planquadrat, Entfernung und Peilung vom Flugzeug, Gelaendehoehe.
+func _tooltip(ac: Node3D, ui: float) -> void:
+	if _ziehen or not _map_rect.grow(-2.0).has_point(_maus):
+		return
+	var w := _schirm_zu_welt(_maus)
+	if absf(w.x) > WORLD_R or absf(w.y) > WORLD_R:
+		return
+	var teile: Array = [planquadrat(Vector3(w.x, 0, w.y))]
+	if ac != null:
+		var d := w - Vector2(ac.global_position.x, ac.global_position.z)
+		var brg := fposmod(rad_to_deg(atan2(d.x, -d.y)), 360.0)
+		teile.append(("%.1f km" % (d.length() / 1000.0)).replace(".", ","))
+		teile.append("%03d°" % (int(round(brg)) % 360))
+	if _terrain != null:
+		var h := _terrain.height_at(w.x, w.y)
+		teile.append("Meer" if h < TerrainWorld.SEA_Y else "%d m" % roundi(h - TerrainWorld.SEA_Y))
+	var txt := "  ·  ".join(teile)
+	var fs := int(15.0 * ui)
+	var tw := F_SEMI.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x
+	var box := Rect2(_maus + Vector2(16, 14) * ui, Vector2(tw + 20.0 * ui, 28.0 * ui))
+	if box.end.x > _map_rect.end.x:
+		box.position.x = _maus.x - box.size.x - 12.0 * ui
+	if box.end.y > _map_rect.end.y:
+		box.position.y = _maus.y - box.size.y - 12.0 * ui
+	# Fadenkreuz
+	draw_line(_maus + Vector2(-9, 0) * ui, _maus + Vector2(-3, 0) * ui, Color.WHITE, 1.5 * ui)
+	draw_line(_maus + Vector2(3, 0) * ui, _maus + Vector2(9, 0) * ui, Color.WHITE, 1.5 * ui)
+	draw_line(_maus + Vector2(0, -9) * ui, _maus + Vector2(0, -3) * ui, Color.WHITE, 1.5 * ui)
+	draw_line(_maus + Vector2(0, 3) * ui, _maus + Vector2(0, 9) * ui, Color.WHITE, 1.5 * ui)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.04, 0.05, 0.07, 0.9)
+	sb.set_corner_radius_all(int(7.0 * ui))
+	sb.border_color = Color(1, 1, 1, 0.25)
+	sb.set_border_width_all(1)
+	draw_style_box(sb, box)
+	draw_string(F_SEMI, Vector2(box.position.x + 10.0 * ui, box.position.y + 19.0 * ui), txt,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs, C_TEXT)
+
+
+## SEITENLEISTE: Position, Wegpunkt, Flugplaetze (anklickbar), Legende, Bedienung.
+func _seitenleiste(r: Rect2, ac: Node3D, ui: float) -> void:
+	if r.size.x < 120.0:
+		return
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.075, 0.09, 0.115, 1.0)
+	sb.set_corner_radius_all(int(9.0 * ui))
+	draw_style_box(sb, r)
+	var x := r.position.x + 16.0 * ui
+	var xr := r.end.x - 16.0 * ui
+	var y := r.position.y + 12.0 * ui
+	var zeile := 27.0 * ui
+	var fs := int(16.0 * ui)
+	var fs_t := int(14.0 * ui)
+	_seiten_klick.clear()
+
+	# --- Position ---
+	y = _abschnitt("POSITION", x, xr, y, ui)
+	if ac != null:
+		var gp := ac.global_position
+		var f := -ac.global_transform.basis.z
+		var kurs := fposmod(rad_to_deg(atan2(f.x, -f.z)), 360.0)
+		var v := 0.0
+		if ac is RigidBody3D:
+			v = (ac as RigidBody3D).linear_velocity.length() * 3.6
+		for paar in [["Planquadrat", planquadrat(gp)], ["Höhe", "%d m" % roundi(gp.y)],
+				["Kurs", "%03d°" % (int(round(kurs)) % 360)], ["Tempo", "%d km/h" % roundi(v)]]:
+			_wertzeile(paar[0], paar[1], x, xr, y, fs, ui)
+			y += zeile
+	else:
+		draw_string(F_SEMI, Vector2(x, y + 18.0 * ui), "kein Flugzeug", HORIZONTAL_ALIGNMENT_LEFT,
+			-1.0, fs, C_MUTED)
+		y += zeile
+	y += 8.0 * ui
+
+	# --- Wegpunkt ---
+	y = _abschnitt("WEGPUNKT", x, xr, y, ui)
+	if hat_wegpunkt() and ac != null:
+		var d := wegpunkt - Vector2(ac.global_position.x, ac.global_position.z)
+		var brg := fposmod(rad_to_deg(atan2(d.x, -d.y)), 360.0)
+		var n := wegpunkt_name if wegpunkt_name != "" else planquadrat(Vector3(wegpunkt.x, 0, wegpunkt.y))
+		_wertzeile(n, ("%.1f km  ·  %03d°" % [d.length() / 1000.0, int(round(brg)) % 360]).replace(".", ","),
+			x, xr, y, fs, ui, C_WEG)
+		y += zeile
+		draw_string(F_SEMI, Vector2(x, y + 16.0 * ui), "Rechtsklick in die Karte: löschen",
+			HORIZONTAL_ALIGNMENT_LEFT, xr - x, fs_t, C_MUTED)
+		y += zeile
+	else:
+		draw_string(F_SEMI, Vector2(x, y + 16.0 * ui), "Klick in die Karte oder auf einen",
+			HORIZONTAL_ALIGNMENT_LEFT, xr - x, fs_t, C_MUTED)
+		y += 20.0 * ui
+		draw_string(F_SEMI, Vector2(x, y + 16.0 * ui), "Flugplatz setzt einen Wegpunkt.",
+			HORIZONTAL_ALIGNMENT_LEFT, xr - x, fs_t, C_MUTED)
+		y += zeile
+	y += 8.0 * ui
+
+	# --- Flugplaetze, naechster zuerst; Klick = Wegpunkt ---
+	y = _abschnitt("FLUGPLÄTZE", x, xr, y, ui)
+	var liste: Array = []
+	var von := Vector2.ZERO
+	if ac != null:
+		von = Vector2(ac.global_position.x, ac.global_position.z)
+	for af in _airfields:
+		var ap: Vector3 = af["pos"]
+		liste.append([Vector2(ap.x, ap.z).distance_to(von), af])
+	liste.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	var legende_h := 36.0 * ui + ceilf(LEGENDE.size() / 2.0) * 24.0 * ui + 8.0 * ui
+	var fuss_h := 3.0 * 21.0 * ui + 10.0 * ui
+	var lage_h := 34.0 * ui + 2.0 * zeile
+	var platz_bis := r.end.y - legende_h - fuss_h - lage_h - 10.0 * ui
+	for e in liste:
+		if y + zeile > platz_bis:
+			break
+		var af: Dictionary = e[1]
+		var zr := Rect2(r.position.x + 6.0 * ui, y, r.size.x - 12.0 * ui, zeile)
+		var ist_ziel: bool = hat_wegpunkt() and wegpunkt_name == String(af["name"])
+		if zr.has_point(_maus) or ist_ziel:
+			var hl := StyleBoxFlat.new()
+			hl.set_corner_radius_all(int(6.0 * ui))
+			hl.bg_color = Color(C_WEG.r, C_WEG.g, C_WEG.b, 0.18) if ist_ziel else Color(1, 1, 1, 0.08)
+			draw_style_box(hl, zr)
+		_seiten_klick.append([zr, af])
+		var ap: Vector3 = af["pos"]
+		var d := Vector2(ap.x, ap.z) - von
+		var brg := fposmod(rad_to_deg(atan2(d.x, -d.y)), 360.0)
+		draw_circle(Vector2(x + 6.0 * ui, y + zeile * 0.5), 5.5 * ui, af.get("color", Color.WHITE))
+		draw_string(F_SEMI, Vector2(x + 20.0 * ui, y + 19.0 * ui), String(af["name"]),
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs, C_TEXT)
+		var wert := ("%.1f km  %03d°" % [float(e[0]) / 1000.0, int(round(brg)) % 360]).replace(".", ",")
+		var ww := F_SEMI.get_string_size(wert, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_t).x
+		draw_string(F_SEMI, Vector2(xr - ww, y + 19.0 * ui), wert, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			fs_t, C_MUTED)
+		y += zeile
+
+	# --- Lage: was noch steht (Flugabwehr) und was abzuschiessen ist (Ziele) ---
+	var sam := 0
+	var flak := 0
+	var ziele := 0
+	for nd in get_tree().get_nodes_in_group("target"):
+		if nd is SamSite:
+			if nd.get("_tot") != true:
+				sam += 1
+		elif nd is FlakGun:
+			flak += 1       # zerstoerte Flak verlaesst die Gruppe sofort
+		elif nd is Target:
+			if nd.get("_dead") != true:
+				ziele += 1
+	y += 8.0 * ui
+	y = _abschnitt("LAGE", x, xr, y, ui)
+	_wertzeile("Flugabwehr", "%d Raketen  ·  %d Flak" % [sam, flak], x, xr, y, fs, ui,
+		C_GEFAHR.lightened(0.35) if sam + flak > 0 else C_TEXT)
+	y += zeile
+	_wertzeile("Ziele in der Luft", str(ziele), x, xr, y, fs, ui, C_ZIEL)
+	y += zeile
+
+	# --- Legende (zwei Spalten) und Bedienung, unten angeschlagen ---
+	var yl := r.end.y - legende_h - fuss_h
+	yl = _abschnitt("LEGENDE", x, xr, yl, ui)
+	var spalte := (xr - x) * 0.5
+	for i in LEGENDE.size():
+		var cx := x + spalte * float(i % 2)
+		var cy := yl + 24.0 * ui * floorf(i / 2.0) + 12.0 * ui
+		_legende_icon(i, Vector2(cx + 9.0 * ui, cy), ui)
+		draw_string(F_SEMI, Vector2(cx + 26.0 * ui, cy + fs_t * 0.36), LEGENDE[i],
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs_t, C_TEXT)
+	var yf := r.end.y - fuss_h + 4.0 * ui
+	for t in ["Ziehen: verschieben  ·  Rad: Zoom", "Klick: Wegpunkt  ·  Rechts: löschen",
+			"Höhenlinien alle %d m" % int(LINIEN_M)]:
+		draw_string(F_SEMI, Vector2(x, yf + 15.0 * ui), t, HORIZONTAL_ALIGNMENT_LEFT, xr - x,
+			int(13.0 * ui), C_MUTED)
+		yf += 21.0 * ui
+
+
+## Abschnittstitel mit feiner Linie; gibt die y-Position darunter zurueck.
+func _abschnitt(titel: String, x: float, xr: float, y: float, ui: float) -> float:
+	var fs := int(13.0 * ui)
+	draw_string(F_BOLD, Vector2(x, y + 16.0 * ui), titel, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs,
+		Color(0.45, 0.80, 1.0, 0.95))
+	var tw := F_BOLD.get_string_size(titel, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x
+	draw_line(Vector2(x + tw + 10.0 * ui, y + 11.0 * ui), Vector2(xr, y + 11.0 * ui),
+		Color(1, 1, 1, 0.12), 1.0)
+	return y + 26.0 * ui
+
+
+func _wertzeile(links: String, rechts: String, x: float, xr: float, y: float, fs: int,
+		ui: float, farbe := C_TEXT) -> void:
+	draw_string(F_SEMI, Vector2(x, y + 19.0 * ui), links, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs, C_MUTED)
+	var w := F_SEMI.get_string_size(rechts, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs).x
+	draw_string(F_SEMI, Vector2(xr - w, y + 19.0 * ui), rechts, HORIZONTAL_ALIGNMENT_LEFT, -1.0, fs, farbe)

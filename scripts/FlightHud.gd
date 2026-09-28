@@ -78,6 +78,9 @@ func _txt_r(pos: Vector2, w: float, t: String, fs: int, col: Color) -> void:
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Mipmaps fuer die Minimap: ihre Kartenkacheln werden leicht verkleinert und
+	# flimmerten sonst beim Fliegen. Texturen ohne Mipmaps (Schrift) fallen auf linear.
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_font = preload("res://fonts/TitilliumWeb-SemiBold.ttf")   # crisp statt Default-Font
 	if _font == null:
 		_font = ThemeDB.fallback_font
@@ -580,8 +583,14 @@ func _draw_minimap() -> void:
 	sb.border_color = Color(0.90, 0.93, 0.97, 0.55)
 	sb.set_border_width_all(maxi(2, int(2.0 * ui)))
 	draw_style_box(sb, rect.grow(6.0 * ui))
-	var ts := Vector2(mini_tex.get_width(), mini_tex.get_height())
-	draw_texture_rect_region(mini_tex, rect, Rect2(win_min * ts, win_size * ts))
+	if mini_karte != null and is_instance_valid(mini_karte):
+		# Grundkarte + scharfe Detailkacheln der grossen Karte (laedt sie um das
+		# Flugzeug herum im Hintergrund vor)
+		mini_karte.zeichne_raster(self, rect, Rect2(win_min * 2.0 * wr - Vector2(wr, wr),
+			win_size * 2.0 * wr), true)
+	else:
+		var ts := Vector2(mini_tex.get_width(), mini_tex.get_height())
+		draw_texture_rect_region(mini_tex, rect, Rect2(win_min * ts, win_size * ts))
 	draw_rect(rect, Color(0, 0, 0, 0.5), false, 1.5 * ui)
 
 	var to_px := func(w: Vector3) -> Vector2:

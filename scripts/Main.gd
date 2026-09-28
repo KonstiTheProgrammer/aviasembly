@@ -4323,6 +4323,9 @@ func _set_mode(m: int) -> void:
 			_toast("Noch nicht gekauft: %s%s — erst in der Teile-Palette freischalten"
 				% [", ".join(namen), (" (+%d)" % rest) if rest > 0 else ""])
 			return
+	# Karte zu, BEVOR set_active den Mausmodus setzt — sonst stellte das Schliessen
+	# danach die gefangene Maus des Flugs im Hangar wieder her.
+	_karte_schliessen()
 	var was_fly := (mode == Mode.FLY)
 	mode = m
 	var building := (m == Mode.BUILD)
@@ -4391,8 +4394,12 @@ func _input(event: InputEvent) -> void:
 			_toggle_fullscreen()
 			get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_ESCAPE:
-			# Esc öffnet das Pause-Menü (Weiter / Hangar / Beenden). Vollbild via F11.
-			_set_pause(true)
+			# Esc schliesst zuerst eine offene Karte, sonst oeffnet es das Pause-Menue
+			# (Weiter / Hangar / Beenden). Vollbild via F11.
+			if world_map != null and world_map.offen():
+				_karte_schliessen()
+			else:
+				_set_pause(true)
 			get_viewport().set_input_as_handled()
 
 
@@ -4408,6 +4415,8 @@ func _toggle_fullscreen() -> void:
 func _set_pause(p: bool) -> void:
 	if _paused == p:
 		return
+	if p:
+		_karte_schliessen()   # VOR dem Merken des Mausmodus: die Karte gibt ihn zurueck
 	_paused = p
 	if p and pause_overlay == null:
 		_build_pause_overlay()
@@ -5739,6 +5748,8 @@ func _on_hud_changed(d: Dictionary) -> void:
 	else:
 		thr_txt = "Schub %d%%" % thr_pct
 	var nav := _nearest_airfield(d.get("pos", Vector3.ZERO))
+	if world_map != null and world_map.hat_wegpunkt():
+		nav = world_map.wegpunkt_text(d.get("pos", Vector3.ZERO))
 	# Speed/Höhe/Kurs/Steig zeigt jetzt das PFD; hier nur noch Systeme/Status.
 	hud_label.text = "%s\nAnstellw.: %d°\nG-Kraft:  %.1f g\nFlügel: %s\nFahrwerk (G): %s\nKlappen (F): %s\nSteuerung (I): %s\nAssist (T): %s\nMaus-Flug (N): %s\n%s" % [
 		thr_txt, int(d["aoa"]), d.get("gforce", 1.0),
@@ -6384,6 +6395,8 @@ func _on_map_image_ready(img: Image, fertig := true) -> void:
 		world_map = WorldMap.new()
 		lay.add_child(world_map)
 		world_map.setup(img, airfields, _map_pois, null, terrain, flight_ctrl)
+		world_map.wegpunkt_erreicht.connect(func(titel: String) -> void:
+			_toast("%s erreicht" % (titel if titel != "" else "Wegpunkt")))
 	# Corner-Minimap im Flug-HUD mit derselben Karte fuettern
 	# (dieselbe Textur, kein zweites Bild im Speicher) und denselben Vektor-Ebenen.
 	if flight_hud != null:
@@ -6401,6 +6414,13 @@ func _toggle_map() -> void:
 	world_map.toggle()
 	if flight_hud != null:
 		flight_hud.big_map_open = world_map.visible
+
+
+func _karte_schliessen() -> void:
+	if world_map != null and world_map.offen():
+		world_map.schliessen()
+	if flight_hud != null:
+		flight_hud.big_map_open = false
 
 
 func _spawn_flak() -> void:

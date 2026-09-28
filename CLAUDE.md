@@ -154,12 +154,38 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          Alles wird selbst auf das Kartenrechteck BESCHNITTEN (_clip_strecke/Liang-
                          Barsky, _flaeche/intersect_polygons) — CanvasItem kennt keinen Beschnitt je
                          Aufruf. `_poly` zeichnet nur Triangulierbares (sonst Logflut aus der Minimap).
-                         Rahmen: Planquadrate A-N/1-14 je 5 km (`planquadrat()`, auch im Kopf),
-                         Windrose, Massstab mit Wechselfeldern, Legende, Innenschatten, Zoom-Pillen.
+                         Rahmen: Planquadrate A-N/1-14 je 5 km (`planquadrat()`), Windrose, Massstab
+                         mit Wechselfeldern (runde Laenge), Innenschatten, Konturschrift.
                          POIs tragen `art` (ort/natur/gefahr/sonst Wahrzeichen) und bei Orten `radius`.
-                         Zoom 1/2.5/6 per Mausrad (set_input_as_handled gegen Kamera-Zoom).
+                         GROSS + INTERAKTIV: fast bildschirmfuellend (Rand 18 px) mit SEITENLEISTE
+                         (Position, Wegpunkt, Flugplaetze nach Entfernung — anklickbar —, Lage: aktive
+                         Flugabwehr + Ziele, Legende, Bedienung). Ansicht = `_mitte` + `_zoom` (1..14,
+                         1 = Welthoehe passt ins Rechteck, das breiter als hoch ist; jenseits des
+                         Weltrands wird mit `_rand_farbe` = Randpixel des Bilds weitergemalt).
+                         Oeffnen gibt die Maus frei (`oeffnen`/`schliessen` merken den Mausmodus),
+                         mouse_filter STOP -> `_gui_input`: Rad/Pinch zoomt ZUM CURSOR (Anker bleibt
+                         stehen, weich), Ziehen/Zwei-Finger verschiebt, Klick = Wegpunkt, Rechtsklick
+                         loescht, Knopf "ZU MIR" (`_folgen`), Tooltip (Planquadrat, Entfernung, Peilung,
+                         Hoehe via height_at). Main: Esc schliesst die Karte vor der Pause,
+                         `_karte_schliessen` in _set_mode (VOR set_active, sonst kaeme im Hangar die
+                         gefangene Maus zurueck) und _set_pause. FlightController feuert per Linksklick
+                         NUR bei gefangener Maus (sonst loeste ein Kartenklick eine Rakete).
+                         WEGPUNKT: `wegpunkt`/`wegpunkt_name`, HUD-NAV-Pille zeigt ihn statt des
+                         naechsten Platzes (Main._on_hud_changed -> `wegpunkt_text`), Linie + Fahne in
+                         beiden Karten, loest sich unter 350 m auf (Signal `wegpunkt_erreicht` -> Toast).
+                         DETAILKACHELN (scharf beim Zoomen): Stufe 1 = 8x8 Kacheln a 8,5 km, Stufe 2 =
+                         16x16 a 4,25 km, je 512 px (16,6 / 8,3 m je Punkt), per `erzeuge_kachel`
+                         (= generate_image mit `mitte`/`detail`, feinere STUFE_*-Generalisierung, 24 px
+                         Ueberstand gegen Naehte, dann beschnitten). EIN Hintergrund-Thread, naechste zur
+                         Bildmitte zuerst, LRU-Cache 48. Schwellen in ECHTEN Bildpunkten (`_skala` =
+                         Fensterskalierung): Stufe 1 unter 40 m/px, Stufe 2 unter 12. `zeichne_raster`
+                         (Meer, Grundkarte, Kacheln) nutzt auch die Minimap; sie meldet ihren
+                         Ausschnitt, und _process laedt dort Stufe-1-Kacheln vor -> Minimap scharf.
+                         Warnungen pruefen mit `Godot --headless -d --path . --quit-after 200` (OHNE -d
+                         druckt Godot die GDScript-Warnungen nicht; _loadcheck sieht sie auch nicht).
                          Messen: tools/_karte_zeit.gd (misst MAINS Erzeugung, Stufenzeiten), Bilder:
-                         tools/_flug_bilder.gd (flug_karte*.png, flug_hud_stadt.png).
+                         tools/_flug_bilder.gd (flug_karte.png, _zoom.png 3x, _zoom8.png, flug_hud_
+                         wegpunkt.png) — wartet per `kacheln_bereit()` auf die scharfen Kacheln.
 scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 384-m-Chunks,
                          8-m-Raster, Flatshading via Vertex-Colors + Mini-Shader ALBEDO=COLOR.
                          HÖHE (height_at): sanfte fBm-Grundwelligkeit + RIDGED-Noise-Bergketten,

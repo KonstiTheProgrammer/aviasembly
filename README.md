@@ -46,7 +46,7 @@ das Flugzeug längsstabil.
 | Eingabe | Aktion |
 |---|---|
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
-| **M** | **KARTE** öffnen/schließen — Reliefkarte mit Höhenlinien, Flüssen, Straßen und Gebäuden, Bahnen im echten Kurs, Flugabwehr-Reichweiten, Zielen, deiner Flugspur und Planquadraten (Mausrad = Zoom 1×/2,5×/6×) |
+| **M** | **KARTE** öffnen/schließen (auch **Esc**) — große Reliefkarte mit Höhenlinien, Flüssen, Straßen und Gebäuden, Bahnen im echten Kurs, Flugabwehr-Reichweiten, Zielen, deiner Flugspur und Planquadraten. **Mausrad/Pinch** = stufenlos zum Cursor zoomen (beim Hineinzoomen werden scharfe Detailkacheln nachgeladen), **Ziehen** = verschieben, **Klick** = Wegpunkt setzen (erscheint im HUD, auch Klick auf einen Flugplatz in der Seitenleiste), **Rechtsklick** = Wegpunkt löschen, **ZU MIR** = zurück zum Flugzeug |
 | **N** | **Maus-/Tastatur-Flug** umschalten (Maus-Flug ist **Standard** — siehe unten) |
 | **V halten** | **Zielzoom** (~2,8×, wie in War Thunder): FOV verengt sich und die Kamera geht im gleichen Verhältnis zurück, dadurch werden ferne Ziele größer statt nur das eigene Flugzeug; die Maus wird dabei ruhiger gestellt |
 | **1–4 / X** | **Waffengruppe** wählen / durchschalten (Leiste unten Mitte) |

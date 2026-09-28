@@ -1104,7 +1104,10 @@ func _physics_process(delta: float) -> void:
 	# Minigun: Spin-up/Spin-down + Läufe drehen (auch wenn nicht gefeuert wird)
 	# Feuern: Leertaste ODER linke Maustaste (nur im Flug aktiv, da _physics_process
 	# nur bei set_active(true) läuft -> im Hangar bleibt Linksklick fürs Bauen).
-	var firing := Input.is_physical_key_pressed(KEY_SPACE) or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	# Linksklick feuert nur mit GEFANGENER Maus: bei offener Karte (oder Pause) ist sie frei,
+	# und ein Klick dort setzt einen Wegpunkt — er darf keine Rakete loesen.
+	var firing := Input.is_physical_key_pressed(KEY_SPACE) or (Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+		and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
 	var fire_click := firing and not _fire_held   # steigende Flanke = genau EIN Abschuss
 	_fire_held = firing
 	var gun_sel := not weapon_groups.is_empty() and String(weapon_groups[weapon_sel]["id"]) == "gun"
