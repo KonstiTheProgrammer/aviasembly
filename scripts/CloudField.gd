@@ -316,8 +316,8 @@ static func build(parent: Node3D, opts := {}) -> Node3D:
 
 # Setzt eine Wolke auf einen Weltplatz und liest Loch, Groesse und Hoehe dort neu aus.
 ## SPERRZONEN fuer die wandernden Decken: [Vector2 Mitte, Halbmesser]. Setzt Main VOR dem
-## Bau der Decken — dort stehen die festen Formationen (Tore, Schlucht, Gewitter), und eine
-## zufaellige Deckenwolke im Torloch oder quer im Schluchtgang wuerde sie zustopfen.
+## Bau der Decken — dort stehen feste Formationen (Gewitterzelle), deren Umfeld frei
+## bleiben soll.
 static var sperrzonen: Array = []
 
 
@@ -1209,70 +1209,6 @@ static func _dichte_formation(root: Node3D, pos: Vector3) -> float:
 		var q := Vector3(d.x / r.x, d.y / r.y, d.z / r.z).length()
 		beste = maxf(beste, 1.0 - smoothstep(0.45, 1.0, q))
 	return beste
-
-
-## WOLKENTOR: ein senkrechter Ring aus kleinen Puffs, durch dessen Loch man fliegt.
-## `normal` = waagerechte Flugrichtung durch das Tor. Der Wirkkoerper der Puffs reicht bis
-## r_ring - rand, das Loch ist also frei von Nebel und Turbulenz.
-static func tor_puffs(mitte: Vector3, normal: Vector3, r_ring: float, rng: RandomNumberGenerator) -> Array:
-	var raus: Array = []
-	var n := Vector3(normal.x, 0.0, normal.z).normalized()
-	var u := Vector3(-n.z, 0.0, n.x)
-	var anzahl := int(TAU * r_ring / 40.0)
-	for k in anzahl:
-		var a := TAU * float(k) / float(anzahl) + rng.randf_range(-0.05, 0.05)
-		var p := mitte + (u * cos(a) + Vector3.UP * sin(a)) * r_ring \
-			+ n * rng.randf_range(-10.0, 10.0)
-		var g := rng.randf_range(0.28, 0.36)
-		raus.append({"p": p, "s": Vector3(g, g * rng.randf_range(0.85, 1.1), g), "form": "kumulus"})
-	return raus
-
-
-## WOLKENSCHLUCHT: zwei Wolkenwaende entlang eines Pfades, dazwischen ein freier Gang.
-## Hier und da schliesst sich die Decke darueber zu einem Bogen — dort wird es ein Tunnel.
-static func schlucht_puffs(pfad: PackedVector2Array, breite: float, unten: float, oben: float,
-		rng: RandomNumberGenerator) -> Array:
-	var raus: Array = []
-	var laenge := 0.0
-	for i in pfad.size() - 1:
-		laenge += pfad[i].distance_to(pfad[i + 1])
-	var schritt := 105.0
-	var n_st := int(laenge / schritt)
-	var bogen_bei := [0.22, 0.47, 0.78]
-	for k in n_st + 1:
-		var t := float(k) * schritt
-		# Punkt und Richtung auf dem Polygonzug
-		var rest := t
-		var p := pfad[0]
-		var dir := (pfad[1] - pfad[0]).normalized()
-		for i in pfad.size() - 1:
-			var seg := pfad[i].distance_to(pfad[i + 1])
-			if rest <= seg or i == pfad.size() - 2:
-				dir = (pfad[i + 1] - pfad[i]).normalized()
-				p = pfad[i] + dir * minf(rest, seg)
-				break
-			rest -= seg
-		var quer := Vector2(-dir.y, dir.x)
-		# Die Waende atmen: mal enger, mal weiter, mal hoeher
-		var weite := breite * (1.0 + 0.18 * sin(t / 310.0) + rng.randf_range(-0.06, 0.06))
-		var top := oben * (0.85 + 0.25 * sin(t / 530.0 + 1.3))
-		for seite in [-1.0, 1.0]:
-			var y := unten
-			while y < top:
-				var g := rng.randf_range(0.95, 1.35)
-				var rh := 92.0 * g
-				var q: Vector2 = p + quer * float(seite) * (weite * 0.5 + rh * 0.9 + rng.randf_range(0.0, 60.0))
-				raus.append({"p": Vector3(q.x, y, q.y), "s": Vector3(g, g * rng.randf_range(0.9, 1.25), g),
-					"form": "turm" if rng.randf() < 0.35 else "kumulus"})
-				y += 125.0 * g
-		# Bogen ueber dem Gang
-		var frac := t / laenge
-		for b in bogen_bei:
-			if absf(frac - float(b)) < 0.035:
-				var g2 := rng.randf_range(1.0, 1.25)
-				raus.append({"p": Vector3(p.x, top * 0.82, p.y), "s": Vector3(g2 * 1.4, g2 * 0.8, g2 * 1.4),
-					"form": "kumulus"})
-	return raus
 
 
 ## GEWITTERTURM (Cumulonimbus): dunkle flache Basis, ein Turm ueber mehrere Kilometer, oben

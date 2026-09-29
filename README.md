@@ -129,9 +129,6 @@ Nordkette als Wildbach hinunter, durch einen Durchbruch im Hügelland und in wei
 das Tiefland bis zur Südostküste — mit Kiesufern, Auwald und Strömung zum Tiefflug entlang.
 
 **Wolken zum Durchfliegen** (alle auf der Karte):
-- **Wolkentore** gleich hinter HEIMAT — sieben Ringe, das nächste Tor leuchtet golden;
-  wer alle in einem Flug schafft, bekommt im Survival eine Prämie.
-- **Wolkenschlucht** vor der Ostküste — ein Gang zwischen zwei Wolkenwänden, mit Tunnelbögen.
 - **Gewitterzelle** weit draußen im Osten — 5 km hoher Turm mit Amboss, Blitzen und Regen,
   heftiger Turbulenz, Aufwind im Kern und Fallwind unter der Basis.
 - **Nebelmeer** in der Westbucht — eine geschlossene Wolkendecke zum Drüberhinstreichen.

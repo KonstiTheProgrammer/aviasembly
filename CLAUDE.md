@@ -383,12 +383,9 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Dichteabfragen in Main laufen ueber `_wolken_alle` (Decken + Formationen) → Nebel,
   Turbulenz, Flak-Deckung, Sonnenverdeckung ohne Extracode. `mitfuehren` laesst sie stehen
   (kein "puffs"-Meta). SPERRZONEN (`CloudField.sperrzonen`, `_wolken_sperrzonen`): die
-  wandernden Decken setzen dort keine Puffs — sonst stopfen sie Torloecher und Schlucht zu.
-  * WOLKENTORE (`TORE`, `tor_puffs`): 7 Ringe ab HEIMAT, goldener Leitring (`_leitring`,
-    naechstes Tor pulsiert), Durchflug = Seitenwechsel der Torebene innerhalb TOR_LOCH →
-    Toast, Survival-Lohn; `_parcours_zuruecksetzen` in `_begin_flight`.
-  * WOLKENSCHLUCHT (`SCHLUCHT_PFAD`, `schlucht_puffs`): Gang 240 m, Waende bis ~850 m,
-    drei Boegen (Tunnel).
+  wandernden Decken setzen dort keine Puffs (6,5 km um die Gewitterzelle).
+  WOLKENTORE und WOLKENSCHLUCHT sind auf Wunsch des Nutzers WIEDER ENTFERNT ("bs") —
+  nicht erneut einbauen.
   * GEWITTERZELLE (`gewitter_puffs`, 31,5 km O): Turm bis 5,2 km, Amboss 6 km nach Lee,
     VERDUNKLUNG NACH WELTHOEHE (`dunkel_unten`/`dunkel_hoehe` — COLOR.r faerbt nur je Puff),
     Randemission dort gedaempft, EIGENER NEBEL (`_cloud_material(true)` → fog_disabled,
@@ -400,10 +397,9 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
     ueberlappend (duenne Linsen waren Eisschollen), einzelne Kuppen.
 - WOLKENFETZEN (`_fetzen`, GPUParticles3D an der Kamera, world-space): Menge aus der Dichte
   ~140 m VORAUS (`amount_ratio`), in der Wolke naeher und grauer (sonst frisst der Nebel sie).
-- Kosten 4K (`_gefuehl_zeit.gd`): Formationen 0–0,8 ms (Gewitter aus der Naehe).
-- Bildwerkzeug: `_gefuehl_bilder.gd` Szenen tore, tor_nah, schlucht, wand, gewitter,
-  gewitter_nah, im_sturm, blitz (erzwingt Blitz ueber `Main.blitz_test`), nebelmeer, fetzen,
-  hoch.
+- Kosten 4K (`_gefuehl_zeit.gd`): Formationen 0–1,1 ms (Gewitter aus der Naehe).
+- Bildwerkzeug: `_gefuehl_bilder.gd` Szenen gewitter, gewitter_nah, im_sturm, blitz
+  (erzwingt Blitz ueber `Main.blitz_test`), nebelmeer, fetzen, hoch.
 
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
 Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen

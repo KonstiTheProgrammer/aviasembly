@@ -56,7 +56,6 @@ func _lauf() -> void:
 		["Sonne ueber See", Vector3(7400, 140, 26600), Vector3(5000, 900, 28600)],
 		["Wolken 1050 m", Vector3(1500, 1050, -2500), Vector3(4000, 900, -1900)],
 		["Berge 950 m", Vector3(-2600, 950, -4500), Vector3(-2350, 700, -7000)],
-		["Wolkenschlucht", Vector3(23366, 450, 4068), Vector3(24300, 450, 2200)],
 		["Gewitter nah", Vector3(29200, 1200, 600), Vector3(31500, 1800, 2500)],
 		["Nebelmeer", Vector3(-32500, 440, 9500), Vector3(-29000, 350, 9700)],
 	]
