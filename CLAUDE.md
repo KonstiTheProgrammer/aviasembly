@@ -226,7 +226,7 @@ README.md                Steuerung + Feature-Überblick (Spielersicht).
   innen Talboeden auf 0,22 der Kammhoehe, am Rand tiefe Taeler (Auslaeufer). Schluessel:
   `hs`, `breite` (je laengs), `fuss`, `seed`, `tal_schutz` (0 im Hochtal: `_tal_schutz`).
   Hauptinsel: NORDKETTE West/Ost (bis 2650 m), Westkamm + Suedkamm aussen am Hochtal,
-  West-/Ostbergland (bewaldet), Sturmkap = Land-Koerper + Gebirge; Nordland-Gletscherkette
+  Ostbergland (bewaldet; das Westbergland ist jetzt das Kalkplateau), Sturmkap = Land-Koerper + Gebirge; Nordland-Gletscherkette
   (zwei Ketten mit Laengstal), Fjordwaende, Dschungelkamm ebenfalls als Gebirge.
 - HOEHENSTUFEN (`_face_color_grund`, Konstanten HAUPT_*): Bergwald bis FLORA_MAX_H 860 m
   (Baeume bis BERGWALD_STEIL_AB), Almwiese 480–780, Fels ab 740 (unten nur an Waenden),
@@ -330,6 +330,39 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
 - Werkzeuge: `_gefuehl_bilder.gd [-- sonne berge wolken kueste g_last]` (echte
   Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
   `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
+
+## Sondergelaende der Hauptinsel (2026-09): Kalkplateau, Teufelsschlucht, Felsenstadt, Nadelkueste
+Orte zum Herumfliegen, alle im HOEHENFELD (Kollision, Farbe, Bewuchs, Karte, Fernschuerze
+gratis). Lage/Masse in `Main._sondergelaende` (feste Seeds), Gelaende in TerrainWorld
+(`sonder_setzen` VOR setup(), `_plateau`, `_schlucht_cut`, `_tuerme`), alles in Packed-Arrays.
+- KALKPLATEAU (ersetzt das WESTBERGLAND): Achse `PLATEAU_ACHSE`, halbe Breite
+  `PLATEAU_BREITE`, Deckflaeche `PLATEAU_TOP` 250 m ABSOLUT (+-22 m Wellung). Kante =
+  verrauschter Abstand zur Achse, gestuftes Profil `_plateau_rand_e` (Schutthang, untere
+  Wand, Band, obere Wand). Eingehaengt NACH dem Felsrelief (sonst Buckelpiste). 11
+  Zeugenberge vor der Kante. FALLE: Kantenrauschen 160 m auf 170 m Wellenlaenge = Orgel-
+  pfeifen, aus der Ferne eine Zackenkette — jetzt 85 m auf ~300 m.
+- TEUFELSSCHLUCHT + 2 Seitenschluchten (`_schlucht_linien`, `_linie_nachtasten` mit ueber
+  +-150 m gemittelter Richtung — sonst springt der Maeander an Knicken): schneidet den
+  Plateauanteil weg (gestufte Waende, Band), Raster `_sl_*` (CSR, 250 m). Boden im Plateau
+  auf `SCHLUCHT_BODEN` 12 m gedrueckt — unter dem Plateau liegen Huegel bis 150 m, die
+  Schlucht war dort halb so tief und der Bach grub einen 146-m-Schlitz. Beide Enden offen.
+- KLAMMBACH (`_klammbach`, profil): NO-Ende → Hauptschlucht → Seitenschlucht 1 → Spitze
+  der Westbucht. Tiefster Einschnitt 58 m (Durchbruch kurz vor der Bucht).
+- FELSBRUECKEN (3) und MEERESTOR: `Landmarks.build_felsbogen` — Ringroehre um eine
+  Bogenlinie, Enden tauchen ins Gestein, Wicklung selbstkorrigierend (`_bogen_tri`),
+  Kalkfarbe, ConcavePolygon-Kollision. `_felsboegen_bauen` nach dem Felsentor.
+- NADELKUESTE (27 Kreidetuerme vor der Westkueste, Riffsaum) und FELSENSTADT (34 Tuerme an
+  Land vor der SO-Flanke, Luecken >= 80 m): `_tuerme` mit Form je Turm aus der Lage
+  (Saeule, Zuckerhut, Stufenturm). FALLE: der Turmterm galt zuerst im ganzen Suchquadrat
+  und hob dort den Meeresgrund per max() auf SEA_Y → helle quadratische Flachwasserfelder.
+  Getrennte Huellrechtecke fuer Meer und Land.
+- FARBE (`_sonder_farbe`, `kalk_farbe` static — auch fuer die Boegen): Waende am Plateau
+  (nur wo `_plateau_anteil` > 0.02, im Huellrechteck liegen auch normale Huegel), Tuerme
+  nur im Turm selbst (`_turm_u`), gruene Kappe oben.
+- KOSTEN: height_at auf dem Plateau wie vorher mit dem Westbergland (15,4 us), in Schlucht
+  und bei den Nadeln +2 us (gleiche Messung alt/neu, Fernschuerze angehalten).
+- Kamerapunkte fuer Bilder: Schlucht nie schaetzen — die Linie ausgeben (sonst steht die
+  Kamera im Fels und man sieht das Plateau von unten).
 
 ## Fluesse (Umbau 2026-09: Hauptstrom, Profil aus dem Gelaende, Zellenraster)
 - HAUPTSTROM "Silberfluss" (`Main.HAUPTSTROM_PFAD`, `_hauptstrom`): 41 km von einer

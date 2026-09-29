@@ -4128,6 +4128,13 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 				+ FELS_FEIN * _patch.get_noise_2d(x * 1.2, z * 1.2))
 	# STRAND-SCHELF: Hänge nahe der Wasserlinie abflachen -> breite Sandstrände und
 	# breite türkise Untiefen (die Küste "leuchtet"). Blendet bis ±10 m sanft aus.
+	# KALKPLATEAU mit Schlucht (Sondergelaende, siehe sonder_setzen). NACH dem
+	# Felsrelief: die Hochflaeche soll ihre eigene, ruhige Oberflaeche behalten.
+	if _pl_aktiv and _pl_bb.has_point(Vector2(x, z)):
+		h = _plateau(x, z, h)
+	# FELSTUERME an Land (Felsenstadt) — dieselbe Form wie die Nadeln im Meer.
+	if _ft_aktiv and _ft_bb.has_point(Vector2(x, z)):
+		h = _tuerme(x, z, h, _ft, false)
 	var shelf_k := 1.0 - smoothstep(2.5, 10.0, absf(h - SEA_Y))
 	if shelf_k > 0.001:
 		h = lerpf(h, SEA_Y + (h - SEA_Y) * 0.45, shelf_k)
@@ -4136,6 +4143,9 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# und das ist richtig so: die Plaetze stehen fest, die Kuestenform weicht aus).
 	if d > _kf_ab_w:
 		h = _kf_wasser(x, z, h)
+	# FELSNADELN im Meer: nach Schelf und Wasserformen, die wuerden sie sonst stauchen.
+	if _nd_aktiv and _nd_bb.has_point(Vector2(x, z)):
+		h = _nadeln(x, z, h)
 	# Flugplätze/Plateaus einebnen: im Innenradius exakt auf Zielhöhe y (default 0),
 	# außen weich zum Gelände überblenden. (Bergdorf nutzt y>0 -> Hochplateau.)
 	# "quer_faktor" macht aus dem Kreis eine ELLIPSE laengs der Bahn — nur ADLERHORST
@@ -4816,10 +4826,13 @@ func _fluesse_profilieren() -> void:
 			pts[i] = p
 		rv["pts"] = pts
 		var graben := 0.0
+		var wo := Vector2.ZERO
 		for i in n:
-			graben = maxf(graben, gel[i] - sp[i])
-		print("Fluss %s: %.1f km, Quelle %.0f m, Muendung %.1f m, tiefster Einschnitt %.0f m"
-			% [String(rv["name"]), gesamt / 1000.0, sp[0], sp[n - 1], graben])
+			if gel[i] - sp[i] > graben:
+				graben = gel[i] - sp[i]
+				wo = Vector2(pts[i].x, pts[i].z)
+		print("Fluss %s: %.1f km, Quelle %.0f m, Muendung %.1f m, tiefster Einschnitt %.0f m bei (%.0f, %.0f)"
+			% [String(rv["name"]), gesamt / 1000.0, sp[0], sp[n - 1], graben, wo.x, wo.y])
 	rivers = alle
 	# Die Flora sucht Flussbetten bis zur hoechsten Wasserhoehe — die hat sich geaendert.
 	_flora_fluss_h = 0.0
@@ -5685,6 +5698,361 @@ func setze_sonne(richtung: Vector3) -> void:
 	sonne_richtung = richtung
 	for m in _wasser_mats:
 		m.set_shader_parameter("sun_dir", richtung)
+
+
+# =====================================================================================
+# SONDERGELAENDE DER HAUPTINSEL (Main._sondergelaende -> sonder_setzen, VOR setup())
+# =====================================================================================
+# Orte, die man anfliegt, weil das Gelaende dort anders ist — alles im Hoehenfeld, also
+# mit Kollision, Farbe, Bewuchs, Karte und Fernschuerze ohne eigenen Code:
+#   * KALKPLATEAU: Hochflaeche mit gestufter Steilkante (Schutthang, untere Wand, Band,
+#     obere Wand), davor Zeugenberge. Die Hoehe ist ABSOLUT (Deckflaeche), der Rand
+#     verrauscht, damit es kein Oval ist.
+#   * SCHLUCHTEN darin: der Plateauanteil wird entlang von Linien weggeschnitten, mit
+#     gestuften Waenden. Der Boden ist das Gelaende UNTER dem Plateau — die Schlucht
+#     laeuft dadurch an beiden Enden stetig ins Tiefland aus und ist durchfliegbar.
+#   * FELSNADELN: Kreidetuerme im Meer, einzeln gesetzt, mit Riffsaum.
+# Alle Daten liegen in Packed-Arrays (heisser Pfad, siehe Flussraster: keine Variants).
+var _pl_aktiv := false
+var _pl_bb := Rect2()
+var _pl_achse := PackedVector2Array()
+var _pl_breite := PackedFloat32Array()     # halbe Breite je Achspunkt
+var _pl_top := 250.0
+var _zb := PackedFloat32Array()            # Zeugenberge: x, z, r, hoehe
+var _sl_a := PackedVector2Array()          # Schluchtsegmente
+var _sl_b := PackedVector2Array()
+var _sl_bu := PackedFloat32Array()         # halbe Bodenbreite an A, an B
+var _sl_bo := PackedFloat32Array()         # halbe Randbreite an A, an B
+var _sl_x0 := 0.0
+var _sl_z0 := 0.0
+var _sl_nx := 0
+var _sl_nz := 0
+var _sl_start := PackedInt32Array()
+var _sl_seg := PackedInt32Array()
+const SL_ZELLE := 250.0
+var _nd_aktiv := false
+var _nd_bb := Rect2()
+var _nd := PackedFloat32Array()            # Nadeln: x, z, r, hoehe ueber SEA_Y
+var _ft_aktiv := false
+var _ft_bb := Rect2()
+var _ft := PackedFloat32Array()            # Felstuerme an Land: x, z, r, hoehe ueber SEA_Y
+
+
+## Sondergelaende uebernehmen. d = {"plateau": {achse, breite, top},
+## "zeugenberge": [[x,z,r,h]...], "schluchten": [{pts, bu, bo} ...] (bu/bo je Punkt),
+## "nadeln": [[x,z,r,h]...]}.
+func sonder_setzen(d: Dictionary) -> void:
+	var pl: Dictionary = d.get("plateau", {})
+	_pl_aktiv = not pl.is_empty()
+	if _pl_aktiv:
+		_pl_achse = pl["achse"]
+		_pl_breite = pl["breite"]
+		_pl_top = float(pl["top"])
+		var lo := Vector2(INF, INF)
+		var hi := Vector2(-INF, -INF)
+		var wmax := 0.0
+		for i in _pl_achse.size():
+			lo = Vector2(minf(lo.x, _pl_achse[i].x), minf(lo.y, _pl_achse[i].y))
+			hi = Vector2(maxf(hi.x, _pl_achse[i].x), maxf(hi.y, _pl_achse[i].y))
+			wmax = maxf(wmax, _pl_breite[i])
+		# Rand: Breite + Randrauschen (900) + Schutthang + Zeugenberge
+		var m := wmax + 900.0 + 1900.0
+		_pl_bb = Rect2(lo - Vector2(m, m), hi - lo + Vector2(m, m) * 2.0)
+	_zb = PackedFloat32Array()
+	for zb in d.get("zeugenberge", []):
+		_zb.append_array(PackedFloat32Array(zb))
+	# Schluchten ins Zellenraster (CSR, wie beim Flussraster)
+	_sl_a = PackedVector2Array(); _sl_b = PackedVector2Array()
+	_sl_bu = PackedFloat32Array(); _sl_bo = PackedFloat32Array()
+	var boxen: Array = []
+	var lo2 := Vector2(INF, INF)
+	var hi2 := Vector2(-INF, -INF)
+	for sl in d.get("schluchten", []):
+		var pts: PackedVector2Array = sl["pts"]
+		var bu: PackedFloat32Array = sl["bu"]
+		var bo: PackedFloat32Array = sl["bo"]
+		for i in range(pts.size() - 1):
+			_sl_a.append(pts[i]); _sl_b.append(pts[i + 1])
+			_sl_bu.append(bu[i]); _sl_bu.append(bu[i + 1])
+			_sl_bo.append(bo[i]); _sl_bo.append(bo[i + 1])
+			var r := maxf(bo[i], bo[i + 1]) + 40.0
+			var box := Rect2(Vector2(minf(pts[i].x, pts[i + 1].x) - r,
+				minf(pts[i].y, pts[i + 1].y) - r), Vector2.ZERO)
+			box.end = Vector2(maxf(pts[i].x, pts[i + 1].x) + r, maxf(pts[i].y, pts[i + 1].y) + r)
+			boxen.append(box)
+			lo2 = Vector2(minf(lo2.x, box.position.x), minf(lo2.y, box.position.y))
+			hi2 = Vector2(maxf(hi2.x, box.end.x), maxf(hi2.y, box.end.y))
+	_sl_nx = 0
+	_sl_nz = 0
+	_sl_start = PackedInt32Array([0])
+	_sl_seg = PackedInt32Array()
+	if not boxen.is_empty():
+		_sl_x0 = floorf(lo2.x / SL_ZELLE) * SL_ZELLE
+		_sl_z0 = floorf(lo2.y / SL_ZELLE) * SL_ZELLE
+		_sl_nx = int(ceilf((hi2.x - _sl_x0) / SL_ZELLE)) + 1
+		_sl_nz = int(ceilf((hi2.y - _sl_z0) / SL_ZELLE)) + 1
+		var je: Array = []
+		je.resize(_sl_nx * _sl_nz)
+		for si in boxen.size():
+			var box: Rect2 = boxen[si]
+			for zx in range(int((box.position.x - _sl_x0) / SL_ZELLE), int((box.end.x - _sl_x0) / SL_ZELLE) + 1):
+				for zz in range(int((box.position.y - _sl_z0) / SL_ZELLE), int((box.end.y - _sl_z0) / SL_ZELLE) + 1):
+					var k := zz * _sl_nx + zx
+					if je[k] == null:
+						je[k] = PackedInt32Array()
+					var a: PackedInt32Array = je[k]
+					a.append(si)
+					je[k] = a
+		_sl_start = PackedInt32Array()
+		_sl_start.resize(_sl_nx * _sl_nz + 1)
+		var n := 0
+		for k in _sl_nx * _sl_nz:
+			_sl_start[k] = n
+			if je[k] != null:
+				_sl_seg.append_array(je[k])
+				n += (je[k] as PackedInt32Array).size()
+		_sl_start[_sl_nx * _sl_nz] = n
+	# Nadeln (Meer) und Felstuerme (Land) — getrennte Huellrechtecke, sonst spannte eines
+	# die halbe Westinsel auf und jede Probe dort liefe durch alle Tuerme.
+	var nd_r := _tuerme_packen(d.get("nadeln", []))
+	_nd = nd_r[0]
+	_nd_bb = nd_r[1]
+	_nd_aktiv = not _nd.is_empty()
+	var ft_r := _tuerme_packen(d.get("tuerme", []))
+	_ft = ft_r[0]
+	_ft_bb = ft_r[1]
+	_ft_aktiv = not _ft.is_empty()
+
+
+func _tuerme_packen(liste: Array) -> Array:
+	var arr := PackedFloat32Array()
+	var lo3 := Vector2(INF, INF)
+	var hi3 := Vector2(-INF, -INF)
+	for nd in liste:
+		arr.append_array(PackedFloat32Array(nd))
+		var r3: float = float(nd[2]) * 2.6
+		lo3 = Vector2(minf(lo3.x, float(nd[0]) - r3), minf(lo3.y, float(nd[1]) - r3))
+		hi3 = Vector2(maxf(hi3.x, float(nd[0]) + r3), maxf(hi3.y, float(nd[1]) + r3))
+	return [arr, Rect2(lo3, hi3 - lo3) if not arr.is_empty() else Rect2()]
+
+
+## Anteil der Plateauhoehe an der RANDSTUFE (0 draussen .. 1 auf der Deckflaeche), ohne
+## Schluchten. e = Abstand innerhalb der (verrauschten) Kante, positiv = innen.
+## Profil: Schutthang (-320..-20 m), untere Wand, Band, obere Wand — die Schichtstufe.
+func _plateau_rand(x: float, z: float) -> float:
+	return _plateau_rand_e(x, z).x
+
+
+## Wie _plateau_rand, dazu in .y der Kantenabstand e (positiv = innen, -INF weit draussen).
+func _plateau_rand_e(x: float, z: float) -> Vector2:
+	var best_d2 := INF
+	var best_w := 0.0
+	for i in range(_pl_achse.size() - 1):
+		var a := _pl_achse[i]
+		var b := _pl_achse[i + 1]
+		var dx := b.x - a.x
+		var dz := b.y - a.y
+		var l2 := dx * dx + dz * dz
+		var t := clampf(((x - a.x) * dx + (z - a.y) * dz) / l2, 0.0, 1.0)
+		var px := a.x + dx * t - x
+		var pz := a.y + dz * t - z
+		var dd := px * px + pz * pz
+		if dd < best_d2:
+			best_d2 = dd
+			best_w = lerpf(_pl_breite[i], _pl_breite[i + 1], t)
+	# Verrauschte Kante: Lappen und Buchten (1,5 km) plus Vorspruenge (~300 m). Die
+	# Vorspruenge waren zuerst 160 m tief auf 170 m Wellenlaenge — die Wand stand als
+	# Orgelpfeifen-Riffelung da und las sich aus der Ferne wie eine Zackenkette.
+	var w := best_w + 700.0 * _region_n.get_noise_2d(x * 1.6 + 700.0, z * 1.6 - 300.0) \
+		+ 85.0 * _patch.get_noise_2d(x * 0.2 + 90.0, z * 0.2)
+	var e := w - sqrt(best_d2)
+	if e < -330.0:
+		return Vector2(0.0, e)
+	return Vector2(0.30 * smoothstep(-320.0, -20.0, e) + 0.35 * smoothstep(-20.0, 26.0, e)
+		+ 0.05 * smoothstep(26.0, 150.0, e) + 0.30 * smoothstep(150.0, 188.0, e), e)
+
+
+## Schluchten: 0 auf dem Grund .. 1 auf dem Rand. Gestufte Waende: untere Wand, Band,
+## obere Wand, dazu ein Rauschen auf dem Abstand (Nischen, Vorspruenge).
+func _schlucht_cut(x: float, z: float) -> float:
+	var zx := int(floorf((x - _sl_x0) / SL_ZELLE))
+	var zz := int(floorf((z - _sl_z0) / SL_ZELLE))
+	if zx < 0 or zz < 0 or zx >= _sl_nx or zz >= _sl_nz:
+		return 1.0
+	var k0 := zz * _sl_nx + zx
+	var cut := 1.0
+	for j in range(_sl_start[k0], _sl_start[k0 + 1]):
+		var si := _sl_seg[j]
+		var a := _sl_a[si]
+		var b := _sl_b[si]
+		var dx := b.x - a.x
+		var dz := b.y - a.y
+		var l2 := dx * dx + dz * dz
+		var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.y) * dz) / l2, 0.0, 1.0)
+		var px := a.x + dx * t - x
+		var pz := a.y + dz * t - z
+		var dd := px * px + pz * pz
+		var bo := lerpf(_sl_bo[si * 2], _sl_bo[si * 2 + 1], t)
+		if dd >= bo * bo:
+			continue
+		var bu := lerpf(_sl_bu[si * 2], _sl_bu[si * 2 + 1], t)
+		var dc := sqrt(dd) + 11.0 * _patch.get_noise_2d(x * 2.2, z * 2.2)
+		var sv := clampf((dc - bu) / maxf(bo - bu, 1.0), 0.0, 1.0)
+		var c := 0.46 * smoothstep(0.0, 0.26, sv) + 0.10 * smoothstep(0.26, 0.60, sv) \
+			+ 0.44 * smoothstep(0.60, 0.86, sv)
+		cut = minf(cut, c)
+	return cut
+
+
+## Plateau oder Zeugenberg an dieser Stelle (0..1, ohne Schluchten) — fuer die Farbe.
+func _plateau_anteil(x: float, z: float) -> float:
+	var f := _plateau_rand(x, z)
+	for i in range(0, _zb.size(), 4):
+		var dx := x - _zb[i]
+		var dz := z - _zb[i + 1]
+		var r_aus := _zb[i + 2] + 260.0
+		if absf(dx) < r_aus and absf(dz) < r_aus and dx * dx + dz * dz < r_aus * r_aus:
+			return 1.0
+	return f
+
+
+## Boden der Schluchten im Plateau (m). Das Gelaende UNTER dem Plateau hat Huegel bis
+## 150 m — als Schluchtgrund war die Schlucht dort nur noch halb so tief, und der Bach
+## grub sich einen 146-m-Schlitz durch den Buckel. Im Plateau wird der Grund deshalb auf
+## dieses Niveau gedrueckt; zu den Enden hin laeuft das ins gewachsene Tiefland aus.
+const SCHLUCHT_BODEN := 12.0
+
+
+func _plateau(x: float, z: float, h: float) -> float:
+	var fe := _plateau_rand_e(x, z)
+	var f := fe.x
+	# ZEUGENBERGE vor der Kante: einzelne Tafelberge mit derselben Stufe.
+	var zf := 0.0
+	var ztop := _pl_top
+	for i in range(0, _zb.size(), 4):
+		var dx := x - _zb[i]
+		var dz := z - _zb[i + 1]
+		var r := _zb[i + 2]
+		var r_aus := r + 260.0
+		if absf(dx) > r_aus or absf(dz) > r_aus:
+			continue
+		var e := r + 30.0 * _patch.get_noise_2d(x * 0.9, z * 0.9) - sqrt(dx * dx + dz * dz)
+		var g := 0.30 * smoothstep(-240.0, -10.0, e) + 0.40 * smoothstep(-10.0, 22.0, e) \
+			+ 0.30 * smoothstep(40.0, 70.0, e)
+		if g > zf:
+			zf = g
+			ztop = _zb[i + 3]
+	if f <= 0.0 and zf <= 0.0:
+		return h
+	var cut := _schlucht_cut(x, z)
+	if f >= zf:
+		# Die Deckflaeche wellt sich leicht (+-22 m) — eben, aber nicht wie gehobelt.
+		var top := _pl_top + 22.0 * _region_n.get_noise_2d(x * 2.4 - 900.0, z * 2.4 + 400.0)
+		var boden := h
+		if cut < 1.0:
+			boden = lerpf(h, minf(h, SCHLUCHT_BODEN + 5.0 * _patch.get_noise_2d(x * 0.4, z * 0.4)),
+				smoothstep(-1300.0, -250.0, fe.y))
+		return lerpf(boden, maxf(top, h), f * cut)
+	return lerpf(h, maxf(ztop, h), zf * cut)
+
+
+## FELSNADELN: Kreidetuerme mit fast senkrechter Wand, leicht gewoelbter Kappe und einem
+## Riffsaum knapp unter Wasser (tuerkiser Ring im Wasser-Shader).
+func _nadeln(x: float, z: float, h: float) -> float:
+	return _tuerme(x, z, h, _nd, true)
+
+
+## Tuerme aus `arr` (x, z, r, hoehe ueber SEA_Y) aufpraegen; `riff` = Riffsaum im Meer.
+func _tuerme(x: float, z: float, h: float, arr: PackedFloat32Array, riff: bool) -> float:
+	for i in range(0, arr.size(), 4):
+		var dx := x - arr[i]
+		var dz := z - arr[i + 1]
+		var r := arr[i + 2]
+		var r_aus := r * 2.5
+		if absf(dx) > r_aus or absf(dz) > r_aus:
+			continue
+		# Verbeulter Umriss: eine Nadel ist kein Zylinder.
+		var u := sqrt(dx * dx + dz * dz) \
+			/ (r * (1.0 + 0.16 * _patch.get_noise_2d(x * 4.0, z * 4.0)))
+		# NUR AM TURM (u < 1). Zuerst galt der Term im ganzen Suchquadrat — ausserhalb der
+		# Wand ist er SEA_Y, und max() hob den Meeresgrund dort auf den Spiegel: um jede
+		# Nadel lag ein helles, quadratisches Flachwasserfeld.
+		if u < 1.0:
+			var hoehe := arr[i + 3]
+			# FORM JE TURM aus seiner Lage: die meisten sind Saeulen, manche Zuckerhuete, und
+			# knapp die Haelfte traegt einen schmaleren Aufsatz auf breitem Sockel. Lauter
+			# gleiche Zylinder standen im Feld wie Silos.
+			var form := fposmod(sin(arr[i] * 0.0131 + arr[i + 1] * 0.0217) * 437.585, 1.0)
+			var gestalt: float
+			if form > 0.55:
+				gestalt = maxf(1.0 - smoothstep(0.50, 0.62, u),
+					lerpf(0.45, 0.66, (form - 0.55) / 0.45) * (1.0 - smoothstep(0.88, 1.0, u)))
+			else:
+				var ff := form / 0.55
+				gestalt = 1.0 - smoothstep(lerpf(0.86, 0.35, ff * ff), 1.0, u)
+			h = maxf(h, SEA_Y + hoehe * gestalt * (1.0 - 0.10 * u * u))
+		if riff and u < 2.5:
+			h = maxf(h, SEA_Y - 1.2 - 5.0 * smoothstep(1.0, 2.5, u))
+	return h
+
+
+## Kleinster normierter Abstand zu einem Turm aus `arr` (1 = Wandfuss) — fuer die Farbe:
+## nur der Turm selbst ist Kalk, der Boden dazwischen bleibt, was er ist.
+func _turm_u(x: float, z: float, arr: PackedFloat32Array) -> float:
+	var best := INF
+	for i in range(0, arr.size(), 4):
+		var dx := x - arr[i]
+		var dz := z - arr[i + 1]
+		var r := arr[i + 2] * 1.25
+		if absf(dx) > r or absf(dz) > r:
+			continue
+		best = minf(best, sqrt(dx * dx + dz * dz) / arr[i + 2])
+	return best
+
+
+## KALK: helles, warm-graues Gestein mit waagerechten Baendern (Schichtung) und dunklen
+## Feuersteinlagen. EINE Formel fuer Plateauwaende, Nadeln und die Felsboegen (Landmarks),
+## damit alles aus demselben Stein ist. rausch -1..1 variiert die Schicht leicht.
+static func kalk_farbe(y: float, rausch: float) -> Color:
+	var c := Color(0.80, 0.77, 0.69)
+	var band := fposmod(y + rausch * 3.0, 17.0) / 17.0
+	c = c * (0.93 + 0.08 * sin(y * 0.41 + rausch * 2.0))
+	if band < 0.14:
+		c = c.lerp(Color(0.52, 0.50, 0.46), 0.55)          # Feuersteinlage
+	elif band > 0.72:
+		c = c.lerp(Color(0.86, 0.76, 0.58), 0.35)          # ockrige Lage
+	c.a = 1.0
+	return c
+
+
+## Farbe fuer Sondergelaende, a = 0 heisst "nicht zustaendig". Waende des Plateaus, der
+## Zeugenberge und der Schluchten sind Kalk; die Nadeln ganz, mit gruener Kappe oben.
+func _sonder_farbe(cen: Vector3, ny: float) -> Color:
+	var p := Vector2(cen.x, cen.z)
+	var turm := false
+	if _nd_aktiv and _nd_bb.has_point(p) and cen.y > SEA_Y + 0.8:
+		turm = _turm_u(cen.x, cen.z, _nd) < 1.08
+	if not turm and _ft_aktiv and _ft_bb.has_point(p) and (ny < 0.80 or cen.y > 90.0):
+		turm = _turm_u(cen.x, cen.z, _ft) < 1.05
+	if turm:
+		var n := _patch.get_noise_2d(cen.x * 3.0, cen.z * 3.0)
+		var c := kalk_farbe(cen.y, n)
+		if ny > 0.82 and cen.y > SEA_Y + 12.0:
+			c = Color(0.36, 0.52, 0.24).lerp(Color(0.46, 0.58, 0.30), n * 0.5 + 0.5)   # Grasmuetze
+		elif cen.y < SEA_Y + 3.0:
+			c = Color(c.r * 0.62, c.g * 0.62, c.b * 0.60)   # nass und bewachsen am Wasser
+		c.a = 1.0
+		return c
+	if _pl_aktiv and ny < 0.80 and cen.y > 18.0 and _pl_bb.has_point(p):
+		# Nur Waende: flache Stellen bleiben Wiese/Wald (Deckflaeche, Baender, Grund).
+		# Und nur am Plateau selbst — im Huellrechteck liegen auch gewoehnliche Huegel.
+		var steil := 1.0 - smoothstep(0.55, 0.80, ny)
+		if steil > 0.01 and _plateau_anteil(cen.x, cen.z) > 0.02:
+			var n2 := _patch.get_noise_2d(cen.x * 2.0, cen.z * 2.0)
+			var c2 := _face_color_grund(cen, ny).lerp(kalk_farbe(cen.y, n2), steil)
+			c2.a = 1.0
+			return c2
+	return Color(0, 0, 0, 0)
 
 
 ## Tiefenraster, Wellentextur und Leer-Block anlegen (vor dem ersten Wassermaterial).
@@ -7909,6 +8277,9 @@ func _face_color(cen: Vector3, ny: float, zelle: float = 8.0,
 	var reg := region_at(cen.x, cen.z)
 	if reg != Region.HAUPT:
 		return _region_farbe(reg, cen, ny, zelle, normale)
+	var sk := _sonder_farbe(cen, ny)
+	if sk.a > 0.0:
+		return sk
 	var c := _face_color_grund(cen, ny)
 	# NUR STEILES. ny ist die y-Komponente der Flaechennormalen: 1 waagerecht, 0 senkrecht.
 	# Ueber 0,88 ist es Wiese, Plateau oder Gipfelflaeche und bleibt unberuehrt — die

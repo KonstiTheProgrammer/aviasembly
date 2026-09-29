@@ -574,6 +574,223 @@ func _ready() -> void:
 # ===========================================================================
 # WELT
 # ===========================================================================
+## =====================================================================================
+## SONDERGELAENDE: KALKPLATEAU MIT TEUFELSSCHLUCHT, NADELKUESTE, MEERESTOR
+## =====================================================================================
+## Das Gelaende selbst rechnet TerrainWorld (sonder_setzen, _plateau, _nadeln); hier stehen
+## nur Lage und Masse. Alles ist fest (feste Seeds) — Orte, keine Zufallsfunde.
+##   * KALKPLATEAU im Suedwesten (ersetzt das Westbergland): 250 m hohe Hochflaeche mit
+##     gestufter Steilkante, 15 km lang, davor Zeugenberge.
+##   * TEUFELSSCHLUCHT: laeuft der Laenge nach hindurch und an beiden Enden ins Tiefland
+##     hinaus (durchfliegbar), Boden 60 bis 125 m breit, mit Engstellen, Band in halber
+##     Hoehe und zwei Seitenschluchten, die zur Kante hinausfuehren. Ein Bach fliesst darin.
+##   * FELSBRUECKEN: natuerliche Boegen ueber der Schlucht (Landmarks.build_felsbogen).
+##   * NADELKUESTE vor der Westkueste: Kreidetuerme im Meer, dazu das MEERESTOR.
+const PLATEAU_ACHSE := [Vector2(-18000, 3500), Vector2(-15500, 8500), Vector2(-12800, 13800),
+	Vector2(-10300, 18500)]
+const PLATEAU_BREITE := [1900.0, 2400.0, 2400.0, 1700.0]
+const PLATEAU_TOP := 250.0
+const MEERESTOR_STAPEL := Vector3(-28600, 0, 2500)
+var _schlucht_linien: Array = []      # [{pts, bu, bo}] — auch fuer die Felsbruecken
+
+
+## Polylinie auf `schritt` Meter nachtasten und quer auslenken (zwei Wellen). Die Richtung
+## wird ueber +-150 m gemittelt — an den Knicken der Stuetzlinie spraenge die Auslenkung
+## sonst um den Knickwinkel mal ihre Weite.
+static func _linie_nachtasten(ctrl: Array, schritt: float, weite: float, welle: float,
+		phase: float, rand_anfang := 700.0) -> PackedVector2Array:
+	var laengen := PackedFloat32Array([0.0])
+	var gesamt := 0.0
+	for i in range(1, ctrl.size()):
+		gesamt += (ctrl[i] as Vector2).distance_to(ctrl[i - 1])
+		laengen.append(gesamt)
+	var auf := func(s_: float) -> Vector2:
+		var ss := clampf(s_, 0.0, gesamt)
+		var j := 0
+		while j < laengen.size() - 2 and laengen[j + 1] < ss:
+			j += 1
+		var span := maxf(laengen[j + 1] - laengen[j], 0.001)
+		return (ctrl[j] as Vector2).lerp(ctrl[j + 1], clampf((ss - laengen[j]) / span, 0.0, 1.0))
+	var out := PackedVector2Array()
+	var n := int(gesamt / schritt)
+	for k in n + 1:
+		var s_ := gesamt * float(k) / float(n)
+		var p: Vector2 = auf.call(s_)
+		var dir: Vector2 = ((auf.call(s_ + 150.0) as Vector2) - (auf.call(s_ - 150.0) as Vector2)).normalized()
+		var quer := Vector2(-dir.y, dir.x)
+		var rand := minf(smoothstep(0.0, rand_anfang, s_) if rand_anfang > 0.0 else 1.0,
+			smoothstep(0.0, 700.0, gesamt - s_))
+		var aus := weite * rand * (sin(s_ / welle * TAU + phase) * 0.7
+			+ sin(s_ / (welle * 0.41) * TAU + phase * 1.7) * 0.3)
+		out.append(p + quer * aus)
+	return out
+
+
+func _sondergelaende() -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4411
+	var achse := PackedVector2Array()
+	var breite := PackedFloat32Array()
+	for i in PLATEAU_ACHSE.size():
+		achse.append(PLATEAU_ACHSE[i])
+		breite.append(PLATEAU_BREITE[i])
+	# --- Hauptschlucht: der Laenge nach, an beiden Enden 1,7 km ins Tiefland hinaus ------
+	var a: Vector2 = PLATEAU_ACHSE[0]
+	var b: Vector2 = PLATEAU_ACHSE[1]
+	var c: Vector2 = PLATEAU_ACHSE[2]
+	var d: Vector2 = PLATEAU_ACHSE[3]
+	var q1 := Vector2(-(b - a).normalized().y, (b - a).normalized().x)
+	var ctrl := [a - (b - a).normalized() * 1700.0, a, b + q1 * 260.0, c - q1 * 220.0, d,
+		d + (d - c).normalized() * 1700.0]
+	var haupt := _linie_nachtasten(ctrl, 80.0, 290.0, 1900.0, 0.6)
+	_schlucht_linien.clear()
+	_schlucht_linien.append(_schlucht_masse(haupt, 46.0, 16.0, 76.0, 0.7))
+	# --- Seitenschluchten: quer zur Kante hinaus -----------------------------------------
+	for sd in [[0.36, 1.0, 3400.0], [0.67, -1.0, 3300.0]]:
+		var i0 := int(float(sd[0]) * float(haupt.size() - 1))
+		var p0 := haupt[i0]
+		var dir := (haupt[i0 + 3] - haupt[i0 - 3]).normalized()
+		var quer := Vector2(-dir.y, dir.x) * float(sd[1])
+		var lin := _linie_nachtasten([p0, p0 + quer * float(sd[2]) * 0.5 + dir * 300.0,
+			p0 + quer * float(sd[2]) + dir * 450.0], 80.0, 120.0, 850.0, 1.1 * float(sd[1]), 0.0)
+		_schlucht_linien.append(_schlucht_masse(lin, 30.0, 6.0, 62.0, 2.1))
+	# --- Zeugenberge vor der Kante --------------------------------------------------------
+	var zeugen: Array = []
+	for i in 11:
+		var t := rng.randf()
+		var si := mini(int(t * 3.0), 2)
+		var tt := t * 3.0 - float(si)
+		var pa: Vector2 = PLATEAU_ACHSE[si]
+		var pb: Vector2 = PLATEAU_ACHSE[si + 1]
+		var w := lerpf(PLATEAU_BREITE[si], PLATEAU_BREITE[si + 1], tt)
+		var dq := Vector2(-(pb - pa).normalized().y, (pb - pa).normalized().x)
+		var seite := 1.0 if rng.randf() < 0.5 else -1.0
+		var pz := pa.lerp(pb, tt) + dq * seite * (w + rng.randf_range(1050.0, 1650.0))
+		zeugen.append([pz.x, pz.y, rng.randf_range(110.0, 230.0),
+			PLATEAU_TOP * rng.randf_range(0.70, 0.93)])
+	# --- Nadelkueste ----------------------------------------------------------------------
+	var nadeln: Array = [[MEERESTOR_STAPEL.x, MEERESTOR_STAPEL.z, 58.0, 118.0]]
+	var tor_mitte := Vector2(MEERESTOR_STAPEL.x, MEERESTOR_STAPEL.z + 120.0)
+	var versuche := 0
+	while nadeln.size() < 27 and versuche < 2000:
+		versuche += 1
+		var ang := rng.randf() * TAU
+		var rr := sqrt(rng.randf())
+		var np := Vector2(-29000.0 + cos(ang) * rr * 1250.0, 3800.0 + sin(ang) * rr * 2900.0)
+		if np.distance_to(tor_mitte) < 230.0:
+			continue                           # Durchflug durchs Tor freihalten
+		var typ := rng.randf()
+		var nr: float
+		var nh: float
+		if typ < 0.2:
+			nr = rng.randf_range(40.0, 58.0); nh = rng.randf_range(105.0, 150.0)
+		elif typ < 0.7:
+			nr = rng.randf_range(26.0, 40.0); nh = rng.randf_range(58.0, 108.0)
+		else:
+			nr = rng.randf_range(16.0, 26.0); nh = rng.randf_range(34.0, 72.0)
+		var frei := true
+		for o in nadeln:
+			if np.distance_to(Vector2(o[0], o[1])) < float(o[2]) + nr + 70.0:
+				frei = false
+				break
+		if frei:
+			nadeln.append([np.x, np.y, nr, nh])
+	# --- Felsenstadt: freie Kalktuerme vor der Suedostflanke, zum Slalomfliegen ----------
+	# Luecken von mindestens 80 m zwischen den Tuermen — eng genug, dass man kurvt, weit
+	# genug fuer jede Spannweite im Baukasten.
+	var tuerme: Array = []
+	var ax := (c - b).normalized()
+	var so := Vector2(ax.y, -ax.x)
+	var fs_mitte := (b + c) * 0.5 + so * (2400.0 + 1800.0)
+	versuche = 0
+	while tuerme.size() < 34 and versuche < 3000:
+		versuche += 1
+		var ang2 := rng.randf() * TAU
+		var rr2 := sqrt(rng.randf())
+		var tp := fs_mitte + ax * cos(ang2) * rr2 * 1300.0 + so * sin(ang2) * rr2 * 800.0
+		var t_r := rng.randf_range(22.0, 55.0)
+		var frei2 := true
+		for o in tuerme:
+			if tp.distance_to(Vector2(o[0], o[1])) < float(o[2]) + t_r + 80.0:
+				frei2 = false
+				break
+		if frei2:
+			# Hoehe ueber SEA_Y (wie die Nadeln): Spitzen zwischen 120 und 235 m
+			tuerme.append([tp.x, tp.y, t_r, rng.randf_range(120.0, 235.0) - TerrainWorld.SEA_Y])
+	return {"plateau": {"achse": achse, "breite": breite, "top": PLATEAU_TOP},
+		"zeugenberge": zeugen, "schluchten": _schlucht_linien, "nadeln": nadeln,
+		"tuerme": tuerme}
+
+
+## Breiten einer Schlucht je Punkt: Boden bu +- schwank (Engstellen und Weiten), Rand
+## = Boden + wand (Waende 70 bis 90 m waagerecht auf ~200 m Hoehe: steil, aber gestuft).
+static func _schlucht_masse(pts: PackedVector2Array, bu: float, schwank: float, wand: float,
+		phase: float) -> Dictionary:
+	var bus := PackedFloat32Array()
+	var bos := PackedFloat32Array()
+	var s_ := 0.0
+	for i in pts.size():
+		if i > 0:
+			s_ += pts[i].distance_to(pts[i - 1])
+		var u := bu + schwank * sin(s_ / 2600.0 * TAU + phase)
+		bus.append(u)
+		bos.append(u + wand + 18.0 * sin(s_ / 1700.0 * TAU + phase * 1.9))
+	return {"pts": pts, "bu": bus, "bo": bos}
+
+
+## KLAMMBACH: kommt von Nordosten aus dem Tiefland in die Teufelsschlucht, folgt ihr bis zur
+## ersten Seitenschlucht, verlaesst das Plateau durch diese nach Nordwesten und muendet
+## 2 km weiter in die Spitze der Westbucht. Hoehen aus dem Gelaende ("profil"), die Punkte
+## sind die Schluchtlinien selbst (deshalb kein eigener Maeander).
+func _klammbach() -> Dictionary:
+	var haupt: PackedVector2Array = _schlucht_linien[0]["pts"]
+	var seite: PackedVector2Array = _schlucht_linien[1]["pts"]
+	var i0 := int(0.36 * float(haupt.size() - 1))
+	var pts: Array = []
+	for i in range(haupt.size() - 1, i0, -1):
+		pts.append(Vector3(haupt[i].x, 0.0, haupt[i].y))
+	for i in seite.size():
+		pts.append(Vector3(seite[i].x, 0.0, seite[i].y))
+
+	for p in [Vector2(-19500, 9750), Vector2(-20200, 9450), Vector2(-20900, 9200),
+			Vector2(-21700, 9050)]:
+		pts.append(Vector3(p.x, 0.0, p.y))
+	return {"name": "Klammbach", "profil": true, "ziel_h": TerrainWorld.SEA_Y, "einsatz": 1.3,
+		"w_quelle": 5.0, "w": 16.0, "depth_quelle": 1.0, "depth": 2.4,
+		"tal_quelle": 26.0, "valley": 44.0, "tal_lauf": 2000.0, "pts": pts}
+
+
+## FELSBRUECKEN ueber die Schlucht und das MEERESTOR. Nach setup(): die Fuesse brauchen
+## die echte Gelaendehoehe.
+func _felsboegen_bauen() -> void:
+	if _schlucht_linien.is_empty():
+		return
+	var stellen := [[0, 0.27, 7101], [0, 0.585, 7102], [1, 0.46, 7103]]
+	for st in stellen:
+		var lin: Dictionary = _schlucht_linien[int(st[0])]
+		var pts: PackedVector2Array = lin["pts"]
+		var bos: PackedFloat32Array = lin["bo"]
+		var i := clampi(int(float(st[1]) * float(pts.size() - 1)), 3, pts.size() - 4)
+		var dir := (pts[i + 3] - pts[i - 3]).normalized()
+		var quer := Vector2(-dir.y, dir.x)
+		var halb := bos[i] + 50.0
+		var fa := pts[i] + quer * halb
+		var fb := pts[i] - quer * halb
+		var ha := terrain.height_at(fa.x, fa.y)
+		var hb := terrain.height_at(fb.x, fb.y)
+		var rand := minf(ha, hb)
+		var dv := 20.0
+		var fuss := rand - 30.0
+		var hub := (rand - dv * 0.55) - fuss
+		Landmarks.build_felsbogen(fly_world, Vector3(fa.x, fuss, fa.y), Vector3(fb.x, fuss, fb.y),
+			hub, dv, 28.0, 1.7, int(st[2]), "Felsbruecke")
+	# MEERESTOR: ein Bein im grossen Stapel, das andere im Meer, 175 m weiter nordwaerts.
+	# Man fliegt ost-west hindurch; lichte Hoehe ~70 m.
+	var ta := Vector3(MEERESTOR_STAPEL.x, TerrainWorld.SEA_Y - 6.0, MEERESTOR_STAPEL.z + 30.0)
+	var tb := Vector3(MEERESTOR_STAPEL.x + 8.0, TerrainWorld.SEA_Y - 6.0, MEERESTOR_STAPEL.z + 205.0)
+	Landmarks.build_felsbogen(fly_world, ta, tb, 96.0, 13.0, 19.0, 2.4, 7201, "Meerestor")
+
+
 ## DER HAUPTSTROM ("Silberfluss"): von einer Gletscherquelle an der Suedflanke der
 ## Nordkette (1039 m) durch das Vorland, einen Huegelriegel und das Tiefland zur Suedost-
 ## kueste, 42,6 km. DER LAUF IST GEMESSEN, NICHT GEZEICHNET (tools/_fluss_route.gd):
@@ -749,12 +966,8 @@ func _region_formen() -> Array:
 				Vector2(-2700, -8700)]),
 			"hs": PackedFloat32Array([850.0, 1300.0, 1550.0]),
 			"breite": PackedFloat32Array([2300.0, 2600.0, 2800.0])},
-		# WESTBERGLAND (Suedwesten): bewaldete Ruecken, bleiben unter der Felsgrenze
-		{"art": "gebirge", "fuss": -24.0, "seed": 8120.0,
-			"pts": PackedVector2Array([Vector2(-18500, 2500), Vector2(-15500, 8500),
-				Vector2(-12500, 14500), Vector2(-9500, 19500)]),
-			"hs": PackedFloat32Array([240.0, 480.0, 520.0, 260.0]),
-			"breite": PackedFloat32Array([2600.0, 3400.0, 3400.0, 2400.0])},
+		# (Hier stand das WESTBERGLAND, ein bewaldeter Ruecken. Ersetzt durch das
+		# KALKPLATEAU mit der Teufelsschlucht, siehe _sondergelaende.)
 		# OSTBERGLAND (Suedosten)
 		{"art": "gebirge", "fuss": -24.0, "seed": 9480.0,
 			"pts": PackedVector2Array([Vector2(9500, 12500), Vector2(11500, 17500),
@@ -1613,7 +1826,9 @@ func _setup_world() -> void:
 	_massive_charakterisieren(massifs)
 	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
 	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
-	var rivers := [_hauptstrom(), {
+	# Das Sondergelaende VOR den Fluessen erzeugen: der Klammbach folgt seinen Schluchten.
+	var sonder := _sondergelaende()
+	var rivers := [_hauptstrom(), _klammbach(), {
 		# CANYON DES WESTENS: extrem breites/tiefes "Flusstal" = durchfliegbare Schlucht
 		# (die Distanz-Rampe macht dort echte Berge -> hohe Waende links und rechts).
 		# DAS TALBAND WAR 260 M BREIT UND HAT DIE SCHLUCHT SELBST EINGEEBNET.
@@ -1776,6 +1991,9 @@ func _setup_world() -> void:
 	# 15 km breite Meeresstrassen getrennt (Begruendung bei TerrainWorld.LANDMASSEN).
 	# VOR setup(): der Chunk-Worker startet darin und darf die Liste nie halb sehen.
 	terrain.landmassen = LANDMASSEN
+	# SONDERGELAENDE (Kalkplateau, Schluchten, Felsnadeln) — vor setup(), der Chunk-Worker
+	# liest es ab dem ersten Chunk.
+	terrain.sonder_setzen(sonder)
 	# KUESTENANKER der Hauptinsel (TerrainWorld._kueste_versatz): was an der Wasserlinie
 	# steht, haelt die Kueste fest; Schiffe, Inseln und die Lagune lassen sie nur weichen.
 	var anker: Array = [[Vector2(-25706, -1662), "fest"], [Vector2(7188, 25403), "fest"],
@@ -2002,7 +2220,11 @@ func _setup_world() -> void:
 		{"name": "Gewitterzelle", "pos": Vector3(31500, 0, 2500), "color": Color(0.75, 0.78, 0.95), "art": "gefahr"},
 		{"name": "Nebelmeer", "pos": Vector3(-28000, 0, 9500), "color": Color(0.92, 0.95, 1.0), "art": "natur"},
 		{"name": "Westbucht", "pos": Vector3(-27500, 0, 9000), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
-		{"name": "Westbergland", "pos": Vector3(-14000, 0, 11500), "color": Color(0.55, 0.75, 0.45), "art": "natur"},
+		{"name": "Kalkplateau", "pos": Vector3(-15200, 0, 9800), "color": Color(0.85, 0.82, 0.72), "art": "natur"},
+		{"name": "Teufelsschlucht", "pos": Vector3(-13300, 0, 12600), "color": Color(0.90, 0.86, 0.74), "art": "natur"},
+		{"name": "Nadelküste", "pos": Vector3(-29200, 0, 4200), "color": Color(0.95, 0.93, 0.86), "art": "natur"},
+		{"name": "Felsenstadt", "pos": Vector3(-10400, 0, 9300), "color": Color(0.90, 0.86, 0.74), "art": "natur"},
+		{"name": "Meerestor", "pos": MEERESTOR_STAPEL + Vector3(0, 0, 90), "color": Color(0.95, 0.93, 0.86), "art": "natur"},
 		{"name": "Ostbergland", "pos": Vector3(11500, 0, 17500), "color": Color(0.55, 0.75, 0.45), "art": "natur"},
 		# --- DIE NEUEN REGIONEN ------------------------------------------------------
 		{"name": "NORDLAND", "pos": Vector3(6000, 0, -76500), "color": Color(0.80, 0.90, 1.0), "art": "region"},
@@ -2175,6 +2397,7 @@ func _setup_world() -> void:
 	# echten Hang, der zur dicken Seite hin um ueber 400 m ansteigt.
 	Landmarks.build_felsentor(fly_world, Vector3(tor_p.x, tor_y, tor_p.y),
 		TOR_SPANN, 420.0, 105.0, atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y), TOR_SEED, terrain)
+	_felsboegen_bauen()
 	# FELSENBASIS ADLERHORST: der unterirdische Flugplatz im Talschluss.
 	#
 	# NICHT MEHR IN DER SEITENWAND. Die erste Fassung war ein Stollen quer zur Bahn — ein

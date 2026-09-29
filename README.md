@@ -128,6 +128,13 @@ Quer durch die Hauptinsel fließt der **Silberfluss**: 41 km von einer Gletscher
 Nordkette als Wildbach hinunter, durch einen Durchbruch im Hügelland und in weiten Bögen durch
 das Tiefland bis zur Südostküste — mit Kiesufern, Auwald und Strömung zum Tiefflug entlang.
 
+Im Südwesten steht das **Kalkplateau**, 250 m hoch mit gestuften weißen Steilwänden. Die
+**Teufelsschlucht** zieht sich 15 km der Länge nach hindurch, 200 m tief und an beiden Enden
+offen, mit Engstellen, zwei Seitenschluchten, natürlichen **Felsbrücken** und dem Klammbach
+am Grund. Vor der Südostflanke liegt die **Felsenstadt**, ein Feld freistehender Felstürme
+zum Slalomfliegen, und vor der Westküste die **Nadelküste**: Kreidenadeln im türkisen Meer
+mit dem **Meerestor**, einem Felsbogen, durch den man hindurchfliegen kann.
+
 **Wolken zum Durchfliegen** (alle auf der Karte):
 - **Gewitterzelle** weit draußen im Osten — 5 km hoher Turm mit Amboss, Blitzen und Regen,
   heftiger Turbulenz, Aufwind im Kern und Fallwind unter der Basis.

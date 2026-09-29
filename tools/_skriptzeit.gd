@@ -17,6 +17,7 @@ const STELLEN := [
 	["Flakzone", Vector3(250, 250, -1900), Vector3(0, 0, -1)],
 	["Hochtal", Vector3(-5000, 700, -8500), Vector3(-1, 0, -1)],
 	["Silberfluss", Vector3(8200, 150, 4800), Vector3(0.6, 0, 0.8)],
+	["Kalkplateau", Vector3(-17500, 320, 4000), Vector3(0.45, 0, 0.9)],
 	# die neuen Regionen (Main.LANDMASSEN) — dichtester Wald, Karst, Tafelland
 	["Nord-Taiga", Vector3(2500, 220, -52500), Vector3(1, 0, 0)],
 	["Sued-Dschungel", Vector3(-1000, 300, 60500), Vector3(0, 0, 1)],

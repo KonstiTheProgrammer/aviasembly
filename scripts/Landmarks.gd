@@ -1776,6 +1776,112 @@ static func build_felsentor(parent: Node3D, mitte: Vector3, spannweite: float,
 
 
 # ============================================================================
+# FELSBOGEN — natuerliche Bruecke / Meerestor aus Kalk
+# ============================================================================
+## Ein Bogen zwischen zwei Fusspunkten: eine gekruemmte, unregelmaessige Roehre aus
+## Ringen, flach schattiert wie das Gelaende, mit derselben Kalkfarbe wie Plateau und
+## Felsnadeln (TerrainWorld.kalk_farbe). Die Enden laufen UNTER die Fusspunkte weiter, damit
+## der Bogen im Fels steckt statt auf ihm zu stehen.
+##   hub       Anstieg der Mittellinie ueber die Verbindung der Fusspunkte (m)
+##   dicke_v   halbe Dicke senkrecht im Scheitel, dicke_q halbe Breite quer
+##   fuss_skala wie viel dicker die Beine an den Fuessen sind
+## Kollision wie beim Felsentor: dieselben Dreiecke als ConcavePolygonShape3D.
+static func build_felsbogen(parent: Node3D, fuss_a: Vector3, fuss_b: Vector3, hub: float,
+		dicke_v: float, dicke_q: float, fuss_skala := 1.8, seed_v := 1,
+		name := "Felsbogen") -> Node3D:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_v
+	const RINGE := 34
+	const SEITEN := 10
+	var span := fuss_b - fuss_a
+	var quer := Vector3(-span.z, 0.0, span.x).normalized()
+	var mitte := (fuss_a + fuss_b) * 0.5
+	# Mittellinie
+	var linie: Array[Vector3] = []
+	var skala: Array[float] = []
+	for i in RINGE + 1:
+		var t := -0.12 + 1.24 * float(i) / float(RINGE)
+		var tt := clampf(t, 0.0, 1.0)
+		var p := fuss_a.lerp(fuss_b, t)
+		var bogen := sin(PI * tt)
+		p.y = lerpf(fuss_a.y, fuss_b.y, tt) + hub * pow(bogen, 0.7)
+		if t < 0.0 or t > 1.0:
+			p.y -= absf(t - tt) * 2.5 * maxf(hub, 40.0)       # ins Gestein abtauchen
+		p += quer * rng.randf_range(-0.06, 0.06) * dicke_q
+		linie.append(p)
+		skala.append(lerpf(fuss_skala, 1.0, pow(bogen, 0.55)))
+	# Ringe
+	var ringe: Array = []
+	var phase := rng.randf() * TAU
+	for i in linie.size():
+		var tang := (linie[mini(i + 1, linie.size() - 1)] - linie[maxi(i - 1, 0)]).normalized()
+		var hoch := tang.cross(quer).normalized()
+		if hoch.y < 0.0:
+			hoch = -hoch
+		var ring := PackedVector3Array()
+		phase += rng.randf_range(-0.25, 0.25)
+		for k in SEITEN:
+			var a := TAU * float(k) / float(SEITEN) + phase
+			var j := rng.randf_range(0.80, 1.18)
+			ring.append(linie[i] + quer * cos(a) * dicke_q * skala[i] * j
+				+ hoch * sin(a) * dicke_v * skala[i] * j)
+		ringe.append(ring)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	for i in ringe.size() - 1:
+		var r0: PackedVector3Array = ringe[i]
+		var r1: PackedVector3Array = ringe[i + 1]
+		var zent := (linie[i] + linie[i + 1]) * 0.5
+		for k in SEITEN:
+			var k2 := (k + 1) % SEITEN
+			_bogen_tri(st, r0[k], r1[k], r1[k2], zent, mitte, rng)
+			_bogen_tri(st, r0[k], r1[k2], r0[k2], zent, mitte, rng)
+	st.generate_normals()
+	var node := Node3D.new()
+	node.name = name
+	parent.add_child(node)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.roughness = 1.0
+	m.metallic_specular = 0.1
+	mi.material_override = m
+	node.add_child(mi)
+	var body := StaticBody3D.new()
+	body.name = "Kollision"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(mi.mesh.get_faces())
+	cs.shape = shape
+	body.add_child(cs)
+	node.add_child(body)
+	return node
+
+
+## Ein Dreieck des Bogens, nach AUSSEN gewickelt (weg von der Mittellinie) und in Kalk.
+static func _bogen_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, zent: Vector3,
+		_mitte: Vector3, rng: RandomNumberGenerator) -> void:
+	var n := (b - a).cross(c - a)
+	var cen := (a + b + c) / 3.0
+	# Godot-Front = im Uhrzeigersinn von aussen: die geometrische Normale (b-a)x(c-a)
+	# muss dafuer NACH INNEN zeigen (wie beim Gelaende, _tri).
+	if n.dot(cen - zent) > 0.0:
+		var t := b
+		b = c
+		c = t
+	var farbe := TerrainWorld.kalk_farbe(cen.y, rng.randf_range(-1.0, 1.0))
+	st.set_color(farbe)
+	st.add_vertex(a)
+	st.add_vertex(b)
+	st.add_vertex(c)
+
+
+# ============================================================================
 # FELSENBASIS ADLERHORST — der Flugplatz im Berg
 # ============================================================================
 ##
