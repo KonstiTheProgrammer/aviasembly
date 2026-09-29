@@ -33,6 +33,14 @@ func _process(_d: float) -> bool:
 
 	var main: Node = load("res://scenes/Main.tscn").instantiate()
 	root.add_child(main)
+	# FERNSCHUERZE ANHALTEN, bevor unten lakes/rivers getauscht werden: ihr Faden liest
+	# beide waehrenddessen, und der Tausch liess das Werkzeug abstuerzen (Signal 11 in
+	# _face_color_grund, reproduzierbar — auch vor dem Hauptstrom schon).
+	main.set("_fern_stopp", true)
+	var ft: Thread = main.get("_fern_thread")
+	if ft != null and ft.is_started():
+		ft.wait_to_finish()
+		main.set("_fern_thread", null)
 	var tw: TerrainWorld = main.terrain
 	var K: Dictionary = main.get_script().get_script_constant_map()
 	var mitte: Vector2 = Vector2(K["TAL_START"]) + Vector2(K["TAL_RICHTUNG"]) * float(K["SEE_LAENGS"])

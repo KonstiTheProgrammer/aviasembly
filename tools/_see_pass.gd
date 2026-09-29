@@ -51,6 +51,12 @@ func _process(_d: float) -> bool:
 
 	var main: Node = load("res://scenes/Main.tscn").instantiate()
 	root.add_child(main)
+	# Fernschuerze anhalten, bevor lakes/rivers getauscht werden (siehe _see_abfluss.gd).
+	main.set("_fern_stopp", true)
+	var ft: Thread = main.get("_fern_thread")
+	if ft != null and ft.is_started():
+		ft.wait_to_finish()
+		main.set("_fern_thread", null)
 	var tw: TerrainWorld = main.terrain
 	var K: Dictionary = main.get_script().get_script_constant_map()
 	var ach: Vector2 = Vector2(K["TAL_RICHTUNG"])

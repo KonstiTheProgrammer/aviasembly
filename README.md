@@ -124,6 +124,10 @@ Klima, durch Meeresstraßen getrennt (mit kleinen Trittstein-Inseln dazwischen):
 
 Alle Regionen stehen auf der Karte (**M**); ein Klick auf einen Flugplatz setzt dort einen Wegpunkt.
 
+Quer durch die Hauptinsel fließt der **Silberfluss**: 41 km von einer Gletscherquelle an der
+Nordkette als Wildbach hinunter, durch einen Durchbruch im Hügelland und in weiten Bögen durch
+das Tiefland bis zur Südostküste — mit Kiesufern, Auwald und Strömung zum Tiefflug entlang.
+
 **Wolken zum Durchfliegen** (alle auf der Karte):
 - **Wolkentore** gleich hinter HEIMAT — sieben Ringe, das nächste Tor leuchtet golden;
   wer alle in einem Flug schafft, bekommt im Survival eine Prämie.

@@ -80,6 +80,12 @@ uniform float brandung_tiefe = 3.2;   // m: so tief reicht die Brandungszone
 uniform float brandung_abstand = 0.85; // m Tiefe zwischen zwei Linien
 uniform float brandung_takt = 0.11;   // Linien je Sekunde
 uniform float weisskappen : hint_range(0.0, 1.0) = 0.0;   // Schaumkronen auf offener See
+// FLIESSENDES WASSER (Fluesse): die Vertexfarbe traegt die Fliessrichtung (RG) und das
+// Gefaelle (B) des Bandes (TerrainWorld._build_river_water). Die Wellen laufen dann
+// flussab statt mit dem Wind, schneller, je steiler es wird, und wo es steil ist,
+// schaeumt Wildwasser; dazu ziehen feine Schaumschlieren mit der Stroemung.
+uniform bool fliessend = false;
+uniform float stroemung = 1.6;       // m/s Grundstroemung im Flachen
 
 // --- Wellen: Laengen in METERN, Geschwindigkeiten in METERN JE SEKUNDE ---------------
 // Die Geschwindigkeit ist die Phasengeschwindigkeit in tiefem Wasser, c = sqrt(g L / 2pi)
@@ -239,6 +245,16 @@ void fragment() {
 
 	// --- Wellen --------------------------------------------------------------------------
 	vec2 w = normalize(wind_dir);
+	float steil = 0.0;
+	float zug = 0.0;
+	if (fliessend) {
+		vec2 fd = COLOR.rg * 2.0 - 1.0;
+		if (dot(fd, fd) > 0.01) {
+			w = normalize(fd);
+		}
+		steil = COLOR.b;
+		zug = stroemung * (1.0 + 4.0 * steil);
+	}
 	float wf = 1.0;
 	float wfn = 0.5;
 	if (windfelder > 0.0) {
@@ -246,9 +262,9 @@ void fragment() {
 			+ vnoise(wpos.xz / 900.0 - w * (t * 0.006)) * 0.35;
 		wf = mix(1.0, mix(0.45, 1.35, smoothstep(0.25, 0.75, wfn)), windfelder);
 	}
-	vec4 s1 = welle(wpos.xz, dreh(w, 0.17), swell_len, swell_amp * 0.62, swell_speed, t);
+	vec4 s1 = welle(wpos.xz, dreh(w, 0.17), swell_len, swell_amp * 0.62, swell_speed + zug, t);
 	vec4 s2 = welle(wpos.xz, dreh(w, -0.24), swell_len * 0.77, swell_amp * 0.50,
-		swell_speed * 0.877, t);
+		swell_speed * 0.877 + zug, t);
 	// Kurze Oktaven nur, wo sie noch mehr als einen Bildpunkt haben: dahinter liefern die
 	// Mipmaps ohnehin nur noch ihren Mittelwert (Steigung null). Die Grenzen laufen mit
 	// der Wellenlaenge, damit Seen und Fluesse (kurze Wellen) sie frueher abgeben.
@@ -256,12 +272,14 @@ void fragment() {
 	vec4 r1 = vec4(0.0);
 	vec4 r2 = vec4(0.0);
 	if (cam_d < chop_len * 450.0) {
-		c1 = welle(wpos.xz, dreh(w, 0.62), chop_len, chop_amp * wf, chop_speed, t);
+		c1 = welle(wpos.xz, dreh(w, 0.62), chop_len, chop_amp * wf * (1.0 + 2.5 * steil),
+			chop_speed + zug, t);
 	}
 	if (cam_d < ripple_len * 450.0) {
-		r1 = welle(wpos.xz, dreh(w, -0.45), ripple_len, ripple_amp * wf, ripple_speed, t);
+		r1 = welle(wpos.xz, dreh(w, -0.45), ripple_len, ripple_amp * wf * (1.0 + 2.0 * steil),
+			ripple_speed + zug, t);
 		r2 = welle(wpos.xz, dreh(w, 1.10), ripple_len * 0.37, ripple_amp * 0.35 * wf,
-			ripple_speed * 0.61, t);
+			ripple_speed * 0.61 + zug * 0.8, t);
 	}
 	vec2 grad = s1.xy + s2.xy + c1.xy + r1.xy + r2.xy;
 	float h0 = s1.z + s2.z + c1.z;
@@ -305,6 +323,16 @@ void fragment() {
 		float zone = smoothstep(brandung_tiefe, brandung_tiefe * 0.45, d_eff);
 		linie *= zone * smoothstep(0.28, 0.62, bruch) * mix(0.6, 1.0, netz);
 		schaum = max(schaum, linie * brandung * (1.0 - fern));
+	}
+	// Fluss: Schaumschlieren mit der Stroemung (laengs gestrecktes Schaumnetz) und Wildwasser,
+	// wo das Band steil wird.
+	if (fliessend && fern < 1.0) {
+		vec2 ql = vec2(dot(wpos.xz, w), dot(wpos.xz, vec2(-w.y, w.x)));
+		float schliere = texture(wellen_tex, ql / vec2(26.0, 7.0) - vec2(t * zug / 26.0, 0.0)).a;
+		float wild = smoothstep(0.10, 0.45, steil);
+		float wildnetz = texture(wellen_tex, ql / vec2(9.0, 5.0) - vec2(t * zug / 9.0, 0.3)).a;
+		schaum = max(schaum, schliere * 0.22 * (1.0 - wild) * (1.0 - fern));
+		schaum = max(schaum, wild * mix(0.55, 1.0, max(schliere, wildnetz)) * (1.0 - fern * 0.5));
 	}
 	// Schaumkronen auf offener See, nur auf den hoechsten Kaemmen und in rauen Windfeldern.
 	if (weisskappen > 0.0) {

@@ -574,6 +574,50 @@ func _ready() -> void:
 # ===========================================================================
 # WELT
 # ===========================================================================
+## DER HAUPTSTROM ("Silberfluss"): von einer Gletscherquelle an der Suedflanke der
+## Nordkette (1039 m) durch das Vorland, einen Huegelriegel und das Tiefland zur Suedost-
+## kueste, 42,6 km. DER LAUF IST GEMESSEN, NICHT GEZEICHNET (tools/_fluss_route.gd):
+## Dijkstra auf dem gewachsenen Gelaende, Talboeden bevorzugt, bergauf teuer, Flugplaetze,
+## Orte und Vulkan gesperrt — er haelt ueberall mindestens 2,5 km Abstand zu Grossstadt,
+## Vulkanfeld und Osthafen. Die Wasserhoehen rechnet TerrainWorld._fluesse_profilieren aus
+## dem Gelaende ("profil"), sie stehen hier nicht.
+## Er waechst: 8 m breit an der Quelle, gut 50 m im Tiefland, zur Muendung ein Trichter.
+## Maeander erst ab 5,5 km — oben ist er ein Wildbach in der Falllinie.
+const HAUPTSTROM_PFAD := [
+	Vector2(6075, -15225), Vector2(6075, -14550), Vector2(6000, -14175), Vector2(5850, -13875), Vector2(5550, -13463),
+	Vector2(5100, -12938), Vector2(4875, -12488), Vector2(4875, -12113), Vector2(5063, -11625), Vector2(5438, -11025),
+	Vector2(5513, -10575), Vector2(5288, -10275), Vector2(5213, -10050), Vector2(5288, -9900), Vector2(5213, -9600),
+	Vector2(4988, -9150), Vector2(4688, -8663), Vector2(4313, -8138), Vector2(4163, -7538), Vector2(4238, -6863),
+	Vector2(4200, -6225), Vector2(4050, -5625), Vector2(4050, -5250), Vector2(4200, -5100), Vector2(4238, -4950),
+	Vector2(4163, -4800), Vector2(4238, -4538), Vector2(4463, -4163), Vector2(4538, -3863), Vector2(4463, -3638),
+	Vector2(4650, -3300), Vector2(5100, -2850), Vector2(5513, -2513), Vector2(5888, -2288), Vector2(6263, -1950),
+	Vector2(6638, -1500), Vector2(6825, -675), Vector2(6825, 525), Vector2(6863, 1163), Vector2(6938, 1238),
+	Vector2(6938, 1313), Vector2(6863, 1388), Vector2(6863, 1463), Vector2(6938, 1538), Vector2(6938, 1613),
+	Vector2(6863, 1688), Vector2(6825, 1988), Vector2(6825, 2513), Vector2(7013, 2963), Vector2(7388, 3338),
+	Vector2(7613, 3675), Vector2(7688, 3975), Vector2(7838, 4238), Vector2(8063, 4463), Vector2(8213, 4763),
+	Vector2(8288, 5138), Vector2(8438, 5513), Vector2(8663, 5888), Vector2(8775, 6188), Vector2(8775, 6413),
+	Vector2(9188, 6825), Vector2(10013, 7425), Vector2(10500, 7800), Vector2(10650, 7950), Vector2(10725, 8138),
+	Vector2(10725, 8363), Vector2(11100, 8850), Vector2(11850, 9600), Vector2(12300, 9975), Vector2(12450, 9975),
+	Vector2(12750, 10125), Vector2(13200, 10425), Vector2(13575, 10725), Vector2(13875, 11025), Vector2(14063, 11288),
+	Vector2(14138, 11513), Vector2(14663, 12113), Vector2(15638, 13088), Vector2(16163, 13688), Vector2(16238, 13913),
+	Vector2(16163, 14175), Vector2(15938, 14475), Vector2(15863, 14813), Vector2(15938, 15188), Vector2(15900, 15600),
+	Vector2(15750, 16050), Vector2(15713, 16313), Vector2(15788, 16388), Vector2(15863, 16725), Vector2(15938, 17325),
+	Vector2(16163, 17738), Vector2(16725, 18075),
+]
+
+
+func _hauptstrom() -> Dictionary:
+	var pts: Array = []
+	for v in HAUPTSTROM_PFAD:
+		pts.append(Vector3(v.x, 0.0, v.y))
+	return {"name": "Silberfluss", "profil": true, "ziel_h": TerrainWorld.SEA_Y, "einsatz": 2.0,
+		"w_quelle": 4.0, "w": 26.0, "trichter": 1.2,
+		"depth_quelle": 1.2, "depth": 3.6,
+		"tal_quelle": 45.0, "valley": 230.0, "tal_lauf": 12000.0,
+		"maeander": 55.0, "maeander_welle": 850.0, "maeander_ab": 5500.0,
+		"pts": pts}
+
+
 ## ORTE DER NEUEN REGIONEN: ein Dorf je Landmasse (Plan aus CityBuilder).
 const REGION_ORTE := [
 	{"name": "Eisbucht", "pos": Vector3(-2500, 0, -53500), "plan": "dorf", "strassen": true},
@@ -1569,7 +1613,7 @@ func _setup_world() -> void:
 	_massive_charakterisieren(massifs)
 	# ECHTER FLUSS: Spline von der Bergquelle (hoch) bis in den See (tief).
 	# Punkte = (x, Wasserhöhe, z); Höhe fällt monoton -> fließt bergab.
-	var rivers := [{
+	var rivers := [_hauptstrom(), {
 		# CANYON DES WESTENS: extrem breites/tiefes "Flusstal" = durchfliegbare Schlucht
 		# (die Distanz-Rampe macht dort echte Berge -> hohe Waende links und rechts).
 		# DAS TALBAND WAR 260 M BREIT UND HAT DIE SCHLUCHT SELBST EINGEEBNET.
@@ -1593,14 +1637,21 @@ func _setup_world() -> void:
 			Vector3(-4450, 12, 3700), Vector3(-3800, 8, 4500), Vector3(-3380, 4, 5100),
 		],
 	}, {
-		"w": 13.0, "valley": 55.0, "depth": 4.0,
-		# Derselbe Grund wie beim Canyon, nur eine Nummer kleiner: 70 m Auslenkung auf 700 m
-		# Wellenlaenge geben dem Tieflandfluss die Boegen, die ein Fluss in der Ebene hat.
-		"maeander": 70.0, "maeander_welle": 700.0,
+		# ZUFLUSS DES STADTSEES ("Muehlbach"). HOEHEN JETZT AUS DEM GELAENDE ("profil"): die
+		# alten Handwerte (112 m an der Quelle, 8 m unter dem Viadukt) lagen ueber bzw.
+		# unter dem Gelaende — der Bach hatte sich mit braunen Steilwaenden in den Huegel
+		# gefraest (im Seebild neben dem Viadukt). Das Profil laeuft jetzt 1,5 m unter dem
+		# gewachsenen Boden und endet auf dem Seespiegel (-1 m).
+		"name": "Muehlbach", "profil": true, "ziel_h": -1.0, "einsatz": 1.5,
+		# Ein BACH, kein Kanal: mit w 13 und kaum Boegen lag er wie ein Graben geradeaus
+		# ueber die Wiese. Schmaler und enger gewunden, zur Muendung breiter.
+		"w_quelle": 3.5, "w": 8.0, "valley": 60.0, "tal_quelle": 30.0, "tal_lauf": 600.0,
+		"depth_quelle": 1.0, "depth": 2.2,
+		"maeander": 45.0, "maeander_welle": 380.0,
 		"pts": [
-			Vector3(2545, 112, 1760), Vector3(2330, 82, 1600), Vector3(2110, 56, 1460),
-			Vector3(1900, 35, 1320), Vector3(1710, 20, 1210), Vector3(1560, 8, 1130),
-			Vector3(1460, 1, 1075), Vector3(1430, -1, 1030),
+			Vector3(2545, 0, 1760), Vector3(2330, 0, 1600), Vector3(2110, 0, 1460),
+			Vector3(1900, 0, 1320), Vector3(1710, 0, 1210), Vector3(1560, 0, 1130),
+			Vector3(1460, 0, 1075), Vector3(1430, 0, 1030),
 		],
 	}, {
 		# ZUFLUSS DES BERGSEES: Wildbach von der steilen Felsflanke herunter in den ARM.
@@ -1903,6 +1954,9 @@ func _setup_world() -> void:
 		# das Bild wurde schlechter, nicht besser.
 		"fx": portal_p.x, "fz": portal_p.y, "fr": 40.0,
 	}]
+	# ERST JETZT kennt das Gelaende Gebirge, Kueste und Felswaende — die Fluesse mit
+	# "profil" lesen ihre Wasserhoehen daraus ab. Vor jedem Chunk und vor dem Kartenfaden.
+	terrain.fluesse_fertigstellen()
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	# KARTE: Bild im Hintergrund-Thread generieren (~100k height_at-Samples, kein Startup-Ruckler;
@@ -1940,6 +1994,8 @@ func _setup_world() -> void:
 		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90), "art": "ort", "radius": 110.0},
 		# --- Die Landschaft der Hauptinsel (Main._region_formen) -----------------------
 		{"name": "Nordkette", "pos": Vector3(3000, 0, -16800), "color": Color(0.90, 0.94, 1.0), "art": "natur"},
+		{"name": "Silberfluss", "pos": Vector3(10600, 0, 7900), "color": Color(0.55, 0.78, 0.95), "art": "natur"},
+		{"name": "Silberquelle", "pos": Vector3(6075, 0, -15225), "color": Color(0.70, 0.88, 1.0), "art": "natur"},
 		{"name": "Nordgolf", "pos": Vector3(-4200, 0, -25500), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
 		{"name": "Ostgolf", "pos": Vector3(23500, 0, 12800), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
 		# --- WOLKENFORMATIONEN (Main._wolken_formationen) ------------------------------

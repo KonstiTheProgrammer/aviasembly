@@ -331,6 +331,44 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
   `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
 
+## Fluesse (Umbau 2026-09: Hauptstrom, Profil aus dem Gelaende, Zellenraster)
+- HAUPTSTROM "Silberfluss" (`Main.HAUPTSTROM_PFAD`, `_hauptstrom`): 41 km von einer
+  Gletscherquelle an der Nordkette (1038 m) durch Vorland, einen Huegelriegel (Durchbruch)
+  und das Tiefland in die Suedostkueste. LAUF GEMESSEN mit `tools/_fluss_route.gd -- qx qz`
+  (Dijkstra auf gewachsenem Gelaende, Talboeden bevorzugt, bergauf ×300, Flugplaetze/Orte/
+  Vulkan gesperrt; gibt Punktliste + Profil aus). Waechst 4 → 26 m, Trichter an der
+  Muendung, Maeander erst ab 5,5 km.
+- PROFIL AUS DEM GELAENDE (`"profil": true`, `ziel_h`, `einsatz`): `TerrainWorld.
+  _fluesse_profilieren` tastet das GEWACHSENE Gelaende (Fluesse aus) ab: laufendes Minimum
+  unter dem Boden, Mindestgefaelle, nicht unter das Ziel, geglaettet. Wo der Lauf einen
+  Riegel quert, graebt der Carve den Durchbruch. MUSS NACH den Kuestenformen und Felswaenden
+  laufen (Main ruft `terrain.fluesse_fertigstellen()` direkt danach, vor build_now_around
+  und Kartenfaden) — in setup() stand die Quelle sonst auf 8 statt 1038 m.
+- BREITE/TIEFE JE STUETZPUNKT (`w_quelle`/`w`, `depth_quelle`/`depth`, `trichter`) →
+  `rv["breite"]`, `rv["tiefe"]`; `maeander_ab` = Maeander erst ab Laufmeter.
+- ZELLENRASTER FLACH (CSR): `_fl_start`/`_fl_seg` + Segmentdaten in Packed-Arrays
+  (`_fl_a/_fl_b/_fl_w/_fl_t/_fl_d/_fl_mt`), 200-m-Zellen. `_river_carve`, `_fluss_naechst`,
+  `_fluss_bereich_h`, `_submerged` lesen nur ihre Zelle. FALLE: die erste Fassung hielt die
+  Segmentlisten in Dictionary/Array-Variants — die Chunk-Worker zaehlen dort atomar
+  Referenzen, gemessen +0,3 ms je Flugframe auf dem HAUPTfaden. Raster nach jeder
+  Hoehenaenderung neu bauen (`_fluss_gitter_bauen`: prepare, nach Seebaechen, nach Profil).
+  Und die Grenze fuer Ufer/Auwald/Flussbett ist JE CHUNK (`_fluss_bereich_h`), nicht die
+  weltweite `_flora_fluss_h` (seit der Gletscherquelle 1040 m → alles wurde geprueft).
+- UFERDAMM LAEUFT AUS: `bank = lerp(max(Wasser+1,2, h), h, smoothstep(2w, Talband))` —
+  vorher sprang es an der Talbandkante vom Damm aufs Gelaende (schwarze Zickzackwaende).
+- KIESUFER (`_ufer_farbe`, in `_tri` nur unter Chunk-Spiegel + 2,5 m) und AUWALD (`_auwald`,
+  Mindestdichte im Talband neben dem Kies).
+- FLIESSENDES WASSER (`fliessend` in wasser_kern): das Band traegt Fliessrichtung (RG) und
+  Gefaelle (B) als Vertexfarbe; Wellen laufen flussab, schneller wo steil, Schaumschlieren,
+  Wildwasser an steilen Stellen. Das Band endet, wo der Spiegel das Meer erreicht.
+- MUEHLBACH (Zufluss Stadtsee) jetzt auch `profil` (Handwerte lagen ueber/unter dem Gelaende).
+- CPU (`_skriptzeit`, Stellung "Silberfluss" neu): 1,69 → 2,02 ms am Strom (Auwald-Baeume
+  und Ufer), sonst unveraendert.
+- WERKZEUGE `_see_abfluss`/`_see_pass` stuerzten ab (Signal 11, auch vor diesem Umbau):
+  sie tauschen `lakes`/`rivers`, waehrend der Fernschuerzen-Faden liest → halten die
+  Schuerze jetzt vorher an (`_fern_stopp` + wait_to_finish). Befund dabei: der Bergsee-
+  Abfluss meldet "ZU HOCH" (Schwelle +208 m) — so auch im alten Stand, nicht angefasst.
+
 ## Himmel und Wolkenformationen (2026-09)
 - HIMMEL (`shaders/sky_clouds.gdshader`): Zenit/Mitte dunkeln mit der KAMERAHOEHE
   (`POSITION.y`, `hoehe_bereich` 900–7000 m, `col_*_hoch`), Dunstsaum schmaler; warmes
