@@ -1942,6 +1942,11 @@ func _setup_world() -> void:
 		{"name": "Nordkette", "pos": Vector3(3000, 0, -16800), "color": Color(0.90, 0.94, 1.0), "art": "natur"},
 		{"name": "Nordgolf", "pos": Vector3(-4200, 0, -25500), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
 		{"name": "Ostgolf", "pos": Vector3(23500, 0, 12800), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
+		# --- WOLKENFORMATIONEN (Main._wolken_formationen) ------------------------------
+		{"name": "Wolkentore", "pos": Vector3(3800, 0, -3900), "color": Color(0.92, 0.95, 1.0), "art": "natur"},
+		{"name": "Wolkenschlucht", "pos": Vector3(25700, 0, 0), "color": Color(0.92, 0.95, 1.0), "art": "natur"},
+		{"name": "Gewitterzelle", "pos": Vector3(31500, 0, 2500), "color": Color(0.75, 0.78, 0.95), "art": "gefahr"},
+		{"name": "Nebelmeer", "pos": Vector3(-28000, 0, 9500), "color": Color(0.92, 0.95, 1.0), "art": "natur"},
 		{"name": "Westbucht", "pos": Vector3(-27500, 0, 9000), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
 		{"name": "Westbergland", "pos": Vector3(-14000, 0, 11500), "color": Color(0.55, 0.75, 0.45), "art": "natur"},
 		{"name": "Ostbergland", "pos": Vector3(11500, 0, 17500), "color": Color(0.55, 0.75, 0.45), "art": "natur"},
@@ -2223,6 +2228,7 @@ func _setup_world() -> void:
 	# der Himmel leer. Die Sorten und ihre Hoehen stehen in CloudField.TYPEN; alle sind
 	# durchfliegbar und werden einzeln mitgefuehrt.
 	cloud_fields.clear()
+	CloudField.sperrzonen = _wolken_sperrzonen()
 	for typ in WOLKEN_LAGEN:
 		var feld := CloudField.build(fly_world, {"area": WOLKEN_AREA, "typ": typ})
 		cloud_fields.append(feld)
@@ -2240,6 +2246,7 @@ func _setup_world() -> void:
 	# Die Kumulusdecke bleibt unter dem alten Namen erreichbar — Werkzeuge greifen darauf.
 	cloud_field = cloud_fields[0]
 	_vulkanfahnen()
+	_wolken_formationen()
 	# Gespeicherte Grafikeinstellungen anwenden. MUSS nach dem Wolkenaufbau stehen: die
 	# Funktion schaltet Schattenwurf und Sichtbarkeit der Lagen, die es vorher nicht gibt.
 	grafik_anwenden()
@@ -2438,7 +2445,7 @@ func _blick_nachfuehren(delta: float) -> void:
 			else:
 				var dicht := 0.0
 				for d in [60.0, 160.0, 320.0, 560.0, 900.0, 1350.0, 1950.0, 2800.0, 4000.0]:
-					dicht += CloudField.dichte_bei_allen(cloud_fields, cp + sd * float(d))
+					dicht += CloudField.dichte_bei_allen(_wolken_alle, cp + sd * float(d))
 				roh = clampf(1.0 - dicht * 0.9, 0.0, 1.0)
 			_blick_sonne_roh = roh
 		sicht *= _blick_sonne_roh
@@ -2479,7 +2486,8 @@ static func nebel_frei_bei(hoehe: float) -> float:
 ## einer Viertelsekunde so gewaehlt, dass der Einflug noch als Ereignis lesbar bleibt.
 func _wolken_aufenthalt(delta: float) -> void:
 	var pos: Vector3 = flight_ctrl.aircraft.global_position
-	var roh := CloudField.dichte_bei_allen(cloud_fields, pos)
+	var roh := CloudField.dichte_bei_allen(_wolken_alle, pos)
+	_formationen_im_flug(delta, pos)
 	if not is_finite(roh):
 		roh = 0.0
 	wolken_dichte = clampf(lerpf(wolken_dichte, roh, clampf(delta * 4.0, 0.0, 1.0)), 0.0, 1.0)
@@ -2495,6 +2503,9 @@ func _wolken_aufenthalt(delta: float) -> void:
 		# dieselbe Dichte, sonst truebte das ferne Meer anders als das ferne Land.
 		if terrain != null:
 			terrain.setze_dunst(env_sky.fog_density, NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k))
+			if _gewitter_mat != null:
+				_gewitter_mat.set_shader_parameter("nebel_dichte", env_sky.fog_density)
+				_gewitter_mat.set_shader_parameter("nebel_farbe", terrain.dunst_farbe)
 		env_sky.fog_light_color = NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k)
 		# Auch der HIMMEL muss mit eintrueben, sonst steht mitten im Weiss noch ein
 		# blauer Zenit — der Nebel faerbt nur Geometrie, nicht den Hintergrund.
@@ -7325,6 +7336,7 @@ func _process(delta: float) -> void:
 
 
 func _begin_flight() -> void:
+	_parcours_zuruecksetzen()
 	# Beim Start in den Flug: Survival = frische Session + Welle 1; Sandbox = Feld bleibt.
 	if game == null or game.is_sandbox():
 		if survival_label:
@@ -7629,6 +7641,416 @@ func _on_toast_timeout(nr: int) -> void:
 	# der ersten (Abschuss-Combos, Laden mit Hinweis), stand sie nur 0,1 s da.
 	if toast_label and nr == _toast_nr:
 		toast_label.text = ""
+
+
+# ===========================================================================
+# WOLKENFORMATIONEN — feste Orte zum Durchfliegen (CloudField.formation)
+# ===========================================================================
+# Die Decken (cloud_fields) sind gleichfoermiges Wetter. Diese vier sind ORTE: man sieht
+# sie von weitem, sie stehen auf der Karte, und jede macht beim Durchfliegen etwas anderes.
+#   * WOLKENTORE — ein Parcours aus Ringen gleich hinter HEIMAT, mit Zaehler.
+#   * WOLKENSCHLUCHT — ein Gang zwischen zwei Wolkenwaenden vor der Ostkueste, mit Boegen.
+#   * GEWITTERZELLE — ein 5-km-Turm mit Amboss vor der Ostkueste: Blitze, Regenvorhang,
+#     heftige Turbulenz, Aufwind im Kern und Fallwind unter der Basis.
+#   * NEBELMEER — eine geschlossene Stratusdecke in der Westbucht zum Drueberhinstreichen.
+# Die Dichteabfragen laufen ueber _wolken_alle (Decken + Formationen): Nebel-Weissabriss,
+# Turbulenz, Flak-Deckung und Sonnenverdeckung gelten damit ohne weiteren Code.
+const TORE := [
+	[Vector3(600, 420, -2400)], [Vector3(1500, 470, -3200)], [Vector3(2600, 520, -3700)],
+	[Vector3(3800, 560, -3900)], [Vector3(5000, 520, -3600)], [Vector3(6000, 470, -2900)],
+	[Vector3(6700, 430, -2000)],
+]
+const TOR_RING := 150.0        # Ringhalbmesser (Puffmitten)
+const TOR_LOCH := 100.0        # so weit von der Mitte zaehlt ein Durchflug
+const TOR_LOHN := 60           # Survival: je Tor
+const PARCOURS_LOHN := 500     # Survival: alle Tore in einem Flug
+const SCHLUCHT_PFAD := [Vector2(23500, 3800), Vector2(24300, 2200), Vector2(25300, 800),
+	Vector2(26200, -600), Vector2(26900, -2300), Vector2(28000, -3800)]
+const GEWITTER_MITTE := Vector3(31500, 0, 2500)
+const GEWITTER_BASIS := 650.0
+const GEWITTER_TOP := 5200.0
+const GEWITTER_WIND := Vector2(1.0, -0.3)
+const NEBELMEER_MITTE := Vector3(-28000, 330, 9500)
+const NEBELMEER_HALB := Vector2(4200, 3000)
+
+var wolken_formationen: Array[Node3D] = []
+var _wolken_alle: Array = []          # Decken + Formationen, fuer die Dichteabfragen
+var _tore: Array = []                 # [{m, n, seite, durch}]
+var _tore_durch := 0
+var _gewitter: Node3D
+var _gewitter_licht: OmniLight3D
+var _gewitter_mat: ShaderMaterial
+var _blitz_bahnen: Array[MeshInstance3D] = []
+var _blitz_t := 0.0                   # Restdauer des laufenden Blitzes
+var _blitz_naechster := 3.0
+var _blitz_rng := RandomNumberGenerator.new()
+var _fetzen: GPUParticles3D
+## Fuer Bildwerkzeuge: der naechste Blitz schlaegt sicher mit Bahn ein und flackert nicht.
+var blitz_test := false
+
+
+func _wolken_formationen() -> void:
+	for f in wolken_formationen:
+		if is_instance_valid(f):
+			f.queue_free()
+	wolken_formationen.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7719
+	# --- Wolkentore -------------------------------------------------------------------
+	var puffs: Array = []
+	_tore.clear()
+	for i in TORE.size():
+		var m: Vector3 = TORE[i][0]
+		var davor: Vector3 = TORE[maxi(i - 1, 0)][0]
+		var danach: Vector3 = TORE[mini(i + 1, TORE.size() - 1)][0]
+		var n := Vector3(danach.x - davor.x, 0.0, danach.z - davor.z).normalized()
+		puffs.append_array(CloudField.tor_puffs(m, n, TOR_RING, rng))
+		_tore.append({"m": m, "n": n, "seite": 0.0, "durch": false, "ring": _leitring(m, n)})
+	wolken_formationen.append(CloudField.formation(fly_world, "Wolkentore", puffs,
+		{"schatten": true}))
+	# --- Wolkenschlucht ---------------------------------------------------------------
+	var pfad := PackedVector2Array()
+	for v in SCHLUCHT_PFAD:
+		pfad.append(v)
+	wolken_formationen.append(CloudField.formation(fly_world, "Wolkenschlucht",
+		CloudField.schlucht_puffs(pfad, 240.0, 180.0, 850.0, rng), {"schatten": true}))
+	# --- Gewitterzelle ----------------------------------------------------------------
+	# Dunkle, kuehle Basis, grauere Krone als Schoenwetterwolken; tiefere Falten.
+	_gewitter = CloudField.formation(fly_world, "Gewitterzelle",
+		CloudField.gewitter_puffs(GEWITTER_MITTE, GEWITTER_BASIS, GEWITTER_TOP, GEWITTER_WIND, rng),
+		{"schatten": false, "turbulenz": 3.5, "eigener_nebel": true, "mat": {
+			"farbe_krone": Color(0.84, 0.86, 0.90), "farbe_basis": Color(0.17, 0.19, 0.25),
+			"helligkeit": 0.40, "falten": 0.55, "dunkel_unten": 0.85,
+			# Kaum Himmelsbeimischung: ein Gewitterturm ist dick, er wird in der Ferne nicht
+			# durchscheinend (die Voreinstellung wusch die dunkle Basis blau).
+			"himmel_fern": 0.06, "rand_weich": 0.25,
+			"dunkel_hoehe": Vector2(GEWITTER_BASIS + 250.0, GEWITTER_BASIS + 3000.0)}})
+	_gewitter_mat = _gewitter.get_meta("material")
+	wolken_formationen.append(_gewitter)
+	_gewitter_licht = OmniLight3D.new()
+	_gewitter_licht.omni_range = 2600.0
+	_gewitter_licht.light_color = Color(0.80, 0.85, 1.0)
+	_gewitter_licht.light_energy = 0.0
+	_gewitter_licht.shadow_enabled = false
+	_gewitter.add_child(_gewitter_licht)
+	_regenvorhang(_gewitter, GEWITTER_MITTE, GEWITTER_BASIS)
+	_blitz_bahnen.clear()
+	for i in 4:
+		var b := _blitz_bahn(GEWITTER_BASIS - TerrainWorld.SEA_Y, rng)
+		b.visible = false
+		_gewitter.add_child(b)
+		_blitz_bahnen.append(b)
+	# --- Nebelmeer --------------------------------------------------------------------
+	wolken_formationen.append(CloudField.formation(fly_world, "Nebelmeer",
+		CloudField.nebelmeer_puffs(NEBELMEER_MITTE, NEBELMEER_HALB, rng), {"schatten": true}))
+	_wolken_alle = []
+	_wolken_alle.append_array(cloud_fields)
+	_wolken_alle.append_array(wolken_formationen)
+	_fetzen_aufbauen()
+
+
+## Regen unter der Gewitterbasis: ein offener Kegelstumpf mit laufenden Schlieren, der
+## unten und am Rand ausblendet. Durchsichtig, unbeleuchtet — der Nebel faerbt ihn mit.
+const REGEN_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
+uniform vec3 farbe : source_color = vec3(0.42, 0.46, 0.53);
+float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void fragment() {
+	// UV.x laeuft rundum, UV.y von oben (0) nach unten (1).
+	vec2 q = vec2(UV.x * 220.0, UV.y * 6.0 - TIME * 1.4);
+	float streif = h(vec2(floor(q.x), floor(q.y * 0.5 + h(vec2(floor(q.x), 3.0)) * 7.0)));
+	float s = mix(0.55, 1.0, streif);
+	float rand = smoothstep(0.0, 0.25, 1.0 - abs(dot(NORMAL, VIEW)) * 0.2) ;
+	float oben = smoothstep(0.0, 0.08, UV.y);
+	float unten = 1.0 - smoothstep(0.75, 1.0, UV.y);
+	ALBEDO = farbe;
+	ALPHA = 0.30 * s * oben * unten * rand;
+}
+"""
+
+
+func _regenvorhang(parent: Node3D, mitte: Vector3, wolkenbasis: float) -> void:
+	var h := wolkenbasis - TerrainWorld.SEA_Y
+	var cm := CylinderMesh.new()
+	cm.top_radius = 1050.0
+	cm.bottom_radius = 1250.0
+	cm.height = h
+	cm.cap_top = false
+	cm.cap_bottom = false
+	cm.radial_segments = 48
+	var mi := MeshInstance3D.new()
+	mi.mesh = cm
+	var sm := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = REGEN_SHADER
+	sm.shader = sh
+	mi.material_override = sm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = Vector3(mitte.x + 250.0, TerrainWorld.SEA_Y + h * 0.5, mitte.z)
+	parent.add_child(mi)
+
+
+## Eine Blitzbahn: Zickzack von der Basis zum Meer, zwei gekreuzte Baender (von allen
+## Seiten sichtbar), HDR-hell — mit Lichtglanz leuchtet sie.
+func _blitz_bahn(hoehe: float, rng: RandomNumberGenerator) -> MeshInstance3D:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var p := Vector3.ZERO
+	var punkte: Array[Vector3] = [p]
+	while p.y > -hoehe:
+		p += Vector3(rng.randf_range(-45.0, 45.0), -rng.randf_range(35.0, 85.0), rng.randf_range(-45.0, 45.0))
+		punkte.append(Vector3(p.x, maxf(p.y, -hoehe), p.z))
+	for i in punkte.size() - 1:
+		var a: Vector3 = punkte[i]
+		var b: Vector3 = punkte[i + 1]
+		for quer in [Vector3(2.2, 0, 0), Vector3(0, 0, 2.2)]:
+			st.add_vertex(a - quer); st.add_vertex(a + quer); st.add_vertex(b + quer)
+			st.add_vertex(a - quer); st.add_vertex(b + quer); st.add_vertex(b - quer)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	var sm := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = "shader_type spatial;\nrender_mode unshaded, cull_disabled, shadows_disabled;\n" \
+		+ "void fragment() { ALBEDO = vec3(5.0, 5.4, 6.5); }\n"
+	sm.shader = sh
+	mi.material_override = sm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+
+## Wolkenfetzen, die an der Kamera vorbeirauschen: ohne sie ist das Eintauchen nur ein
+## Weissabriss. Die Teilchen entstehen VOR der Kamera und bleiben in der Welt stehen — das
+## Tempo des Flugzeugs laesst sie vorbeiziehen. Wie viele es sind, haengt an der Dichte
+## ein Stueck VORAUS: man sieht die Wolke kommen, bevor man drin ist.
+const FETZEN_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
+uniform vec3 farbe : source_color = vec3(0.92, 0.94, 0.97);
+void vertex() {
+	// Billboard mit der Teilchengroesse
+	mat4 mv = VIEW_MATRIX * mat4(INV_VIEW_MATRIX[0], INV_VIEW_MATRIX[1], INV_VIEW_MATRIX[2], MODEL_MATRIX[3]);
+	float g = length(MODEL_MATRIX[0].xyz);
+	MODELVIEW_MATRIX = mv * mat4(vec4(g, 0, 0, 0), vec4(0, g, 0, 0), vec4(0, 0, g, 0), vec4(0, 0, 0, 1));
+}
+void fragment() {
+	vec2 d = UV - 0.5;
+	float r = length(d * vec2(1.0, 1.6)) * 2.0;
+	float wolke = 1.0 - smoothstep(0.15, 1.0, r);
+	wolke *= 0.75 + 0.25 * sin(UV.x * 11.0 + UV.y * 7.0 + COLOR.r * 20.0);
+	float nah = smoothstep(6.0, 40.0, length(VERTEX));
+	ALBEDO = farbe;
+	ALPHA = wolke * COLOR.a * 0.42 * nah;
+}
+"""
+
+
+func _fetzen_aufbauen() -> void:
+	if _fetzen != null and is_instance_valid(_fetzen):
+		_fetzen.queue_free()
+	_fetzen = GPUParticles3D.new()
+	_fetzen.name = "Wolkenfetzen"
+	_fetzen.amount = 160
+	_fetzen.lifetime = 1.5
+	_fetzen.local_coords = false
+	_fetzen.fixed_fps = 60
+	_fetzen.visibility_aabb = AABB(Vector3(-400, -400, -400), Vector3(800, 800, 800))
+	_fetzen.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = Vector3(80.0, 50.0, 90.0)
+	pm.emission_shape_offset = Vector3(0.0, 0.0, -170.0)
+	pm.gravity = Vector3.ZERO
+	pm.initial_velocity_min = 0.0
+	pm.initial_velocity_max = 3.0
+	pm.scale_min = 16.0
+	pm.scale_max = 46.0
+	var verlauf := Gradient.new()
+	verlauf.set_color(0, Color(1, 1, 1, 0))
+	verlauf.set_color(1, Color(1, 1, 1, 0))
+	verlauf.add_point(0.25, Color(1, 1, 1, 1))
+	verlauf.add_point(0.8, Color(1, 1, 1, 0.8))
+	var vt := GradientTexture1D.new()
+	vt.gradient = verlauf
+	pm.color_ramp = vt
+	pm.hue_variation_min = 0.0
+	pm.hue_variation_max = 0.0
+	_fetzen.process_material = pm
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.0, 1.0)
+	var sm := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = FETZEN_SHADER
+	sm.shader = sh
+	quad.material = sm
+	_fetzen.draw_pass_1 = quad
+	_fetzen.amount_ratio = 0.0
+	_fetzen.emitting = true
+	fly_world.add_child(_fetzen)
+
+
+## Je Frame im Flug: Tore zaehlen, Gewitter lebendig halten, Fetzen fuehren.
+func _formationen_im_flug(delta: float, pos: Vector3) -> void:
+	var ac := flight_ctrl.aircraft
+	# --- Fetzen: an der Kamera, Menge aus der Dichte voraus ---------------------------
+	if _fetzen != null and camera != null:
+		_fetzen.global_transform = camera.global_transform
+		var voraus := pos + ac.linear_velocity.normalized() * 140.0 \
+			if ac.linear_velocity.length() > 5.0 else pos
+		var d := maxf(CloudField.dichte_bei_allen(_wolken_alle, voraus), wolken_dichte)
+		var tempo := smoothstep(40.0, 110.0, ac.linear_velocity.length())
+		_fetzen.amount_ratio = clampf(d * 1.8, 0.0, 1.0) * tempo
+		# IN der Wolke frisst der Nebel alles ab ~80 m: die Fetzen entstehen dort naeher und
+		# sind grauer — dunklere Schwaden, die durch das Weiss ziehen. Draussen weiter vorn
+		# und weiss, als Kante, die man kommen sieht.
+		var pm := _fetzen.process_material as ParticleProcessMaterial
+		pm.emission_shape_offset = Vector3(0.0, 0.0, lerpf(-170.0, -70.0, wolken_dichte))
+		((_fetzen.draw_pass_1 as QuadMesh).material as ShaderMaterial).set_shader_parameter(
+			"farbe", Color(0.92, 0.94, 0.97).lerp(Color(0.62, 0.66, 0.72), wolken_dichte))
+	# --- Tore -------------------------------------------------------------------------
+	var naechstes := -1
+	for i in _tore.size():
+		if not bool(_tore[i]["durch"]):
+			naechstes = i
+			break
+	var puls := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.006)
+	for i in _tore.size():
+		var ring: MeshInstance3D = _tore[i].get("ring")
+		if ring != null and ring.visible:
+			(ring.material_override as ShaderMaterial).set_shader_parameter("hell",
+				0.55 + 0.45 * puls if i == naechstes else 0.12)
+	for t in _tore:
+		var dd: Vector3 = pos - (t["m"] as Vector3)
+		if dd.length() > 900.0:
+			t["seite"] = 0.0
+			continue
+		var n: Vector3 = t["n"]
+		var seite := dd.dot(n)
+		var vorher: float = t["seite"]
+		t["seite"] = seite
+		if vorher != 0.0 and signf(vorher) != signf(seite) and not bool(t["durch"]) \
+				and (dd - n * seite).length() < TOR_LOCH:
+			t["durch"] = true
+			_tore_durch += 1
+			var rg: MeshInstance3D = t.get("ring")
+			if rg != null and is_instance_valid(rg):
+				rg.visible = false
+			if _tore_durch >= _tore.size():
+				_toast("Wolkenparcours geschafft! Alle %d Tore" % _tore.size())
+				if game != null and not game.is_sandbox():
+					game.add_money(PARCOURS_LOHN)
+			else:
+				_toast("Wolkentor %d / %d" % [_tore_durch, _tore.size()])
+				if game != null and not game.is_sandbox():
+					game.add_money(TOR_LOHN)
+	# --- Gewitter ---------------------------------------------------------------------
+	flight_ctrl.turbulenz_faktor = 1.0
+	flight_ctrl.aufwind = 0.0
+	if _gewitter == null or not is_instance_valid(_gewitter):
+		return
+	var zum_sturm := Vector2(pos.x - GEWITTER_MITTE.x, pos.z - GEWITTER_MITTE.z).length()
+	if zum_sturm > 16000.0:
+		return
+	var dg := CloudField.dichte_bei(_gewitter, pos)
+	flight_ctrl.turbulenz_faktor = lerpf(1.0, float(_gewitter.get_meta("turbulenz", 1.0)), dg)
+	# Aufwind im Kern (bis ~0,5 g), Fallwind unter der Basis im Regen (bis ~0,4 g)
+	var kern := 1.0 - smoothstep(500.0, 1100.0, zum_sturm)
+	if pos.y > GEWITTER_BASIS:
+		flight_ctrl.aufwind = 0.5 * kern
+	else:
+		flight_ctrl.aufwind = -0.4 * kern * smoothstep(0.0, 200.0, GEWITTER_BASIS - pos.y)
+	_blitze(delta)
+
+
+func _blitze(delta: float) -> void:
+	_blitz_naechster -= delta
+	if _blitz_naechster <= 0.0:
+		_blitz_naechster = _blitz_rng.randf_range(1.5, 6.0)
+		_blitz_t = _blitz_rng.randf_range(0.12, 0.35)
+		var a := _blitz_rng.randf() * TAU
+		var r := _blitz_rng.randf_range(0.0, 850.0)
+		_gewitter_licht.position = GEWITTER_MITTE + Vector3(cos(a) * r,
+			_blitz_rng.randf_range(GEWITTER_BASIS + 150.0, GEWITTER_BASIS + 2400.0), sin(a) * r)
+		for b in _blitz_bahnen:
+			b.visible = false
+		if _blitz_rng.randf() < 0.45 or blitz_test:
+			var b: MeshInstance3D = _blitz_bahnen[_blitz_rng.randi() % _blitz_bahnen.size()]
+			b.position = Vector3(_gewitter_licht.position.x, GEWITTER_BASIS, _gewitter_licht.position.z)
+			b.rotation.y = _blitz_rng.randf() * TAU
+			b.visible = true
+	if _blitz_t > 0.0:
+		_blitz_t -= delta
+		# Flackern: zwei, drei Stoesse statt eines gleichmaessigen Lichts
+		var f := 1.0 if blitz_test else 0.5 + 0.5 * sin(_blitz_t * 70.0)
+		var st := clampf(_blitz_t * 6.0, 0.0, 1.0) * f
+		_gewitter_licht.light_energy = 14.0 * st
+		_gewitter_mat.set_shader_parameter("blitz", 0.55 * st)
+		if _blitz_t <= 0.0:
+			_gewitter_licht.light_energy = 0.0
+			_gewitter_mat.set_shader_parameter("blitz", 0.0)
+			for b in _blitz_bahnen:
+				b.visible = false
+
+
+func _parcours_zuruecksetzen() -> void:
+	_tore_durch = 0
+	for t in _tore:
+		t["durch"] = false
+		t["seite"] = 0.0
+		var r: MeshInstance3D = t.get("ring")
+		if r != null and is_instance_valid(r):
+			r.visible = true
+
+
+## Wo die wandernden Decken keine Wolke hinsetzen duerfen (CloudField.sperrzonen).
+func _wolken_sperrzonen() -> Array:
+	var z: Array = []
+	for t in TORE:
+		var m: Vector3 = t[0]
+		z.append([Vector2(m.x, m.z), 420.0])
+	for i in SCHLUCHT_PFAD.size() - 1:
+		var a: Vector2 = SCHLUCHT_PFAD[i]
+		var b: Vector2 = SCHLUCHT_PFAD[i + 1]
+		var n := int(a.distance_to(b) / 350.0) + 1
+		for k in n + 1:
+			z.append([a.lerp(b, float(k) / float(n)), 650.0])
+	z.append([Vector2(GEWITTER_MITTE.x, GEWITTER_MITTE.z), 6500.0])
+	return z
+
+
+## LEITRING: ein duenner goldener Reif im Torloch. Er macht aus lauter Wolken einen Kurs —
+## das NAECHSTE Tor pulsiert hell, die uebrigen gluehen schwach, durchflogene verlischt.
+const LEITRING_SHADER := """
+shader_type spatial;
+render_mode unshaded, cull_disabled, shadows_disabled, depth_draw_never;
+uniform float hell = 0.6;
+void fragment() {
+	float rand = pow(1.0 - abs(dot(NORMAL, VIEW)), 1.5);
+	ALBEDO = vec3(1.0, 0.78, 0.30) * (0.6 + 2.4 * hell);
+	ALPHA = (0.20 + 0.55 * rand) * (0.35 + 0.65 * hell);
+}
+"""
+
+
+func _leitring(m: Vector3, n: Vector3) -> MeshInstance3D:
+	var tm := TorusMesh.new()
+	tm.inner_radius = TOR_LOCH - 5.0
+	tm.outer_radius = TOR_LOCH + 5.0
+	tm.rings = 64
+	tm.ring_segments = 8
+	var mi := MeshInstance3D.new()
+	mi.mesh = tm
+	var sm := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = LEITRING_SHADER
+	sm.shader = sh
+	mi.material_override = sm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Die Lochachse des Torus (lokal Y) auf die Flugrichtung durch das Tor legen.
+	var u := Vector3(-n.z, 0.0, n.x)
+	mi.transform = Transform3D(Basis(u, n, u.cross(n)), m)
+	fly_world.add_child(mi)
+	return mi
 
 
 func _toast(msg: String) -> void:

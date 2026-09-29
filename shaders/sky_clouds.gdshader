@@ -360,6 +360,26 @@ uniform float haze_strength : hint_range(0.0, 1.0) = 0.40;
 // waere im Dunklen als Korn sichtbar, kleiner bricht die Streifen im Zenit nicht auf.
 uniform float dither_amp : hint_range(0.0, 0.03) = 0.009;
 
+// --- HIMMEL IN DER HOEHE (2026-09) -----------------------------------------------------
+// Je hoeher man fliegt, desto duenner die Luft ueber einem: der Zenit wird tief dunkelblau,
+// der Dunstsaum am Horizont schmaler. Gesteuert ueber POSITION (Kamerahoehe) — der Shader
+// nutzt TIME ohnehin, die Strahlungskarte wird also sowieso jedes Bild erneuert.
+// NUR Zenit und Mitte aendern sich, NIE col_horizon: unter dem Horizont (u = 0) liefert der
+// Verlauf damit weiter exakt col_horizon (siehe Kopfkommentar).
+uniform vec3 col_zenith_hoch : source_color = vec3(0.055, 0.19, 0.56);
+uniform vec3 col_mid_hoch    : source_color = vec3(0.20, 0.42, 0.82);
+uniform vec2 hoehe_bereich = vec2(900.0, 7000.0);
+// Warmes Streulicht am Horizont auf der Sonnenseite (Mie-Vorwaertsstreuung), kuehleres
+// Blau gegenueber. Beides nur ueber dem Horizont.
+uniform float sonnenseite = 0.55;
+// ZIRREN: hohe, duenne Federwolken als gemaltes Band ueber allem. Sie geben dem Himmel ueber
+// den Kumulus eine zweite, weit entfernte Ebene — ohne sie war er darueber leer.
+uniform float zirren = 0.30;
+uniform float zirren_wind = 0.003;     // Zug je Sekunde (Ebeneneinheiten)
+// 22-Grad-Halo: wo Zirren vor der Sonne stehen, brechen die Eiskristalle das Licht zu
+// einem Ring. Nur dort, sonst waere er ein Aufkleber.
+uniform float halo = 0.16;
+
 // --- Rauschen ------------------------------------------------------------------------
 // Hash ohne sin (Hoskins). Der vorherige Hash (fract(p.x*p.y)) hat sichtbare Gitter-
 // struktur entlang der Achsen; das faellt bei drei Oktaven kaum auf, bei vier sehr wohl
@@ -454,6 +474,45 @@ float hoehe(vec2 p, vec2 tw, float ballung) {
 	return koerper(fbm4(p, tw) + ballung) + cloud_lobe * lappen(p);
 }
 
+// ZIRRENSCHICHT als (Farbe, Deckung). KOSTEN: mit drei fbm3 je Himmelspixel bis 1,1 ms in
+// 4K; jetzt billige Vorabmaske (zwei vnoise) und nur in den Feldern die Faser (drei vnoise).
+// FALLE: der Halbaufloesungs-Pass des Himmels (AT_HALF_RES_PASS/HALF_RES_COLOR) war der
+// naheliegende Ausweg — damit stand in Godot 4.6 der ganze Himmel weiss. Nicht nochmal.
+vec4 zirren_schicht(vec3 dir, vec3 sd, float zt) {
+	float up = dir.y;
+	if (zirren <= 0.0 || up <= 0.012) {
+		return vec4(0.0);
+	}
+	float sdot = dot(dir, sd);
+	float ang = sqrt(max(2.0 * (1.0 - sdot), 0.0));
+	// Projektion auf eine sehr hohe Ebene; die Wurzel staucht zum Horizont hin, damit das
+	// Rauschen dort nicht unter die Pixelgroesse faellt und flirrt.
+	vec2 eben = dir.xz / (up + 0.10);
+	eben *= inversesqrt(1.0 + length(eben) * 0.12);
+	vec2 w = normalize(vec2(0.9, 0.35));
+	vec2 q = eben * 1.6 + w * (zt * zirren_wind);
+	vec2 r = vec2(dot(q, w), dot(q, vec2(-w.y, w.x)));
+	// Felder: nur Teile des Himmels tragen Zirren, dazwischen bleibt er blank. Zuerst und
+	// billig — wo kein Feld ist, entfaellt die Faser ganz.
+	vec2 fq = q * 0.22 + vec2(7.1, 2.3);
+	float felder = smoothstep(0.50, 0.74, vnoise(fq) * 0.66 + vnoise(fq * 2.1) * 0.34);
+	if (felder <= 0.001) {
+		return vec4(0.0);
+	}
+	// Faserig: laengs des Windes weit, quer eng.
+	vec2 fr = r * vec2(0.45, 3.2);
+	float faser = vnoise(fr) * 0.62 + vnoise(fr * 2.03 + 1.7) * 0.38
+		+ 0.35 * vnoise(r * vec2(1.3, 9.0) + 3.1);
+	float zc = smoothstep(0.62, 0.98, faser) * felder * smoothstep(0.012, 0.16, up);
+	// Zur Sonne hin heller und waermer (Vorwaertsstreuung in duennem Eis), dazu der
+	// 22-Grad-Halo (0.384 rad) genau dort, wo Zirren stehen.
+	float zs = pow(max(sdot, 0.0), 6.0);
+	vec3 zfarbe = mix(vec3(0.90, 0.93, 0.98), vec3(1.0, 0.96, 0.86), zs) * (1.0 + 0.6 * zs);
+	float ring = exp(-pow((ang - 0.384) / 0.014, 2.0));
+	zfarbe += vec3(0.95, 0.92, 0.88) * ring * (halo / zirren);
+	return vec4(zfarbe, zc * zirren);
+}
+
 void sky() {
 	vec3 dir = normalize(EYEDIR);
 	vec3 sd = normalize(sun_dir);
@@ -466,8 +525,11 @@ void sky() {
 	// Der breite Term traegt den Raum (Zenit -> Mitte), der schmale den Dunst direkt
 	// ueber dem Horizont. Beide sind glatt, es gibt keinen Knick, an dem Banding
 	// ansetzen koennte.
-	vec3 sky_col = mix(col_zenith, col_mid, exp(-u * grad_mid));
-	sky_col = mix(sky_col, col_horizon, exp(-u * grad_hz));
+	float hoch = smoothstep(hoehe_bereich.x, hoehe_bereich.y, POSITION.y);
+	vec3 zenit = mix(col_zenith, col_zenith_hoch, hoch);
+	vec3 mitte_f = mix(col_mid, col_mid_hoch, hoch);
+	vec3 sky_col = mix(zenit, mitte_f, exp(-u * grad_mid));
+	sky_col = mix(sky_col, col_horizon, exp(-u * grad_hz * (1.0 + 1.2 * hoch)));
 
 	// --- (b) Sonne: Scheibe + enger Glast + weiter Hof --------------------------------
 	float sdot = dot(dir, sd);
@@ -497,6 +559,21 @@ void sky() {
 	sky_col += (sun_col * disc * sun_energy
 			+ sun_halo * glast * halo_energy
 			+ sun_halo * hof * hof_energy) * ueber_horizont;
+
+	// --- (b2) Sonnenseite, Zirren, Halo — alles NUR ueber dem Horizont ------------------
+	float ueber = smoothstep(0.0, 0.03, up);
+	if (ueber > 0.0) {
+		vec2 dh = normalize(dir.xz + vec2(1.0e-5));
+		vec2 sh = normalize(sd.xz + vec2(1.0e-5));
+		float azi = dot(dh, sh);
+		float nah_horizont = exp(-u * 5.0);
+		sky_col += vec3(0.10, 0.055, 0.0) * pow(max(azi, 0.0), 4.0) * nah_horizont * sonnenseite * ueber;
+		sky_col *= mix(vec3(1.0), vec3(0.93, 0.97, 1.03), pow(max(-azi, 0.0), 2.0) * nah_horizont * sonnenseite * ueber);
+		if (zirren > 0.0 && !AT_CUBEMAP_PASS && up > 0.012) {
+			vec4 z = zirren_schicht(dir, sd, cloud_clock < 0.0 ? TIME : cloud_clock);
+			sky_col = mix(sky_col, z.rgb, z.a * ueber);
+		}
+	}
 
 	// --- (c) Gemalte Fernwolken -------------------------------------------------------
 	if (cloud_opacity > 0.001 && dir.y > 0.012) {

@@ -315,11 +315,26 @@ static func build(parent: Node3D, opts := {}) -> Node3D:
 
 
 # Setzt eine Wolke auf einen Weltplatz und liest Loch, Groesse und Hoehe dort neu aus.
+## SPERRZONEN fuer die wandernden Decken: [Vector2 Mitte, Halbmesser]. Setzt Main VOR dem
+## Bau der Decken — dort stehen die festen Formationen (Tore, Schlucht, Gewitter), und eine
+## zufaellige Deckenwolke im Torloch oder quer im Schluchtgang wuerde sie zustopfen.
+static var sperrzonen: Array = []
+
+
+static func _gesperrt(x: float, z: float) -> bool:
+	for zone in sperrzonen:
+		var m: Vector2 = zone[0]
+		var r: float = zone[1]
+		if (x - m.x) * (x - m.x) + (z - m.y) * (z - m.y) < r * r:
+			return true
+	return false
+
+
 static func _setze_puff(mi: MeshInstance3D, x: float, z: float, cov: FastNoiseLite,
 		hgt: FastNoiseLite, layer_y: float, billow: float, cover_thresh: float,
 		zellen = null, spacing: float = 340.0) -> void:
 	var c := cov.get_noise_2d(x, z)                     # -1..1
-	mi.visible = c >= cover_thresh                      # darunter: Loch in der Decke
+	mi.visible = c >= cover_thresh and not _gesperrt(x, z)   # sonst: Loch in der Decke
 	# Dichte: an den Rändern der Wolkenfelder dünn/klein, in den Zentren dick/groß.
 	var dens := smoothstep(cover_thresh, cover_thresh + 0.55, c)
 	# Höhe rollt sanft + je Wolke gestreut -> die Wolken liegen NICHT in einer flachen
@@ -372,7 +387,11 @@ static func _setze_puff(mi: MeshInstance3D, x: float, z: float, cov: FastNoiseLi
 ## Wirkradius, senkrecht 0,62 davon) — genau genug fuer Spielmechanik und ohne jede
 ## Geometrieabfrage.
 static func dichte_bei(root: Node3D, pos: Vector3) -> float:
-	if root == null or not is_instance_valid(root) or not root.has_meta("zellen"):
+	if root == null or not is_instance_valid(root):
+		return 0.0
+	if root.has_meta("fzellen"):
+		return _dichte_formation(root, pos)
+	if not root.has_meta("zellen"):
 		return 0.0
 	# EIN AUSGEBLENDETES FELD IST KEINE WOLKE. Die Grafikeinstellung "Wolkenlagen"
 	# (Main.grafik_anwenden) schaltet das ganze Feld unsichtbar, nicht die einzelnen
@@ -924,6 +943,23 @@ uniform vec3 himmel_zenit : source_color = vec3(0.165, 0.375, 0.800);   // = sky
 uniform vec3 himmel_mitte : source_color = vec3(0.330, 0.545, 0.875);
 uniform vec3 himmel_horizont : source_color = vec3(0.600, 0.730, 0.880);
 
+// VERDUNKLUNG NACH WELTHOEHE (Gewitterzelle): COLOR.r faerbt jeden Puff fuer sich — ein
+// Turm aus vielen Puffs hat damit viele helle Kronen und nirgends eine dunkle Basis. Diese
+// Stufe haengt an der Hoehe in der WELT: unten schiefergrau, oben weiss.
+uniform float dunkel_unten = 0.0;     // Staerke (0 = aus)
+uniform vec2 dunkel_hoehe = vec2(0.0, 1.0);   // von .. bis (m)
+varying float welt_y;
+// EIGENER NEBEL (nur Gewitterzelle, siehe _cloud_material(true)): Godots Nebel legt auf
+// 3 km rund ein Drittel HELLE Dunstfarbe ueber jede Wolke — die dunkle Basis blieb damit
+// hellgrau, egal wie dunkel sie war. Unter einem Gewitter ist auch die Luft dunkel. Der
+// Shader rechnet deshalb Godots Formel selbst und dunkelt die Dunstfarbe unter dem Bauch ab.
+uniform bool eigener_nebel = false;
+uniform float nebel_dichte = 0.00013;
+uniform vec3 nebel_farbe = vec3(0.24, 0.33, 0.48);   // linear, wie TerrainWorld.dunst_farbe
+// BLITZ (nur Gewitterformation): kurzes Aufleuchten von innen, unten am staerksten.
+uniform float blitz = 0.0;
+uniform vec3 blitz_farbe : source_color = vec3(0.80, 0.84, 1.0);
+
 varying float krone;
 varying float falte;
 varying vec3 lokal;                 // Ort im Objektraum, fuer die Krume
@@ -951,6 +987,7 @@ float wrausch(vec3 p) {
 void vertex() {
 	krone = COLOR.r;
 	falte = COLOR.g;
+	welt_y = (MODEL_MATRIX * vec4(VERTEX, 1.0)).y;
 	lokal = VERTEX;
 	nah = 1.0 - smoothstep(krume_fern * 0.45, krume_fern, length((MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz));
 	// DURCHFLIEGEN OHNE PUNKTRASTER. Vorher machte das der Dither von
@@ -995,6 +1032,11 @@ void fragment() {
 	}
 	// Kerben verschatten (unten staerker: dort kommt ohnehin weniger Licht an).
 	c *= 1.0 - falte * falten * mix(1.0, 0.7, krone);
+	float dunkel = 0.0;
+	if (dunkel_unten > 0.0) {
+		dunkel = (1.0 - smoothstep(dunkel_hoehe.x, dunkel_hoehe.y, welt_y)) * dunkel_unten;
+		c = mix(c, c * vec3(0.16, 0.18, 0.24), dunkel);
+	}
 	// Himmelsfarbe der Blickrichtung — derselbe Verlauf wie im Himmels-Shader.
 	vec3 dir = normalize((INV_VIEW_MATRIX * vec4(-VIEW, 0.0)).xyz);
 	float u = max(dir.y, 0.0);
@@ -1007,7 +1049,18 @@ void fragment() {
 	float nahe = (1.0 - smoothstep(70.0, 320.0, dist)) * nah_dunst;
 	ALBEDO = c * (1.0 - misch) * (1.0 - nahe);
 	// Der Himmelsanteil ist Licht, das DURCH die Wolke kommt — Emission, nicht beleuchtet.
-	EMISSION = himmel * misch * 0.85 * (1.0 - nahe) + nah_dunst_farbe * nahe * 0.9;
+	// Eine dunkle Gewitterbasis laesst kein Himmelslicht durch: ohne diesen Faktor wusch
+	// die Randemission den abgedunkelten Bauch wieder hellblau (per Rotprobe nachgewiesen:
+	// die Abdunklung griff, im Bild blieb davon kaum etwas).
+	EMISSION = himmel * misch * 0.85 * (1.0 - nahe) * (1.0 - dunkel * 0.9)
+		+ nah_dunst_farbe * nahe * 0.9 * (1.0 - dunkel * 0.6);
+	EMISSION += blitz_farbe * blitz * mix(1.0, 0.35, krone);
+	if (eigener_nebel) {
+		float nd = 1.0 - exp(-length(VERTEX) * nebel_dichte);
+		vec3 nf = nebel_farbe * mix(1.0, 0.40, dunkel);
+		ALBEDO *= (1.0 - nd);
+		EMISSION = mix(EMISSION, nf, nd);
+	}
 	ROUGHNESS = 1.0;
 	METALLIC = 0.0;
 }
@@ -1029,9 +1082,267 @@ void light() {
 """
 
 
-static func _cloud_material() -> ShaderMaterial:
+static func _cloud_material(eigener_nebel := false) -> ShaderMaterial:
 	var sh := Shader.new()
 	sh.code = PUFF_SHADER
+	if eigener_nebel:
+		sh.code = PUFF_SHADER.replace("render_mode cull_back, specular_disabled, shadows_disabled;",
+			"render_mode cull_back, specular_disabled, shadows_disabled, fog_disabled;")
 	var m := ShaderMaterial.new()
 	m.shader = sh
 	return m
+
+
+# =======================================================================================
+# FESTE WOLKENFORMATIONEN — Orte, durch die man fliegen will (Main._wolken_formationen)
+# =======================================================================================
+# Anders als die Decken wandern sie nicht mit (mitfuehren findet kein "puffs"-Meta und
+# laesst sie stehen): sie sind Landmarken wie Berge, mit festem Platz auf der Karte.
+#
+# GEZEICHNET ALS MULTIMESH je Formvariante und FORM_KACHEL-Kachel. Eine Formation aus
+# 400 Puffs ist damit ein paar Dutzend Zeichenaufrufe statt 400, und weil jede Kachel ihre
+# LOD-Stufe nach IHREM Abstand waehlt, bleibt ein 8 km grosses Nebelmeer in der Ferne billig.
+# Der Wolken-Shader funktioniert unveraendert: MODEL_MATRIX traegt bei MultiMesh die
+# Transformation der einzelnen Instanz (Nahbereich-Schrumpfen je Puff) und COLOR die
+# Vertexfarbe des Meshes (Krone, Falten).
+#
+# DICHTE (Nebel, Turbulenz, Deckung, Sonnenverdeckung) ueber eine eigene Ellipsoidliste:
+# jeder Puff traegt sich in ALLE Zellen ein, die sein Wirkkoerper beruehrt — die Abfrage
+# braucht dann nur die eine Zelle des Punktes, auch bei 400 m grossen Gewittertuermen.
+const FORM_KACHEL := 1600.0
+const FORM_ZELLE := 250.0
+
+
+## Baut eine Formation aus `puffs` = [{p: Vector3, s: Vector3, form: String, rot: float}].
+## opts: "mat" = Shaderparameter, "schatten" = wirft Schatten, "turbulenz" = Faktor.
+static func formation(parent: Node3D, name: String, puffs: Array, opts := {}) -> Node3D:
+	var root := Node3D.new()
+	root.name = name
+	parent.add_child(root)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = name.hash()
+	var mat := _cloud_material(bool(opts.get("eigener_nebel", false)))
+	if bool(opts.get("eigener_nebel", false)):
+		mat.set_shader_parameter("eigener_nebel", true)
+	var mp: Dictionary = opts.get("mat", {})
+	for k in mp:
+		mat.set_shader_parameter(k, mp[k])
+	var src_kern := _kugel(20, 10)
+	var src_schulter := _kugel(14, 7)
+	var src_knubbel := _kugel(8, 4)
+	var varianten := {}
+	var gruppen := {}
+	var zentren := PackedVector3Array()
+	var radien := PackedVector3Array()
+	var zellen := {}
+	for pf in puffs:
+		var form := String(pf.get("form", "kumulus"))
+		if not varianten.has(form):
+			var liste: Array = []
+			for i in 4:
+				liste.append(_puff_mesh(form, src_kern, src_schulter, src_knubbel, rng))
+			varianten[form] = liste
+		var v := rng.randi() % 4
+		var mesh: Mesh = varianten[form][v]
+		var p: Vector3 = pf["p"]
+		var sk: Vector3 = pf.get("s", Vector3.ONE)
+		var rot := float(pf.get("rot", rng.randf() * TAU))
+		var drehung := Basis(Vector3.UP, rot)
+		var xf := Transform3D(drehung * Basis.from_scale(sk), p)
+		var schluessel := "%s|%d|%d|%d" % [form, v, floori(p.x / FORM_KACHEL),
+			floori(p.z / FORM_KACHEL)]
+		if not gruppen.has(schluessel):
+			gruppen[schluessel] = [mesh, []]
+		(gruppen[schluessel][1] as Array).append(xf)
+		# Wirkkoerper: Ellipsoid um die Mitte der Mesh-Box. Waagerecht der groessere der
+		# beiden Halbmesser (die Drehung um die Hochachse verteilt sie ohnehin).
+		var bb := mesh.get_aabb()
+		var c := p + drehung * (bb.get_center() * sk)
+		var r := bb.size * 0.5 * sk
+		var rh := maxf(r.x, r.z)
+		var i_neu := zentren.size()
+		zentren.append(c)
+		radien.append(Vector3(rh, r.y, rh))
+		for zx in range(floori((c.x - rh) / FORM_ZELLE), floori((c.x + rh) / FORM_ZELLE) + 1):
+			for zz in range(floori((c.z - rh) / FORM_ZELLE), floori((c.z + rh) / FORM_ZELLE) + 1):
+				var key := Vector2i(zx, zz)
+				var a: PackedInt32Array = zellen.get(key, PackedInt32Array())
+				a.append(i_neu)
+				zellen[key] = a
+	for k in gruppen:
+		var g: Array = gruppen[k]
+		var xfs: Array = g[1]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = g[0]
+		mm.instance_count = xfs.size()
+		for i in xfs.size():
+			mm.set_instance_transform(i, xfs[i])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = mat
+		mmi.lod_bias = PUFF_LOD_BIAS
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON \
+			if bool(opts.get("schatten", false)) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(mmi)
+	root.set_meta("fzellen", zellen)
+	root.set_meta("fc", zentren)
+	root.set_meta("fr", radien)
+	root.set_meta("turbulenz", float(opts.get("turbulenz", 1.0)))
+	root.set_meta("material", mat)
+	return root
+
+
+static func _dichte_formation(root: Node3D, pos: Vector3) -> float:
+	if not root.visible:
+		return 0.0
+	var zellen: Dictionary = root.get_meta("fzellen")
+	var liste: Variant = zellen.get(Vector2i(floori(pos.x / FORM_ZELLE), floori(pos.z / FORM_ZELLE)))
+	if liste == null:
+		return 0.0
+	var zentren: PackedVector3Array = root.get_meta("fc")
+	var radien: PackedVector3Array = root.get_meta("fr")
+	var beste := 0.0
+	for i in (liste as PackedInt32Array):
+		var r := radien[i]
+		var d := pos - zentren[i]
+		var q := Vector3(d.x / r.x, d.y / r.y, d.z / r.z).length()
+		beste = maxf(beste, 1.0 - smoothstep(0.45, 1.0, q))
+	return beste
+
+
+## WOLKENTOR: ein senkrechter Ring aus kleinen Puffs, durch dessen Loch man fliegt.
+## `normal` = waagerechte Flugrichtung durch das Tor. Der Wirkkoerper der Puffs reicht bis
+## r_ring - rand, das Loch ist also frei von Nebel und Turbulenz.
+static func tor_puffs(mitte: Vector3, normal: Vector3, r_ring: float, rng: RandomNumberGenerator) -> Array:
+	var raus: Array = []
+	var n := Vector3(normal.x, 0.0, normal.z).normalized()
+	var u := Vector3(-n.z, 0.0, n.x)
+	var anzahl := int(TAU * r_ring / 40.0)
+	for k in anzahl:
+		var a := TAU * float(k) / float(anzahl) + rng.randf_range(-0.05, 0.05)
+		var p := mitte + (u * cos(a) + Vector3.UP * sin(a)) * r_ring \
+			+ n * rng.randf_range(-10.0, 10.0)
+		var g := rng.randf_range(0.28, 0.36)
+		raus.append({"p": p, "s": Vector3(g, g * rng.randf_range(0.85, 1.1), g), "form": "kumulus"})
+	return raus
+
+
+## WOLKENSCHLUCHT: zwei Wolkenwaende entlang eines Pfades, dazwischen ein freier Gang.
+## Hier und da schliesst sich die Decke darueber zu einem Bogen — dort wird es ein Tunnel.
+static func schlucht_puffs(pfad: PackedVector2Array, breite: float, unten: float, oben: float,
+		rng: RandomNumberGenerator) -> Array:
+	var raus: Array = []
+	var laenge := 0.0
+	for i in pfad.size() - 1:
+		laenge += pfad[i].distance_to(pfad[i + 1])
+	var schritt := 105.0
+	var n_st := int(laenge / schritt)
+	var bogen_bei := [0.22, 0.47, 0.78]
+	for k in n_st + 1:
+		var t := float(k) * schritt
+		# Punkt und Richtung auf dem Polygonzug
+		var rest := t
+		var p := pfad[0]
+		var dir := (pfad[1] - pfad[0]).normalized()
+		for i in pfad.size() - 1:
+			var seg := pfad[i].distance_to(pfad[i + 1])
+			if rest <= seg or i == pfad.size() - 2:
+				dir = (pfad[i + 1] - pfad[i]).normalized()
+				p = pfad[i] + dir * minf(rest, seg)
+				break
+			rest -= seg
+		var quer := Vector2(-dir.y, dir.x)
+		# Die Waende atmen: mal enger, mal weiter, mal hoeher
+		var weite := breite * (1.0 + 0.18 * sin(t / 310.0) + rng.randf_range(-0.06, 0.06))
+		var top := oben * (0.85 + 0.25 * sin(t / 530.0 + 1.3))
+		for seite in [-1.0, 1.0]:
+			var y := unten
+			while y < top:
+				var g := rng.randf_range(0.95, 1.35)
+				var rh := 92.0 * g
+				var q: Vector2 = p + quer * float(seite) * (weite * 0.5 + rh * 0.9 + rng.randf_range(0.0, 60.0))
+				raus.append({"p": Vector3(q.x, y, q.y), "s": Vector3(g, g * rng.randf_range(0.9, 1.25), g),
+					"form": "turm" if rng.randf() < 0.35 else "kumulus"})
+				y += 125.0 * g
+		# Bogen ueber dem Gang
+		var frac := t / laenge
+		for b in bogen_bei:
+			if absf(frac - float(b)) < 0.035:
+				var g2 := rng.randf_range(1.0, 1.25)
+				raus.append({"p": Vector3(p.x, top * 0.82, p.y), "s": Vector3(g2 * 1.4, g2 * 0.8, g2 * 1.4),
+					"form": "kumulus"})
+	return raus
+
+
+## GEWITTERTURM (Cumulonimbus): dunkle flache Basis, ein Turm ueber mehrere Kilometer, oben
+## der Amboss, der sich mit dem Hoehenwind weit nach Lee ausbreitet.
+static func gewitter_puffs(mitte: Vector3, basis: float, top: float, wind: Vector2,
+		rng: RandomNumberGenerator) -> Array:
+	var raus: Array = []
+	var w := wind.normalized()
+	var ebenen := int((top - basis) / 330.0)
+	for e in ebenen:
+		var f := float(e) / float(maxi(ebenen - 1, 1))
+		var y := basis + float(e) * 330.0
+		# Radius: breite Basis, schlanker Hals, oben wieder breiter (Einschnuerung)
+		var r := lerpf(1900.0, 1250.0, smoothstep(0.0, 0.55, f)) + 450.0 * smoothstep(0.75, 1.0, f)
+		# Der Turm neigt sich mit der Hoehe leicht in den Wind
+		var versatz := Vector3(w.x, 0.0, w.y) * f * 450.0
+		var n := int(TAU * r / 330.0)
+		for k in n:
+			var a := TAU * float(k) / float(n) + rng.randf_range(-0.12, 0.12)
+			var rr := r * rng.randf_range(0.82, 1.0)
+			var g := rng.randf_range(3.6, 4.8) * lerpf(1.0, 0.85, f)
+			raus.append({"p": mitte + versatz + Vector3(cos(a) * rr, y, sin(a) * rr),
+				"s": Vector3(g, g * rng.randf_range(0.9, 1.2), g),
+				"form": "turm" if rng.randf() < 0.5 else "kumulus"})
+		# Kern fuellen, damit man innen nicht durch Luecken in die Freiheit schaut
+		for k in 4:
+			var g3 := rng.randf_range(4.4, 5.4)
+			raus.append({"p": mitte + versatz + Vector3(rng.randf_range(-r, r) * 0.5, y,
+				rng.randf_range(-r, r) * 0.5), "s": Vector3(g3, g3, g3), "form": "kumulus"})
+	# Amboss: flache Linsen, weit nach Lee gezogen
+	# Der Amboss ist das Erkennungszeichen: breit, flach, weit in den Wind gezogen, mit
+	# einer dicken Wurzel ueber dem Turm und duennen Fahnen am Lee-Ende.
+	var amboss_y := top + 150.0
+	for k in 120:
+		var t := rng.randf_range(-0.30, 1.0)
+		var tt := clampf(t, 0.0, 1.0)
+		var quer := rng.randf_range(-1.0, 1.0) * lerpf(1700.0, 3400.0, tt)
+		var p := mitte + Vector3(w.x, 0.0, w.y) * (700.0 + t * 6000.0) \
+			+ Vector3(-w.y, 0.0, w.x) * quer
+		var g := rng.randf_range(8.0, 11.0) * lerpf(1.0, 0.7, tt)
+		raus.append({"p": Vector3(p.x, amboss_y + rng.randf_range(-120.0, 120.0) - 250.0 * tt, p.z),
+			"s": Vector3(g, g * lerpf(0.55, 0.30, tt), g), "form": "linse"})
+	return raus
+
+
+## NEBELMEER: eine geschlossene flache Stratusdecke, auf der man entlanggleiten kann, mit
+## einzelnen Kuppen, die durch die Decke stossen.
+static func nebelmeer_puffs(mitte: Vector3, halb: Vector2, rng: RandomNumberGenerator) -> Array:
+	var raus: Array = []
+	var abstand := 260.0
+	var nx := int(halb.x * 2.0 / abstand)
+	var nz := int(halb.y * 2.0 / abstand)
+	for iz in nz + 1:
+		for ix in nx + 1:
+			var lx := -halb.x + float(ix) * abstand + rng.randf_range(-0.35, 0.35) * abstand
+			var lz := -halb.y + float(iz) * abstand + rng.randf_range(-0.35, 0.35) * abstand
+			# Ellipsenfoermiger, ausgefranster Rand
+			var e := Vector2(lx / halb.x, lz / halb.y).length()
+			if e > 1.0 + rng.randf_range(-0.15, 0.05):
+				continue
+			var rand := smoothstep(0.75, 1.05, e)
+			# KISSEN statt Linsen: flache Kumulus mit welliger Oberseite, dicht ueberlappend.
+			# Mit duennen Linsen lag hier eine Handvoll Eisschollen auf dem Wasser.
+			var g := rng.randf_range(3.2, 3.9) * lerpf(1.0, 0.65, rand)
+			var y := mitte.y + rng.randf_range(-15.0, 15.0) + 35.0 * sin(lx / 900.0) * cos(lz / 1100.0)
+			raus.append({"p": mitte + Vector3(lx, y - mitte.y, lz),
+				"s": Vector3(g, rng.randf_range(0.55, 0.80), g), "form": "kumulus"})
+			# Hier und da eine Kuppe, die durch die Decke waechst
+			if rand < 0.5 and rng.randf() < 0.035:
+				var gk := rng.randf_range(1.2, 1.7)
+				raus.append({"p": mitte + Vector3(lx, y - mitte.y + 40.0, lz),
+					"s": Vector3(gk, gk * 1.1, gk), "form": "kumulus"})
+	return raus

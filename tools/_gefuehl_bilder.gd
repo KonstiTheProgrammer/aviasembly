@@ -13,6 +13,17 @@ const SZENEN := [
 	["wolken", Vector3(1500, 1050, -2500), Vector2(1.0, 0.25), 150.0, -99.0],
 	["kueste", Vector3(9000, 70, 24500), Vector2(-1.0, -0.15), 230.0, -99.0],
 	["g_last", Vector3(-2600, 950, -4500), Vector2(0.10, -1.0), 150.0, 7.8],
+	["tore", Vector3(74, 410, -1933), Vector2(0.747, -0.664), 140.0, -99.0],
+	["schlucht", Vector3(23366, 450, 4068), Vector2(0.447, -0.894), 150.0, -99.0],
+	["gewitter", Vector3(24500, 1400, 2500), Vector2(1.0, 0.0), 150.0, -99.0],
+	["nebelmeer", Vector3(-32500, 440, 9500), Vector2(1.0, 0.05), 150.0, -99.0],
+	["tor_nah", Vector3(1306, 470, -3027), Vector2(0.747, -0.664), 120.0, -99.0],
+	["gewitter_nah", Vector3(29200, 1200, 600), Vector2(0.75, 0.66), 150.0, -99.0],
+	["fetzen", Vector3(-32000, 368, 9500), Vector2(1.0, 0.05), 170.0, -99.0],
+	["blitz", Vector3(27800, 420, 2600), Vector2(1.0, 0.0), 140.0, -99.0],
+	["wand", Vector3(23700, 520, 3220), Vector2(0.894, 0.447), 160.0, -99.0],
+	["im_sturm", Vector3(30300, 1700, 2500), Vector2(1.0, 0.0), 150.0, -99.0],
+	["hoch", Vector3(0, 5200, 3000), Vector2(0.3, -1.0), 180.0, -99.0],
 ]
 
 var m: Node
@@ -69,6 +80,10 @@ func _process(_d: float) -> bool:
 				phase = 2
 				t = 0
 		2:
+			# Gewitter: kurz vor der Aufnahme einen Blitz ausloesen (sonst Zufall)
+			if t == 146 and String(s[0]).begins_with("blitz"):
+				m.set("blitz_test", true)
+				m.set("_blitz_naechster", 0.0)
 			if t == 150:
 				var name := String(s[0]) + ("_alt" if alt else "") \
 					+ ("_ohneglow" if OS.get_environment("GEFUEHL_OHNE_GLOW") != "" else "")

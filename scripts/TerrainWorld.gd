@@ -5486,6 +5486,9 @@ func setze_grobe_tiefe(img: Image, world_r: float) -> void:
 var _nebel_luft := 0.62
 var _nebel_himmel := Color(0.066, 0.136, 0.269)      # linear
 var _nebel_farbe := Color(0.75, 0.82, 0.92)          # sRGB, wie die Umgebung
+## Dunstfarbe (linear) wie ihn Godots Nebel faerbt — auch fuer andere Shader mit eigenem
+## Nebel (Gewitterzelle in CloudField).
+var dunst_farbe := Vector3(0.24, 0.33, 0.48)
 
 
 func setze_nebel_licht(env: Environment, sonne: DirectionalLight3D) -> void:
@@ -5518,6 +5521,7 @@ func setze_dunst(dichte: float, farbe: Color) -> void:
 	_dunst = dichte
 	_nebel_farbe = farbe
 	var c := farbe.srgb_to_linear().lerp(_nebel_himmel, _nebel_luft)
+	dunst_farbe = Vector3(c.r, c.g, c.b)
 	for m in _wasser_mats:
 		m.set_shader_parameter("dunst_dichte", dichte)
 		m.set_shader_parameter("dunst_col", Vector3(c.r, c.g, c.b))

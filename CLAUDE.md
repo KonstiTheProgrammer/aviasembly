@@ -331,6 +331,42 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
   `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
 
+## Himmel und Wolkenformationen (2026-09)
+- HIMMEL (`shaders/sky_clouds.gdshader`): Zenit/Mitte dunkeln mit der KAMERAHOEHE
+  (`POSITION.y`, `hoehe_bereich` 900–7000 m, `col_*_hoch`), Dunstsaum schmaler; warmes
+  Mie-Leuchten am Horizont auf der Sonnenseite (`sonnenseite`); ZIRREN (`zirren_schicht`:
+  billige Feldermaske, nur dort Fasern, gestreckt in Windrichtung) mit 22-Grad-Halo wo
+  Zirren stehen. Alles NUR ueber dem Horizont, col_horizon unberuehrt (Kalibrierung!).
+  Kosten Zirren 4K: 0,3–0,65 ms. FALLE: AT_HALF_RES_PASS/HALF_RES_COLOR in Godot 4.6
+  ausprobiert — der ganze Himmel wurde weiss. Und `return` ist in sky() verboten.
+- FORMATIONEN (`CloudField.formation`, Main `_wolken_formationen`): feste Orte statt
+  wanderndem Wetter, MultiMesh je Form/Variante/1,6-km-Kachel, eigene Ellipsoidliste fuer
+  `dichte_bei` (Zweig `_dichte_formation`, jeder Puff in allen beruehrten Zellen). Die
+  Dichteabfragen in Main laufen ueber `_wolken_alle` (Decken + Formationen) → Nebel,
+  Turbulenz, Flak-Deckung, Sonnenverdeckung ohne Extracode. `mitfuehren` laesst sie stehen
+  (kein "puffs"-Meta). SPERRZONEN (`CloudField.sperrzonen`, `_wolken_sperrzonen`): die
+  wandernden Decken setzen dort keine Puffs — sonst stopfen sie Torloecher und Schlucht zu.
+  * WOLKENTORE (`TORE`, `tor_puffs`): 7 Ringe ab HEIMAT, goldener Leitring (`_leitring`,
+    naechstes Tor pulsiert), Durchflug = Seitenwechsel der Torebene innerhalb TOR_LOCH →
+    Toast, Survival-Lohn; `_parcours_zuruecksetzen` in `_begin_flight`.
+  * WOLKENSCHLUCHT (`SCHLUCHT_PFAD`, `schlucht_puffs`): Gang 240 m, Waende bis ~850 m,
+    drei Boegen (Tunnel).
+  * GEWITTERZELLE (`gewitter_puffs`, 31,5 km O): Turm bis 5,2 km, Amboss 6 km nach Lee,
+    VERDUNKLUNG NACH WELTHOEHE (`dunkel_unten`/`dunkel_hoehe` — COLOR.r faerbt nur je Puff),
+    Randemission dort gedaempft, EIGENER NEBEL (`_cloud_material(true)` → fog_disabled,
+    Dunstfarbe `TerrainWorld.dunst_farbe`, unter dem Bauch abgedunkelt — Godots Nebel wusch
+    die Basis sonst hellgrau; per Rotprobe belegt), Blitze (OmniLight + `blitz`-Emission +
+    Zickzackbahn), Regenvorhang, Turbulenz ×3,5 (`FlightController.turbulenz_faktor`),
+    Aufwind im Kern / Fallwind unter der Basis (`aufwind` in g).
+  * NEBELMEER (`nebelmeer_puffs`, Westbucht, 330 m): flache Kumulus-Kissen, dicht
+    ueberlappend (duenne Linsen waren Eisschollen), einzelne Kuppen.
+- WOLKENFETZEN (`_fetzen`, GPUParticles3D an der Kamera, world-space): Menge aus der Dichte
+  ~140 m VORAUS (`amount_ratio`), in der Wolke naeher und grauer (sonst frisst der Nebel sie).
+- Kosten 4K (`_gefuehl_zeit.gd`): Formationen 0–0,8 ms (Gewitter aus der Naehe).
+- Bildwerkzeug: `_gefuehl_bilder.gd` Szenen tore, tor_nah, schlucht, wand, gewitter,
+  gewitter_nah, im_sturm, blitz (erzwingt Blitz ueber `Main.blitz_test`), nebelmeer, fetzen,
+  hoch.
+
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
 Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen
 die Hauptinsel nicht veraendern — `tools/_haupt_pruefsumme.gd` belegt es (Hoehe, Farbe, Wald,

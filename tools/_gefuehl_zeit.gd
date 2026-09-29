@@ -56,6 +56,9 @@ func _lauf() -> void:
 		["Sonne ueber See", Vector3(7400, 140, 26600), Vector3(5000, 900, 28600)],
 		["Wolken 1050 m", Vector3(1500, 1050, -2500), Vector3(4000, 900, -1900)],
 		["Berge 950 m", Vector3(-2600, 950, -4500), Vector3(-2350, 700, -7000)],
+		["Wolkenschlucht", Vector3(23366, 450, 4068), Vector3(24300, 450, 2200)],
+		["Gewitter nah", Vector3(29200, 1200, 600), Vector3(31500, 1800, 2500)],
+		["Nebelmeer", Vector3(-32500, 440, 9500), Vector3(-29000, 350, 9700)],
 	]
 	var gpu := false
 	for st in stellungen:
@@ -78,9 +81,19 @@ func _lauf() -> void:
 		_wolken(false)
 		var o_wolken := await _median()
 		_wolken(true)
+		for f in main.get("wolken_formationen"):
+			(f as Node3D).visible = false
+		var o_form := await _median()
+		for f in main.get("wolken_formationen"):
+			(f as Node3D).visible = true
+		var himmel := env.sky.sky_material as ShaderMaterial
+		himmel.set_shader_parameter("zirren", 0.0)
+		var o_zirren := await _median()
+		himmel.set_shader_parameter("zirren", 0.30)
 		gpu = gpu or alles.y > 0.0
-		print("LOOKZEIT %-16s alles %6.2f | Glow %5.2f  Blick %5.2f  Wolken %5.2f ms"
-			% [st[0], alles.x, alles.x - o_glow.x, alles.x - o_blick.x, alles.x - o_wolken.x])
+		print("LOOKZEIT %-16s alles %6.2f | Glow %5.2f  Blick %5.2f  Decken %5.2f  Formationen %5.2f  Zirren %5.2f ms"
+			% [st[0], alles.x, alles.x - o_glow.x, alles.x - o_blick.x, alles.x - o_wolken.x,
+				alles.x - o_form.x, alles.x - o_zirren.x])
 	print("LOOKZEIT Quelle: ", "GPU-Zeitstempel" if gpu else "Wandzeit (4K)")
 	_fertig = true
 	quit()
