@@ -828,6 +828,9 @@ func _setup_world() -> void:
 	env.adjustment_saturation = 1.18
 	env.adjustment_contrast = 1.05
 	env.adjustment_brightness = 1.0
+	# FILMISCHE FARBABSTIMMUNG als 3D-Tabelle — laeuft im Tonemap-Pass mit, kostet also
+	# keinen eigenen Durchgang (siehe _farb_lut).
+	env.adjustment_color_correction = _farb_lut()
 	# Luftperspektive statt Milchglas: weniger Dichte, dafuer mehr AERIAL (Ferne kippt in
 	# den Himmelston = Tiefe + Farbe, statt alles weiss zu waschen).
 	env.fog_enabled = true
@@ -857,7 +860,26 @@ func _setup_world() -> void:
 	# trotzdem jeden Frame die volle Kette. Deshalb ab: sichtbar wuerde er erst mit
 	# einer Schwelle mitten im Motiv — und das waere genau der Schleier, den die
 	# Art Direction nicht will.
-	env.glow_enabled = false
+	# WIEDER AN (2026-09), aber als LICHTER-Glow, nicht als Schleier: die acht Messansichten
+	# oben hatten keine Sonne und kein Glitzerwasser im Bild. Genau das sind die Stellen,
+	# die ueber sRGB-Weiss liegen (Sonnenscheibe HDR ~5, Glitzerfunken ~2-3, Nachbrenner,
+	# Explosionen, Muendungsfeuer) — und genau dort soll Licht ueberstrahlen. Die Schwelle
+	# liegt deshalb UEBER Weiss (1.56 = sRGB 255, siehe oben): das Motiv selbst bleibt
+	# unberuehrt, nur was ohnehin ausbrennt, bekommt einen Hof. Nur die mittleren Stufen
+	# (weiche, mittelgrosse Hoefe), additiv.
+	env.glow_enabled = true
+	# Erster Anlauf (Schwelle 1.6, Intensitaet 0.55) liess den Glitzerpfad zu einem weissen
+	# Fleck aufbluehen: dort liegen tausende Funken ueber 2. Jetzt hoeher und schwaecher.
+	# Zweiter Anlauf (2.0 / 0.30) noch als weisse Saeule im Glitzerpfad — jetzt 2.4 / 0.24:
+	# Nachbrenner, Explosionen und die Sonne gluehen, das Wasser glitzert klar.
+	env.glow_hdr_threshold = 2.4
+	env.glow_hdr_scale = 1.2
+	env.glow_intensity = 0.24
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.0
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	for lvl in 7:
+		env.set_glow_level(lvl, [0.0, 0.0, 0.5, 0.6, 0.45, 0.2, 0.0][lvl])
 	env_sky = env
 
 	# PRAESENTATIONS-BUEHNE fuer den Bau-Modus. Frueher stand hier ein heller Tages-
@@ -2270,6 +2292,10 @@ func _vulkanfahnen() -> void:
 ## jede haette sonst ihre eigene Anwendungsstelle mit eigener Vergesslichkeit. So genuegt
 ## ein Aufruf — beim Weltaufbau und nach jeder Aenderung im Menue.
 func grafik_anwenden() -> void:
+	# LICHTGLANZ (Glow). Gemessen 1,5 ms je Bild in 4K (tools/_gefuehl_zeit.gd) — der
+	# teuerste Teil des Bild-Looks, deshalb abschaltbar.
+	if env_sky != null:
+		env_sky.glow_enabled = game.gfx_lichtglanz
 	# SONNENSCHATTEN. Groesster Einzelposten der Flugansicht: gemessen 6,4 von 20,45 ms
 	# bei vollem Sichtring, also rund ein Drittel der Bildzeit.
 	if sonne_licht != null and is_instance_valid(sonne_licht):
@@ -2313,6 +2339,126 @@ func grafik_anwenden() -> void:
 func _wolken_nachziehen(ziel: Vector3) -> void:
 	for feld in cloud_fields:
 		CloudField.mitfuehren(feld, ziel, WOLKEN_PASS_WEG)
+
+
+## FILMISCHE FARBABSTIMMUNG (Environment.adjustment_color_correction). Eine 3D-Tabelle
+## sRGB -> sRGB, die Godot im Tonemap-Pass nach Saettigung/Kontrast anwendet:
+##   * sanfte S-Kurve: etwas mehr Kontrast in den Mitten, weiche Tiefen und Lichter (die
+##     reine Kontrast-Einstellung dreht linear und laesst Himmel und Schnee ausbrennen);
+##   * Farbtrennung: Lichter einen Hauch warm (Sonne am Nachmittag), Schatten kuehl
+##     (Himmelslicht) — das gibt dem Bild Tiefe, ohne die Farben zu verbiegen;
+##   * Filmschwarz: das tiefste Schwarz leicht angehoben und blaeulich.
+## Die Tabelle ist klein (24^3) und wird linear gefiltert.
+const LUT_N := 24
+
+
+static func _farb_lut() -> ImageTexture3D:
+	var bilder: Array[Image] = []
+	for b in LUT_N:
+		var img := Image.create(LUT_N, LUT_N, false, Image.FORMAT_RGBA8)
+		for g in LUT_N:
+			for r in LUT_N:
+				var c := Color(float(r) / float(LUT_N - 1), float(g) / float(LUT_N - 1),
+					float(b) / float(LUT_N - 1))
+				img.set_pixel(r, g, _farbe_abstufen(c))
+		bilder.append(img)
+	var tex := ImageTexture3D.new()
+	tex.create(Image.FORMAT_RGBA8, LUT_N, LUT_N, LUT_N, false, bilder)
+	return tex
+
+
+static func _farbe_abstufen(c: Color) -> Color:
+	var v := Vector3(c.r, c.g, c.b)
+	# S-Kurve je Kanal, zu 30 % beigemischt
+	var s := Vector3(v.x * v.x * (3.0 - 2.0 * v.x), v.y * v.y * (3.0 - 2.0 * v.y),
+		v.z * v.z * (3.0 - 2.0 * v.z))
+	v = v.lerp(s, 0.30)
+	var l := v.dot(Vector3(0.2126, 0.7152, 0.0722))
+	# Schatten kuehl, Lichter warm (quadratisch gewichtet: die Mitten bleiben neutral)
+	v += Vector3(-0.010, 0.002, 0.020) * (1.0 - l) * (1.0 - l)
+	# Waerme der Lichter halb so stark wie im ersten Anlauf (0.030/0.012/-0.024): damit
+	# wurden sonnenbeschienene Wolken beige statt weiss.
+	v += Vector3(0.016, 0.007, -0.012) * l * l
+	# Filmschwarz
+	v = v * 0.985 + Vector3(0.010, 0.012, 0.018)
+	return Color(clampf(v.x, 0.0, 1.0), clampf(v.y, 0.0, 1.0), clampf(v.z, 0.0, 1.0))
+
+
+# --- FLUG-BLICK: Sonnenblendung, Linsenreflexe, G-Tunnelblick (shaders/flug_blick) -----
+var _blick: ColorRect
+var _blick_mat: ShaderMaterial
+var _blick_sonne := 0.0          # geglaettete Sichtbarkeit der Sonne
+var _blick_sonne_roh := 0.0      # zuletzt gemessene (Strahl + Wolken)
+var _blick_takt := 0
+var _blick_g := 1.0              # traege nachgefuehrte Last (der Koerper braucht Zeit)
+## Fuer Bildwerkzeuge: erzwungene Last statt der gemessenen (> -50 = aktiv).
+var blick_test_g := -99.0
+
+
+func _blick_aufbauen() -> void:
+	_blick = ColorRect.new()
+	_blick.name = "FlugBlick"
+	_blick.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_blick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_blick_mat = ShaderMaterial.new()
+	_blick_mat.shader = load("res://shaders/flug_blick.gdshader")
+	_blick.material = _blick_mat
+	flight_root.add_child(_blick)
+	flight_root.move_child(_blick, 0)      # UNTER dem HUD: Anzeigen bleiben lesbar
+
+
+func _blick_nachfuehren(delta: float) -> void:
+	if _blick_mat == null:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var sd := Basis.from_euler(Vector3(deg_to_rad(SONNE_WINKEL.x), deg_to_rad(SONNE_WINKEL.y),
+		0.0)).z.normalized()
+	var cp := cam.global_position
+	var ziel := cp + sd * 5000.0
+	var sicht := 0.0
+	var uv := Vector2(0.5, -3.0)
+	if not cam.is_position_behind(ziel):
+		var groesse := get_viewport().get_visible_rect().size
+		uv = cam.unproject_position(ziel) / groesse
+		# Weit ausserhalb des Bildes keine Blendung; am Rand weich aus.
+		var aus := maxf(absf(uv.x - 0.5), absf(uv.y - 0.5))
+		sicht = 1.0 - smoothstep(0.55, 0.95, aus)
+		# VERDECKUNG, nur jeden dritten Frame gemessen: Gelaende per Strahl, Wolken ueber
+		# ihre Dichte an Punkten entlang des Sonnenstrahls (die Wolken haben keine
+		# Kollision). Eine Wolke vor der Sonne daempft, statt hart auszuschalten.
+		_blick_takt += 1
+		if _blick_takt % 3 == 0 and sicht > 0.0:
+			var roh := 1.0
+			var raum := cam.get_world_3d().direct_space_state
+			var q := PhysicsRayQueryParameters3D.create(cp, cp + sd * 14000.0, 1)
+			if not raum.intersect_ray(q).is_empty():
+				roh = 0.0
+			else:
+				var dicht := 0.0
+				for d in [60.0, 160.0, 320.0, 560.0, 900.0, 1350.0, 1950.0, 2800.0, 4000.0]:
+					dicht += CloudField.dichte_bei_allen(cloud_fields, cp + sd * float(d))
+				roh = clampf(1.0 - dicht * 0.9, 0.0, 1.0)
+			_blick_sonne_roh = roh
+		sicht *= _blick_sonne_roh
+	_blick_sonne = lerpf(_blick_sonne, sicht, 1.0 - exp(-delta * 7.0))
+	_blick_mat.set_shader_parameter("sonne_uv", uv)
+	_blick_mat.set_shader_parameter("sonne_sicht", _blick_sonne)
+	# G-LAST: der Koerper reagiert verzoegert — die Last baut sich ueber ~1 s auf, beim
+	# Nachlassen erholt sich das Sehen schneller.
+	var ac: AircraftBody = flight_ctrl.aircraft if flight_ctrl != null else null
+	var g := 1.0
+	if ac != null and is_instance_valid(ac):
+		g = ac.load_factor
+	if blick_test_g > -50.0:
+		g = blick_test_g
+	var rate := 1.1 if absf(g) > absf(_blick_g) else 2.2
+	_blick_g = lerpf(_blick_g, g, 1.0 - exp(-delta * rate))
+	_blick_mat.set_shader_parameter("grau", smoothstep(4.8, 9.5, _blick_g))
+	_blick_mat.set_shader_parameter("rot", smoothstep(-1.2, -3.2, _blick_g))
+	var v := ac.linear_velocity.length() if ac != null and is_instance_valid(ac) else 0.0
+	_blick_mat.set_shader_parameter("tempo", smoothstep(150.0, 330.0, v))
 
 
 ## Dunstdichte im Freien fuer eine Kamerahoehe (siehe NEBEL_HOCH_FAKTOR).
@@ -5033,6 +5179,10 @@ func _build_pause_overlay() -> void:
 		["keine", "nur Kumulus", "alle"],
 		func(): return game.gfx_wolkenlagen,
 		func(n): game.gfx_wolkenlagen = n)
+	schalter.call("Lichtglanz", "Leuchten um Sonne, Glitzer, Nachbrenner und Explosionen. 4K: rund 1,5 ms.",
+		["aus", "an"],
+		func(): return 1 if game.gfx_lichtglanz else 0,
+		func(n): game.gfx_lichtglanz = n == 1)
 	schalter.call("Aufloesung", "Rechnet das Bild kleiner und skaliert hoch. Trifft alles, auch den Himmel.",
 		["70 %", "85 %", "100 %"],
 		func(): return {70: 0, 85: 1, 100: 2}.get(game.gfx_aufloesung, 2),
@@ -6156,6 +6306,7 @@ func _build_flight_ui() -> void:
 	# Primary-Flight-Display (Custom-Drawing): Kompass oben, Speed/Höhe-Boxen, großer Zielkreis.
 	flight_hud = FlightHud.new()
 	flight_root.add_child(flight_hud)
+	_blick_aufbauen()
 
 	# (Hinweisleiste unten auf Wunsch entfernt — Steuerung steht im README.)
 
@@ -7147,6 +7298,7 @@ func _process(delta: float) -> void:
 			and is_instance_valid(flight_ctrl.aircraft):
 		terrain.update_center(flight_ctrl.aircraft.global_position)
 		_wolken_aufenthalt(delta)
+		_blick_nachfuehren(delta)
 		# Die Decke wird um die KAMERA zentriert, nicht um das Flugzeug: die Spitze des
 		# Sichtvolumens sitzt in der Kamera, und die haengt je nach Zoom, Free-Look und
 		# Ruettelei bis zu 44 m hinter dem Flieger. Mit der Flugzeugposition muesste

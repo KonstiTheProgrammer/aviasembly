@@ -33,6 +33,7 @@ var gfx_sonnenschatten := true       # Schlagschatten ueberhaupt (groesster Einz
 var gfx_baumweite := 1               # 0 = nah, 1 = normal, 2 = weit
 var gfx_wolkenlagen := 2             # 0 = keine, 1 = nur Kumulus, 2 = alle vier
 var gfx_aufloesung := 100            # Renderskalierung in Prozent (100/85/70)
+var gfx_lichtglanz := true           # Glow um Sonne, Glitzer, Nachbrenner (4K: ~1,5 ms)
 
 signal changed()   # Geld/Unlock/Upgrade hat sich geändert
 
@@ -156,6 +157,7 @@ func save() -> void:
 		"gfx_baumweite": gfx_baumweite,
 		"gfx_wolkenlagen": gfx_wolkenlagen,
 		"gfx_aufloesung": gfx_aufloesung,
+		"gfx_lichtglanz": gfx_lichtglanz,
 	}))
 	f.close()
 
@@ -186,6 +188,7 @@ func load_state() -> void:
 	gfx_baumweite = clampi(int(data.get("gfx_baumweite", 1)), 0, 2)
 	gfx_wolkenlagen = clampi(int(data.get("gfx_wolkenlagen", 2)), 0, 2)
 	gfx_aufloesung = clampi(int(data.get("gfx_aufloesung", 100)), 50, 100)
+	gfx_lichtglanz = bool(data.get("gfx_lichtglanz", true))
 	var up = data.get("upgrades", {})
 	for k in ["thrust", "wing", "light"]:
 		upgrades[k] = int(up.get(k, 0))

@@ -103,7 +103,10 @@ const TYPEN := {
 	# lesbar — man sieht, dass man hoeher kommt, weil eine zweite Decke naeherrueckt.
 	"schaefchen": {
 		"form": "schaefchen", "spacing": 520.0, "layer_y": 2300.0,
-		"billow": 90.0, "layer_jitter": 150.0, "cover_thresh": 0.10,
+		# 0.20 statt 0.10: die Lage lag als gleichmaessiges Punktraster ueber dem ganzen
+		# Himmel. Etwas dichter ausgeduennt ballt sie sich zu Flecken mit Luecken dazwischen
+		# — so steht Altokumulus am Himmel.
+		"billow": 90.0, "layer_jitter": 150.0, "cover_thresh": 0.20,
 	},
 	# Linsenwolken: glatte, liegende Linsen ganz oben. Selten, dafuer auffaellig.
 	"linse": {
@@ -230,6 +233,13 @@ static func build(parent: Node3D, opts := {}) -> Node3D:
 	hgt.seed = rng.seed + 7
 
 	var mat := _cloud_material()
+	# HOHE, DUENNE LAGEN laufen in den Himmel aus (siehe himmel_misch im Shader): sie sind
+	# aus jeder Flughoehe kleine Puffs und standen als harte weisse Punkte am Himmel.
+	match typ:
+		"schaefchen":
+			mat.set_shader_parameter("himmel_misch", 0.52)
+		"linse":
+			mat.set_shader_parameter("himmel_misch", 0.30)
 	# DREI Kugel-Aufloesungen statt einer. Begruendung bei _puff_mesh: nur Kern und
 	# Schultern stehen je gross auf der Silhouette, die Knubbel nie.
 	var src_kern := _kugel(20, 10)         # 440 Dreiecke
@@ -815,10 +825,19 @@ static func _nachbearbeiten(roh: ArrayMesh, s: float, basis_y: float) -> ArrayMe
 	for i in ecken.size():
 		var p := ecken[i]
 		var g := ((p - mitte) / halb).normalized()
+		# FALTEN (COLOR.g): wie weit die ECHTE Flaechennormale von der Richtung zur
+		# Wolkenmitte wegkippt. Auf einer Kuppe zeigen beide nach aussen (0), in der Kerbe
+		# zwischen zwei Lappen steht die Normale schraeg dazu (bis 1). Der Shader
+		# verschattet dort — das Umgebungslicht kommt in eine Kerbe nicht hinein. Gemessen
+		# VOR der Normalenmischung unten, die genau diese Kerben fuer das Sonnenlicht
+		# glaettet (bewusst, siehe NORMALEN_MISCHUNG): so bleibt die Form im Licht weich,
+		# die Kerben aber lesbar — der Blumenkohl, den eine Quellwolke hat.
+		var falte := 0.0
 		if g.length_squared() > 0.5:
+			falte = smoothstep(0.10, 0.70, 1.0 - clampf(norm[i].dot(g), 0.0, 1.0))
 			norm[i] = norm[i].lerp(g, NORMALEN_MISCHUNG).normalized()
 		# COLOR.r = 0 an der Basis, 1 an der Krone. Der Shader faerbt danach.
-		farbe[i] = Color((p.y - y_lo) / spanne, 0.0, 0.0, 1.0)
+		farbe[i] = Color((p.y - y_lo) / spanne, falte, 0.0, 1.0)
 	arr[Mesh.ARRAY_VERTEX] = ecken
 	arr[Mesh.ARRAY_NORMAL] = norm
 	arr[Mesh.ARRAY_COLOR] = farbe
@@ -859,9 +878,13 @@ shader_type spatial;
 render_mode cull_back, specular_disabled, shadows_disabled;
 
 uniform vec3 farbe_krone : source_color = vec3(0.88, 0.89, 0.92);
-uniform vec3 farbe_basis : source_color = vec3(0.50, 0.57, 0.71);
-uniform float streuung = 0.60;      // Wrap-Weite: wie weit das Licht um die Wolke laeuft
-uniform float sockel = 0.16;        // Restlicht auf der sonnenabgewandten Seite
+// Bauch DUNKLER und kuehler als frueher (0.50/0.57/0.71): aus der Naehe stand die Wolke
+// sonst von oben bis unten im selben Weiss — Styropor statt Wasserdampf.
+uniform vec3 farbe_basis : source_color = vec3(0.40, 0.46, 0.60);
+// 0.38 statt 0.60: mit der alten Wrap-Weite war jede Flaeche, die halbwegs zur Kamera
+// zeigte, voll beleuchtet, und mit der Sonne im Ruecken die ganze sichtbare Wolke weiss.
+uniform float streuung = 0.38;      // Wrap-Weite: wie weit das Licht um die Wolke laeuft
+uniform float sockel = 0.14;        // Restlicht auf der sonnenabgewandten Seite
 uniform float silber = 0.40;        // Vorwaertsstreuung (Silberrand gegen die Sonne)
 // HELLIGKEIT IST KEIN GESCHMACKSWERT. Wrap-Licht hebt jede Flaeche an, die nicht genau
 // zur Sonne zeigt: eine waagerechte Wolkenkrone hat bei 50 Grad Sonnenhoehe dot = 0,766
@@ -869,7 +892,9 @@ uniform float silber = 0.40;        // Vorwaertsstreuung (Silberrand gegen die S
 // empfangenen Schatten stand die Decke dadurch 30 bis 36 Luma zu hell (gemessen in
 // ueber_decke und hoch gegen die abgenommenen gemalten Wolken). Der Faktor holt das
 // zurueck, ohne die weiche Kante wieder zu verlieren.
-uniform float helligkeit = 0.52;
+// 0.47 statt 0.52 (2026-09): mit der neuen Farbabstimmung lag die Sonnenseite naher Wolken
+// auf der Schulter des Tonemappers — jede Krume und jede Falte wurde dort zu Weiss.
+uniform float helligkeit = 0.47;
 // NAHBEREICH: dieselbe Spanne wie der alte Dither (8 bis 40 m) plus ein knapper
 // Zuschlag. Sie war zwischendurch auf 14 bis 65 m gestellt — damit verschwand in der
 // Ansicht "zenit" die grosse nahe Wolke KOMPLETT aus dem Bild (a1_zenit.png und
@@ -877,11 +902,30 @@ uniform float helligkeit = 0.52;
 // Das haette die Nahaufnahme aus der Pruefung herausdefiniert statt sie zu verbessern.
 uniform float nah_weg = 10.0;       // hier ist die Wolke ganz verschwunden
 uniform float nah_voll = 48.0;      // ab hier steht sie in voller Groesse
-uniform float krume = 0.22;         // Staerke der Oberflaechen-Krume
+uniform float krume = 0.30;         // Staerke der Oberflaechen-Krume
 uniform float krume_mass = 0.07;    // Grundfrequenz der Krume (1/Meter im Objektraum)
 uniform float krume_fern = 2600.0;  // ab hier ist die Krume ausgeblendet (m)
+// FALTEN (COLOR.g, siehe CloudField._nachbearbeiten): so stark werden Kerben verschattet.
+uniform float falten = 0.42;
+// NAHDUNST: steht man fast in der Wolke, ist ihr Rand kein fester Koerper mehr, sondern
+// feuchte Luft — die Flaeche verliert Kontrast und wird milchig-blau statt Wand-weiss.
+uniform vec3 nah_dunst_farbe : source_color = vec3(0.78, 0.83, 0.90);
+uniform float nah_dunst = 0.38;
+// WEICHE SILHOUETTE: am Umriss ist eine Wolke duenn, dort scheint der Himmel durch. Ein
+// opakes Netz hat stattdessen eine scharfe Kante — ausgeschnitten vor den Himmel geklebt.
+// Der Rand nimmt deshalb etwas Himmelsfarbe an und verliert Eigenlicht.
+uniform float rand_weich = 0.55;
+// HIMMEL MISCHEN: in der Ferne und bei den hohen, duennen Lagen (Schaefchen, Linse) laeuft
+// die Wolke in die Himmelsfarbe ihrer Blickrichtung aus. Ohne das standen die hohen Puffs
+// als scharfe weisse Punkte ueber dem ganzen Himmel — wie Schneeflocken.
+uniform float himmel_misch = 0.0;     // Grundanteil (je Lage, CloudField.build)
+uniform float himmel_fern = 0.30;     // zusaetzlich bis hierhin in der Ferne
+uniform vec3 himmel_zenit : source_color = vec3(0.165, 0.375, 0.800);   // = sky_clouds
+uniform vec3 himmel_mitte : source_color = vec3(0.330, 0.545, 0.875);
+uniform vec3 himmel_horizont : source_color = vec3(0.600, 0.730, 0.880);
 
 varying float krone;
+varying float falte;
 varying vec3 lokal;                 // Ort im Objektraum, fuer die Krume
 varying float nah;                  // 1 = Krume voll, 0 = zu weit weg
 
@@ -906,6 +950,7 @@ float wrausch(vec3 p) {
 
 void vertex() {
 	krone = COLOR.r;
+	falte = COLOR.g;
 	lokal = VERTEX;
 	nah = 1.0 - smoothstep(krume_fern * 0.45, krume_fern, length((MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz));
 	// DURCHFLIEGEN OHNE PUNKTRASTER. Vorher machte das der Dither von
@@ -940,9 +985,29 @@ void fragment() {
 	if (nah > 0.0) {
 		vec3 q = lokal * krume_mass;
 		float k = wrausch(q) * 0.65 + wrausch(q * 2.7) * 0.35;
+		// Dritte, feine Oktave nur aus der Naehe (unter ~500 m hat sie ueberhaupt Bildpunkte).
+		float d_kam = length(VERTEX);
+		if (d_kam < 500.0) {
+			float fein = wrausch(q * 7.3) - 0.5;
+			k += fein * 0.45 * (1.0 - smoothstep(200.0, 500.0, d_kam));
+		}
 		c *= 1.0 + krume * nah * (k - 0.5) * 2.0;
 	}
-	ALBEDO = c;
+	// Kerben verschatten (unten staerker: dort kommt ohnehin weniger Licht an).
+	c *= 1.0 - falte * falten * mix(1.0, 0.7, krone);
+	// Himmelsfarbe der Blickrichtung — derselbe Verlauf wie im Himmels-Shader.
+	vec3 dir = normalize((INV_VIEW_MATRIX * vec4(-VIEW, 0.0)).xyz);
+	float u = max(dir.y, 0.0);
+	vec3 himmel = mix(himmel_zenit, himmel_mitte, exp(-u * 2.4));
+	himmel = mix(himmel, himmel_horizont, exp(-u * 7.0));
+	float dist = length(VERTEX);
+	float rand = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.2) * rand_weich;
+	float misch = clamp(himmel_misch + himmel_fern * smoothstep(1500.0, 8000.0, dist)
+		+ rand * 0.55, 0.0, 0.85);
+	float nahe = (1.0 - smoothstep(70.0, 320.0, dist)) * nah_dunst;
+	ALBEDO = c * (1.0 - misch) * (1.0 - nahe);
+	// Der Himmelsanteil ist Licht, das DURCH die Wolke kommt — Emission, nicht beleuchtet.
+	EMISSION = himmel * misch * 0.85 * (1.0 - nahe) + nah_dunst_farbe * nahe * 0.9;
 	ROUGHNESS = 1.0;
 	METALLIC = 0.0;
 }

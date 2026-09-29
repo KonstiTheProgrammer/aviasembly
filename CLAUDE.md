@@ -301,6 +301,36 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Frames auf die Schuerze: nach einem 20-km-Sprung braucht die grobe Stufe ~67 s, solange
   die 2048er-Karte rechnet — vorher entstanden Bilder mit fehlender Kachel).
 
+## Bild-Look (2026-09): Farbabstimmung, Lichtglanz, Flug-Blick, Wolken
+- FARBABSTIMMUNG: `Main._farb_lut` baut eine 24³-LUT (sRGB → sRGB) fuer
+  `env.adjustment_color_correction` — laeuft im Tonemap-Pass mit, kostet nichts. Sanfte
+  S-Kurve (30 %), Schatten kuehl / Lichter leicht warm (quadratisch gewichtet, Mitten
+  neutral), Filmschwarz. FALLE: die Waerme im ersten Anlauf (0.030/0.012/−0.024) machte
+  sonnenbeschienene Wolken beige.
+- LICHTGLANZ = Glow, Grafikoption `gfx_lichtglanz` (Pausenmenue, Standard an). Schwelle
+  2.4 UEBER sRGB-Weiss (1.56): nur Sonne, Glitzerfunken, Nachbrenner, Explosionen gluehen.
+  Gemessen 1,5 ms in 4K (`tools/_gefuehl_zeit.gd`) — der teuerste Teil des Looks.
+  Schwelle 1.6/2.0 liess den Glitzerpfad zu einer weissen Saeule aufbluehen.
+- FLUG-BLICK (`shaders/flug_blick.gdshader`, ColorRect `_blick` als ERSTES Kind von
+  `flight_root`, also unter dem HUD; `Main._blick_nachfuehren`): Sonnenschleier +
+  Linsenreflexe auf der Achse Sonne→Mitte, Tunnelblick ab ~4,8 G (voll 9,5), Rotsicht
+  unter −1,2 G, leichte Tempo-Vignette ab 150 m/s. KEIN SCREEN_TEXTURE: alles mit
+  `blend_premul_alpha` in einem Aufruf (0,3 ms in 4K). Sonnensicht = im Bild UND nicht
+  hinter Gelaende (Strahl, Ebene 1) UND Wolkendichte an 9 Punkten des Sonnenstrahls
+  (jeden 3. Frame), geglaettet. Last = `AircraftBody.load_factor`, traege nachgefuehrt
+  (Aufbau ~1 s, Erholung schneller). `blick_test_g` erzwingt eine Last fuer Bildwerkzeuge.
+- WOLKEN (`CloudField.PUFF_SHADER`): FALTEN aus `COLOR.g` — beim Bauen
+  (`_nachbearbeiten`) aus der UNGEMISCHTEN Normale gegen die Richtung zur Wolkenmitte
+  gemessen (Kuppe 0, Kerbe 1), weil die Normalenmischung (NORMALEN_MISCHUNG) genau diese
+  Kerben fuer das Sonnenlicht glaettet. Dazu weiche Silhouette (Rand nimmt Himmelsfarbe
+  an, Emission), Nahdunst unter ~300 m, dunklere kuehle Baeuche, Wrap 0.38 statt 0.60
+  (sonst mit der Sonne im Ruecken alles weiss), Helligkeit 0.47, dritte Krume-Oktave nah.
+  Hohe Lagen mischen Himmelsfarbe bei (`himmel_misch` Schaefchen 0.52, Linse 0.30) —
+  sie standen als weisse Punkte ueber dem Himmel; Schaefchen `cover_thresh` 0.20.
+- Werkzeuge: `_gefuehl_bilder.gd [-- sonne berge wolken kueste g_last]` (echte
+  Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
+  `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
+
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
 Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen
 die Hauptinsel nicht veraendern — `tools/_haupt_pruefsumme.gd` belegt es (Hoehe, Farbe, Wald,
