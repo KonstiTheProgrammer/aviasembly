@@ -197,7 +197,29 @@ const FLORA_PER_CELL := 2.3
 # am Strand, der ganze Kegel war kahl braun. Genau das las sich als "zu wenig Baeume".
 # 230 m laesst den Wald die Flanken hochwachsen und haelt nur die Kuppen frei, so wie in
 # den Referenzbildern: bewaldete Haenge, felsiger Gipfel.
-const FLORA_MAX_H := 230.0
+# 560 STATT 230, seit die Hauptinsel echtes Hochgebirge hat (Main._region_formen): mit 230
+# endete der Wald auf halber Hoehe der Vorberge, und die Flanken lagen kahl da. Der Wald
+# duennt ab FLORA_DUENN_AB aus.
+const FLORA_MAX_H := 860.0
+const FLORA_DUENN_AB := 460.0
+# Hoehenstufen der Hauptinsel (_face_color_grund)
+# Die Stufen folgen dem Gebirge (Gipfel bis 2650 m): Bergwald bis ~800 m, Almen
+# darueber, Fels ab ~750 m, Schnee ab ~870, Gletscher ab ~1450. Ein Mittelweg: die
+# Hochtalwaende (bis 1250 m) tragen damit weisse Kappen, die Nordkette Gletscher. Mit den ersten Werten
+# (Fels ab 460) lag das ganze Gebirge samt seinen Taelern im Fels und war nur grau.
+const HAUPT_FELS_AB := 740.0
+const HAUPT_FELS_VOLL := 930.0
+const HAUPT_SCHNEE_AB := 860.0
+const HAUPT_SCHNEE_VOLL := 1180.0
+const HAUPT_GLETSCHER_AB := 1450.0
+# Bergwald: Baeume stehen bis zu dieser Steilheit (Hoehenunterschied je 8-m-Zelle; 4.8 m
+# sind ~31 Grad, voll aus bei ~41). War 2.8/4.6: mit dem neuen Hochgebirge blieben dadurch
+# alle Flanken kahl, obwohl echte Bergwaelder bis 40 Grad stehen.
+const BERGWALD_STEIL_AB := 4.8
+# Wueste auf der Hauptinsel nur noch in wenigen Kernen (war -0.32): seit das Westland die
+# Wuesten- und Tafellandschaft traegt, lagen auf der gemaessigten Hauptinsel ueberall beige
+# "Pfuetzen" im Gruen, und am Fuss der neuen Gebirge wurden Hangstufen zu Reisterrassen.
+const HAUPT_WUESTE_AB := -0.50
 # Untergrenze. NICHT 0.8 wie frueher: gemessen liegen 47.9 % der Flaeche im 8x8-km-Feld
 # um den Spawn zwischen -4.4 m (Ende der Sandfarbe) und 0.8 m — flaches, GRUENES Tiefland,
 # das die alte Schwelle komplett ausgesperrt hat. Genau das war die kahle Ebene. Der
@@ -1741,6 +1763,7 @@ const RUHE_INNEN := 1700.0             # hier ist die Landschaft ganz ruhig ...
 const RUHE_AUSSEN := 4200.0            # ... und ab hier wieder ganz sie selbst
 var _lm_ab := 1.0e18            # ab diesem Ursprungsabstand kann ueberhaupt eine liegen
 var _land: FastNoiseLite        # Kuestenrauschen der Landmassen
+var _gebirg: FastNoiseLite      # Gratmuster der Gebirge (Frequenz 1, siehe _kf_gebirge)
 var _region_n: FastNoiseLite    # grossraeumig: wo in einer Region Gebirge/Hochland steht
 const LM_REICH := 1.25          # Reichweite der Maske in Vielfachen von r (s. Kopf)
 
@@ -1795,6 +1818,41 @@ func _lm_vorfilter_bauen() -> void:
 		if lm.has("seen"):
 			_lm_seen[rg] = Vector3(lm["seen"][0].x, lm["seen"][0].y, lm["seen"][1])
 
+
+
+## KUESTENANKER der Hauptinsel (Main setzt sie vor setup()): [Vector2 pos, art] mit art
+## "fest" (Kueste bleibt, wo sie ist — Kuestenflugplaetze, Wracks) oder "meer" (Kueste darf
+## zurueckweichen, aber nicht vorruecken — Schiffe, vorgelagerte Inseln, die Lagune).
+var kuesten_anker: Array = []
+const ANKER_FEST_INNEN := 2600.0
+const ANKER_FEST_AUSSEN := 6500.0
+const ANKER_MEER_INNEN := 3000.0
+const ANKER_MEER_AUSSEN := 7000.0
+
+
+## (Versatz der Kueste in m, positiv = nach aussen; Steilkueste 0..1) an dieser Stelle.
+##
+## DIE HAUPTINSEL WAR EINE SCHEIBE: ihre Kueste kam aus einem einzigen Radius je Richtung
+## mit sehr grobem Winkelrauschen — auf der Karte ein Kreis mit Sandring. Jetzt verschiebt
+## ein grosses, verzerrtes Rauschfeld (_land hat Domain-Warp) die Kueste um bis zu ~4 km:
+## Buchten, wo es nach innen zieht, Kaps und Halbinseln, wo es nach aussen drueckt. An den
+## Kaps entsteht Steilkueste (Wellen fressen sich in vorspringendes Land), in den Buchten
+## bleibt der Sandstrand — so ist es in der Natur.
+func _kueste_versatz(x: float, z: float) -> Vector2:
+	# Drei Massstaebe: Golfe und Halbinseln (~18 km), Buchten und Kaps (~5 km), Felsnasen
+	# und Einschnitte (~1,5 km). Mit nur ±3 km blieb die Insel auf der Karte ein Kreis.
+	var v := 5600.0 * _land.get_noise_2d(x * 0.34 + 3100.0, z * 0.34 - 7300.0) \
+		+ 1900.0 * _land.get_noise_2d(x * 1.25 - 900.0, z * 1.25 + 400.0) \
+		+ 520.0 * _land.get_noise_2d(x * 4.0 + 5100.0, z * 4.0 - 200.0) \
+		+ 260.0 * _patch.get_noise_2d(x * 0.08, z * 0.08)
+	for a in kuesten_anker:
+		var ap: Vector2 = a[0]
+		var ad := Vector2(x, z).distance_to(ap)
+		if String(a[1]) == "fest":
+			v *= smoothstep(ANKER_FEST_INNEN, ANKER_FEST_AUSSEN, ad)
+		elif v > 0.0:
+			v *= smoothstep(ANKER_MEER_INNEN, ANKER_MEER_AUSSEN, ad)
+	return Vector2(v, smoothstep(300.0, 1500.0, v))
 
 
 ## Zu welcher Region gehoert die Stelle? Nur Kreisvergleiche — laeuft je Dreieck.
@@ -2525,6 +2583,9 @@ var _kf_w_bb := PackedFloat64Array()
 # den Formen ABGELEITET, nicht gesetzt: eine Zahl von Hand waere beim naechsten
 # Verschieben still falsch.
 var _kf_ab_l := 1.0e18
+var _kf_g: Array = []                     # Gebirge (art "gebirge"), siehe _kf_gebirge
+var _kf_g_bb := PackedFloat64Array()
+var _kf_ab_g := 1.0e18
 var _kf_ab_w := 1.0e18
 
 
@@ -2589,7 +2650,13 @@ func _kf_land(x: float, z: float, h: float) -> float:
 		var r_aus: float = float(kf["r_aus"])
 		if lage.x >= r_aus:
 			continue
-		var t := 1.0 - smoothstep(float(kf["r_kern"]), r_aus, lage.x)
+		# "breit_rausch": die Breite schwankt laengs der Form (Anteil). Ohne das hatte die
+		# Hakenzunge ueberall genau dieselbe Breite und las sich als gezeichneter Ring.
+		var brr: float = float(kf.get("breit_rausch", 0.0))
+		var bf := 1.0
+		if brr > 0.0:
+			bf = maxf(0.25, 1.0 + brr * _region_n.get_noise_2d(x * 3.2 + 91.0, z * 3.2 - 47.0))
+		var t := 1.0 - smoothstep(float(kf["r_kern"]) * bf, r_aus * bf, lage.x)
 		# Hoch 1.7: gibt der Flanke eine konkave Kurve statt einer Rampe. Ein linearer
 		# Abfall sieht aus wie ein Damm, ein konkaver wie ein Berg.
 		# "fuss": die Hoehe, auf die die Flanke auslaeuft (Vorgabe 0). Die Formen der
@@ -2604,6 +2671,12 @@ func _kf_land(x: float, z: float, h: float) -> float:
 			# Der Kamm darf nicht schnurgerade laufen. Dasselbe Ridged-Rauschen wie bei
 			# den Bergketten, damit die Kette sich nicht als Fremdkoerper liest.
 			berg *= 1.0 - unruhe * (0.5 - 0.5 * _ridge.get_noise_2d(x * 1.6, z * 1.6))
+		# "luecken": Durchbrueche (Seegatten) — dort bleibt die Form unter Wasser, und aus
+		# einer durchgehenden Nehrung wird eine Kette von Inseln, wie an einer Wattkueste.
+		var lu: float = float(kf.get("luecken", 0.0))
+		if lu > 0.0:
+			berg = lerpf(berg, minf(fuss, SEA_Y) - 5.0 - fuss, lu * smoothstep(0.30, 0.46,
+				_region_n.get_noise_2d(x * 5.5 + 77.0, z * 5.5 - 33.0)))
 		h = maxf(h, fuss + berg)
 	return h
 
@@ -2624,7 +2697,15 @@ func _kf_wasser(x: float, z: float, h: float) -> float:
 		if lage.x >= r_aus:
 			continue
 		var sohle := SEA_Y + _kf_hoehe(kf["hs"], lage.y)
-		var h_neu := lerpf(sohle, h, smoothstep(float(kf["r_kern"]), r_aus, lage.x))
+		# "breite": Faktor laengs der Form (Golfe verengen sich zum Kopf), "breit_rausch":
+		# unruhiger Rand. Ohne beides waren Buchten gezeichnete Kapseln.
+		var bf := 1.0
+		if kf.has("breite"):
+			bf = _kf_hoehe(kf["breite"], lage.y)
+		var brr: float = float(kf.get("breit_rausch", 0.0))
+		if brr > 0.0:
+			bf *= maxf(0.3, 1.0 + brr * _region_n.get_noise_2d(x * 2.6 - 311.0, z * 2.6 + 57.0))
+		var h_neu := lerpf(sohle, h, smoothstep(float(kf["r_kern"]) * bf, r_aus * bf, lage.x))
 		# "nur_senken": die Form darf nichts anheben. Die Formen der neuen Regionen
 		# laufen durch Schelf und offenes Meer; ohne das hoebe ihre Sohle den tieferen
 		# Meeresgrund als helle Rinne an. Die Formen der Hauptinsel heben absichtlich
@@ -2648,6 +2729,134 @@ func _kf_wasser(x: float, z: float, h: float) -> float:
 		if uk > 0.001:
 			h = lerpf(h, SEA_Y + (h - SEA_Y) * 0.55, uk)
 	return h
+
+# =====================================================================================
+# GEBIRGE — Ketten, die wie Gebirge aussehen und nicht wie Wuerste
+# =====================================================================================
+#
+# DER BEFUND AUF DER KARTE: alle grossen Berge der Hauptinsel (Hochtal, Sturmkap) und die
+# Gletscherkette im Nordland lasen sich als graue WUERSTE — gleich breit, runde Enden,
+# glatte Flanken, ein Wurmmuster obendrauf. Beide Bauarten erzeugen das zwangslaeufig: eine
+# Perlenkette runder Massive ist ein Schlauch, und ein Kamm "Hoehe x Huellkurve" mit etwas
+# Rauschen multipliziert ist ein Schlauch mit Muster.
+#
+# WAS EIN GEBIRGE VON OBEN AUSMACHT, ist die Entwaesserung: vom Hauptkamm laufen
+# Seitengrate und Seitentaeler QUER nach aussen, die Kammlinie hat Gipfel und Paesse, und
+# der Rand franst in Auslaeufer aus. Genau das bildet diese Form nach:
+#   - Hoehe = Huelle(Abstand zur Kammlinie) x Gratmuster. Die Huelle hat einen VERRAUSCHTEN
+#     Rand (Auslaeufer statt Kapsel).
+#   - Das Gratmuster ist Ridged-Rauschen in KAMMKOORDINATEN, laengs der Achse eng und quer
+#     weit gestreckt: die Grate laufen dadurch quer zur Kette, wie Seitengrate.
+#   - Die Kammkoordinaten kommen von EINER geraden Achse je Form (erster -> letzter Punkt),
+#     nicht vom naechsten Polyliniensegment — dessen Laufparameter springt am Knick, und das
+#     Muster haette dort eine Naht. Gekruemmte Ketten sind mehrere Formen.
+#   - Ein feineres isotropes Ridged-Rauschen gibt Zacken und Karren.
+#
+# Eintrag: {"art": "gebirge", "pts": Kammlinie, "hs": Kammhoehen laengs der Achse,
+#           "breite": halbe Breite (m) laengs der Achse, "fuss": Fusshoehe (Vorgabe 0),
+#           "seed": Musterversatz, "tal_schutz": true = das Hochtal bleibt frei}
+
+
+## Achse, Laenge und groesste Breite einmal ausrechnen (_kf_vorfilter_bauen).
+func _gebirge_vorbereiten(kf: Dictionary) -> void:
+	var pts: PackedVector2Array = kf["pts"]
+	var p0 := pts[0]
+	var ax := pts[pts.size() - 1] - p0
+	kf["_p0"] = p0
+	kf["_alen"] = maxf(ax.length(), 1.0)
+	kf["_ax"] = ax.normalized()
+	var br: PackedFloat32Array = kf["breite"]
+	var bmax := 0.0
+	for b in br:
+		bmax = maxf(bmax, b)
+	kf["_bmax"] = bmax
+	kf["_off"] = float(kf.get("seed", 0.0))
+
+
+func _kf_gebirge(x: float, z: float, h: float) -> float:
+	for i in _kf_g.size():
+		var b := i * 3
+		var dx := x - _kf_g_bb[b]
+		var dz := z - _kf_g_bb[b + 1]
+		if dx * dx + dz * dz > _kf_g_bb[b + 2]:
+			continue
+		var kf: Dictionary = _kf_g[i]
+		var bmax: float = kf["_bmax"]
+		var d := _kf_lage(x, z, kf["pts"]).x
+		if d > bmax * 1.4:
+			continue
+		var p0: Vector2 = kf["_p0"]
+		var ax: Vector2 = kf["_ax"]
+		var rx := x - p0.x
+		var rz := z - p0.y
+		var laengs := rx * ax.x + rz * ax.y
+		var quer := rx * ax.y - rz * ax.x
+		var t := clampf(laengs / float(kf["_alen"]), 0.0, 1.0)
+		var w := _kf_hoehe(kf["breite"], t)
+		var off: float = kf["_off"]
+		# Unruhiger Rand: bis zu 35 % der Breite, grob (Auslaeufer), plus etwas feiner.
+		var rand := 0.36 * _region_n.get_noise_2d(x * 1.4 + off, z * 1.4 - off) \
+			+ 0.12 * _region_n.get_noise_2d(x * 5.0 - off, z * 5.0 + off)
+		var dn := d / w + rand
+		if dn >= 1.0:
+			continue
+		var e := 1.0 - maxf(dn, 0.0)
+		var huelle := pow(e, 1.35)
+		var hoch := _kf_hoehe(kf["hs"], t)
+		var fuss: float = float(kf.get("fuss", 0.0))
+		# VERBOGENE KAMMKOORDINATEN. Ungebogen ergab das gestreckte Rauschen parallele
+		# Streifen wie Cord — die Grate verlaufen in echt geschwungen und verzweigen sich.
+		var wl := laengs + 1600.0 * _region_n.get_noise_2d(x * 2.2 + off, z * 2.2 + 170.0)
+		var wq := quer + 2200.0 * _region_n.get_noise_2d(x * 1.8 - 510.0, z * 1.8 - off)
+		# MASSSTAB WIE IM HOCHGEBIRGE: Gratabstand 2 bis 5 km bei 2000 m Relief. Mit 700 m
+		# (erster Anlauf) stand die Kette als Nagelbrett da — 840 m Hoehe auf 350 m
+		# Horizontale sind 67 Grad, ueberall.
+		var ra := clampf(_gebirg.get_noise_2d(wl / 3000.0 + off * 0.001,
+			wq / 5600.0 - off * 0.002) * 0.5 + 0.5, 0.0, 1.0)
+		# ... gemischt mit einem richtungslosen Anteil: Gipfelstoecke, Kare, Querriegel
+		var ri := clampf(_gebirg.get_noise_2d(x / 4400.0 + off * 0.003, z / 4400.0 - 41.0)
+			* 0.5 + 0.5, 0.0, 1.0)
+		var r := lerpf(ra, ri, 0.38)
+		# Zweite, feinere Lage fuer Nebengrate
+		var r2 := clampf(_gebirg.get_noise_2d(wl / 1300.0 - 17.3, wq / 2600.0 + 5.1)
+			* 0.5 + 0.5, 0.0, 1.0)
+		# Zacken
+		var r3 := clampf(_gebirg.get_noise_2d(x / 380.0 + 3.7, z / 380.0 - 9.2) * 0.5 + 0.5,
+			0.0, 1.0)
+		# MASSE: die Taeler liegen hoch im Gebirge (0.42 der Kammhoehe), nicht auf dem
+		# Vorland — sonst war es ein Kamm aus Einzelfingern statt eines Gebirgsstocks.
+		# AM RAND SCHNEIDEN DIE TAELER TIEF EIN: dort traegt das Gebirge nur noch seine
+		# Grate, die als Auslaeufer ins Vorland greifen. Mit gleich hohen Talboeden ueberall
+		# war der Rand eine glatte Hoehenlinie, und das Gebirge las sich als Band.
+		var kern := smoothstep(0.15, 0.75, e)
+		# Innen: Talboeden auf ~0.22 der Kammhoehe (gruen, bewaldet), Grate bis ganz oben.
+		var muster := lerpf(0.06 + 0.82 * r * r + 0.12 * r2,
+			0.22 + 0.64 * r * r + 0.14 * r2, kern)
+		var berg := (hoch - fuss) * (huelle * muster + 0.02 * e * r3)
+		if kf.get("tal_schutz", false):
+			berg *= _tal_schutz(x, z)
+		h = maxf(h, fuss + berg)
+	return h
+
+
+## 1 ueberall, 0 im Hochtal (Talboden bis kurz vor die Kaverne) — dort duerfen die
+## Gebirge nichts anheben: der Talboden, der Bergsee, das Felsentor und das Vorfeld von
+## ADLERHORST sind vermessen (tools/_gebirge_check.gd, _kaverne_*, _tor_check).
+func _tal_schutz(x: float, z: float) -> float:
+	if tal.is_empty():
+		return 1.0
+	var st: Vector2 = tal["start"]
+	var ri: Vector2 = Vector2(tal["richtung"]).normalized()
+	var rx := x - st.x
+	var rz := z - st.y
+	var laengs := rx * ri.x + rz * ri.y
+	var quer := absf(rx * ri.y - rz * ri.x)
+	var hb := _tal_halbbreite(laengs)
+	var k_quer := smoothstep(hb * 0.62, hb * 1.08, quer)
+	var k_laengs := maxf(1.0 - smoothstep(-2600.0, -1200.0, laengs),
+		smoothstep(9400.0, 9900.0, laengs))
+	return maxf(k_quer, k_laengs)
+
 
 ## TUNNEL — Raumstuecke, in denen das Gelaende WEGGELASSEN wird.
 ##
@@ -2789,7 +2998,7 @@ var _last_cc := Vector2i(2147483647, 0)   # zuletzt verarbeitete Spieler-Chunk-Z
 var _last_pos := Vector3.ZERO
 
 # --- Worker-Thread-Verkehr ---
-var _thread: Thread
+var _faeden: Array[Thread] = []   # Chunk-Worker, siehe WORKER_FAEDEN
 var _sem: Semaphore
 var _mutex: Mutex
 var _jobs: Array = []           # Keys für den Worker (nahe zuerst)
@@ -2947,6 +3156,16 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_biome = FastNoiseLite.new()
 	_biome.seed = seedv * 31 + 13
 	_biome.frequency = 1.0 / 3200.0
+	_gebirg = FastNoiseLite.new()
+	_gebirg.seed = seedv * 53 + 37
+	_gebirg.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_gebirg.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	# 3 OKTAVEN, nicht 4: die vierte gab im gestreckten Muster feine parallele Falten
+	# rund um jeden Berg (wie Cord) — sichtbar vor allem an den flachen Flanken.
+	_gebirg.fractal_octaves = 3
+	_gebirg.fractal_gain = 0.48
+	_gebirg.fractal_lacunarity = 2.1
+	_gebirg.frequency = 1.0
 	_land = FastNoiseLite.new()
 	_land.seed = seedv * 41 + 19
 	_land.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -3049,7 +3268,11 @@ void fragment() {
 	# wurde und es ueberhaupt offene See zu sehen gab).
 	# 5.0 gibt 9500 m halbe Kante und liegt damit hinter der Fernebene der Kamera. Die
 	# Platte bleibt zwei Dreiecke — das kostet nichts.
-	wm.size = Vector2(VIEW_DIST * 5.0, VIEW_DIST * 5.0)
+	# 7.4 STATT 5.0 (14 km halbe Kante): die Fernebene ist eine EBENE, keine Kugel. An den
+	# Bildraendern (16:9, 64 Grad vertikal = ~90 Grad horizontal) reicht die Sicht bei 9 km
+	# Tiefe seitlich bis ~12,7 km — dort endete die Platte bei 9,5 km, und im Gegenlicht
+	# stand ihre gerade Kante als heller Streifen im Meer.
+	wm.size = Vector2(VIEW_DIST * 7.4, VIEW_DIST * 7.4)
 	_water.mesh = wm
 	_water.position = Vector3(0, SEA_Y + 0.15, 0)
 	# Tropisches Tiefen-Wasser (Shader): tuerkise Untiefen -> Lagune -> tiefes Blau
@@ -3071,21 +3294,116 @@ void fragment() {
 	# Worker starten
 	_sem = Semaphore.new()
 	_mutex = Mutex.new()
-	_thread = Thread.new()
-	_thread.start(_worker_loop)
+	for i in WORKER_FAEDEN:
+		var th := Thread.new()
+		th.start(_worker_loop)
+		_faeden.append(th)
 
 
 func _exit_tree() -> void:
-	if _thread != null and _thread.is_started():
-		_exit = true
+	_exit = true
+	for th in _faeden:
 		_sem.post()
-		_thread.wait_to_finish()
+	for th in _faeden:
+		if th.is_started():
+			th.wait_to_finish()
+	_faeden.clear()
 
 
 # Geländehöhe an Weltposition (deterministisch aus dem Seed).
 ## Wie gebirgig die Region ist (0 = Ebene, 1 = Alpen). Sehr grob.
 func relief_at(x: float, z: float) -> float:
 	return smoothstep(-0.12, 0.42, _relief.get_noise_2d(x, z))
+
+## LANDSCHAFTSKAMMER der Hauptinsel: -1 weite Ebene .. +1 Huegelland (~14 km Rauschen).
+## EINE Quelle fuer Hoehe (height_at), Wald (kammer_wald) und Feldflur (_feld_farbe).
+func land_kammer(x: float, z: float) -> float:
+	return _region_n.get_noise_2d(x * 0.42 + 2100.0, z * 0.42 - 900.0)
+
+
+## Waldfaktor der Kammer: Huegelland dicht bewaldet, Ebenen offen (dort liegt Feldflur).
+## Vorher war der Wald ueberall gleich verteilt — von Kueste zu Kueste dasselbe Muster.
+func kammer_wald(k: float) -> float:
+	return lerpf(0.30, 1.45, smoothstep(-0.30, 0.30, k))
+
+
+## FELDFLUR: in den Ebenen ein Flickenteppich aus Feldern — Weizen, Raps, gepfluegte Erde,
+## frisches Gruen, Maehwiese — mit Hecken an den Rainen. Das gibt dem Tiefland die
+## Lesbarkeit einer Kulturlandschaft; vorher war es dieselbe Wiesen-Wald-Mischung wie
+## ueberall. Drei Funktionen, EINE Geometrie: Staerke (wo), Raster (welches Feld, wie nah
+## am Rain), Farbe. Bepflanzung, Waldanteil (Karte, Schuerze) und Boden nutzen dieselben.
+
+## 0..1: wie sehr gilt hier Feldflur? `wald` = Walddichte ohne Feld (Waelder bleiben Wald),
+## `k` = land_kammer an der Stelle (vom Aufrufer, der sie ohnehin braucht).
+## BILLIG ZUERST: ausserhalb der Ebenen (k > 0.05, gut die Haelfte der Insel) faellt sie
+## nach einem Vergleich heraus.
+func _feld_staerke(x: float, z: float, h: float, wald: float, k: float) -> float:
+	if k >= 0.05 or h > 140.0 or h < SEA_Y + 3.0:
+		return 0.0
+	var s := smoothstep(0.05, -0.25, k) * (1.0 - smoothstep(0.15, 0.45, wald)) \
+		* (1.0 - smoothstep(70.0, 140.0, h)) * smoothstep(SEA_Y + 3.0, SEA_Y + 8.0, h)
+	if s <= 0.001:
+		return 0.0
+	# Nicht im Hochtal: dort gehoeren Almwiesen hin, keine Ackerflur.
+	return s * _tal_schutz(x, z)
+
+
+## (Fruchtwurf 0..1, Rain 0..1) an der Stelle.
+##
+## AUSRICHTUNG JE FLURBLOCK (2,2 km, verwuerfelte Grenzen): innerhalb eines Blocks ein
+## gerades Raster mit festem Winkel, gerechnet vom Blockursprung aus. Ein stetig
+## wandernder Winkel (erster Anlauf) drehte das Raster um den WELTURSPRUNG — in 20 km
+## Entfernung wurde aus jeder kleinen Winkelaenderung ein Wirbel aus Kreisbogen.
+func _feld_raster(x: float, z: float) -> Vector2:
+	var bx := x + 500.0 * _region_n.get_noise_2d(x * 3.0 + 50.0, z * 3.0)
+	var bz := z + 500.0 * _region_n.get_noise_2d(x * 3.0, z * 3.0 - 70.0)
+	var gx := floori(bx / 2200.0)
+	var gz := floori(bz / 2200.0)
+	var a := (_hash01(gx, gz, 23) - 0.5) * 1.6
+	var ca := cos(a)
+	var sa := sin(a)
+	var lx := x - float(gx) * 2200.0
+	var lz := z - float(gz) * 2200.0
+	var fb := lerpf(110.0, 190.0, _hash01(gx, gz, 24))    # Feldbreite je Block
+	var u := (lx * ca - lz * sa) / fb
+	var v := (lx * sa + lz * ca) / (fb * 1.9)
+	var iu := floori(u)
+	var iv := floori(v)
+	var fu := u - float(iu)
+	var fv := v - float(iv)
+	var rand_u := minf(fu, 1.0 - fu) * fb
+	var rand_v := minf(fv, 1.0 - fv) * fb * 1.9
+	return Vector2(_hash01(iu + gx * 131, iv + gz * 71, 21),
+		1.0 - smoothstep(4.0, 11.0, minf(rand_u, rand_v)))
+
+
+## Walddichte in der Feldflur: auf dem Acker nichts, am Rain eine Hecke.
+func _feld_wald(x: float, z: float, h: float, dens: float, k: float) -> float:
+	var fs := _feld_staerke(x, z, h, dens, k)
+	if fs <= 0.02:
+		return dens
+	return lerpf(dens, _feld_raster(x, z).y * 0.55, fs)
+
+
+## Feldfarbe aus Staerke und Raster (beide vom Aufrufer, siehe _boden_farbe).
+func _feld_farbe(wc: Color, feld: float, fr: Vector2) -> Color:
+	var r := fr.x
+	var frucht: Color
+	if r < 0.22:
+		frucht = Color(0.76, 0.68, 0.42)       # reifes Getreide
+	elif r < 0.30:
+		frucht = Color(0.82, 0.77, 0.34)       # Raps
+	elif r < 0.48:
+		frucht = Color(0.55, 0.43, 0.31)       # gepfluegt
+	elif r < 0.68:
+		frucht = Color(0.45, 0.58, 0.29)       # frisches Gruen
+	elif r < 0.78:
+		frucht = Color(0.66, 0.66, 0.38)       # Stoppelfeld
+	else:
+		frucht = wc                             # Maehwiese / Weide
+	frucht = frucht.lerp(Color(0.30, 0.42, 0.22), fr.y * 0.7)
+	return wc.lerp(frucht, feld * 0.85)
+
 
 ## Biom an einer Welt-Position (Tiefland-Charakter; Fels/Schnee kommt aus Höhe/Hang).
 ## DIE GRENZE IST VERRAUSCHT, sonst ist sie eine Hoehenlinie. _biome ist ein glattes,
@@ -3106,7 +3424,7 @@ func biome_at(x: float, z: float) -> int:
 	if reg != Region.HAUPT:
 		return region_biom(reg, x, z)
 	var b := biome_wert(x, z)
-	if b < -0.32:
+	if b < HAUPT_WUESTE_AB:
 		return Biome.WUESTE
 	if b > 0.40:
 		return Biome.HEIDE
@@ -3122,11 +3440,28 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	var dist_k := smoothstep(700.0, 3000.0, d)
 	var relief := relief_at(x, z) * dist_k
 	# 1) sanfte Grundwelligkeit überall
-	var rolling := _noise.get_noise_2d(x, z) * lerpf(6.0, 24.0, relief)
+	# ANGEHOBEN (+55 % der Amplitude + 2 m): das Rauschen ist um null verteilt, und die
+	# Mulden des Tieflands lagen damit auf Strandhoehe — gemessen 6,6 % des Binnenlands
+	# (bis 19 km) zwischen -6 und -3,3 m. Dort galt die Strandfarbe, und im Gruen lagen
+	# ueberall beige "Pfuetzen". Die Kueste bleibt, wo sie ist: sie kommt aus `fall`.
+	var roll_amp := lerpf(6.0, 24.0, relief)
+	var rolling := _noise.get_noise_2d(x, z) * roll_amp + roll_amp * 0.55 + 2.0
 	# 2) scharfe Bergketten NUR wo Relief hoch (ridged + domain-warp)
 	var rdg := clampf(_ridge.get_noise_2d(x, z) * 0.5 + 0.5, 0.0, 1.0)
 	var peaks := pow(rdg, 1.6) * lerpf(0.0, 175.0, relief) * relief
 	var h := rolling + peaks
+	# LANDSCHAFTSKAMMERN: das Innere der Hauptinsel war ueberall gleich — Huegel mit
+	# Waldflecken, von Kueste zu Kueste. Jetzt gibt ein sehr grobes Rauschen (~14 km) jeder
+	# Gegend einen Charakter: HUEGELLAND (wellig bis 90 m, dort stehen die Bergrucken),
+	# und in den Senken breite EBENEN und flache Mulden, in denen die Staedte liegen.
+	# Wo die Grundhoehe schon gering ist (Spawn, Flugplaetze), bleibt es praktisch gleich.
+	if dist_k > 0.0:
+		var land_k := land_kammer(x, z)
+		var huegel := smoothstep(0.0, 0.45, land_k) * dist_k
+		var ebene := smoothstep(0.0, -0.40, land_k) * dist_k
+		h += huegel * (28.0 + 62.0 * clampf(_noise.get_noise_2d(x * 1.7, z * 1.7) * 0.5
+			+ 0.5, 0.0, 1.0))
+		h = lerpf(h, minf(h, 4.0 + rolling * 0.3), ebene * 0.85)
 	# RIESIGE INSEL: die Welt ist EINE grosse Insel. Das Basis-Terrain fällt jenseits eines
 	# winkelabhängig verrauschten Küstenradius (~5.3–7.6 km) unter den Meeresspiegel.
 	# Vor den Massiven angewandt -> erzwungene Inseln/Vulkan draußen bleiben bestehen (max).
@@ -3154,13 +3489,24 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# und zugleich RUNDER. Das Kap und die Hakenzunge machen sie groesser und dabei
 	# unverwechselbarer — und sie kosten keine der bestehenden Inseln.
 	var r_coast := 27200.0 + rvar * 3800.0
-	var fall := smoothstep(r_coast - 1400.0, r_coast + 800.0, d)
+	# BUCHTEN, KAPS UND STEILKUESTEN (siehe _kueste_versatz). Nur im Kuestenstreifen
+	# gerechnet — das Innere der Insel bezahlt dafuer nichts.
+	var kv := Vector2.ZERO
+	if d > r_coast - 10000.0 and d < r_coast + 9000.0:
+		kv = _kueste_versatz(x, z)
+	var dk := d - kv.x
+	var fall := smoothstep(r_coast - lerpf(1400.0, 380.0, kv.y), r_coast + 800.0, dk)
 	# DIE NEUEN LANDMASSEN (siehe LANDMASSEN). Erst ab _lm_ab — die ganze Hauptinsel
 	# laeuft an dieser Stelle vorbei und bleibt bitgenau.
 	var lm := Vector3(1.0, 0.0, Region.HAUPT)
 	if fall > 0.0 and d > _lm_ab:
 		lm = landmasse_bei(x, z)
 		fall = minf(fall, lm.x)
+	# STEILKUESTE: an den Kaps steht das Land bis an die Kante 20 bis 55 m hoch und
+	# bricht dann auf 380 m ab (schmales Band oben), statt in einem Strand auszulaufen.
+	if kv.y > 0.01:
+		h += kv.y * (20.0 + 35.0 * absf(_noise.get_noise_2d(x * 3.0, z * 3.0))) \
+			* smoothstep(r_coast - 3200.0, r_coast - 900.0, dk) * (1.0 - fall)
 	if fall > 0.0:
 		h = lerpf(h, SEA_Y - 18.0, fall)
 	# MESA-TERRASSEN in der Wüste: gestufte Tafelberge/Canyon-Kanten (Low-Poly-Ikone).
@@ -3168,7 +3514,8 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# GEMERKT, WEIL DAS FELSRELIEF WEITER UNTEN DAVON ABHAENGT: die Mesa lebt von ihrer
 	# ebenen Deckflaeche, und Rippen darauf machen aus einem Tafelberg einen Huegel.
 	var wueste := false
-	if lm.z < 0.5 and h > 8.0 and dist_k > 0.25 and _biome.get_noise_2d(x, z) < -0.32:
+	if lm.z < 0.5 and h > 8.0 and h < 140.0 and dist_k > 0.25 \
+			and _biome.get_noise_2d(x, z) < HAUPT_WUESTE_AB:
 		wueste = true
 		var step_h := 16.0
 		var q := floorf(h / step_h) * step_h
@@ -3696,6 +4043,8 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 			wueste = true
 	if d > _kf_ab_l:
 		h = _kf_land(x, z, h)
+	if d > _kf_ab_g:
+		h = _kf_gebirge(x, z, h)
 	# FELSRELIEF: RIPPEN UND RUNSEN AUF ALLEM, WAS BERG IST.
 	#
 	# DER BEFUND, gemessen mit tools/_bergprofil.gd auf 8 m Abtastung: die Talflanke im
@@ -4013,8 +4362,11 @@ func _maeandern(pts: PackedVector3Array, weite: float, welle: float) -> PackedVe
 func _kf_vorfilter_bauen() -> void:
 	_kf_l = []
 	_kf_w = []
+	_kf_g = []
+	_kf_ab_g = 1.0e18
 	var lb := PackedFloat64Array()
 	var wb := PackedFloat64Array()
+	var gb := PackedFloat64Array()
 	for kf in kuestenformen:
 		var pts: PackedVector2Array = kf["pts"]
 		var lo := pts[0]
@@ -4031,9 +4383,16 @@ func _kf_vorfilter_bauen() -> void:
 		# 11,9 km an den Weltmittelpunkt heran. Genau in diesem Streifen liegt der Vulkan
 		# — gemessen zahlte das Vulkanfeld dadurch 3,0 us je Probe fuer zwei
 		# Funktionsaufrufe, die nie etwas gefunden haetten.
-		var pad: float = float(kf["r_aus"])
+		var pad: float = float(kf.get("r_aus", 0.0))
 		var mitte := (lo + hi) * 0.5
 		var rad := mitte.distance_to(hi) + pad
+		if String(kf["art"]) == "gebirge":
+			_gebirge_vorbereiten(kf)
+			var grad: float = mitte.distance_to(hi) + float(kf["_bmax"]) * 1.4
+			_kf_g.append(kf)
+			gb.append_array([mitte.x, mitte.y, grad * grad])
+			_kf_ab_g = minf(_kf_ab_g, maxf(mitte.length() - grad, 0.0))
+			continue
 		if String(kf["art"]) == "land":
 			_kf_l.append(kf)
 			lb.append_array([mitte.x, mitte.y, rad * rad])
@@ -4048,12 +4407,13 @@ func _kf_vorfilter_bauen() -> void:
 			_kf_ab_w = minf(_kf_ab_w, maxf(mitte.length() - rad, 0.0))
 	_kf_l_bb = lb
 	_kf_w_bb = wb
+	_kf_g_bb = gb
 	if _kf_l.is_empty():
 		_kf_ab_l = 1.0e18
 	if _kf_w.is_empty():
 		_kf_ab_w = 1.0e18
-	print("Kuestenformen: %d Land (ab %.1f km), %d Wasser (ab %.1f km)"
-		% [_kf_l.size(), _kf_ab_l / 1000.0, _kf_w.size(), _kf_ab_w / 1000.0])
+	print("Kuestenformen: %d Land (ab %.1f km), %d Wasser (ab %.1f km), %d Gebirge"
+		% [_kf_l.size(), _kf_ab_l / 1000.0, _kf_w.size(), _kf_ab_w / 1000.0, _kf_g.size()])
 
 
 func _ms_vorfilter_bauen() -> void:
@@ -5057,6 +5417,22 @@ func _chunk_center(key: Vector2i) -> Vector2:
 
 # Worker: rechnet Höhenfeld + Mesh + Kollisions-Shape (alles Resources, off-tree
 # Thread-sicher). Der Main-Thread hängt nur noch ein.
+## MEHRERE EIGENE WORKER-FAEDEN. Seit Gebirge, Kuestenversatz und Feldflur je Chunk rund
+## 50 % mehr kosten, kam ein einzelner Faden im Reiseflug nicht mehr nach: gemessen
+## (tools/_ruck_check.gd, 170 m/s) fehlten im Mittel 91 Chunks in Baumreichweite — kahle
+## Stellen — gegen 31 vorher. Jeder Faden nimmt sich den naechsten Auftrag (die Liste ist
+## nach Naehe sortiert), die Reihenfolge bleibt also im Wesentlichen naechste zuerst.
+## EIGENE FAEDEN, NICHT DER WorkerThreadPool: im Pool standen die Chunks hinter der
+## Fernschuerze an, die ihn waehrend des Flugs dauernd mit Kacheln fuellt — ein Versuch
+## damit ergab 175 fehlende Chunks statt 91. _make_chunk_data ist fadensicher (es liest
+## nur; build_now_around rechnet es schon lange parallel).
+## ZWEI, NICHT DREI — gemessen: jeder Faden kostet den Hauptfaden Zeit (geteilte Arrays,
+## atomare Referenzzaehler, Speicherbandbreite). CPU je Flugframe (_skriptzeit) / fehlende
+## Chunks in Baumreichweite (_ruck_check): 1 Faden 1,3–1,7 ms / 91, 2 Faeden 1,7–1,9 ms / 37,
+## 3 Faeden 1,9–2,3 ms / 30. Vor dem Umbau: 1,1–1,2 ms / 31.
+const WORKER_FAEDEN := 2
+
+
 func _worker_loop() -> void:
 	while true:
 		_sem.wait()
@@ -5069,6 +5445,8 @@ func _worker_loop() -> void:
 			continue
 		var key: Vector2i = key_v
 		var data := _make_chunk_data(key)
+		if _exit:
+			return
 		_mutex.lock()
 		# WICHTIG: flora/rocks MUESSEN mit — sonst kommt die im Worker berechnete
 		# Bepflanzung nie am Main-Thread an und die gestreamte Welt bleibt kahl
@@ -5076,7 +5454,6 @@ func _worker_loop() -> void:
 		_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
 			"flora": data["flora"], "rocks": data["rocks"]})
 		_mutex.unlock()
-
 
 func _process(_delta: float) -> void:
 	# fertige Chunks einhängen (billig: Nodes + fertige Resources)
@@ -5468,12 +5845,14 @@ func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
 	var edge := _open_ground(x, z) \
 		* vulkan_bewuchs(x, z, h) \
 		* smoothstep(FLORA_MIN_H, FLORA_FULL_H, h) \
-		* (1.0 - smoothstep(46.0, FLORA_MAX_H, h)) \
-		* (1.0 - smoothstep(2.8, 4.6, slope))
+		* (1.0 - smoothstep(FLORA_DUENN_AB, FLORA_MAX_H, h)) \
+		* (1.0 - smoothstep(BERGWALD_STEIL_AB, BERGWALD_STEIL_AB + 1.8, slope))
 	if edge <= 0.005:
 		return 0.0
 	var dens := smoothstep(-0.28, 0.30, _forest.get_noise_2d(x, z))
-	dens = dens * dens
+	var kk := land_kammer(x, z)
+	dens = clampf(dens * dens * kammer_wald(kk), 0.0, 1.0)
+	dens = _feld_wald(x, z, h, dens, kk)
 	match biome_at(x, z):
 		Biome.HEIDE:
 			dens *= 0.30
@@ -5644,8 +6023,8 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
 			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.
 			var edge := open * smoothstep(FLORA_MIN_H, FLORA_FULL_H, hc) \
-				* (1.0 - smoothstep(46.0, FLORA_MAX_H, hc)) \
-				* (1.0 - smoothstep(2.8, 4.6, slope))
+				* (1.0 - smoothstep(FLORA_DUENN_AB, FLORA_MAX_H, hc)) \
+				* (1.0 - smoothstep(BERGWALD_STEIL_AB, BERGWALD_STEIL_AB + 1.8, slope))
 			if edge <= 0.005:
 				continue
 			var biome := biome_at(cx, cz)
@@ -5665,7 +6044,9 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			var f := _forest.get_noise_2d(cx, cz)
 			# Waldkern dicht, Rand ausduennend, echte Lichtungen unter f = -0.28.
 			var dens := smoothstep(-0.28, 0.30, f)
-			dens = dens * dens
+			var kk := land_kammer(cx, cz)
+			dens = clampf(dens * dens * kammer_wald(kk), 0.0, 1.0)
+			dens = _feld_wald(cx, cz, hc, dens, kk)
 			dens = maxf(dens, kragen)
 			var per_cell := FLORA_PER_CELL
 			if biome == Biome.HEIDE:
@@ -7076,7 +7457,11 @@ func _face_color(cen: Vector3, ny: float, zelle: float = 8.0,
 	var det := clampf((30.0 - zelle) / 18.0, 0.0, 1.0)
 	if det <= 0.004:
 		return c
-	var st := steil * smoothstep(FELS_AB, FELS_VOLL, cen.y) * FELS_ZEICHNUNG * det
+	# Die Zeichnung gehoert auf FELS: steile Waende oder die Hochregion. Auf bewaldeten und
+	# grasigen Vorbergen legte sie sonst braune Rippen ueber das Gruen.
+	var st := steil * smoothstep(FELS_AB, FELS_VOLL, cen.y) * FELS_ZEICHNUNG * det \
+		* maxf(smoothstep(0.68, 0.58, ny), smoothstep(HAUPT_FELS_AB - 180.0,
+			HAUPT_FELS_AB + 60.0, cen.y))
 	# Benannte Felswaende legen darauf noch etwas drauf (siehe felswaende).
 	for fw in felswaende:
 		var fdx: float = cen.x - float(fw["x"])
@@ -7290,112 +7675,44 @@ func _face_color_grund(cen: Vector3, ny: float) -> Color:
 	# aus dem Gelaende selbst.
 	# Jetzt EINE durchgehende Felsrampe ueber die ganze Hoehe und EIN Schneeanteil, der
 	# nach Hoehe einblendet und vom Hang moduliert wird. Keine Sprungstelle mehr.
-	var fels := Color(0.35, 0.31, 0.27).lerp(Color(0.56, 0.52, 0.46),
-		clampf((cen.y - 52.0) / 90.0, 0.0, 1.0))
-	if cen.y > 142.0:
-		# Weiter aufhellen, statt bei 142 m stehenzubleiben — die Fortsetzung setzt genau
-		# auf dem Endwert der ersten Rampe auf, deshalb entsteht kein Sprung.
-		fels = fels.lerp(Color(0.62, 0.60, 0.58), clampf((cen.y - 142.0) / 400.0, 0.0, 1.0))
-	# SCHNEE. Massgeblich ist die Hoehe UEBER der Schneegrenze, der Hang moduliert nur.
-	# Der Hang allein reicht NICHT: die Kegel des Hochgebirges sind bei 2200 m Radius und
-	# 1250 m Gipfel rund 30 Grad geneigt, darauf liegt auch in echt Schnee — mit reinem
-	# Hangkriterium blieb die ganze Kette weiss.
-	# SCHNEEFELDER STATT SALZ UND PFEFFER.
-	#
-	# Hier stand smoothstep(0.72, 0.90, ny) — der Schnee haing damit allein an der Neigung
-	# der EINZELNEN Facette. Auf dem gerippten Hochgebirge wechselt die alle acht Meter,
-	# und im Bild (Shot tal_quer) war die ganze Kette ein Salz-und-Pfeffer-Teppich aus
-	# weissen und dunklen Dreiecken: kein Berg mehr, sondern Rauschen.
-	#
-	# ZWEI AENDERUNGEN, und beide sind noetig:
-	#  * Das Fenster ist von 0.72/0.90 auf 0.55/0.95 geweitet. Ein Fenster von 0.18 auf
-	#    einer Groesse, die zwischen Nachbarn um mehr als das schwankt, ist ein SCHALTER
-	#    und kein Uebergang — es kann gar nichts anderes als flimmern.
-	#  * Die Schwelle wird von einem groben Rauschen verzogen (SCHNEE_M, rund 150 m).
-	#    Damit teilen sich benachbarte Facetten ihren Zustand und es entstehen Felder.
-	#    Dieselbe Kur hat auf der Vulkanflanke gewirkt, wo dasselbe Muster auftrat.
-	#
-	# UND SIE IST BILLIGER ALS VORHER: die Rauschprobe steht hinter der Hoehenschranke,
-	# unterhalb von 188 m zahlt das Tiefland jetzt gar nichts mehr statt zweier
-	# smoothstep-Aufrufe je Dreieck.
-	var schnee := 0.0
-	if cen.y > 188.0:
-		var sk := _patch.get_noise_2d(cen.x * _schnee_takt + 1700.0,
-			cen.z * _schnee_takt - 5300.0)
-		# DAS FENSTER IST BREIT, ABER ES LIEGT HOEHER. Beim Beheben des Flimmerns stand es
-		# zuerst auf 0.55..0.95 — die Breite war richtig und ist geblieben, die LAGE war
-		# falsch: mit 0.55 als Untergrenze bekam auch eine 56 Grad steile Wand noch Schnee,
-		# und im Bild von oben (Shot tal_oben) war die ganze Kette von Fuss bis Gipfel
-		# gleichmaessig weiss, ohne eine einzige dunkle Felswand. Ein Gebirge ohne Wechsel
-		# von Firn und Fels liest sich als Zuckerguss.
-		# 0.64..0.99 verlangt fuer vollen Schnee eine fast waagerechte Flaeche und laesst
-		# steile Flanken blank. 0.99 statt 1.0, weil kein Dreieck des 8-m-Netzes exakt
-		# waagerecht liegt — mit 1.0 als Obergrenze bliebe der Firn ueberall grau.
-		#
-		# WEITER HOCH GEHT NICHT, und das ist ausprobiert: mit 0.80 als Untergrenze
-		# verschwindet der Schnee auf dieser Kette fast vollstaendig UND das Flimmern kommt
-		# zurueck. Der Grund ist die Form der Massive selbst — bei 2200 m Radius liegen die
-		# allermeisten Facetten flach (gemessen mit tools/_rauheit.gd: nur 14 Prozent ueber
-		# 45 Grad), die Neigung TRENNT hier also kaum. Wer dunkle Felswaende in dieser Kette
-		# will, bekommt sie nicht ueber die Schneeschwelle, sondern nur ueber steilere
-		# Geometrie — und die hat ihren eigenen Preis, siehe die Rippenfrequenz in
-		# Main._hochgebirge.
-		# DRITTE FASSUNG, UND DER GRUND STEHT IM ABSATZ DARUEBER: "Wer dunkle Felswaende
-		# will, bekommt sie nur ueber steilere Geometrie — und die hat ihren eigenen
-		# Preis." Der Preis ist jetzt faellig. Das Felsrelief (siehe height_at) hat die
-		# Kruemmung der Flanken versechsfacht, damit schwankt ny von Facette zu Facette
-		# staerker als je zuvor, und eine Schneeregel, die ALLEIN an ny haengt, wird
-		# dadurch zwangslaeufig wieder zum Flimmern — im Kamm-Blick stieg die
-		# Helligkeitsstreuung von 56 auf 69, und das Bild verlor jede Bergform.
-		#
-		# DIE NEIGUNG ENTSCHEIDET NICHT MEHR ALLEIN, SIE HAT NUR NOCH EIN VETO. Firn
-		# sammelt sich in Mulden und auf Leeseiten, nicht dort, wo eine einzelne
-		# Dreiecksflaeche zufaellig flach liegt: das FELD kommt aus dem groben Rauschen
-		# (150 m, benachbarte Facetten teilen sich ihren Zustand), und die Neigung nimmt
-		# es den wirklich steilen Waenden wieder weg. Ueber 900 m gewinnt die Hoehe —
-		# ein Gipfel ist geschlossen weiss, egal was das Rauschen sagt.
-		var feld := maxf(smoothstep(-0.18, 0.34, sk), smoothstep(430.0, 920.0, cen.y))
-		schnee = smoothstep(188.0, 428.0, cen.y) * feld \
-			* smoothstep(0.50, 0.84, ny + SCHNEE_KORN * 0.5 * sk)
-	if schnee > 0.001:
-		fels = fels.lerp(Color(0.87, 0.88, 0.91), schnee)
-	if cen.y > 188.0:
-		# DER UEBERZUG MUSS AUCH AUF DIESEM WEG MIT. Hier stand ein blankes "return fels",
-		# und das war der letzte helle Streifen auf der Ascheschuerze — gefunden hat ihn erst
-		# ein Strahl durch den Bildpunkt (tools/_vulkan_stich.gd): das Vorland steigt in
-		# einigen Sektoren schon von sich aus auf 150 m, die Schuerze legt bis zu 93 m
-		# darauf, und ein Faecherrucken traegt noch einmal 50. An solchen Stellen steht der
-		# Aschefaecher auf 247 m — ueber der Hochgebirgsschwelle der Weltregel, die deshalb
-		# vor jeder Vulkanzeile abbog und Firn und Fels zurueckgab.
-		return _vulkan_ueberzug(fels, asche, strom)
-
-	# FELS UND BODEN UEBERBLENDEN statt hart umschalten. Hier stand
-	#     if cen.y > 52.0 or ny < 0.70: return fels
-	# also eine Stufenfunktion — und im Bild lag um jeden Berg ein scharf gezeichneter
-	# brauner Ring, am deutlichsten am neuen Hochgebirge, wo er quer durch den Wald lief.
-	# Der Anteil kommt jetzt aus zwei weichen Rampen (Hoehe ODER Steilheit, das Maximum
-	# gewinnt) und wird ueber die Grundfarbe geblendet.
-	# Die Rampen liegen ENG um die alten harten Schwellen (52 m und 0.70): der Uebergang
-	# soll weich werden, die FLAECHE aber gleich bleiben. Der erste Versuch nahm 38-66 m
-	# und 0.80-0.62 — damit bekam jede sanft geneigte Wiese am Bergfuss einen Braunstich,
-	# und im Bild war das Vorland vor dem Hochgebirge nicht mehr gruen.
-	# Die Hoehenschwelle wandert IM HOCHTAL nach oben (siehe ALMWIESE bei TAL_WIESE_HUB).
-	# Die STEILHEIT bleibt unberuehrt: eine senkrechte Wand am Wasser ist auch dort Fels,
-	# und genau daran endet das Gruen am Wandfuss.
-	# UNTER EINER SCHUTTHALDE GILT WIEDER DIE WELTREGEL. Der Wiesenhub schiebt die
-	# Felsschwelle im Hochtal um 150 m nach oben; ohne diesen Faktor lag unter der Halde
-	# also GRUENER Boden, und ueberall, wo eine Gelaendekuppe durch die Felsdecke stiess
-	# oder der Rand der Decke ausfranste, blitzte Wiese zwischen den Bloecken durch. Das
-	# ist KEINE Sonderfarbe fuer ein Wahrzeichen: hier faellt nur eine Sonderregel weg,
-	# uebrig bleibt der ganz normale Hochgebirgsfels der Weltregel.
+	# --- HOEHENSTUFEN DER HAUPTINSEL (Neubau) -------------------------------------------
+	# Vorher war JEDE Kuppe ueber 59 m Fels und alles ueber 188 m Fels mit Schnee. Auf einer
+	# huegeligen Insel ergab das von oben ein braunes Tarnmuster, und die Berge lagen als
+	# graue Wuerste da. Jetzt wie in einem echten Mittelgebirge mit Hochgebirge dahinter:
+	#   gruen (Wiese, Wald) bis in die Hoehe, Almwiese darueber, Fels nur an steilen Flanken
+	#   und oberhalb der Felsgrenze, Schnee ab ~700 m in Flecken, Gletscher ab ~1050 m.
+	# Alle Grenzen wandern oertlich um bis zu 90 m (hh), sonst waeren es Hoehenlinien.
+	# hh: Hoehe mit oertlich wandernden Grenzen. Das Rauschen kostet nur, wo es etwas
+	# entscheidet (ueber 380 m — darunter liegt keine Grenze in Reichweite).
+	var hh := cen.y
+	if cen.y > 380.0:
+		hh += 90.0 * _region_n.get_noise_2d(cen.x * 2.3 + 700.0, cen.z * 2.3 - 300.0)
+	var sk := 0.0
+	if hh > 450.0:
+		sk = _patch.get_noise_2d(cen.x * _schnee_takt + 1700.0, cen.z * _schnee_takt - 5300.0)
+	# DUNKLER FELS: im Hochgebirge traegt der Kontrast dunkler Fels gegen weissen Schnee das
+	# ganze Bild. Mit 0.50 grau lag die Kette im Dunst als eine fahle Masse da.
+	var fels := Color(0.33, 0.31, 0.29).lerp(Color(0.40, 0.39, 0.38),
+		clampf((cen.y - 600.0) / 1400.0, 0.0, 1.0))
 	var wiese := _tal_wiese(cen, ny) * _halde_frei(cen.x, cen.z)
-	# ZWEI HUBE, EINE SCHWELLE: der Wiesenhub des Hochtals und der Ascheschuerze-Hub des
-	# Vulkans. Sie schliessen einander raeumlich aus (das Hochtal liegt im Nordwesten, der
-	# Vulkan im Osten), addiert werden sie trotzdem statt maxf — ein maxf haette an einem
-	# Ort, an dem beide gelten, stillschweigend einen davon verschluckt.
 	var hub := TAL_WIESE_HUB * wiese + asche_hub
-	var fels_anteil := maxf(smoothstep(45.0 + hub, 59.0 + hub, cen.y),
-		smoothstep(0.745, 0.655, ny))
+	# Steilheitsfels: unten nur an wirklich steilen Waenden (dort steht sonst Bergwald),
+	# in der Hochregion schon an maessigen Flanken.
+	var hoch := smoothstep(HAUPT_FELS_AB - 200.0, HAUPT_FELS_AB + 60.0, hh)
+	var steil_fels := lerpf(smoothstep(0.58, 0.44, ny), smoothstep(0.82, 0.68, ny), hoch)
+	var fels_anteil := maxf(smoothstep(HAUPT_FELS_AB + hub, HAUPT_FELS_VOLL + hub, hh),
+		steil_fels)
+	# Schnee: Flecken ab SCHNEE_AB, geschlossen ab SCHNEE_VOLL; steile Waende bleiben Fels.
+	var schnee := 0.0
+	if hh > HAUPT_SCHNEE_AB:
+		var feld := maxf(smoothstep(-0.20, 0.30, sk),
+			smoothstep(HAUPT_SCHNEE_VOLL - 80.0, HAUPT_SCHNEE_VOLL + 260.0, hh))
+		# Schnee haelt sich in der Hoehe auch an steileren Flanken (bis ~55 Grad); nur die
+		# Waende bleiben dunkel. Mit der festen Schwelle 0.52 war das neue Gebirge ueberall
+		# zu steil fuer Schnee und blieb grau.
+		var hang_ab := lerpf(0.55, 0.30, smoothstep(HAUPT_SCHNEE_VOLL, 2000.0, hh))
+		schnee = smoothstep(HAUPT_SCHNEE_AB, HAUPT_SCHNEE_VOLL, hh) * feld \
+			* smoothstep(hang_ab, hang_ab + 0.20, ny + SCHNEE_KORN * 0.5 * sk)
 	var c: Color
 	if fels_anteil > 0.998:
 		c = fels
@@ -7407,13 +7724,39 @@ func _face_color_grund(cen: Vector3, ny: float) -> Color:
 		# Palmen darauf ist genau der Widerspruch zwischen Farbe und Bewuchs, den die
 		# Almwiese eigentlich aufloest.
 		var boden := _boden_farbe(cen, wiese * smoothstep(30.0, 48.0, cen.y), kragen)
+		# ALMWIESE: ueber ~180 m wird das Gruen heller und gelblicher (kurzes Gras, kein
+		# Wald mehr am Boden) — der Uebergang vom Bergwald zur Felsregion.
+		var alm := smoothstep(480.0, 780.0, hh) * (1.0 - kragen)
+		if alm > 0.002:
+			boden = boden.lerp(Color(0.56, 0.60, 0.36).lerp(Color(0.62, 0.61, 0.42),
+				clampf(sk * 0.5 + 0.5, 0.0, 1.0)), alm * 0.55)
 		c = boden if fels_anteil < 0.002 else boden.lerp(fels, fels_anteil)
 	if kies > 0.002:
 		# 0.6 -> 0.82 und ein waermerer Ton: mit dem alten Wert lag der Kies als Hauch auf
 		# dem Wiesengruen und war im Bild schlicht nicht zu finden. Im Referenzbild ist der
 		# Strand die HELLSTE Flaeche des ganzen Talbodens.
 		c = c.lerp(Color(0.80, 0.77, 0.70), kies * 0.82)
+	if schnee > 0.001:
+		c = c.lerp(_eis_farbe(cen, ny, hh - HAUPT_GLETSCHER_AB, sk), schnee)
 	return _vulkan_ueberzug(c, asche, strom)
+
+
+## Schnee, Firn und Gletschereis. `ueber` = Hoehe ueber der Gletschergrenze (negativ =
+## darunter). Unter der Grenze reiner Schnee; darueber auf maessig steilen Flaechen
+## (Mulden, Kare, Talboeden) blaeuliches Eis mit Spaltenbaendern, auf flachen Kuppen Firn.
+func _eis_farbe(cen: Vector3, ny: float, ueber: float, sk: float) -> Color:
+	var weiss := Color(0.90, 0.92, 0.95).lerp(Color(0.84, 0.87, 0.92),
+		clampf(sk * 0.5 + 0.5, 0.0, 1.0))
+	var eis_k := smoothstep(-60.0, 160.0, ueber) * smoothstep(0.52, 0.66, ny) \
+		* (1.0 - smoothstep(0.90, 0.97, ny))
+	if eis_k <= 0.002:
+		return weiss
+	# Spalten: schmale dunklere Baender (Ridged-Rauschen, fein)
+	var spalte := clampf(_gebirg.get_noise_2d(cen.x / 55.0 + 3.1, cen.z / 55.0 - 7.7)
+		* 0.5 + 0.5, 0.0, 1.0)
+	var eis := Color(0.70, 0.82, 0.92).lerp(Color(0.52, 0.68, 0.82),
+		smoothstep(0.72, 0.95, spalte))
+	return weiss.lerp(eis, eis_k * 0.75)
 
 
 ## WAS DER VULKAN UEBER DIE GEWACHSENE FARBE LEGT: erst die Ascheschuerze, dann die Zunge.
@@ -7475,13 +7818,20 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 	# _open_ground MUSS mit: sonst liegt rund um Bahn und Stadt dunkler Waldboden
 	# auf einer Wiese, auf der per Definition kein Baum steht.
 	var wald := smoothstep(-0.28, 0.30, _forest.get_noise_2d(cen.x, cen.z))
-	wald = wald * wald
+	var kk := land_kammer(cen.x, cen.z)
+	wald = clampf(wald * wald * kammer_wald(kk), 0.0, 1.0)
+	# Feldflur EINMAL bestimmen (Staerke + Raster) und fuer Hecken und Farbe nutzen
+	var feld := _feld_staerke(cen.x, cen.z, cen.y, wald, kk) if alpin < 0.5 else 0.0
+	var fr := Vector2.ZERO
+	if feld > 0.01:
+		fr = _feld_raster(cen.x, cen.z)
+		wald = lerpf(wald, fr.y * 0.55, feld)
 	# GENAU DIESELBE ZEILE WIE IN DER BEPFLANZUNG, an derselben Stelle der Rechnung: erst der
 	# Sockel auf die Dichte, dann die Schranken darauf. Stuende sie hier hinter den Schranken
 	# und dort davor, waere der Waldboden im Kragen ein anderer als der Wald darauf.
 	wald = maxf(wald, kragen)
 	wald = wald * smoothstep(FLORA_MIN_H, FLORA_FULL_H, cen.y) \
-		* (1.0 - smoothstep(46.0, FLORA_MAX_H, cen.y)) * _open_ground(cen.x, cen.z)
+		* (1.0 - smoothstep(FLORA_DUENN_AB, FLORA_MAX_H, cen.y)) * _open_ground(cen.x, cen.z)
 	# Wald/Wiese: SATTES Wiesen-Grün, nur wenige dezente Flecken (kein blasses Mint mehr)
 	# ETWAS ENTSAETTIGT UND GELBER ALS ZUVOR (0.40/0.61/0.28 und 0.28/0.49/0.23). Die
 	# Wiese war das lauteste und zugleich haeufigste Element der Welt und stand gegen
@@ -7509,6 +7859,9 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 		wc = Color(0.50, 0.52, 0.40)   # seltener erdiger Fleck
 	elif t > 0.55:
 		wc = Color(0.62, 0.62, 0.44)   # seltener trockener Gras-Fleck
+	# FELDFLUR in den Ebenen (siehe _feld_farbe), nicht im Hochtal und nicht im Wald.
+	if feld > 0.01:
+		wc = _feld_farbe(wc, feld, fr)
 	# DER WALDBODEN WAR ZU DUNKEL UND DER SPRUNG ZU GROSS: 0.15/0.29/0.16 bei Gewicht 0.62
 	# ergab neben heller Wiese zwei Werte ohne Zwischenstufe. Heller und schwaecher
 	# gemischt gibt die fehlende Mitte, ohne dass der Wald seine Masse verliert.
@@ -7543,13 +7896,13 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 	var kern := 0.0
 	var bc := wc
 	var biom := Biome.WALD
-	if bw < -0.32:
+	if bw < HAUPT_WUESTE_AB:
 		biom = Biome.WUESTE
 	elif bw > 0.40:
 		biom = Biome.HEIDE
 	match biom:
 		Biome.WUESTE:
-			kern = smoothstep(-0.32, -0.44, bw)
+			kern = smoothstep(HAUPT_WUESTE_AB, HAUPT_WUESTE_AB - 0.12, bw)
 			# Wüste: warme Sand-/Dünentöne, Erd-/Felsbänder dazwischen
 			if t < -0.35:
 				bc = Color(0.80, 0.66, 0.46) # feuchter/schattiger Sand

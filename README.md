@@ -110,9 +110,11 @@ es hebt fast von allein ab, sobald genug Tempo da ist. Im Steigflug baut sich
 
 ## 🗺️ Die Welt
 
-Die Welt ist **168 × 168 km** groß: die gemäßigte **Hauptinsel** mit Heimatflugplatz, Großstadt,
-Vulkan und Hochtal — und drei Landmassen mit eigenem Klima, durch Meeresstraßen getrennt
-(mit kleinen Trittstein-Inseln dazwischen):
+Die Welt ist **168 × 168 km** groß. Die **Hauptinsel** trägt im Norden die vergletscherte
+**Nordkette** (bis 2650 m) mit dem Hochtal und dem Felsenhorst ADLERHORST, im Tiefland eine
+Heckenlandschaft aus Feldern und Wäldern, bewaldete Bergländer, drei große Golfe, das
+Sturmkap mit seinem Fjord, den Vulkan und die Großstadt. Dazu drei Landmassen mit eigenem
+Klima, durch Meeresstraßen getrennt (mit kleinen Trittstein-Inseln dazwischen):
 
 | Region | Lage | Biome & Landschaft | Flugplatz / Ort |
 |---|---|---|---|

@@ -218,10 +218,50 @@ tools/phys_test.gd       Headless-Flugtest (kein Spielinhalt, nur Dev-Werkzeug).
 README.md                Steuerung + Feature-Überblick (Spielersicht).
 ```
 
+## Die Hauptinsel (Neubau: Gebirge, Kueste, Feldflur, Hoehenstufen)
+- GEBIRGE als Kuestenform `"art": "gebirge"` (TerrainWorld._kf_gebirge): Hoehe = Huelle(Abstand
+  zur Kammlinie, VERRAUSCHTER Rand) × Gratmuster aus Ridged-Rauschen `_gebirg` (3 Oktaven —
+  mit 4 gab es Cord-Falten) in VERBOGENEN Kammkoordinaten (laengs 3 km, quer 5,6 km; die
+  Achse ist EINE Gerade erster→letzter Punkt, sonst Naht am Knick) + richtungsloser Anteil;
+  innen Talboeden auf 0,22 der Kammhoehe, am Rand tiefe Taeler (Auslaeufer). Schluessel:
+  `hs`, `breite` (je laengs), `fuss`, `seed`, `tal_schutz` (0 im Hochtal: `_tal_schutz`).
+  Hauptinsel: NORDKETTE West/Ost (bis 2650 m), Westkamm + Suedkamm aussen am Hochtal,
+  West-/Ostbergland (bewaldet), Sturmkap = Land-Koerper + Gebirge; Nordland-Gletscherkette
+  (zwei Ketten mit Laengstal), Fjordwaende, Dschungelkamm ebenfalls als Gebirge.
+- HOEHENSTUFEN (`_face_color_grund`, Konstanten HAUPT_*): Bergwald bis FLORA_MAX_H 860 m
+  (Baeume bis BERGWALD_STEIL_AB), Almwiese 480–780, Fels ab 740 (unten nur an Waenden),
+  Schnee ab 860 (haftet in der Hoehe auch steiler), Gletschereis `_eis_farbe` ab 1450.
+  Grenzen wandern ±90 m. Vorher: Fels ab 59 m, Schnee ab 188 m = braunes Tarnmuster.
+- KUESTE: `_kueste_versatz` (3 Massstaebe, bis ±7 km, Steilkueste an Kaps) mit
+  `kuesten_anker` (fest = Kuestenflugplaetze, meer = Schiffe/Inseln/Wracks/Lagune duerfen nur
+  Wasser bleiben). Drei Golfe (`nur_senken`, `breite`, `breit_rausch`; Muendung auf SEA_Y−18,
+  sonst Rinne durchs Meer), Suedostzunge, gewundener Fjord, Hakenzunge mit Seegatten
+  (`luecken`, `breit_rausch` fuer Landformen).
+- LANDSCHAFTSKAMMERN `land_kammer` (~14 km): Huegelland (+28..90 m, dicht bewaldet,
+  `kammer_wald`) gegen Ebenen mit FELDFLUR (`_feld_staerke`/`_feld_raster`/`_feld_farbe`):
+  Flurbloecke 2,2 km mit eigenem Winkel (stetiger Winkel drehte um den Weltursprung =
+  Wirbel!), Felder 110–190 × 1,9, Hecken an den Rainen (`_feld_wald`), nicht im Hochtal.
+  Grundwelligkeit angehoben (+55 % Amplitude): vorher 6,6 % des Binnenlands auf Strandhoehe.
+  Wueste auf der Hauptinsel nur noch unter HAUPT_WUESTE_AB (−0,50) und unter 140 m.
+- DUNST sinkt mit der Kamerahoehe (`Main.nebel_frei_bei`); Godots fog_height hilft NICHT
+  (legt nur Dunst unter eine Hoehe, entfernungsunabhaengig).
+- STREAMING: 2 eigene Worker-Faeden (`WORKER_FAEDEN`, Messreihe dort) — die Chunks kosten
+  ~50 % mehr; im WorkerThreadPool standen sie hinter der Fernschuerze (schlechter als 1 Faden).
+  Jeder Faden kostet den Hauptfaden Zeit: CPU je Flugframe jetzt ~1,8 ms (vorher ~1,2).
+- Wasserplatte 7,4 × VIEW_DIST (Fernebene ist eine Ebene: seitlich reicht die Sicht weiter).
+- KARTE: Feinstufe (2048) wartet, bis die Fernschuerze steht (sonst 36 s Horizont beim Start,
+  jetzt 4,6 s; die Feinstufe braucht dafuer ~64 s statt 48). Hangschattierung in
+  `WorldMap._zeile` ist SYMMETRISCH (Gefaelle · Lichtrichtung, kein Lambert): Lambert dunkelt
+  raues Gelaende im Mittel ab, die Detailkacheln (kuerzere Messbasis) lagen als dunkle
+  Quadrate auf der Grundkarte.
+- Belege: `_luftbild.gd`, `_welt_uebersicht.gd`, `_ruck_check.gd` (Rueckstand in Baumreichweite
+  ~30 wie vorher), Hochtal-Checks (`_gebirge_check`, `_kaverne_*`, `_tor_check`) unveraendert.
+  `_haupt_pruefsumme.gd` gilt ab jetzt fuer den NEUEN Stand (Eingriffe an Regionen pruefen).
+
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
-Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Die HAUPTINSEL ist
-unveraendert — `tools/_haupt_pruefsumme.gd` belegt es (Hoehe, Farbe, Wald, Biom ueber ±34 km
-bitgleich); jede Aenderung an Regionen VORHER/NACHHER damit pruefen.
+Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen
+die Hauptinsel nicht veraendern — `tools/_haupt_pruefsumme.gd` belegt es (Hoehe, Farbe, Wald,
+Biom ueber ±34 km bitgleich; Stand seit dem Hauptinsel-Neubau oben); VORHER/NACHHER pruefen.
 - `Main.LANDMASSEN` → `TerrainWorld.landmassen` (vor setup()): Mitte, r, `rauh`, `region`,
   `teile` (Lappen), optional `ruhe` (Punkte: Gebirge/Karst/Canyon/Seen setzen aus), `karst`,
   `seen`. Kueste = Isolinie m = max_Lappen(1 − d²/r²) + rauh·fbm (Domain-Warp), NICHT ein

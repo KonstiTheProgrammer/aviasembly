@@ -86,6 +86,14 @@ const WOLKEN_LAGEN := ["kumulus", "turm", "schaefchen", "linse"]
 # 0.00013 gibt auf 3 km 32 Prozent und auf 10 km 73: eine durchgehende Rampe statt eines
 # Aufklebers, und damit liest sich nah gegen fern.
 const NEBEL_FREI := 0.00013
+# DUNST NIMMT MIT DER FLUGHOEHE AB (siehe nebel_frei_bei): in der Hoehe laeuft die
+# Sichtlinie durch duennere Luft. Ohne das stand das Hochgebirge aus 2 km Hoehe betrachtet
+# genauso verwaschen da wie das Tiefland. Godots Hoehennebel (fog_height) hilft dafuer
+# NICHT — er legt nur zusaetzlichen Dunst unter eine Hoehe, und zwar unabhaengig von der
+# Entfernung: beim Landen waere die Bahn eingetruebt gewesen.
+const NEBEL_HOCH_FAKTOR := 0.45
+const NEBEL_HOCH_AB := 400.0
+const NEBEL_HOCH_VOLL := 2200.0
 const NEBEL_WOLKE := 0.020
 # NEBELFARBE BEI FREIER SICHT. Sie stand auf 0.66/0.79/0.94, also Blau minus Rot = 0.28.
 # Das ist die staerkste Einzelquelle des Blaustichs, der ueber der ganzen Karte liegt:
@@ -609,35 +617,21 @@ func _region_hoehen() -> void:
 ## koennen sie auf der Karte einen Namen tragen und bei jedem Spieler dieselben sein.
 func _region_formen() -> Array:
 	var formen: Array = [
-		# --- NORDLAND: die GLETSCHERKETTE quer durchs Land. Zwei versetzte Kaemme statt
-		# eines Walls (ein einzelner breiter Kamm lag als weisse Wurst ueber der halben
-		# Insel), mit Gipfeln und tiefen PAESSEN im Wechsel und kurzen Seitengraten — so
-		# gliedert sich ein Gebirge. Die Paesse liegen unter der Gletschergrenze (~260 m):
-		# gruene Einschnitte, durch die man fliegen kann. Alle Kaemme enden UNTER dem
-		# Meeresgrund ("fuss"), statt als Landzunge ins Meer zu ragen.
-		{"art": "land", "fuss": -24.0,
-			"pts": PackedVector2Array([Vector2(-24000, -57800), Vector2(-19500, -58900),
-				Vector2(-15000, -60000), Vector2(-12500, -60600), Vector2(-10000, -61100),
-				Vector2(-6000, -61800), Vector2(-1500, -62200), Vector2(1200, -62300),
-				Vector2(3500, -62300), Vector2(7000, -61800), Vector2(10000, -61200)]),
-			"hs": PackedFloat32Array([-30.0, 480.0, 860.0, 190.0, 640.0, 940.0, 700.0,
-				170.0, 820.0, 420.0, -30.0]),
-			"r_kern": 900.0, "r_aus": 3900.0, "unruhe": 0.8},
-		{"art": "land", "fuss": -24.0,
-			"pts": PackedVector2Array([Vector2(2000, -66500), Vector2(6000, -65900),
-				Vector2(10000, -65200), Vector2(12500, -64800), Vector2(15000, -64200),
-				Vector2(18000, -63600), Vector2(22000, -62400), Vector2(26000, -61000)]),
-			"hs": PackedFloat32Array([-30.0, 540.0, 900.0, 180.0, 700.0, 960.0, 520.0, -30.0]),
-			"r_kern": 850.0, "r_aus": 3600.0, "unruhe": 0.8},
-		# Seitengrate (nach Sueden und Norden abfallend)
-		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(-15000, -60000), Vector2(-13500, -55500)]),
-			"hs": PackedFloat32Array([700.0, -30.0]), "r_kern": 600.0, "r_aus": 2600.0, "unruhe": 0.7},
-		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(-6000, -61800), Vector2(-7500, -66500)]),
-			"hs": PackedFloat32Array([760.0, -30.0]), "r_kern": 600.0, "r_aus": 2600.0, "unruhe": 0.7},
-		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(10000, -65200), Vector2(12500, -69500)]),
-			"hs": PackedFloat32Array([700.0, -30.0]), "r_kern": 600.0, "r_aus": 2500.0, "unruhe": 0.7},
-		{"art": "land", "fuss": -24.0, "pts": PackedVector2Array([Vector2(18000, -63600), Vector2(19500, -59000)]),
-			"hs": PackedFloat32Array([780.0, -30.0]), "r_kern": 600.0, "r_aus": 2600.0, "unruhe": 0.7},
+		# --- NORDLAND: die GLETSCHERKETTE quer durchs Land, als GEBIRGE (siehe
+		# TerrainWorld._kf_gebirge). Zwei versetzte Ketten; Paesse, Seitengrate und Kare
+		# entstehen aus dem Gratmuster, die Gletscher aus den Hoehenstufen des Nordlands.
+		{"art": "gebirge", "fuss": -24.0, "seed": 4410.0,
+			"pts": PackedVector2Array([Vector2(-25000, -57600), Vector2(-15000, -60000),
+				Vector2(-6000, -61800), Vector2(3000, -62300), Vector2(10500, -61200)]),
+			"hs": PackedFloat32Array([400.0, 1150.0, 1300.0, 1200.0, 500.0]),
+			"breite": PackedFloat32Array([2800.0, 3400.0, 3600.0, 3400.0, 2600.0])},
+		# Die zweite Kette liegt gut 5 km weiter noerdlich: dazwischen ein gruenes LAENGSTAL
+		# (Taiga), statt dass beide zu einem einzigen weissen Band verschmelzen.
+		{"art": "gebirge", "fuss": -24.0, "seed": 7730.0,
+			"pts": PackedVector2Array([Vector2(1500, -68400), Vector2(10000, -67000),
+				Vector2(18000, -65600), Vector2(27000, -62500)]),
+			"hs": PackedFloat32Array([450.0, 1250.0, 1350.0, 450.0]),
+			"breite": PackedFloat32Array([2600.0, 3400.0, 3400.0, 2600.0])},
 		# --- NORDLAND: der EISFJORD, von der Nordkueste bis an den Fuss der Kette. Er
 		# WINDET sich (ein gerader Fjord lag im Bild wie ein Kanal) und wird nach innen
 		# enger. Er beginnt an der Kueste und senkt nur ("nur_senken"), damit er draussen
@@ -650,17 +644,17 @@ func _region_formen() -> Array:
 			"r_kern": 260.0, "r_aus": 700.0},
 		# ... und die Waende. Sie beginnen landeinwaerts der Kueste, sonst stuenden sie als
 		# zwei Halbinseln im Meer, und werden zum Talschluss hoeher.
-		{"art": "land", "fuss": -24.0,
+		{"art": "gebirge", "fuss": -24.0, "seed": 2290.0,
 			"pts": PackedVector2Array([Vector2(-7000, -76200), Vector2(-7700, -73600),
 				Vector2(-6300, -71300), Vector2(-4700, -69900), Vector2(-3400, -68000)]),
-			"hs": PackedFloat32Array([-30.0, 360.0, 470.0, 560.0, 620.0]),
-			"r_kern": 700.0, "r_aus": 2600.0, "unruhe": 0.55},
+			"hs": PackedFloat32Array([60.0, 520.0, 720.0, 820.0, 900.0]),
+			"breite": PackedFloat32Array([1400.0, 2400.0, 2800.0, 2800.0, 3000.0])},
 		# --- SUEDLAND: der DSCHUNGELKAMM im Osten — gruen bis auf die Grate.
-		{"art": "land", "fuss": -24.0,
+		{"art": "gebirge", "fuss": -24.0, "seed": 5150.0,
 			"pts": PackedVector2Array([Vector2(5500, 57000), Vector2(9500, 62500),
 				Vector2(11500, 68500)]),
-			"hs": PackedFloat32Array([160.0, 520.0, 300.0]),
-			"r_kern": 1400.0, "r_aus": 4200.0, "unruhe": 0.55},
+			"hs": PackedFloat32Array([200.0, 620.0, 360.0]),
+			"breite": PackedFloat32Array([2400.0, 3600.0, 2600.0])},
 	]
 	# --- SUEDLAND: die MANGROVENLAGUNE. Kein Kreisbecken: eine gebogene, flache Bucht
 	# aus mehreren Armen, deren Ufer so niedrig liegen, wie Mangroven es brauchen. Die
@@ -678,6 +672,96 @@ func _region_formen() -> Array:
 		"pts": PackedVector2Array([Vector2(-9300, 45800), Vector2(-10000, 47400),
 			Vector2(-9300, 48500), Vector2(-9800, 49300)]),
 		"hs": PackedFloat32Array([-14.0, -8.0, -5.0, -3.6]), "r_kern": 260.0, "r_aus": 640.0})
+	# === HAUPTINSEL: GEBIRGE ===========================================================
+	# Die Hauptinsel hatte zwei gerade Massivketten (Hochtal) und das Sturmkap als
+	# einzige Berge, dazwischen Huegelrauschen. Jetzt eine Gliederung, wie sie eine Insel
+	# dieser Groesse hat: im Norden ein Hochgebirge mit Gletschern (NORDKETTE), in das das
+	# Hochtal als Seitental einschneidet — seine beiden Ketten werden die Innenwaende; im
+	# Suedwesten und Suedosten bewaldete Bergrucken unter der Felsgrenze; dazwischen das
+	# Tiefland mit den Staedten. "tal_schutz" haelt das Hochtal frei (siehe dort).
+	formen.append_array([
+		# NORDKETTE West: setzt ueber dem Talschluss an und laeuft nach Osten
+		{"art": "gebirge", "fuss": -24.0, "seed": 910.0, "tal_schutz": true,
+			"pts": PackedVector2Array([Vector2(-8000, -13600), Vector2(-2500, -15600),
+				Vector2(4000, -17000), Vector2(11000, -16900)]),
+			"hs": PackedFloat32Array([2000.0, 2450.0, 2650.0, 2350.0]),
+			"breite": PackedFloat32Array([3800.0, 4600.0, 5000.0, 4600.0])},
+		# NORDKETTE Ost: biegt nach Suedosten zur Kueste ab
+		{"art": "gebirge", "fuss": -24.0, "seed": 2630.0,
+			"pts": PackedVector2Array([Vector2(8500, -17300), Vector2(14500, -15600),
+				Vector2(19000, -12300), Vector2(22500, -8500)]),
+			"hs": PackedFloat32Array([2300.0, 2150.0, 1500.0, 500.0]),
+			"breite": PackedFloat32Array([4600.0, 4300.0, 3500.0, 2400.0])},
+		# WESTKAMM: aussen am nordwestlichen Hochtalrand, verbindet mit dem Sturmkap
+		{"art": "gebirge", "fuss": -24.0, "seed": 3370.0, "tal_schutz": true,
+			"pts": PackedVector2Array([Vector2(-14600, -4600), Vector2(-11700, -8700),
+				Vector2(-9100, -12300), Vector2(-7200, -14500)]),
+			"hs": PackedFloat32Array([1000.0, 1700.0, 1950.0, 2100.0]),
+			"breite": PackedFloat32Array([3200.0, 3800.0, 4000.0, 3800.0])},
+		# SUEDKAMM: aussen am suedoestlichen Hochtalrand — nur schmal, dahinter liegen
+		# NORDFELD, Windpark und Flakzone.
+		{"art": "gebirge", "fuss": -24.0, "seed": 6040.0, "tal_schutz": true,
+			"pts": PackedVector2Array([Vector2(-8900, -400), Vector2(-5800, -4500),
+				Vector2(-2700, -8700)]),
+			"hs": PackedFloat32Array([850.0, 1300.0, 1550.0]),
+			"breite": PackedFloat32Array([2300.0, 2600.0, 2800.0])},
+		# WESTBERGLAND (Suedwesten): bewaldete Ruecken, bleiben unter der Felsgrenze
+		{"art": "gebirge", "fuss": -24.0, "seed": 8120.0,
+			"pts": PackedVector2Array([Vector2(-18500, 2500), Vector2(-15500, 8500),
+				Vector2(-12500, 14500), Vector2(-9500, 19500)]),
+			"hs": PackedFloat32Array([240.0, 480.0, 520.0, 260.0]),
+			"breite": PackedFloat32Array([2600.0, 3400.0, 3400.0, 2400.0])},
+		# OSTBERGLAND (Suedosten)
+		{"art": "gebirge", "fuss": -24.0, "seed": 9480.0,
+			"pts": PackedVector2Array([Vector2(9500, 12500), Vector2(11500, 17500),
+				Vector2(15500, 21000)]),
+			"hs": PackedFloat32Array([300.0, 460.0, 280.0]),
+			"breite": PackedFloat32Array([2600.0, 3200.0, 2400.0])},
+	])
+	# === HAUPTINSEL: DIE GROSSEN BUCHTEN ================================================
+	# Rauschen allein macht aus einer runden Insel eine runde Insel mit Beulen. Was eine
+	# Kueste unverwechselbar macht, sind wenige grosse Formen — hier drei Golfe, die weit
+	# ins Land greifen. Sie senken nur ab (nur_senken): wo die Kueste ohnehin weiter innen
+	# liegt, aendern sie nichts.
+	formen.append_array([
+		# NORDGOLF: reicht bis an den Fuss der Nordkette — die Berge steigen dort direkt
+		# aus dem Wasser. Schmaler Hals, breiteres Becken, verrauschter Rand.
+		# DIE MUENDUNG LIEGT AUF DEM MEERESGRUND (-18 = SEA_Y - 18): tiefer gegraben zog
+		# jeder Golf eine dunkle Rinne quer durchs offene Meer.
+		{"art": "wasser", "nur_senken": true, "breit_rausch": 0.35,
+			"pts": PackedVector2Array([Vector2(-7200, -33000), Vector2(-6000, -28500),
+				Vector2(-3400, -25200), Vector2(-4300, -22300), Vector2(-2400, -20200)]),
+			"hs": PackedFloat32Array([-18.0, -18.0, -21.0, -17.0, -8.0]),
+			"breite": PackedFloat32Array([1.0, 0.6, 1.1, 0.95, 0.5]),
+			"r_kern": 2200.0, "r_aus": 3600.0},
+		# OSTGOLF: die grosse Bucht im Suedosten, mit einem Seitenarm nach Norden
+		{"art": "wasser", "nur_senken": true, "breit_rausch": 0.35,
+			"pts": PackedVector2Array([Vector2(31000, 16500), Vector2(27500, 14000),
+				Vector2(23500, 12800), Vector2(19500, 10300), Vector2(15800, 10300)]),
+			"hs": PackedFloat32Array([-18.0, -18.0, -22.0, -16.0, -8.0]),
+			"breite": PackedFloat32Array([1.0, 0.65, 1.1, 0.85, 0.45]),
+			"r_kern": 2600.0, "r_aus": 4100.0},
+		{"art": "wasser", "nur_senken": true, "breit_rausch": 0.3,
+			"pts": PackedVector2Array([Vector2(23500, 12800), Vector2(22400, 8200),
+				Vector2(19800, 5200)]),
+			"hs": PackedFloat32Array([-20.0, -14.0, -7.0]),
+			"breite": PackedFloat32Array([1.0, 0.8, 0.45]),
+			"r_kern": 1500.0, "r_aus": 2500.0},
+		# WESTBUCHT: zwischen WESTKAP und den Suedwestinseln
+		{"art": "wasser", "nur_senken": true, "breit_rausch": 0.35,
+			"pts": PackedVector2Array([Vector2(-32000, 9500), Vector2(-28500, 8600),
+				Vector2(-25500, 10200), Vector2(-21800, 9400)]),
+			"hs": PackedFloat32Array([-18.0, -19.0, -16.0, -7.0]),
+			"breite": PackedFloat32Array([1.0, 0.7, 1.0, 0.5]),
+			"r_kern": 2100.0, "r_aus": 3400.0},
+		# SUEDOSTZUNGE: eine flache, bewaldete Halbinsel, die sich suedlich am Ostgolf
+		# vorbei ins Meer schiebt — das Gegenstueck zum Sturmkap.
+		{"art": "land", "fuss": -24.0, "breit_rausch": 0.5,
+			"pts": PackedVector2Array([Vector2(15000, 20500), Vector2(20000, 22300),
+				Vector2(24500, 23200), Vector2(28200, 26000)]),
+			"hs": PackedFloat32Array([70.0, 110.0, 90.0, -24.0]),
+			"r_kern": 1700.0, "r_aus": 3600.0, "unruhe": 0.35},
+	])
 	# --- WESTLAND: der GROSSE CANYON. Er MAEANDERT — ein Flusslauf aus geraden Stuecken
 	# las sich als Kanal. Zwei Sinuswellen verschiedener Laenge geben Schleifen, die sich
 	# nicht wiederholen; die Breite schwankt mit. Er beginnt an der Westkueste und senkt
@@ -1617,6 +1701,18 @@ func _setup_world() -> void:
 	# 15 km breite Meeresstrassen getrennt (Begruendung bei TerrainWorld.LANDMASSEN).
 	# VOR setup(): der Chunk-Worker startet darin und darf die Liste nie halb sehen.
 	terrain.landmassen = LANDMASSEN
+	# KUESTENANKER der Hauptinsel (TerrainWorld._kueste_versatz): was an der Wasserlinie
+	# steht, haelt die Kueste fest; Schiffe, Inseln und die Lagune lassen sie nur weichen.
+	var anker: Array = [[Vector2(-25706, -1662), "fest"], [Vector2(7188, 25403), "fest"],
+		[Vector2(26983, -7477), "meer"], [Vector2(25640, -15320), "meer"],
+		[Vector2(-9209, 28341), "meer"]]
+	for sh in [Vector2(26373, -8791), Vector2(21642, -17765), Vector2(-23566, 19986),
+			Vector2(7824, -28236)]:
+		anker.append([sh, "meer"])
+	for ms in massifs:
+		if String(ms.get("type", "")) == "insel":
+			anker.append([Vector2(ms["pos"].x, ms["pos"].z), "meer"])
+	terrain.kuesten_anker = anker
 	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs,
 		{"start": TAL_START, "richtung": TAL_RICHTUNG, "laenge": TAL_LAENGE,
 			"halbbreite": tal_hb})
@@ -1660,20 +1756,32 @@ func _setup_world() -> void:
 		# Die Hoehen laufen von 120 m am Festlandsfuss ueber 840 m in der Mitte auf 240 m
 		# an der Spitze. Ein Kamm mit KONSTANTER Hoehe waere eine Mauer; die Kurve macht
 		# daraus eine Kette, die aus dem Land aufsteigt und ins Meer abtaucht.
+		# NEU ALS GEBIRGE (TerrainWorld._kf_gebirge): vorher ein glatter Kamm mit Rauschen
+		# obendrauf, auf der Karte eine graue Wurst. Jetzt mit Seitengraten, die zum Meer
+		# und zum Fjord abfallen, und einem Fuss auf dem Meeresgrund, damit die Spitze ins
+		# Meer abtaucht statt als runde Kappe zu enden.
+		# Der KOERPER des Kaps: niedrig und gruen (unter der Felsgrenze), traegt das Land
+		# 4 km ins Meer hinaus ...
 		{
 			"art": "land",
-			# DER LETZTE PUNKT LIEGT AUF NULL, und das ist keine Kosmetik: jenseits des
-			# Polylinienendes misst _kf_lage radial zum Endpunkt, die Form laeuft dort
-			# also als Kuppel vom Radius r_aus weiter. Mit 240 m Resthoehe und 4,6 km
-			# Reichweite hiess das ein 120-m-Huegel drei Kilometer DRAUSSEN IM MEER — im
-			# Bild stand vor der Fjordeinfahrt Duenenland mit Nadelwald. Ein Stuetzpunkt
-			# auf 0 laesst die Kette auslaufen, statt sie abzuschneiden.
 			"pts": PackedVector2Array([
 				Vector2(-12379, -13748), Vector2(-15282, -15825),
 				Vector2(-18188, -17873), Vector2(-21209, -19778),
 				Vector2(-23773, -20666), Vector2(-25511, -21558)]),
-			"hs": PackedFloat32Array([120.0, 620.0, 840.0, 700.0, 240.0, 0.0]),
-			"r_kern": 1500.0, "r_aus": 4600.0, "unruhe": 0.55,
+			"hs": PackedFloat32Array([120.0, 260.0, 300.0, 260.0, 120.0, 0.0]),
+			"r_kern": 1500.0, "r_aus": 4600.0, "unruhe": 0.45,
+		},
+		# ... und darauf das GEBIRGE (TerrainWorld._kf_gebirge). Vorher war das Kap ein
+		# glatter Kamm mit Rauschen obendrauf, auf der Karte eine graue Wurst. Jetzt mit
+		# Seitengraten, die zum Meer und zum Fjord abfallen.
+		{
+			"art": "gebirge", "fuss": -24.0, "seed": 1310.0,
+			"pts": PackedVector2Array([
+				Vector2(-12379, -13748), Vector2(-15282, -15825),
+				Vector2(-18188, -17873), Vector2(-21209, -19778),
+				Vector2(-23773, -20666), Vector2(-25511, -21558)]),
+			"hs": PackedFloat32Array([1000.0, 1500.0, 1650.0, 1400.0, 800.0, -24.0]),
+			"breite": PackedFloat32Array([3400.0, 3700.0, 3600.0, 3200.0, 2600.0, 1800.0]),
 		},
 		# --- DER FJORD, der das Kap spaltet -------------------------------------------
 		#
@@ -1698,10 +1806,12 @@ func _setup_world() -> void:
 			# endet die Rinne innerhalb des Kaps und ihre letzten 900 m waeren durch
 			# dessen auslaufende Flanke gestaut — ein Fjord, den man nicht befahren kann.
 			# Die SCHWELLE sitzt deshalb als eigener Stuetzpunkt bei 32,2 km auf -16 m.
+			# GEWUNDEN statt schnurgerade — drei Knicke quer zur Kapachse. Gerade las er
+			# sich auf der Karte als gezogener Strich.
 			"pts": PackedVector2Array([
 				Vector2(-26199, -21983), Vector2(-24485, -20912),
-				Vector2(-21347, -19629), Vector2(-18281, -17778),
-				Vector2(-15338, -15772), Vector2(-13233, -14594)]),
+				Vector2(-21113, -20012), Vector2(-18541, -17353),
+				Vector2(-15156, -16070), Vector2(-13233, -14594)]),
 			"hs": PackedFloat32Array([-24.0, -16.0, -62.0, -78.0, -52.0, -14.0]),
 			"r_kern": 320.0, "r_aus": 780.0,
 		},
@@ -1736,6 +1846,7 @@ func _setup_world() -> void:
 			# 12 m verschwindet sie unter dem Strandschelf — also unter Wasser.
 			"hs": PackedFloat32Array([90.0, 62.0, 46.0, 38.0, 30.0, 12.0]),
 			"r_kern": 300.0, "r_aus": 1100.0, "unruhe": 0.25,
+			"breit_rausch": 0.55, "luecken": 0.9,
 		},
 	] + _region_formen()
 	terrain.felswaende = [{
@@ -1801,6 +1912,13 @@ func _setup_world() -> void:
 		{"name": "Industriehafen", "pos": indu_pos, "color": Color(0.80, 0.70, 0.62), "art": "ort", "radius": 260.0},
 		{"name": "Landdorf", "pos": dorf_pos, "color": Color(0.72, 0.86, 0.60), "art": "ort", "radius": 200.0},
 		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90), "art": "ort", "radius": 110.0},
+		# --- Die Landschaft der Hauptinsel (Main._region_formen) -----------------------
+		{"name": "Nordkette", "pos": Vector3(3000, 0, -16800), "color": Color(0.90, 0.94, 1.0), "art": "natur"},
+		{"name": "Nordgolf", "pos": Vector3(-4200, 0, -25500), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
+		{"name": "Ostgolf", "pos": Vector3(23500, 0, 12800), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
+		{"name": "Westbucht", "pos": Vector3(-27500, 0, 9000), "color": Color(0.45, 0.70, 0.85), "art": "natur"},
+		{"name": "Westbergland", "pos": Vector3(-14000, 0, 11500), "color": Color(0.55, 0.75, 0.45), "art": "natur"},
+		{"name": "Ostbergland", "pos": Vector3(11500, 0, 17500), "color": Color(0.55, 0.75, 0.45), "art": "natur"},
 		# --- DIE NEUEN REGIONEN ------------------------------------------------------
 		{"name": "NORDLAND", "pos": Vector3(6000, 0, -76500), "color": Color(0.80, 0.90, 1.0), "art": "region"},
 		{"name": "SÜDLAND", "pos": Vector3(4000, 0, 72500), "color": Color(0.70, 1.0, 0.80), "art": "region"},
@@ -1828,6 +1946,16 @@ func _setup_world() -> void:
 		if grob == null:
 			return
 		call_deferred("_on_map_image_ready", grob, false)
+		# ERST DIE FERNSCHUERZE. Die feine Karte rechnet ~40 s auf allen Kernen und stand
+		# dabei gegen das erste Schuerzenpaket: gemessen brauchte der Horizont am
+		# Startplatz 36 s statt 11. Die grobe Karte ist dann schon da — die feine darf
+		# warten, bis beide Schuerzenringe stehen (hoechstens 90 s).
+		var t_warte := Time.get_ticks_msec()
+		while not _map_stopp[0] and (_fern_grob_mi.is_empty() or _fern_offen
+				or _fern_thread != null) and Time.get_ticks_msec() - t_warte < 90000:
+			OS.delay_msec(250)
+		if _map_stopp[0]:
+			return
 		# 2048 STATT 1024, seit die Welt 168 km misst: sonst laege ein Bildpunkt bei 164 m
 		# und die Hauptinsel waere in der Uebersicht gröber als vor der Vergroesserung.
 		# Bezahlbar, weil drei Viertel Meer sind (gemessen ~40 s im Hintergrund).
@@ -2177,6 +2305,12 @@ func _wolken_nachziehen(ziel: Vector3) -> void:
 		CloudField.mitfuehren(feld, ziel, WOLKEN_PASS_WEG)
 
 
+## Dunstdichte im Freien fuer eine Kamerahoehe (siehe NEBEL_HOCH_FAKTOR).
+static func nebel_frei_bei(hoehe: float) -> float:
+	return NEBEL_FREI * lerpf(1.0, NEBEL_HOCH_FAKTOR,
+		smoothstep(NEBEL_HOCH_AB, NEBEL_HOCH_VOLL, hoehe))
+
+
 ## Steckt das Flugzeug in einer Wolke? Eine Zahl, drei Wirkungen — deshalb wird sie hier
 ## EINMAL bestimmt und dann verteilt, statt dass drei Systeme dasselbe nachrechnen:
 ##   Turbulenz   -> FlightController.wolken_dichte (Ruetteln und Sacken)
@@ -2199,7 +2333,8 @@ func _wolken_aufenthalt(delta: float) -> void:
 
 	if env_sky != null:
 		var k := pow(wolken_dichte, NEBEL_KURVE)
-		env_sky.fog_density = lerpf(NEBEL_FREI, NEBEL_WOLKE, k)
+		var cam_y := camera.global_position.y if camera != null else pos.y
+		env_sky.fog_density = lerpf(nebel_frei_bei(cam_y), NEBEL_WOLKE, k)
 		env_sky.fog_light_color = NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k)
 		# Auch der HIMMEL muss mit eintrueben, sonst steht mitten im Weiss noch ein
 		# blauer Zenit — der Nebel faerbt nur Geometrie, nicht den Hintergrund.

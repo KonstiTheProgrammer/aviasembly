@@ -36,6 +36,11 @@ func _hin() -> void:
 	var boden := Vector3(p.x, 0, p.z).lerp(Vector3(ziel.x, 0, ziel.z), 0.35)
 	m.terrain.build_now_around(boden, 2600.0)
 	cam.look_at_from_position(p, ziel, Vector3.UP)
+	# Dunst wie im Flug in dieser Hoehe (Main._wolken_aufenthalt folgt der Spielkamera,
+	# nicht dieser)
+	var env: Environment = m.get("env_sky")
+	if env != null:
+		env.fog_density = m.nebel_frei_bei(p.y)
 
 
 func _process(_d: float) -> bool:

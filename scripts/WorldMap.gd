@@ -406,9 +406,15 @@ static func _zeile(hs: PackedFloat32Array, hg: PackedFloat32Array, ks: PackedByt
 			var g := hg[o + px]
 			var hl := hg[o + maxi(px - basis, 0)]
 			var hr := hg[o + mini(px + basis, kante - 1)]
-			var ns := Vector3((hl - hr) * UEBERHOEHUNG, 2.0 * zelle * float(basis),
-				(hg[o_bn + px] - hg[o_bs + px]) * UEBERHOEHUNG).normalized()
-			var hell := clampf(1.0 + (ns.dot(licht) - licht.y) * 1.3, 0.55, 1.25)
+			# SYMMETRISCHE HANGSCHATTIERUNG: hell/dunkel nur aus dem Gefaelle IN Lichtrichtung
+			# (Steigung · Lichtrichtung), nicht aus dem Lambert-Term. Lambert dunkelt jede
+			# geneigte Flaeche ab, also raues Gelaende im MITTEL — die Detailkacheln (kuerzere
+			# Messbasis, mehr Rauheit) lagen dadurch als dunklere Quadrate auf der Grundkarte.
+			# Das Gefaelle mittelt sich ueber Huegel zu null: gleiche Helligkeit in jeder Stufe.
+			var gx := (hl - hr) / (2.0 * zelle * float(basis))
+			var gz := (hg[o_bn + px] - hg[o_bs + px]) / (2.0 * zelle * float(basis))
+			var neig := (gx * licht.x + gz * licht.z) * UEBERHOEHUNG
+			var hell := clampf(1.0 + neig * 1.1, 0.55, 1.25)
 			if hell < 1.0:
 				var k := 1.0 - hell
 				c = Color(c.r * hell * lerpf(1.0, K_SCHATTEN.r, k),
