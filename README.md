@@ -135,6 +135,11 @@ am Grund. Vor der Südostflanke liegt die **Felsenstadt**, ein Feld freistehende
 zum Slalomfliegen, und vor der Westküste die **Nadelküste**: Kreidenadeln im türkisen Meer
 mit dem **Meerestor**, einem Felsbogen, durch den man hindurchfliegen kann.
 
+Das Gelände ist **glatt modelliert statt facettiert**: weiche Hügel und Bergflanken mit
+Bodenstruktur aus der Nähe (Grasbüschel, Erde, Geröll), großen helleren und dunkleren,
+trockeneren und satteren Flecken aus der Höhe und geschichtetem Kalk an Felswänden. Die Bäume
+haben weiche, durchscheinende Kronen mit Blattwerk, jeder Baum einen eigenen Grünton.
+
 Die Welt lebt: Möwen kreisen über Küsten und Seen, Krähen- und Starenschwärme ziehen über die
 Felder, Greifvögel segeln in der Thermik über Schlucht und Gebirge, der Wald wiegt sich im
 Wind, und die Schönwetterwolken stehen in langen Wolkenstraßen.

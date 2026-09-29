@@ -1,4 +1,4 @@
-## SEED-BASIERTES TERRAIN: riesige, deterministische Low-Poly-Landschaft.
+## SEED-BASIERTES TERRAIN: riesige, deterministische Landschaft.
 ## FastNoiseLite-fBm-Höhenfeld, in CHUNKS um den Spieler gestreamt. Mesh +
 ## Trimesh-Kollision entstehen auf einem WORKER-THREAD (ein Chunk kostet
 ## gemessen 12,4 ms — auf dem Main-Thread riss das bei 120 fps jedes Mal den
@@ -20,19 +20,21 @@
 ##   3. Der BVH-Aufbau der Kollisionsform (siehe KOLL_SCHRITT).
 ## Und ein Fehler, der KEIN Ruckeln war, sondern fehlende Bäume: ein `return`
 ## in _process übersprang das Nachziehen der Bepflanzung (siehe dort).
-## Flatshading mit Höhen-/Hangfarben über Vertex-Colors (Sand/Gras/Fels/
-## Schnee), FLUGPLÄTZE werden ins Gelände EINGEEBNET (Höhe -> exakt 0 im
-## Innenradius, weicher Übergang außen). Nahe dem Ursprung sanfte Wiesen,
+## GLATT schattiert (Normale und Farbe je Eckpunkt, siehe glatte_normalen) mit Höhen-/
+## Hangfarben über Vertex-Colors (Sand/Gras/Fels/Schnee); Korn, Relief, Grossvariation und
+## Felsbaenke legt shaders/gelaende_kern.gdshaderinc darueber. FLUGPLÄTZE werden ins
+## Gelände EINGEEBNET (Höhe -> exakt 0 im Innenradius, weicher Übergang außen). Nahe dem Ursprung sanfte Wiesen,
 ## mit der Entfernung echte Berge (~110 m + Schneegipfel). MEER bei y=-6
 ## (Kollision: WorldBoundary-Boden in Main als Sicherheitsnetz).
 ## FALLEN (gelernt): Godot-Front-Faces = im Uhrzeigersinn von außen (sonst
-## cullt ALLES von oben); Steilheits-Farbe über |n.y|; StandardMaterial3D
-## ignorierte Vertex-Farben -> Mini-Shader ALBEDO=COLOR.
+## cullt ALLES von oben); StandardMaterial3D ignorierte Vertex-Farben -> eigener
+## Shader (Vertexfarbe sRGB -> linear als Albedo).
 class_name TerrainWorld
 extends Node3D
 
 const CHUNK := 384.0            # Kantenlänge eines Chunks (m)
-const CELLS := 48               # Zellen pro Kante (8 m Raster -> Low-Poly-Look)
+const CELLS := 48               # Zellen pro Kante (8-m-Raster)
+const RAND_N := CELLS + 3       # Hoehenraster mit einem Rand (glatte Normalen, siehe _make_chunk_data)
 const VIEW_DIST := 3800.0       # Chunks innerhalb dieses Radius werden geladen
 
 # FELSRELIEF (siehe height_at). Der Einsatz liegt bewusst tief: schon ein 150-m-Huegel
@@ -2991,6 +2993,7 @@ enum Biome { WALD, WUESTE, HOCHLAND, HEIDE, TUNDRA, TAIGA, DSCHUNGEL, GRASLAND, 
 var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (im Worker unterwegs)
 var _mat: ShaderMaterial
+static var _boden_tex: ImageTexture
 var _water: MeshInstance3D
 # Sonnenrichtung fuer den Glitzerpfad auf dem Wasser. Wird von Main ueber setze_sonne()
 # gesetzt; der Vorgabewert hier ist nur eine Notbremse, falls das jemand vergisst.
@@ -3244,39 +3247,21 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mesh_rock = _build_rock_mesh()
 	_mesh_palm = _build_palm_mesh()
 	_flora = _load_flora()
-	# Vertex-Farbe DIREKT als Albedo (StandardMaterial ignorierte die Farben trotz
-	# vertex_color_use_as_albedo bei material_override + SurfaceTool-Mesh).
-	# WICHTIG (war DIE Ursache der faden Map): die set_color-Werte sind sRGB, ALBEDO
-	# erwartet LINEAR. Rohes COLOR.rgb wurde als linear gelesen -> systematisch
-	# aufgehellt/entsaettigt (Mint statt Wiese, Geister-Berge). -> sRGB->linear wandeln.
-	var sh := Shader.new()
-	sh.code = """
-shader_type spatial;
-// GLUT AUS DEM ALPHAKANAL. a = 1 ist kaltes Gestein — und das ist der Wert, den JEDE
-// bisherige Farbe dieser Welt schon hat, denn Color(r, g, b) legt a auf eins. Je kleiner
-// a, desto staerker leuchtet die Flaeche aus sich selbst, und zwar in IHRER EIGENEN
-// Farbe: _face_color mischt die Gesteinsfarbe zur Lava hin, damit haben die schwach
-// geoeffneten Rinnen unten von selbst ein dunkleres Rot als die heissen am Kraterrand.
-// WARUM UEBER DEN ALPHAKANAL UND NICHT UEBER EIN ZWEITES MATERIAL: die Glutrinnen sind
-// einzelne Dreiecke MITTEN in der Gelaendeflaeche. Ein zweites Material waere ein zweiter
-// Zeichenaufruf je Chunk und eine zweite Netzhaelfte, die an jeder Kante mit der ersten
-// verzahnt — fuer eine Eigenschaft, die eine einzige Zahl je Dreieck ist.
-// DER FAKTOR STEHT DEUTLICH UEBER EINS, weil das Environment KEIN Glow hat (Main:
-// glow_enabled = false, und das umzustellen wuerde die ganze Welt betreffen). Die Rinne
-// muss also aus sich heraus lesbar sein: bei 4 kommt eine volle Lavaflaeche linear auf
-// rund 3,6 und liegt damit sicher in der Schulter des ACES-Tonemappers, waehrend eine
-// halb geoeffnete Rinne noch dunkelrot bleibt.
-const float GLUT = 2.2;
-void fragment() {
-	vec3 c = COLOR.rgb;
-	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
-	ROUGHNESS = 1.0;
-	SPECULAR = 0.1;
-	EMISSION = ALBEDO * (1.0 - COLOR.a) * GLUT;
-}
-"""
+	# FERNFASSUNGEN SOFORT BAUEN, nicht beim ersten Gebrauch im Flug: je Art kostet das
+	# (Stellvertreter/LOD + weiche Krone) bis zu ~8 ms, und die fielen sonst als 13 einzelne
+	# Ruckler in die ersten Flugminuten (tools/_ruck_check.gd, "p_flora_stufe"/"flora_nachzug").
+	for art in _flora:
+		if not _grob_cache.has(_flora[art]):
+			_grob_cache[_flora[art]] = _grobe_fassung(_flora[art])
+	if not _grob_cache.has(_mesh_rock):
+		_grob_cache[_mesh_rock] = _grobe_fassung(_mesh_rock)
+	# GELAENDE-SHADER (shaders/gelaende_kern.gdshaderinc): Vertexfarbe als Albedo, von sRGB
+	# nach linear gewandelt (war DIE Ursache der faden Map: rohes COLOR.rgb wurde als linear
+	# gelesen), dazu Grossvariation, Korn, Relief und Felsbaenke aus der Bodentextur.
+	# Glut der Lavarinnen aus COLOR.a (a = 1 kaltes Gestein, siehe _vulkan_haut).
 	_mat = ShaderMaterial.new()
-	_mat.shader = sh
+	_mat.shader = load("res://shaders/gelaende.gdshader")
+	_mat.set_shader_parameter("boden_tex", boden_textur())
 	# FLORA-MATERIAL: gleiche Farbbehandlung, aber jede Instanz faehrt zur Sichtgrenze
 	# hin ihre GROESSE gegen null. Godots VISIBILITY_RANGE_FADE_SELF verlangt ein
 	# transparentes Material und tat an diesem Opaque-Shader nichts — die Baeume waeren
@@ -3295,9 +3280,31 @@ uniform float fade_end;
 // Nahbereich (dahinter sieht man es nicht, und es spart die Rechnung).
 uniform vec2 wind_richtung = vec2(0.80, 0.60);
 uniform float wind_staerke = 1.0;
+// JEDER BAUM EIN WENIG ANDERS: Helligkeit und Ton je Instanz aus einem Hash ihrer Lage —
+// sonst stand ein Wald aus einem einzigen Gruen da. Nur auf dem Laub (gruen dominiert).
+// BLATTWERK: das Laub bekommt Korn aus der Bodentextur, im OBJEKTRAUM projiziert (der Baum
+// traegt sein Muster mit, wenn er sich im Wind wiegt), auf die Ebene der groessten
+// Normalenkomponente — sonst liefe es an den Seiten der Krone in Streifen.
+// NUR EINE vec2-VARYING: die Flora sind Millionen Eckpunkte, und auf Apples Kachel-GPU
+// kostet jede Varying Speicherbandbreite je Eckpunkt. Mit zehn getrennten Floats (Objektlage,
+// Normale, Ton, Laub) stieg die Flora-Zeit in 4K (tools/_gelaende_zeit.gd) von 4,0 auf
+// 6,5 ms. Der Laubanteil kommt deshalb im Fragment aus COLOR, der Ton je Baum geht in
+// COLOR, und Lage/Normale nur als fertige 2D-Koordinate.
+uniform sampler2D boden_tex : filter_linear_mipmap, repeat_enable;
+varying vec2 blatt;   // Blatt-UV (mit Versatz je Baum)
 void vertex() {
 	vec3 wo = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	float d_kam = distance(wo, CAMERA_POSITION_WORLD);
+	float z1 = fract(sin(dot(wo.xz, vec2(12.9898, 78.233))) * 43758.5453);
+	float z2 = fract(z1 * 91.7 + 0.31);
+	// Der Ton je Baum geht in COLOR selbst (die Farbe wird ohnehin interpoliert) — keine
+	// eigene Varying dafuer.
+	float laub_v = clamp((COLOR.g - max(COLOR.r, COLOR.b)) * 8.0, 0.0, 1.0);
+	COLOR.rgb *= mix(vec3(1.0), vec3(0.84 + 0.30 * z1, 0.88 + 0.20 * z1, 0.80 + 0.16 * z2),
+		laub_v);
+	vec3 an = abs(NORMAL);
+	vec2 uv = an.y > max(an.x, an.z) ? VERTEX.xz : (an.x > an.z ? VERTEX.zy : VERTEX.xy);
+	blatt = uv * (1.0 / 2.6) + vec2(z1, z2) * 3.1;
 	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, d_kam);
 	if (d_kam < 900.0 && wind_staerke > 0.0) {
 		mat3 m = mat3(MODEL_MATRIX);
@@ -3314,13 +3321,25 @@ void vertex() {
 }
 void fragment() {
 	vec3 c = COLOR.rgb;
+	float laub = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
 	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+	// Blattwerk nur nah (gemessen ~0,7 ms in 4K im Wald, wenn es auf JEDEM Laubpixel
+	// laeuft) — jenseits von 400 m mittelt die Textur ohnehin zu Grau.
+	float blatt_k = laub * (1.0 - smoothstep(250.0, 400.0, length(VERTEX)));
+	if (blatt_k > 0.01) {
+		vec4 t = texture(boden_tex, blatt);
+		ALBEDO *= 1.0 + (t.r - 0.5) * 0.9 * blatt_k;
+		NORMAL = normalize(NORMAL + vec3(t.b - 0.5, t.a - 0.5, 0.0) * 1.1 * blatt_k);
+	}
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.1;
+	// Durchscheinendes Laub: mit der Sonne im Ruecken leuchten die Kronenraender auf.
+	BACKLIGHT = ALBEDO * 0.55 * laub;
 }
 """
 	_flora_mat = ShaderMaterial.new()
 	_flora_mat.shader = fsh
+	_flora_mat.set_shader_parameter("boden_tex", boden_textur())
 	_flora_fade_setzen()
 	# Wasserfläche (rein optisch; Kollision = WorldBoundary bei SEA_Y in Main)
 	_tiefe_vorbereiten()
@@ -6528,6 +6547,75 @@ func _flora_alles_nachziehen() -> void:
 			_attach_multi(n, e["mesh"], e["xfs"])
 
 
+# --- GLATTES GELAENDENETZ (Chunks und Fernschuerze) ---------------------------------------
+# Frueher: ein Dreieck = eine Farbe, flach schattiert (Low-Poly). Jetzt je Eckpunkt Normale
+# und Farbe, das Netz ist indiziert — (n+1)^2 Eckpunkte statt 6 n^2, also bei 48 Zellen 2401
+# statt 13824 je Chunk. Die Dreiecke selbst sind dieselben (Diagonale 00-11).
+# Stellen, die sonst in einer glatten Flaeche verschwimmen (Rinnen, Grate), traegt die
+# MULDENTOENUNG: Eckpunkte unter dem Mittel ihrer Nachbarn werden dunkler, Grate etwas heller.
+const MULDE_K := 0.5
+const MULDE_HELL := 0.08        # hoechstens so viel heller (Grat)
+const MULDE_DUNKEL := 0.22      # hoechstens so viel dunkler (Rinne)
+
+
+## Normalen je Eckpunkt aus einem Hoehenraster MIT RAND: hr hat (n+3)^2 Werte, Punkt (i, j)
+## des Netzes liegt bei hr[(j+1)*(n+3) + i+1]. Zentrale Differenzen ueber 2 Zellen.
+static func glatte_normalen(hr: PackedFloat32Array, n: int, zelle: float) -> PackedVector3Array:
+	var nr := n + 3
+	var nv := n + 1
+	var raus := PackedVector3Array()
+	raus.resize(nv * nv)
+	for j in nv:
+		for i in nv:
+			var m := (j + 1) * nr + i + 1
+			raus[j * nv + i] = Vector3(hr[m - 1] - hr[m + 1], 2.0 * zelle,
+				hr[m - nr] - hr[m + nr]).normalized()
+	return raus
+
+
+## Muldenmass je Eckpunkt: (Mittel der vier Nachbarn - eigene Hoehe) / Zellweite.
+## Positiv = Rinne/Mulde, negativ = Grat/Kuppe.
+static func mulden(hr: PackedFloat32Array, n: int, zelle: float) -> PackedFloat32Array:
+	var nr := n + 3
+	var nv := n + 1
+	var raus := PackedFloat32Array()
+	raus.resize(nv * nv)
+	for j in nv:
+		for i in nv:
+			var m := (j + 1) * nr + i + 1
+			raus[j * nv + i] = ((hr[m - 1] + hr[m + 1] + hr[m - nr] + hr[m + nr]) * 0.25
+				- hr[m]) / zelle
+	return raus
+
+
+static func mulden_ton(c: Color, mulde: float) -> Color:
+	var f := 1.0 - clampf(mulde * MULDE_K, -MULDE_HELL, MULDE_DUNKEL)
+	return Color(c.r * f, c.g * f, c.b * f, c.a)
+
+
+static func netz_aus(verts: PackedVector3Array, nrms: PackedVector3Array,
+		cols: PackedColorArray, idx: PackedInt32Array) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	if idx.is_empty():
+		return mesh
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_NORMAL] = nrms
+	arr[Mesh.ARRAY_COLOR] = cols
+	arr[Mesh.ARRAY_INDEX] = idx
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh
+
+
+## Detailtextur des Gelaende-Shaders (tools/_boden_textur.gd), einmal geladen und von
+## Chunks, Fernschuerze und Felsboegen (Landmarks) geteilt.
+static func boden_textur() -> ImageTexture:
+	if _boden_tex == null:
+		_boden_tex = ImageTexture.create_from_image(load("res://shaders/boden_detail.res"))
+	return _boden_tex
+
+
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null) -> void:
 	_tiefe_eintragen(key, tiefe)
@@ -6725,14 +6813,21 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	var ox := float(key.x) * CHUNK
 	var oz := float(key.y) * CHUNK
 	var step := CHUNK / float(CELLS)
+	# HOEHEN MIT EINEM RAND: das Netz ist GLATT schattiert (Normale je Eckpunkt aus den
+	# Nachbarhoehen), und damit die Normalen an der Chunkgrenze mit denen des Nachbarn
+	# uebereinstimmen, braucht jeder Randpunkt auch die Hoehe jenseits der Grenze. Sonst
+	# stuende jede Chunkkante als Lichtnaht im Gelaende. Kostet 200 height_at mehr (+8 %),
+	# dafuer faellt _face_color von 4608 Aufrufen (je Dreieck) auf 2401 (je Eckpunkt).
+	var hr := PackedFloat32Array()
+	hr.resize(RAND_N * RAND_N)
+	for j in RAND_N:
+		for i in RAND_N:
+			hr[j * RAND_N + i] = height_at(ox + float(i - 1) * step, oz + float(j - 1) * step)
 	var hs := PackedFloat32Array()
 	hs.resize((CELLS + 1) * (CELLS + 1))
 	for j in CELLS + 1:
 		for i in CELLS + 1:
-			hs[j * (CELLS + 1) + i] = height_at(ox + float(i) * step, oz + float(j) * step)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(-1)   # FLAT shading (Low-Poly-Facetten)
+			hs[j * (CELLS + 1) + i] = hr[(j + 1) * RAND_N + i + 1]
 	# LIEGT UEBERHAUPT EINE ROEHRE IN DIESEM CHUNK? Dieselbe Vorpruefung wie bei den
 	# Fluessen und aus demselben Grund: der Test je Zelle ist billig, aber er laeuft
 	# 2304 mal je Chunk mal vier Ecken, und in ueber 99 % aller Chunks gibt es nichts zu
@@ -6751,31 +6846,48 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	# Hoechster Flussspiegel in der Naehe dieses Chunks (Zellenraster, einmal je Chunk).
 	var fluss_h := _fluss_bereich_h(ox - 20.0, oz - 20.0, CHUNK + 40.0)
 	var fluss_chunk := fluss_h > -INF
+	var nv := CELLS + 1
+	var nrms := glatte_normalen(hr, CELLS, step)
+	var mulde := mulden(hr, CELLS, step)
+	var verts := PackedVector3Array()
+	verts.resize(nv * nv)
+	var cols := PackedColorArray()
+	cols.resize(nv * nv)
+	for j in nv:
+		for i in nv:
+			var o := j * nv + i
+			var p := Vector3(ox + float(i) * step, hs[o], oz + float(j) * step)
+			verts[o] = p
+			var farbe := _face_color(p, nrms[o].y, 8.0, nrms[o])
+			# Kiesufer nur knapp ueber dem Wasser der Fluesse in der Naehe (je Chunk bestimmt).
+			if p.y < fluss_h + 2.5:
+				farbe = _ufer_farbe(farbe, p)
+			cols[o] = mulden_ton(farbe, mulde[o])
+	var idx := PackedInt32Array()
+	idx.resize(CELLS * CELLS * 6)
+	var ni := 0
 	for j in CELLS:
 		for i in CELLS:
-			var x0 := ox + float(i) * step
-			var z0 := oz + float(j) * step
-			var h00 := hs[j * (CELLS + 1) + i]
-			var h10 := hs[j * (CELLS + 1) + i + 1]
-			var h01 := hs[(j + 1) * (CELLS + 1) + i]
-			var h11 := hs[(j + 1) * (CELLS + 1) + i + 1]
-			var v00 := Vector3(x0, h00, z0)
-			var v10 := Vector3(x0 + step, h10, z0)
-			var v01 := Vector3(x0, h01, z0 + step)
-			var v11 := Vector3(x0 + step, h11, z0 + step)
+			var o := j * nv + i
 			# ROEHRE AUSSPAREN. Sobald EINE Ecke im Lichtraum liegt, faellt die ganze
 			# Zelle weg — nicht erst, wenn alle vier drin sind. Sonst blieben an der
 			# Lochkante Zipfel stehen, die bis zur halben Zellenweite in den Flugweg
 			# ragen, und genau die waere man beim Einflug streifen.
-			if tunnel_chunk and (_im_tunnel(v00) or _im_tunnel(v10) or _im_tunnel(v11)
-					or _im_tunnel(v01)):
+			if tunnel_chunk and (_im_tunnel(verts[o]) or _im_tunnel(verts[o + 1])
+					or _im_tunnel(verts[o + nv + 1]) or _im_tunnel(verts[o + nv])):
 				continue
-			# Godot-Front = im Uhrzeigersinn von außen: Wicklung so, dass die
-			# Flächen nach OBEN zeigen (sonst cullt alles bei Sicht von oben)
-			_tri(st, v00, v10, v11, fluss_h)
-			_tri(st, v00, v11, v01, fluss_h)
-	st.generate_normals()
-	var mesh := st.commit()
+			# Godot-Front = im Uhrzeigersinn von aussen: Wicklung so, dass die Flaechen nach
+			# OBEN zeigen (sonst cullt alles bei Sicht von oben). Diagonale 00-11 wie immer
+			# (Wasser-Tiefentextur, Baumfuss und Kollision rechnen mit genau diesen Dreiecken).
+			idx[ni] = o
+			idx[ni + 1] = o + 1
+			idx[ni + 2] = o + nv + 1
+			idx[ni + 3] = o
+			idx[ni + 4] = o + nv + 1
+			idx[ni + 5] = o + nv
+			ni += 6
+	idx.resize(ni)
+	var mesh := netz_aus(verts, nrms, cols, idx)
 	# --- FLORA: deterministisch aus Seed+Chunk — Bäume in Wald-Clustern, Felsen
 	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
 	var rng := RandomNumberGenerator.new()
@@ -7151,21 +7263,6 @@ func _submerged(x: float, z: float, h: float, check_rivers: bool) -> bool:
 
 
 # Ein Dreieck mit Flächenfarbe (aus Höhe + Steilheit am Schwerpunkt) einfügen.
-func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, fluss_h := -INF) -> void:
-	var n := (b - a).cross(c - a).normalized()
-	var cen := (a + b + c) / 3.0
-	# |n.y|: die geometrische Normale zeigt je nach Wicklung nach unten —
-	# für die Steilheits-Farbe zählt nur der Winkel zur Senkrechten.
-	var farbe := _face_color(cen, absf(n.y), 8.0, n)
-	# Kiesufer nur knapp ueber dem Wasser der Fluesse in der Naehe (je Chunk bestimmt).
-	if cen.y < fluss_h + 2.5:
-		farbe = _ufer_farbe(farbe, cen)
-	st.set_color(farbe)
-	st.add_vertex(a)
-	st.add_vertex(b)
-	st.add_vertex(c)
-
-
 # --- ALMWIESE IM HOCHTAL ---------------------------------------------------------------
 # Der Fels beginnt weltweit bei 45 bis 59 m Hoehe. Der Boden des Hochtals liegt gemessen
 # auf 41 bis 235 m, der Bergsee mit seinem Spiegel auf 78 m — das ganze Tal steht also
@@ -8951,7 +9048,9 @@ static func _stellvertreter(quelle: Mesh) -> Mesh:
 		st.add_vertex(r0)
 		st.add_vertex(unten)
 	st.generate_normals()
-	return st.commit()
+	# Dieselbe weiche Krone wie das Original, sonst sprang das Licht an der Fernstufe. Ohne
+	# zweiten Tiefenschatten: die gemittelten Farben tragen den des Originals schon.
+	return _weiche_krone(st.commit(), false)
 
 
 static func _grobe_fassung(quelle: Mesh) -> Mesh:
@@ -9021,7 +9120,214 @@ func _load_flora() -> Dictionary:
 				d[art] = _mesh_leaf
 			else:
 				d[art] = _mesh_conifer
+		if not art in HART_BLEIBEN:
+			d[art] = _weiche_krone(d[art])
 	return d
+
+
+# --- WEICHE KRONEN -----------------------------------------------------------------------
+# Die Baeume sind Low-Poly-Modelle (tools/build_baeume.py) mit flacher Schattierung: jede
+# Facette eine Helligkeit, aus der Naehe ein Stapel gefalteter Pappe. Statt neuer Modelle
+# bekommt das LAUB eine Normale, die zur Huelle der Krone passt (Gradient eines Ellipsoids
+# um die Laubmasse), mit einem Rest der Facettennormale fuer etwas Struktur. Das Licht
+# laeuft dann weich ueber die ganze Krone, wie ueber einen echten Baum. Dazu ein
+# gebackener Tiefenschatten: Laub tief im Inneren und unten an der Krone ist dunkler.
+# Staemme, Totholz und Kakteen bleiben hart — die sind auch in echt kantig/rund genug.
+const HART_BLEIBEN := ["Totholz", "Kaktus"]
+const KRONE_WEICH := 1.0         # Anteil der Huellennormale (1 = rein, erlaubt Verschweissen)
+const KRONE_INNEN := 0.62        # Helligkeit ganz innen in der Krone
+const KRONE_UNTEN := 0.80        # Helligkeit an der Kronenunterseite
+const KRONE_SATT := 0.72         # Saettigung des Laubs gegenueber der Palette
+
+
+## Gehoert der Eckpunkt zum Laub? Gruen, oder hell/weiss oben in der Krone (Schnee auf der
+## Schneetanne). Birkenrinde ist ebenfalls hell, sitzt aber unten am Stamm.
+static func _ist_laub(c: Color, rel_h: float) -> bool:
+	if c.g > c.r * 1.04 and c.g >= c.b:
+		return true
+	return rel_h > 0.40 and minf(c.r, minf(c.g, c.b)) > 0.70
+
+
+static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
+	if quelle == null or quelle.get_surface_count() == 0:
+		return quelle
+	var ab := quelle.get_aabb()
+	var hoehe := maxf(ab.size.y, 0.01)
+	var raus := ArrayMesh.new()
+	for si in quelle.get_surface_count():
+		var arr := quelle.surface_get_arrays(si)
+		var vs_v: Variant = arr[Mesh.ARRAY_VERTEX]
+		var cs_v: Variant = arr[Mesh.ARRAY_COLOR]
+		var ns_v: Variant = arr[Mesh.ARRAY_NORMAL]
+		if vs_v == null or cs_v == null or ns_v == null:
+			raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			continue
+		var vs: PackedVector3Array = vs_v
+		var cs: PackedColorArray = cs_v
+		var ns: PackedVector3Array = ns_v
+		var ix_v: Variant = arr[Mesh.ARRAY_INDEX]
+		var ix := PackedInt32Array()
+		if ix_v != null:
+			ix = ix_v
+		else:
+			ix.resize(vs.size())
+			for i in vs.size():
+				ix[i] = i
+		var laub := PackedByteArray()
+		laub.resize(vs.size())
+		var lo := Vector3(INF, INF, INF)
+		var hi := Vector3(-INF, -INF, -INF)
+		var keys: Array[Vector3i] = []
+		keys.resize(vs.size())
+		for i in vs.size():
+			keys[i] = Vector3i((vs[i] * 1000.0).round())
+			if _ist_laub(cs[i], (vs[i].y - ab.position.y) / hoehe):
+				laub[i] = 1
+				lo = lo.min(vs[i])
+				hi = hi.max(vs[i])
+		if lo.x == INF:
+			raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			continue
+		# LAUBBALLEN FINDEN: Birke, Eiche, Kiefer tragen mehrere getrennte Ballen. Eine
+		# einzige Huelle um den ganzen Baum drehte die Innenseiten der Ballen gegen ihre
+		# eigene Flaeche (Licht von der falschen Seite). Also Ballen = zusammenhaengende
+		# Laubdreiecke, verschweisst ueber gleiche Eckpunktlagen (Union-Find).
+		var eltern: Dictionary = {}
+		for t in range(0, ix.size() - 2, 3):
+			var i0 := ix[t]
+			var i1 := ix[t + 1]
+			var i2 := ix[t + 2]
+			if laub[i0] == 0 or laub[i1] == 0 or laub[i2] == 0:
+				continue
+			var k0 := _uf_finde(eltern, keys[i0])
+			eltern[_uf_finde(eltern, keys[i1])] = k0
+			eltern[_uf_finde(eltern, keys[i2])] = k0
+		var b_lo: Dictionary = {}
+		var b_hi: Dictionary = {}
+		var summe: Dictionary = {}
+		for i in vs.size():
+			if laub[i] == 0:
+				continue
+			var bk := _uf_finde(eltern, keys[i])
+			b_lo[bk] = (b_lo.get(bk, vs[i]) as Vector3).min(vs[i])
+			b_hi[bk] = (b_hi.get(bk, vs[i]) as Vector3).max(vs[i])
+			# FARBE JE ECKPUNKTLAGE MITTELN: das Bauskript wuerfelt jeder Flaeche ihre eigene
+			# Helligkeit (+-13 %), und genau das zeichnete auch bei weichen Normalen noch
+			# jedes Dreieck als Flicken. Die Koernung kommt jetzt aus dem Blattwerk im Shader.
+			var sc0: Color = summe.get(keys[i], Color(0, 0, 0, 0))
+			summe[keys[i]] = Color(sc0.r + cs[i].r, sc0.g + cs[i].g, sc0.b + cs[i].b, sc0.a + 1.0)
+		var mitte := (lo + hi) * 0.5
+		var r := ((hi - lo) * 0.5).max(Vector3(0.15, 0.15, 0.15))
+		for i in vs.size():
+			if laub[i] == 0:
+				continue
+			var bk := _uf_finde(eltern, keys[i])
+			var bm: Vector3 = ((b_lo[bk] as Vector3) + (b_hi[bk] as Vector3)) * 0.5
+			var br: Vector3 = (((b_hi[bk] as Vector3) - (b_lo[bk] as Vector3)) * 0.5).max(
+				Vector3(0.12, 0.12, 0.12))
+			var dv := vs[i] - bm
+			var huelle := Vector3(dv.x / (br.x * br.x), dv.y / (br.y * br.y), dv.z / (br.z * br.z))
+			if huelle.length_squared() > 1e-8:
+				ns[i] = ns[i].lerp(huelle.normalized(), KRONE_WEICH).normalized()
+			var sc: Color = summe[keys[i]]
+			var c0 := Color(sc.r / sc.a, sc.g / sc.a, sc.b / sc.a, cs[i].a)
+			if not mit_schatten:
+				cs[i] = c0
+				continue
+			# NATUERLICHERES GRUEN: die Palette war fuer flache Facetten gewaehlt (reines,
+			# kraeftiges Gruen) und steht auf weich schattierten Kronen wie Plastik da.
+			var grau := c0.r * 0.30 + c0.g * 0.59 + c0.b * 0.11
+			c0 = Color(lerpf(grau, c0.r, KRONE_SATT), lerpf(grau, c0.g, KRONE_SATT),
+				lerpf(grau, c0.b, KRONE_SATT) * 1.04, c0.a)
+			# Tiefenschatten ueber die GANZE Krone: Laub tief im Inneren und unten dunkler.
+			var dk := vs[i] - mitte
+			var tief := clampf(Vector3(dk.x / r.x, dk.y / r.y, dk.z / r.z).length(), 0.0, 1.0)
+			var oben := clampf((vs[i].y - lo.y) / maxf(hi.y - lo.y, 0.01), 0.0, 1.0)
+			var f := lerpf(KRONE_INNEN, 1.0, tief) * lerpf(KRONE_UNTEN, 1.0, oben)
+			cs[i] = Color(c0.r * f, c0.g * f, c0.b * f, c0.a)
+		arr[Mesh.ARRAY_NORMAL] = ns
+		arr[Mesh.ARRAY_COLOR] = cs
+		# Tangenten passen nach dem Umbiegen der Normalen nicht mehr (und werden nicht
+		# gebraucht: der Flora-Shader hat keine Normal-Map).
+		arr[Mesh.ARRAY_TANGENT] = null
+		_laub_verschweissen(arr, laub, keys, eltern)
+		# DAS KOMPRIMIERTE FORMAT DES IMPORTS BEHALTEN (Normalen 16 bit usw.). Ohne das
+		# Flag entsteht das volle Float-Format, und die Flora lag in 4K rund 0,45 ms hoeher.
+		raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr, [], {},
+			quelle.surface_get_format(si) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
+	# Und das SCHATTENNETZ (nur Lage, entdoppelt) — die Lagen sind unveraendert.
+	if quelle is ArrayMesh and (quelle as ArrayMesh).shadow_mesh != null:
+		raus.shadow_mesh = (quelle as ArrayMesh).shadow_mesh
+	return raus
+
+
+## LAUB VERSCHWEISSEN. Das Modell ist flach schattiert exportiert: jede Flaeche hat ihre
+## eigenen drei Eckpunkte (160 Dreiecke = 480 Eckpunkte). Seit Normale und Farbe des Laubs
+## nur noch von der LAGE (und dem Ballen) abhaengen, sind die Eckpunkte an derselben Stelle
+## identisch — zusammengelegt rechnet die GPU jeden nur einmal. Gemessen war die Flora nach
+## den organischeren Kronen (mehr Dreiecke) in 4K von 4,9 auf 7,7 ms gestiegen; die GPU ist
+## hier eckpunktgebunden (Millionen Instanzen). Stamm und Totholz bleiben flach (ungeteilt).
+static func _laub_verschweissen(arr: Array, laub: PackedByteArray, keys: Array[Vector3i],
+		eltern: Dictionary) -> void:
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+	var uv_v: Variant = arr[Mesh.ARRAY_TEX_UV]
+	var hat_uv := uv_v != null and (uv_v as PackedVector2Array).size() == vs.size()
+	var uvs: PackedVector2Array = uv_v if hat_uv else PackedVector2Array()
+	var ix_v: Variant = arr[Mesh.ARRAY_INDEX]
+	var ix := PackedInt32Array()
+	if ix_v != null:
+		ix = ix_v
+	else:
+		ix.resize(vs.size())
+		for i in vs.size():
+			ix[i] = i
+	var nv := PackedVector3Array()
+	var nn := PackedVector3Array()
+	var nc := PackedColorArray()
+	var nuv := PackedVector2Array()
+	var neu_von := PackedInt32Array()
+	neu_von.resize(vs.size())
+	var schon: Dictionary = {}
+	for i in vs.size():
+		var k: Variant = null
+		if laub[i] == 1 and not hat_uv:
+			k = [keys[i], _uf_finde(eltern, keys[i])]
+			if schon.has(k):
+				neu_von[i] = schon[k]
+				continue
+		neu_von[i] = nv.size()
+		if k != null:
+			schon[k] = nv.size()
+		nv.append(vs[i])
+		nn.append(ns[i])
+		nc.append(cs[i])
+		if hat_uv:
+			nuv.append(uvs[i])
+	var nix := PackedInt32Array()
+	nix.resize(ix.size())
+	for t in ix.size():
+		nix[t] = neu_von[ix[t]]
+	arr[Mesh.ARRAY_VERTEX] = nv
+	arr[Mesh.ARRAY_NORMAL] = nn
+	arr[Mesh.ARRAY_COLOR] = nc
+	if hat_uv:
+		arr[Mesh.ARRAY_TEX_UV] = nuv
+	arr[Mesh.ARRAY_INDEX] = nix
+
+
+static func _uf_finde(eltern: Dictionary, k: Vector3i) -> Vector3i:
+	var w := k
+	while eltern.has(w) and eltern[w] != w:
+		w = eltern[w]
+	# Pfad verkuerzen
+	var z := k
+	while eltern.has(z) and eltern[z] != z:
+		var n: Vector3i = eltern[z]
+		eltern[z] = w
+		z = n
+	return w
 
 
 # ---------------------------------------------------------------------------

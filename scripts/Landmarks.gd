@@ -1828,7 +1828,9 @@ static func build_felsbogen(parent: Node3D, fuss_a: Vector3, fuss_b: Vector3, hu
 		ringe.append(ring)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(-1)
+	# GLATT wie das Gelaende (kein Low-Poly-Facett mehr): gleiche Glaettungsgruppe fuer alle
+	# Dreiecke, generate_normals mittelt dann ueber gleiche Eckpunkte.
+	st.set_smooth_group(1)
 	for i in ringe.size() - 1:
 		var r0: PackedVector3Array = ringe[i]
 		var r1: PackedVector3Array = ringe[i + 1]
@@ -1843,11 +1845,11 @@ static func build_felsbogen(parent: Node3D, fuss_a: Vector3, fuss_b: Vector3, hu
 	parent.add_child(node)
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
-	var m := StandardMaterial3D.new()
-	m.vertex_color_use_as_albedo = true
-	m.vertex_color_is_srgb = true
-	m.roughness = 1.0
-	m.metallic_specular = 0.1
+	# DERSELBE SHADER WIE DAS GELAENDE: Korn und Felsbaenke laufen in Weltkoordinaten, der
+	# Bogen setzt die Wand des Plateaus also nahtlos fort.
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/gelaende.gdshader")
+	m.set_shader_parameter("boden_tex", TerrainWorld.boden_textur())
 	mi.material_override = m
 	node.add_child(mi)
 	var body := StaticBody3D.new()

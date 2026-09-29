@@ -187,7 +187,8 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          tools/_flug_bilder.gd (flug_karte.png, _zoom.png 3x, _zoom8.png, flug_hud_
                          wegpunkt.png) — wartet per `kacheln_bereit()` auf die scharfen Kacheln.
 scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 384-m-Chunks,
-                         8-m-Raster, Flatshading via Vertex-Colors + Mini-Shader ALBEDO=COLOR.
+                         8-m-Raster, GLATT schattiert (Normale+Farbe je Eckpunkt, siehe Abschnitt
+                         „Gelaende-Look"), Shader shaders/gelaende_kern.gdshaderinc.
                          HÖHE (height_at): sanfte fBm-Grundwelligkeit + RIDGED-Noise-Bergketten,
                          skaliert mit relief_at (sehr grobes Rauschen 0=Ebene..1=Alpen) und
                          Distanz-Ramp (Spawn ruhig, Gebirge ab ~3 km). BIOME (biome_at, grobes
@@ -204,7 +205,7 @@ scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 
                          Flugplätze werden EINGEEBNET (height *= smoothstep(r_flat,r_blend));
                          Meer y=-6 (Main: WorldBoundary dort = Wasser-/Sicherheitsboden).
                          Seed: GameState.world_seed (einmal gewürfelt, persistiert).
-                         FLORA: Low-Poly-Tannen/Laubbäume/Felsen (SurfaceTool-Meshes,
+                         FLORA: Tannen/Laubbäume/Felsen (glb bzw. SurfaceTool-Meshes, weiche Kronen,
                          einmal gebaut) via MultiMesh je Chunk (1 Draw-Call/Variante);
                          Wald-CLUSTER über _forest-Noise (1/260), deterministisch je
                          Chunk (RNG-Seed hash(key,seed)); Bäume nur 0.8<h<48 + flacher
@@ -330,6 +331,49 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
 - Werkzeuge: `_gefuehl_bilder.gd [-- sonne berge wolken kueste g_last]` (echte
   Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
   `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
+
+## Gelaende-Look (2026-09): glatt statt Low-Poly
+Wunsch des Nutzers: der Low-Poly-Stil passte nicht zum Spielkonzept. Umgebaut, OHNE die
+Gelaendeform, Kollision oder Farbregeln (_face_color) anzufassen:
+- GLATTES NETZ (`TerrainWorld._make_chunk_data`, `Main._fern_kachel`): Hoehenraster MIT RAND
+  ((n+3)^2, `RAND_N`), Normale je Eckpunkt aus zentralen Differenzen (`glatte_normalen`) —
+  der Rand sorgt dafuer, dass Nachbarchunks an der Naht dieselbe Normale haben. Farbe je
+  Eckpunkt (`_face_color` mit Eckpunkt + Normale, 2401 statt 4608 Aufrufe je Chunk),
+  indiziertes Netz (2401 statt 13824 Eckpunkte), dieselben Dreiecke (Diagonale 00-11 —
+  Wasser-Tiefentextur, Baumfuss, Kollision rechnen damit). MULDENTOENUNG (`mulden`,
+  `mulden_ton`): Rinnen dunkler, Grate heller — traegt die Form, die vorher die Facetten
+  zeigten. Tunnelzellen fallen weiter weg (Index ausgelassen).
+- SHADER `shaders/gelaende_kern.gdshaderinc` (Chunks `gelaende.gdshader`, Schuerze
+  `gelaende_fern.gdshader` mit FERN = Grundabsenkung, Felsboegen): Detailtextur
+  `shaders/boden_detail.res` (`tools/_boden_textur.gd`: R Korn, G Flecken, BA Ableitung).
+  Grossvariation immer (1,9 km / 470 m, Bewuchs trocken/satt), Korn + Relief bis 1,4 km,
+  an steilen Flanken aus der WANDEBENE projiziert (von oben projiziert gab es senkrechte
+  Kratzer), Felsbaenke an steilem Nicht-Gruen (Streckung 3:1 — bei 12:1 sah es aus wie
+  gebuerstetes Blech). Material aus der Farbe (gruen/Schnee). Bewuchs leicht entsaettigt
+  (die Palette war fuer Facetten gemacht und wirkte glatt lindgruen). Glut weiter aus COLOR.a.
+- BAEUME: `_weiche_krone` beim Laden — Laub (gruen, oder weiss oben = Schnee) bekommt die
+  Normale eines Ellipsoids JE LAUBBALLEN (Union-Find ueber gleiche Eckpunktlagen; EINE Huelle
+  um den ganzen Baum beleuchtete die Innenseiten der Ballen von der falschen Seite), Farbe je
+  Lage gemittelt (das Bauskript wuerfelt jeder Flaeche eine Helligkeit — Flickenmuster),
+  Tiefenschatten innen/unten, leicht entsaettigt. Danach `_laub_verschweissen`: gleiche Lage
+  = gleicher Eckpunkt. Totholz/Kaktus bleiben hart. Stellvertreter ebenfalls weich.
+  Import-Kompression und Schattennetz werden uebernommen (sonst +0,45 ms).
+- FLORA-SHADER: Ton je Baum (Hash der Lage, in COLOR), Blattwerk aus der Bodentextur im
+  Objektraum bis 400 m, BACKLIGHT (durchscheinendes Laub, kostet nichts messbares).
+  NUR EINE vec2-VARYING — zehn Floats kosteten auf Apples Kachel-GPU 2,5 ms in 4K.
+- MODELLE (`tools/build_baeume.py`): Fichte 5 Kraenze x 10 Zweige mit `organisch=True`
+  (verwuerfelte, haengende Zweigspitzen), Laubkronen (`knolle`) mit Kuppeln statt ebener
+  Deckel und Beulen. Nach Aenderung: Blender --background --python, dann `--editor --import`.
+- FELSBOEGEN (Landmarks): glatt (smooth group 1) und mit dem Gelaende-Shader.
+- GEMESSEN (`tools/_gelaende_zeit.gd`, 4K MSAA 4x, 5 Stellungen, alt → neu): Bild im Mittel
+  13,96 → 13,96 ms; Bodendetail 0,22 ms (Schlucht 0,57); Flora 2,51 → 2,02 ms (Wald tief
+  3,97 → 2,78). Chunkbau 27,8 → 19,7 ms je Chunk (weniger _face_color, indiziert).
+  `_ruck_check` (im FENSTER laufen lassen, headless rafft er 60 s auf 1 s Echtzeit):
+  p99 2,5 → 1,3 ms, Spitze 9,8 → 4,4 ms — die Fernfassungen der Baeume (`_grob_cache`)
+  werden jetzt beim Laden gebaut statt beim ersten Gebrauch im Flug. `_skriptzeit`
+  unveraendert (Silberfluss 2,01 ms). `_haupt_pruefsumme` bitgleich.
+- FALLE: Tests mit Main.tscn und `--quit-after` ohne umgebogenes HOME laufen gegen den echten
+  Spielstand — auch fuer den Warnungscheck immer HOME umbiegen.
 
 ## Lebendige Welt (2026-09): Wolkenstrassen, Baumwind, Voegel
 - WOLKENSTRASSEN (`CloudField._strassen_wert`, `STRASSEN_JE_TYP`): die Deckung der

@@ -2819,49 +2819,17 @@ func _fernschuerze_starten() -> void:
 	fern_root.name = "Fernschuerze"
 	fly_world.add_child(fern_root)
 
-	var sh := Shader.new()
-	# Der fragment()-Teil ist absichtlich der des Terrains (TerrainWorld.setup):
-	# Vertexfarbe als Albedo, sRGB->linear gewandelt. Nur so trifft die Schuerze die
-	# Palette der Chunks, an die sie anschliesst.
-	# EINE ZEILE FEHLT ABSICHTLICH, naemlich die Glut (EMISSION aus COLOR.a). Hier ist
-	# COLOR.a schon vergeben — er traegt die Grundabsenkung, siehe vertex() —, und der
-	# Preis dafuer ist klein: die Schuerze faengt erst 3,8 km vom Spieler entfernt an,
-	# und dort ist eine Glutrinne unter einem Bildpunkt breit. Die GESTEINSFARBE des
-	# Vulkans samt seiner Lavazungen kommt dagegen aus _face_color und steht auf der
-	# Schuerze genauso wie in den Chunks — der Kegel bleibt also auch aus 20 km schwarz.
-	sh.code = """
-shader_type spatial;
-uniform float senke_nah;
-uniform float senke_fern;
-uniform float senke_tief;
-uniform float senke_bias;
-uniform float bias_aus_a;
-uniform float bias_aus_b;
-void vertex() {
-	vec3 wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	float d = distance(wp.xz, CAMERA_POSITION_WORLD.xz);
-	// COLOR.a traegt, wie viel Grundabsenkung diese Flaeche BRAUCHT (siehe _fern_tri):
-	// im Gebirge die volle, an flachen Kuesten fast keine.
-	float s = senke_tief * (1.0 - smoothstep(senke_nah, senke_fern, d))
-		+ senke_bias * COLOR.a * (1.0 - smoothstep(bias_aus_a, bias_aus_b, d));
-	// COLOR.a == 0 markiert den Grundriss des Kavernenflugplatzes (siehe _fern_tri).
-	// Dort wird die Absenkung GEDECKELT, damit keine Zelle in der Halle landet: wer
-	// ueber 220 m liegt, parkt beim Absinken auf 220 (mitten im Fels, unsichtbar),
-	// wer darunter liegt, sinkt voll und landet unter dem Hallenboden.
-	if (COLOR.a < 0.05 && wp.y > 220.0) {
-		s = min(s, wp.y - 220.0);
-	}
-	VERTEX.y -= s;
-}
-void fragment() {
-	vec3 c = COLOR.rgb;
-	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
-	ROUGHNESS = 1.0;
-	SPECULAR = 0.1;
-}
-"""
+	# DERSELBE GELAENDE-SHADER WIE DIE CHUNKS (shaders/gelaende_kern.gdshaderinc, hier mit
+	# FERN): nur so trifft die Schuerze Palette, Grossvariation und Licht der Chunks, an die
+	# sie anschliesst. Dazu die Grundabsenkung im Vertex-Shader (Begruendung oben).
+	# EINES FEHLT ABSICHTLICH, naemlich die Glut (EMISSION aus COLOR.a). Hier ist COLOR.a
+	# schon vergeben — er traegt die Grundabsenkung —, und der Preis dafuer ist klein: die
+	# Schuerze faengt erst 3,8 km vom Spieler entfernt an, und dort ist eine Glutrinne unter
+	# einem Bildpunkt breit. Die GESTEINSFARBE des Vulkans kommt dagegen aus _face_color und
+	# steht auf der Schuerze genauso wie in den Chunks.
 	_fern_mat = ShaderMaterial.new()
-	_fern_mat.shader = sh
+	_fern_mat.shader = load("res://shaders/gelaende_fern.gdshader")
+	_fern_mat.set_shader_parameter("boden_tex", TerrainWorld.boden_textur())
 	_fern_mat.set_shader_parameter("senke_nah", FERN_NAH)
 	_fern_mat.set_shader_parameter("senke_fern", FERN_FERN)
 	_fern_mat.set_shader_parameter("senke_tief", FERN_TIEF)
@@ -2954,52 +2922,64 @@ func _fern_kachel(idx: int) -> void:
 	if not land:
 		return
 
-	# 2) Hoehenraster. Auf Meereshoehe geklemmt: die Wasserplatte reicht nur 4,6 km weit,
-	#    ein absaufender Kuestenhang waere dahinter als Loch im Meer zu sehen. So endet
-	#    das Land an der Wasserlinie, genau wie es aus der Ferne aussehen soll.
+	# 2) Hoehenraster MIT RAND (glatte Normalen, siehe TerrainWorld.glatte_normalen).
+	#    Auf Meereshoehe geklemmt: die Wasserplatte reicht nur 4,6 km weit, ein
+	#    absaufender Kuestenhang waere dahinter als Loch im Meer zu sehen. So endet das
+	#    Land an der Wasserlinie, genau wie es aus der Ferne aussehen soll.
 	var zelle := _fern_zelle
 	var n := int(FERN_KACHEL / zelle)
-	var hs := PackedFloat32Array()
-	hs.resize((n + 1) * (n + 1))
-	for j in n + 1:
-		for i in n + 1:
-			hs[j * (n + 1) + i] = maxf(
-				terrain.height_at(ox + float(i) * zelle, oz + float(j) * zelle, zelle),
-				TerrainWorld.SEA_Y)
+	var nr := n + 3
+	var nv := n + 1
+	var hr := PackedFloat32Array()
+	hr.resize(nr * nr)
+	for j in nr:
+		for i in nr:
+			hr[j * nr + i] = maxf(terrain.height_at(ox + float(i - 1) * zelle,
+				oz + float(j - 1) * zelle, zelle), TerrainWorld.SEA_Y)
 
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(-1)          # FLAT shading, wie die Chunks
-	var tris := 0
+	# 3) Welche Zellen tragen Land? Zelle komplett unter Wasser -> kein Dreieck
+	#    (siehe Kopfkommentar). Farben nur fuer Eckpunkte, die ein Dreieck benutzt.
+	var ix := PackedInt32Array()
+	var noetig := PackedByteArray()
+	noetig.resize(nv * nv)
 	for j in n:
 		for i in n:
-			var h00 := hs[j * (n + 1) + i]
-			var h10 := hs[j * (n + 1) + i + 1]
-			var h01 := hs[(j + 1) * (n + 1) + i]
-			var h11 := hs[(j + 1) * (n + 1) + i + 1]
-			# Zelle komplett unter Wasser -> kein Dreieck (siehe Kopfkommentar).
-			if maxf(maxf(h00, h10), maxf(h01, h11)) <= TerrainWorld.SEA_Y + 0.01:
+			var m := (j + 1) * nr + i + 1
+			if maxf(maxf(hr[m], hr[m + 1]), maxf(hr[m + nr], hr[m + nr + 1])) \
+					<= TerrainWorld.SEA_Y + 0.01:
 				continue
-			var x0 := ox + float(i) * zelle
-			var z0 := oz + float(j) * zelle
-			var v00 := Vector3(x0, h00, z0)
-			var v10 := Vector3(x0 + zelle, h10, z0)
-			var v01 := Vector3(x0, h01, z0 + zelle)
-			var v11 := Vector3(x0 + zelle, h11, z0 + zelle)
-			_fern_tri(st, v00, v10, v11, zelle)
-			_fern_tri(st, v00, v11, v01, zelle)
-			tris += 2
+			var o := j * nv + i
+			ix.append_array([o, o + 1, o + nv + 1, o, o + nv + 1, o + nv])
+			noetig[o] = 1
+			noetig[o + 1] = 1
+			noetig[o + nv] = 1
+			noetig[o + nv + 1] = 1
+	@warning_ignore("integer_division")
+	var tris := ix.size() / 3
 	if tris == 0:
 		return
-	st.generate_normals()
-	var mesh := st.commit()
+	var nrms := TerrainWorld.glatte_normalen(hr, n, zelle)
+	var mulde := TerrainWorld.mulden(hr, n, zelle)
+	var verts := PackedVector3Array()
+	verts.resize(nv * nv)
+	var cols := PackedColorArray()
+	cols.resize(nv * nv)
+	for j in nv:
+		for i in nv:
+			var o := j * nv + i
+			var p := Vector3(ox + float(i) * zelle, hr[(j + 1) * nr + i + 1], oz + float(j) * zelle)
+			verts[o] = p
+			if noetig[o] == 1:
+				cols[o] = TerrainWorld.mulden_ton(_fern_farbe(p, nrms[o], zelle), mulde[o])
+	var mesh := TerrainWorld.netz_aus(verts, nrms, cols, ix)
 	_fern_mutex.lock()
 	_fern_ergebnis.append([key, mesh, tris])
 	_fern_mutex.unlock()
 
 
-## Wicklung und Farbgebung EXAKT wie TerrainWorld._tri — die Schuerze soll die
-## Fortsetzung der Chunks sein, nicht eine zweite Farbwelt daneben.
+## Farbe eines Eckpunkts der Schuerze, nach DERSELBEN Regel wie die Chunks
+## (TerrainWorld._face_color) — die Schuerze soll die Fortsetzung der Chunks sein, nicht
+## eine zweite Farbwelt daneben.
 ##
 ## Der ALPHA-Kanal ist kein Deckungsgrad (das Material ist opak), sondern der Faktor
 ## fuer die Grundabsenkung im Vertex-Shader. Grund: die 44 m, um die das 64-m-Raster
@@ -3009,17 +2989,15 @@ func _fern_kachel(idx: int) -> void:
 ## wuerde dort den Strand unter die Wasserplatte druecken: beim Vorbeiflug waeren
 ## Kuestenstreifen in einem mitwandernden Ring abgesoffen. Also skaliert die
 ## Absenkung mit der Hoehe; 0,25 bleibt als Mindestmass gegen Z-Fighting stehen.
-func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, zelle: float) -> void:
-	var nn := (b - a).cross(c - a).normalized()
-	var cen := (a + b + c) / 3.0
-	var col := terrain._face_color(cen, absf(nn.y), zelle, nn)
+func _fern_farbe(cen: Vector3, nn: Vector3, zelle: float) -> Color:
+	var col := terrain._face_color(cen, nn.y, zelle, nn)
 	# WALD AUF DER GANZEN INSEL, ohne ein einziges zusaetzliches Dreieck. Echte Baeume gibt
 	# es nur in den gestreamten Chunks (3,8 km um den Spieler); die Schuerze reicht bis
 	# 20 km und war bisher unbewaldet, der Wald wanderte also mit dem Spieler mit. Aus
 	# dieser Entfernung ist ein Wald ohnehin nur eine dunkelgruene Flaeche — genau die wird
 	# hier eingefaerbt, nach DERSELBEN Regel, die auch die echten Baeume setzt. Der
 	# Uebergang an der Chunkgrenze faellt nicht auf, weil dort dieselbe Regel gilt.
-	var w := terrain.wald_anteil(cen.x, cen.z, cen.y, absf(nn.y))
+	var w := terrain.wald_anteil(cen.x, cen.z, cen.y, nn.y)
 	if w > 0.0:
 		col = col.lerp(terrain.wald_farbe(cen.x, cen.z), clampf(w * 0.85, 0.0, 0.85))
 	col.a = clampf(0.25 + cen.y / 60.0, 0.25, 1.0)
@@ -3040,10 +3018,7 @@ func _fern_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, zelle: float
 			and k_l < ADLERHORST_KAVERNE_LAENGS + 790.0 \
 			and absf(k_dx * TAL_RICHTUNG.y - k_dz * TAL_RICHTUNG.x) < 175.0:
 		col.a = 0.0
-	st.set_color(col)
-	st.add_vertex(a)
-	st.add_vertex(b)
-	st.add_vertex(c)
+	return col
 
 
 func _fern_mi(mesh: Mesh) -> MeshInstance3D:

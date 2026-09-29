@@ -127,10 +127,30 @@ class Baum:
         d = (b - a)
         self._bruecke(self._ring(a, r0, segs, d), self._ring(b, r1, segs, d), farbe, streuung)
 
-    def kegel(self, z0, z1, r, farbe, segs=7, zacken=0.18, streuung=0.14, hang=0.0):
-        """Nadelbaum-Kranz: Ring unten (leicht gezackt) auf eine Spitze."""
-        unten = self._ring((0, 0, z0 - hang), r, segs, zacken=zacken)
-        mitte = self._ring((0, 0, z0 + (z1 - z0) * 0.12), r * 0.92, segs, zacken=zacken)
+    def kegel(self, z0, z1, r, farbe, segs=7, zacken=0.18, streuung=0.14, hang=0.0,
+              organisch=False):
+        """Nadelbaum-Kranz: Ring unten (leicht gezackt) auf eine Spitze.
+
+        organisch=True: Winkel, Radius und Durchhang jedes Randpunkts leicht verwuerfelt,
+        und die ZWEIGSPITZEN (aeussere Zacken) haengen tiefer als die Kerben dazwischen —
+        so sieht der Kranz nach Aesten aus statt nach einem gedrechselten Kegel. (Mit
+        weichen Kronennormalen in Godot, siehe TerrainWorld._weiche_krone.)"""
+        if organisch:
+            phase = self.rng.uniform(0.0, 2.0 * math.pi)
+            unten = []
+            mitte = []
+            zm = z0 + (z1 - z0) * 0.14
+            for i in range(segs):
+                a = phase + 2.0 * math.pi * (i + self.rng.uniform(-0.22, 0.22)) / segs
+                spitz = i % 2 == 0
+                rr = r * (1.0 if spitz else 1.0 - zacken) * self.rng.uniform(0.90, 1.08)
+                zz = z0 - hang * (1.0 if spitz else 0.35) * self.rng.uniform(0.7, 1.3)
+                unten.append(mathutils.Vector((math.cos(a) * rr, math.sin(a) * rr, zz)))
+                mitte.append(mathutils.Vector((math.cos(a) * rr * 0.88, math.sin(a) * rr * 0.88,
+                                               zm)))
+        else:
+            unten = self._ring((0, 0, z0 - hang), r, segs, zacken=zacken)
+            mitte = self._ring((0, 0, z0 + (z1 - z0) * 0.12), r * 0.92, segs, zacken=zacken)
         spitze = self.bm.verts.new((0, 0, z1))
         self._bruecke(unten, mitte, farbe, streuung)
         vs = [self.bm.verts.new(p) for p in mitte]
@@ -143,21 +163,50 @@ class Baum:
                 pass
         self._faerbe(neu, farbe, streuung)
 
-    def knolle(self, mitte, r, farbe, segs=7, ringe=2, quetsch=1.0, streuung=0.13):
-        """Kantige Laubkrone: gestapelte Ringe mit zufaellig gestoertem Radius."""
+    def knolle(self, mitte, r, farbe, segs=7, ringe=2, quetsch=1.0, streuung=0.13,
+               organisch=True):
+        """Laubkrone: gestapelte Ringe mit zufaellig gestoertem Radius.
+
+        organisch=True (Standard): grosse Kronen zwei Seiten mehr, jeder Punkt einzeln
+        verwuerfelt (Beulen statt Ringe), und die Deckel sind flache KUPPELN (Faecher zu
+        einem angehobenen Mittelpunkt) statt ebener Vielecke — die ebenen Deckel machten
+        aus jeder Krone einen Pilzhut. Nur der Kaktus bleibt beim alten Aufbau."""
         m = mathutils.Vector(mitte)
+        if organisch and r >= 1.0:
+            segs += 2
         stufen = []
         for k in range(ringe + 2):
             t = float(k) / (ringe + 1)
             rr = r * math.sin(math.pi * min(max(t, 0.06), 0.94)) ** 0.65
             rr *= self.rng.uniform(0.88, 1.12)
             z = m.z + (t - 0.5) * 2.0 * r * quetsch
-            stufen.append(self._ring((m.x, m.y, z), rr, segs,
-                                     phase=self.rng.uniform(0, 1.0)))
+            ring = self._ring((m.x, m.y, z), rr, segs, phase=self.rng.uniform(0, 1.0))
+            if organisch:
+                beule = []
+                for p in ring:
+                    d = p - mathutils.Vector((m.x, m.y, z))
+                    beule.append(mathutils.Vector((m.x, m.y, z)) + d * self.rng.uniform(0.9, 1.1)
+                                 + mathutils.Vector((0, 0, self.rng.uniform(-0.07, 0.07) * r)))
+                ring = beule
+            stufen.append(ring)
         for k in range(len(stufen) - 1):
             self._bruecke(stufen[k], stufen[k + 1], farbe, streuung)
         # Deckel oben und unten
         for pts, oben in ((stufen[-1], True), (stufen[0], False)):
+            if organisch:
+                zr = sum(p.z for p in pts) / len(pts)
+                kuppe = self.bm.verts.new((m.x, m.y, zr + (0.20 if oben else -0.10) * r * quetsch))
+                vs = [self.bm.verts.new(p) for p in pts]
+                neu = []
+                for i in range(len(vs)):
+                    j = (i + 1) % len(vs)
+                    try:
+                        neu.append(self.bm.faces.new([vs[i], vs[j], kuppe] if oben
+                                                     else [vs[j], vs[i], kuppe]))
+                    except ValueError:
+                        pass
+                self._faerbe(neu, farbe, streuung)
+                continue
             vs = [self.bm.verts.new(p) for p in (pts if oben else list(reversed(pts)))]
             try:
                 self._faerbe([self.bm.faces.new(vs)], farbe, streuung)
@@ -225,10 +274,14 @@ def flora_material():
 def fichte():
     b = Baum("Fichte", 11)
     b.stamm((0, 0, 0), (0, 0, 2.4), 0.26, 0.17, RINDE)
-    hoehen = [(1.7, 5.2, 2.55), (3.6, 6.9, 2.05), (5.3, 8.4, 1.55), (6.9, 10.2, 0.95)]
+    # Fuenf Kraenze mit zehn Zweigen statt vier mit sieben: die gedrechselte Kegelstapel-
+    # Silhouette war das Low-Poly-Merkmal schlechthin (94 -> ~160 Dreiecke, immer noch
+    # weniger als Eiche oder Birke).
+    hoehen = [(1.5, 4.7, 2.60), (2.9, 6.0, 2.25), (4.3, 7.4, 1.85), (5.7, 8.8, 1.40),
+              (7.1, 10.3, 0.92)]
     for i, (z0, z1, r) in enumerate(hoehen):
         f = NADEL if i % 2 == 0 else NADEL_HELL
-        b.kegel(z0, z1, r, f, segs=7, zacken=0.22, hang=0.28)
+        b.kegel(z0, z1, r, f, segs=10, zacken=0.24, hang=0.42, organisch=True)
     return b.objekt()
 
 
@@ -393,14 +446,15 @@ def kaktus():
     """Westland: Saguaro — Saeule mit zwei Armen, gerippt."""
     b = Baum("Kaktus", 144)
     b.stamm((0, 0, 0), (0, 0, 5.2), 0.40, 0.36, KAKTUS, segs=8, streuung=0.08)
-    b.knolle((0, 0, 5.2), 0.37, KAKTUS, segs=8, ringe=1, quetsch=0.7, streuung=0.05)
+    b.knolle((0, 0, 5.2), 0.37, KAKTUS, segs=8, ringe=1, quetsch=0.7, streuung=0.05,
+             organisch=False)
     for seite, hoehe, laenge in ((1.0, 2.2, 1.9), (-1.0, 3.0, 1.5)):
         b.stamm((0, 0, hoehe), (seite * 0.9, 0, hoehe + 0.2), 0.24, 0.24, KAKTUS, segs=7,
                 streuung=0.06)
         b.stamm((seite * 0.9, 0, hoehe + 0.2), (seite * 0.95, 0, hoehe + 0.2 + laenge),
                 0.24, 0.22, KAKTUS, segs=7, streuung=0.06)
         b.knolle((seite * 0.95, 0, hoehe + 0.2 + laenge), 0.23, KAKTUS, segs=7, ringe=1,
-                 quetsch=0.7, streuung=0.05)
+                 quetsch=0.7, streuung=0.05, organisch=False)
     return b.objekt()
 
 
