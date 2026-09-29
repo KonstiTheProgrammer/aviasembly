@@ -2524,6 +2524,7 @@ func _setup_world() -> void:
 	cloud_field = cloud_fields[0]
 	_vulkanfahnen()
 	_wolken_formationen()
+	_voegel_aufbauen()
 	# Gespeicherte Grafikeinstellungen anwenden. MUSS nach dem Wolkenaufbau stehen: die
 	# Funktion schaltet Schattenwurf und Sichtbarkeit der Lagen, die es vorher nicht gibt.
 	grafik_anwenden()
@@ -8204,6 +8205,194 @@ func _blitze(delta: float) -> void:
 ## um die Gewitterzelle, deren Umfeld frei stehen soll.
 func _wolken_sperrzonen() -> Array:
 	return [[Vector2(GEWITTER_MITTE.x, GEWITTER_MITTE.z), 6500.0]]
+
+
+# ===========================================================================
+# VOEGEL — Leben in der Luft
+# ===========================================================================
+# Kreisende Moewen an den Kuesten, Kraehen- und Starenschwaerme ueber den Feldern,
+# Greifvoegel in der Thermik ueber Schlucht, Kette und Hochtal, Raben am Vulkan. Reine
+# Optik (keine Kollision). Je Schwarm EIN GPUParticles3D: die Bahn jedes Vogels rechnet ein
+# Partikel-Shader direkt aus TIME (Kreis bzw. Schwarm um ein wanderndes Zentrum), den
+# Fluegelschlag der Zeichen-Shader. Kostet praktisch nichts, ~150 Voegel insgesamt.
+const VOGEL_BAHN := """
+shader_type particles;
+uniform int art = 0;              // 0 Einzelsegler im Kreis, 1 Schwarm
+uniform float radius = 120.0;
+uniform float streu = 60.0;
+uniform float tempo = 9.0;        // m/s
+uniform float hoehe_streu = 15.0;
+uniform float groesse = 1.5;      // Spannweite (m)
+float h1(float n) { return fract(sin(n * 127.1 + 311.7) * 43758.5453); }
+void start() {
+	float i = float(INDEX);
+	CUSTOM = vec4(h1(i), h1(i + 17.3), h1(i + 41.9), h1(i + 83.1));
+}
+void process() {
+	float t = TIME;
+	vec4 c = CUSTOM;
+	vec3 p;
+	vec3 v;
+	if (art == 0) {
+		float r = max(radius + (c.x - 0.5) * 2.0 * streu, 25.0);
+		vec2 mitte = (vec2(c.y, c.z) - 0.5) * streu * 2.0;
+		float dir = c.w > 0.25 ? 1.0 : -1.0;
+		float w = dir * tempo / r;
+		float a = t * w + c.w * 6.2832;
+		p = vec3(mitte.x + cos(a) * r, sin(t * 0.21 + c.x * 9.0) * hoehe_streu, mitte.y + sin(a) * r);
+		v = vec3(-sin(a), 0.0, cos(a)) * (w * r);
+	} else {
+		float w = tempo / radius;
+		float a = t * w;
+		vec3 zentrum = vec3(cos(a) * radius, sin(t * 0.13) * hoehe_streu, sin(a * 1.3) * radius * 0.6);
+		v = vec3(-sin(a) * radius * w, 0.0, cos(a * 1.3) * radius * 0.6 * w * 1.3);
+		vec3 off = vec3(sin(t * (0.7 + c.x) + c.y * 20.0),
+			sin(t * (0.9 + c.y) + c.z * 20.0) * 0.5,
+			cos(t * (0.8 + c.z) + c.x * 20.0)) * streu;
+		p = zentrum + off;
+	}
+	vec3 vor = normalize(v + vec3(0.0001, 0.0, 0.0));
+	vec3 rechts = normalize(cross(vor, vec3(0.0, 1.0, 0.0)));
+	vec3 hoch = cross(rechts, vor);
+	// IN DIE KURVE LEGEN: kreisende Voegel haengen 20..35 Grad schraeg. Das zeigt auch
+	// von der Seite ihre Ober- oder Unterseite — flach waagerecht war ein Vogel auf
+	// gleicher Hoehe wie die Kamera nur ein Strich.
+	float bank = art == 0 ? (c.w > 0.25 ? -1.0 : 1.0) * (0.35 + 0.25 * c.y) : sin(t * 0.8 + c.x * 6.0) * 0.4;
+	vec3 r2 = rechts * cos(bank) + hoch * sin(bank);
+	hoch = hoch * cos(bank) - rechts * sin(bank);
+	rechts = r2;
+	float s = groesse * (0.8 + 0.4 * c.z);
+	TRANSFORM = mat4(vec4(rechts * s, 0.0), vec4(hoch * s, 0.0), vec4(-vor * s, 0.0), vec4(p, 1.0));
+}
+"""
+const VOGEL_KOERPER := """
+shader_type spatial;
+render_mode cull_disabled;
+uniform vec3 farbe : source_color = vec3(0.95, 0.95, 0.93);
+uniform float flatter = 9.0;      // Schlagfrequenz (rad/s)
+uniform float gleiten = 0.0;      // 0 schlaegt dauernd .. 1 gleitet meist
+void vertex() {
+	float ph = INSTANCE_CUSTOM.x * 6.2832;
+	float aktiv = mix(1.0, smoothstep(0.2, 0.7, sin(TIME * 0.45 + ph * 3.0)), gleiten);
+	VERTEX.y += abs(VERTEX.x) * sin(TIME * flatter + ph) * 0.6 * aktiv;
+}
+void fragment() {
+	ALBEDO = farbe;
+	ROUGHNESS = 0.85;
+}
+"""
+var _vogel_mesh: ArrayMesh
+
+
+## Ein Vogel: schmaler Rumpf, zwei geknickte Fluegel. Spannweite 1, Nase nach -Z.
+static func _vogel_bauen() -> ArrayMesh:
+	# MIT VOLUMEN: die erste Fassung lag ganz in einer Ebene und war von der Seite nur ein
+	# Strich. Jetzt: Rumpf als Doppelpyramide, Fluegel in Moewenform (innen leicht nach
+	# oben, aussen wieder abwaerts) mit etwas Dicke, Schwanzfaecher.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var quad := func(a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> void:
+		st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
+		st.add_vertex(a); st.add_vertex(c); st.add_vertex(d)
+	# Rumpf: Spitze vorn/hinten, Raute im Querschnitt
+	var vorn := Vector3(0, 0.0, -0.34)
+	var hint := Vector3(0, 0.0, 0.26)
+	var q := [Vector3(0.055, 0, -0.02), Vector3(0, 0.05, -0.02), Vector3(-0.055, 0, -0.02),
+		Vector3(0, -0.045, -0.02)]
+	for k in 4:
+		var p1: Vector3 = q[k]
+		var p2: Vector3 = q[(k + 1) % 4]
+		st.add_vertex(vorn); st.add_vertex(p1); st.add_vertex(p2)
+		st.add_vertex(hint); st.add_vertex(p2); st.add_vertex(p1)
+	# Fluegel je Seite: Schulter -> Handgelenk (hoch) -> Spitze (tiefer), oben und unten
+	for seite in [1.0, -1.0]:
+		var sx: float = seite
+		var s_v := Vector3(0.04 * sx, 0.02, -0.10)
+		var s_h := Vector3(0.04 * sx, 0.02, 0.08)
+		var h_v := Vector3(0.27 * sx, 0.075, -0.05)
+		var h_h := Vector3(0.25 * sx, 0.07, 0.07)
+		var tip := Vector3(0.50 * sx, 0.02, 0.13)
+		var dick := Vector3(0, 0.022, 0)
+		quad.call(s_v, h_v, h_h, s_h)
+		quad.call(s_v - dick, s_h - dick, h_h - dick, h_v - dick)
+		st.add_vertex(h_v); st.add_vertex(tip); st.add_vertex(h_h)
+		st.add_vertex(h_v - dick); st.add_vertex(h_h - dick); st.add_vertex(tip)
+		# Vorderkante schliessen (sonst schaut man von vorn durch den Fluegel)
+		quad.call(s_v, s_v - dick, h_v - dick, h_v)
+	# Schwanzfaecher
+	st.add_vertex(Vector3(0, 0.0, 0.18)); st.add_vertex(Vector3(0.10, -0.005, 0.36))
+	st.add_vertex(Vector3(-0.10, -0.005, 0.36))
+	st.generate_normals()
+	return st.commit()
+
+
+func _schwarm(knoten_name: String, mitte: Vector3, art: int, anzahl: int, radius: float,
+		streu: float, tempo: float, groesse: float, farbe: Color, gleiten: float,
+		flatter := 9.0) -> void:
+	if _vogel_mesh == null:
+		_vogel_mesh = _vogel_bauen()
+	var gp := GPUParticles3D.new()
+	gp.name = knoten_name
+	gp.amount = anzahl
+	gp.lifetime = 600.0
+	gp.explosiveness = 1.0
+	gp.local_coords = true
+	gp.position = mitte
+	var reich := radius * 1.6 + streu * 2.0 + 60.0
+	gp.visibility_aabb = AABB(Vector3(-reich, -80.0, -reich), Vector3(reich * 2.0, 160.0, reich * 2.0))
+	gp.visibility_range_end = 3500.0
+	gp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var pm := ShaderMaterial.new()
+	var psh := Shader.new()
+	psh.code = VOGEL_BAHN
+	pm.shader = psh
+	pm.set_shader_parameter("art", art)
+	pm.set_shader_parameter("radius", radius)
+	pm.set_shader_parameter("streu", streu)
+	pm.set_shader_parameter("tempo", tempo)
+	pm.set_shader_parameter("hoehe_streu", 12.0 if art == 0 else 8.0)
+	pm.set_shader_parameter("groesse", groesse)
+	gp.process_material = pm
+	gp.draw_pass_1 = _vogel_mesh
+	var km := ShaderMaterial.new()
+	var ksh := Shader.new()
+	ksh.code = VOGEL_KOERPER
+	km.shader = ksh
+	km.set_shader_parameter("farbe", farbe)
+	km.set_shader_parameter("gleiten", gleiten)
+	km.set_shader_parameter("flatter", flatter)
+	gp.material_override = km
+	gp.emitting = true
+	fly_world.add_child(gp)
+
+
+## Hoehe ueber Grund (oder ueber dem Meer) an (x, z).
+func _ueber_grund(x: float, z: float, hoehe: float) -> Vector3:
+	return Vector3(x, maxf(terrain.height_at(x, z), TerrainWorld.SEA_Y) + hoehe, z)
+
+
+## GROESSEN SIND STILISIERT (etwa doppelt so gross wie in echt): mit echten Spannweiten
+## (Moewe 1,8 m) war ein Vogel aus 300 m drei Bildpunkte gross und im Flug unsichtbar —
+## dieselbe Ueberlegung, aus der die Baeume des Spiels groesser sind als echte.
+func _voegel_aufbauen() -> void:
+	var weiss := Color(0.95, 0.95, 0.93)
+	var schwarz := Color(0.07, 0.07, 0.08)
+	var braun := Color(0.34, 0.24, 0.15)
+	# Moewen: einzeln kreisend, viel Gleitflug
+	_schwarm("Moewen_Stadtsee", _ueber_grund(1400, 1030, 45.0), 0, 7, 70.0, 40.0, 8.0, 3.2, weiss, 0.7, 8.0)
+	_schwarm("Moewen_Suedstrand", _ueber_grund(7300, 26100, 35.0), 0, 12, 160.0, 120.0, 9.0, 3.2, weiss, 0.7, 8.0)
+	_schwarm("Moewen_Nadelkueste", Vector3(-28500, TerrainWorld.SEA_Y + 70.0, 3300), 0, 14, 230.0, 180.0, 9.0, 3.2, weiss, 0.7, 8.0)
+	_schwarm("Moewen_Lagune", _ueber_grund(-9200, 27900, 30.0), 0, 10, 150.0, 110.0, 8.5, 3.2, weiss, 0.7, 8.0)
+	# Schwaerme ueber den Feldern: eng beisammen, schnell schlagend
+	_schwarm("Kraehen_Landdorf", _ueber_grund(-2300, 2600, 45.0), 1, 26, 180.0, 22.0, 11.0, 2.4, schwarz, 0.0, 13.0)
+	_schwarm("Stare_Silberfluss", _ueber_grund(9000, 6000, 70.0), 1, 40, 260.0, 30.0, 14.0, 1.8, schwarz, 0.0, 16.0)
+	# Greifvoegel in der Thermik: gross, langsam, fast nur gleitend
+	_schwarm("Greife_Teufelsschlucht", Vector3(-14400, PLATEAU_TOP + 70.0, 11100), 0, 4, 120.0, 90.0, 10.0, 5.5, braun, 0.92, 6.0)
+	_schwarm("Greife_Nordkette", _ueber_grund(3000, -12500, 160.0), 0, 3, 140.0, 80.0, 11.0, 5.5, braun, 0.92, 6.0)
+	var tq := _tal_punkt(TOR_LAENGS)
+	_schwarm("Greife_Hochtal", _ueber_grund(tq.x, tq.y, 220.0), 0, 3, 130.0, 70.0, 10.0, 5.5, braun, 0.92, 6.0)
+	# Raben kreisen ueber dem Krater
+	_schwarm("Raben_Vulkan", Vector3(11800, 950.0, -5600), 0, 5, 380.0, 120.0, 11.0, 3.6, schwarz, 0.5, 10.0)
 
 
 func _toast(msg: String) -> void:

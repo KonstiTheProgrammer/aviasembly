@@ -135,6 +135,10 @@ am Grund. Vor der Südostflanke liegt die **Felsenstadt**, ein Feld freistehende
 zum Slalomfliegen, und vor der Westküste die **Nadelküste**: Kreidenadeln im türkisen Meer
 mit dem **Meerestor**, einem Felsbogen, durch den man hindurchfliegen kann.
 
+Die Welt lebt: Möwen kreisen über Küsten und Seen, Krähen- und Starenschwärme ziehen über die
+Felder, Greifvögel segeln in der Thermik über Schlucht und Gebirge, der Wald wiegt sich im
+Wind, und die Schönwetterwolken stehen in langen Wolkenstraßen.
+
 **Wolken zum Durchfliegen** (alle auf der Karte):
 - **Gewitterzelle** weit draußen im Osten — 5 km hoher Turm mit Amboss, Blitzen und Regen,
   heftiger Turbulenz, Aufwind im Kern und Fallwind unter der Basis.

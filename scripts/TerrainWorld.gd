@@ -3288,9 +3288,29 @@ void fragment() {
 shader_type spatial;
 uniform float fade_start;
 uniform float fade_end;
+// WIND: die Baeume wiegen sich — die Krone mehr als der Stamm (quadratisch mit der Hoehe
+// ueber dem Fuss), und langsam wandernde Boeen laufen als Wellen durch den Wald. Die
+// Auslenkung wird in WELTRICHTUNG gerechnet und in den Raum der Instanz zurueckgedreht —
+// sonst schwankte jeder Baum in seine eigene, zufaellig gedrehte Richtung. Nur im
+// Nahbereich (dahinter sieht man es nicht, und es spart die Rechnung).
+uniform vec2 wind_richtung = vec2(0.80, 0.60);
+uniform float wind_staerke = 1.0;
 void vertex() {
 	vec3 wo = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, distance(wo, CAMERA_POSITION_WORLD));
+	float d_kam = distance(wo, CAMERA_POSITION_WORLD);
+	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, d_kam);
+	if (d_kam < 900.0 && wind_staerke > 0.0) {
+		mat3 m = mat3(MODEL_MATRIX);
+		float h_w = max((m * VERTEX).y, 0.0);
+		float phase = dot(wo.xz, vec2(0.071, 0.053));
+		float boe = 0.5 + 0.5 * sin(TIME * 0.35 - dot(wo.xz, wind_richtung) * 0.006);
+		float wind = sin(TIME * 1.4 + phase) * 0.6 + sin(TIME * 3.1 + phase * 1.7) * 0.4;
+		vec2 aus = wind_richtung * (wind * (0.35 + 0.65 * boe) + 0.5 * boe)
+			* 0.0016 * h_w * h_w * wind_staerke * (1.0 - smoothstep(600.0, 900.0, d_kam));
+		// Welt -> Instanz: m ist Drehung mal gleichmaessige Skalierung, die Inverse also
+		// transpose(m) / Skalierung^2.
+		VERTEX += transpose(m) * vec3(aus.x, 0.0, aus.y) / max(dot(m[0], m[0]), 1e-4);
+	}
 }
 void fragment() {
 	vec3 c = COLOR.rgb;

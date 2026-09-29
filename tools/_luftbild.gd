@@ -28,6 +28,11 @@ func _initialize() -> void:
 func _hin() -> void:
 	var p: Vector3 = shots[i][1]
 	var ziel: Vector3 = shots[i][2]
+	# LUFT_REL=1: y-Werte sind Hoehen UEBER DEM BODEN (sonst steht die Kamera leicht im
+	# Berg und man sieht das Gelaende von unten).
+	if OS.get_environment("LUFT_REL") != "":
+		p.y += maxf(m.terrain.height_at(p.x, p.z), TerrainWorld.SEA_Y)
+		ziel.y += maxf(m.terrain.height_at(ziel.x, ziel.z), TerrainWorld.SEA_Y)
 	var ac = m.flight_ctrl.aircraft
 	if is_instance_valid(ac):
 		ac.global_position = p + Vector3(0, 30, 0)

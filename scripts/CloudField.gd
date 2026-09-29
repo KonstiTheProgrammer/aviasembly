@@ -231,6 +231,8 @@ static func build(parent: Node3D, opts := {}) -> Node3D:
 	hgt.noise_type = FastNoiseLite.TYPE_SIMPLEX
 	hgt.frequency = 0.00085
 	hgt.seed = rng.seed + 7
+	# WOLKENSTRASSEN UND BALLUNG (siehe _setze_puff): wie stark diese Lage ihnen folgt.
+	var strassen: float = float(opts.get("strassen", STRASSEN_JE_TYP.get(typ, 0.0)))
 
 	var mat := _cloud_material()
 	# HOHE, DUENNE LAGEN laufen in den Himmel aus (siehe himmel_misch im Shader): sie sind
@@ -297,7 +299,8 @@ static func build(parent: Node3D, opts := {}) -> Node3D:
 			# Haelfte ausgeduennt. Ein unsichtbarer MeshInstance3D kostet dagegen fast nichts.
 			root.add_child(mi)
 			puffs.append(mi)
-			_setze_puff(mi, x, z, cov, hgt, layer_y, billow, cover_thresh, zellen, spacing)
+			_setze_puff(mi, x, z, cov, hgt, layer_y, billow, cover_thresh, zellen, spacing,
+				strassen)
 
 	# Fuer mitfuehren(): Feldmasse, Noise und die fertige Kinderliste am Wurzelknoten
 	# ablegen. Die Liste EINMAL bauen spart pro Aufruf ein get_children() ueber 3000 Knoten.
@@ -307,6 +310,7 @@ static func build(parent: Node3D, opts := {}) -> Node3D:
 	root.set_meta("cover_thresh", cover_thresh)
 	root.set_meta("cov", cov)
 	root.set_meta("hgt", hgt)
+	root.set_meta("strassen", strassen)
 	root.set_meta("puffs", puffs)
 	root.set_meta("mitte", Vector2.ZERO)
 	root.set_meta("zellen", zellen)
@@ -330,10 +334,45 @@ static func _gesperrt(x: float, z: float) -> bool:
 	return false
 
 
+## WOLKENSTRASSEN UND BALLUNG. Von oben lag die Kumulusdecke wie gleichmaessig verstreute
+## Wattebaeusche auf einem Raster: das Ballungsrauschen (~480 m) ist kaum groesser als der
+## Rasterabstand (340 m), jede Wolke war gleich gross, und es gab keine Ordnung darueber.
+## Echte Schoenwetterkumulus stehen in STRASSEN laengs des Windes (Abstand einige km) und
+## in grossen Feldern mit freien Gebieten dazwischen. Zwei Lagen dafuer:
+##   * Strassen: Rauschen in gedrehten Koordinaten, laengs des Windes 6x gestreckt,
+##   * Felder: sehr grobes Rauschen (~11 km), das ganze Gebiete frei oder dicht macht.
+## Je Wolkenlage gewichtet (STRASSEN_JE_TYP); die hohen Linsen folgen ihnen nicht.
+const STRASSEN_JE_TYP := {"kumulus": 1.0, "turm": 0.55, "schaefchen": 0.75, "linse": 0.0}
+const STRASSEN_WIND := Vector2(0.80, 0.60)
+static var _strassen_n: FastNoiseLite
+static var _felder_n: FastNoiseLite
+
+
+static func _strassen_wert(x: float, z: float) -> float:
+	if _strassen_n == null:
+		_strassen_n = FastNoiseLite.new()
+		_strassen_n.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		_strassen_n.frequency = 1.0
+		_strassen_n.seed = 4242
+		_felder_n = FastNoiseLite.new()
+		_felder_n.noise_type = FastNoiseLite.TYPE_SIMPLEX
+		_felder_n.frequency = 1.0 / 11000.0
+		_felder_n.seed = 4243
+	var w := STRASSEN_WIND.normalized()
+	var laengs := (x * w.x + z * w.y) / 9000.0
+	var quer := (-x * w.y + z * w.x) / 1500.0
+	return _strassen_n.get_noise_2d(laengs, quer) * 0.75 + _felder_n.get_noise_2d(x, z) * 0.55
+
+
 static func _setze_puff(mi: MeshInstance3D, x: float, z: float, cov: FastNoiseLite,
 		hgt: FastNoiseLite, layer_y: float, billow: float, cover_thresh: float,
-		zellen = null, spacing: float = 340.0) -> void:
+		zellen = null, spacing: float = 340.0, strassen := 0.0) -> void:
 	var c := cov.get_noise_2d(x, z)                     # -1..1
+	if strassen > 0.0:
+		# Das kleine Ballungsrauschen bleibt fuer die Kontur einer Wolkengruppe, die grossen
+		# Lagen entscheiden, WO Gruppen stehen. -0.10: etwas weniger Deckung als vorher —
+		# die freien Gebiete zwischen den Strassen sind der halbe Effekt.
+		c = lerpf(c, c * 0.55 + _strassen_wert(x, z) * 0.85 - 0.10, strassen)
 	mi.visible = c >= cover_thresh and not _gesperrt(x, z)   # sonst: Loch in der Decke
 	# Dichte: an den Rändern der Wolkenfelder dünn/klein, in den Zentren dick/groß.
 	var dens := smoothstep(cover_thresh, cover_thresh + 0.55, c)
@@ -341,7 +380,11 @@ static func _setze_puff(mi: MeshInstance3D, x: float, z: float, cov: FastNoiseLi
 	# Ebene, sondern verteilt über verschiedene Höhen (wirkt natürlicher, weniger "Block").
 	var cy: float = layer_y + hgt.get_noise_2d(x, z) * billow + float(mi.get_meta("yj", 0.0))
 	mi.position = Vector3(x, cy, z)
-	mi.scale = Vector3.ONE * lerp(0.65, 1.4, dens) * float(mi.get_meta("sk", 1.0))
+	# GROESSENVIELFALT: im Kern einer Strasse wachsen die Wolken zu grossen Massen zusammen,
+	# am Rand bleiben kleine Fetzen. Vorher lag alles zwischen 0,52 und 1,68 und las sich
+	# von oben als gleichfoermiges Punktmuster.
+	var gross := dens * dens
+	mi.scale = Vector3.ONE * lerp(0.48, 1.85, gross) * float(mi.get_meta("sk", 1.0))
 
 	# --- Zellenregister fuer dichte_bei() ---------------------------------------------
 	# Ohne das muesste jede Abfrage "steckt der Spieler in einer Wolke" ueber alle 15892
@@ -501,6 +544,7 @@ static func mitfuehren(root: Node3D, mitte: Vector3, pass_weg := 200.0) -> int:
 	var cover_thresh: float = root.get_meta("cover_thresh", -0.05)
 	var cov: FastNoiseLite = root.get_meta("cov")
 	var hgt: FastNoiseLite = root.get_meta("hgt")
+	var strassen: float = root.get_meta("strassen", 0.0)
 	var puffs: Array = root.get_meta("puffs")
 	var zellen: Dictionary = root.get_meta("zellen", {})
 	var spacing: float = root.get_meta("spacing", 340.0)
@@ -529,7 +573,7 @@ static func mitfuehren(root: Node3D, mitte: Vector3, pass_weg := 200.0) -> int:
 		if kx == 0 and kz == 0:
 			continue
 		_setze_puff(mi, p.x - float(kx) * kante, p.z - float(kz) * kante,
-			cov, hgt, layer_y, billow, cover_thresh, zellen, spacing)
+			cov, hgt, layer_y, billow, cover_thresh, zellen, spacing, strassen)
 		umgeschlagen += 1
 	root.set_meta("cursor", (cursor + wieviel) % n)
 	return umgeschlagen
@@ -670,20 +714,29 @@ static func _form_turm(src_kern: SphereMesh, src_schulter: SphereMesh,
 	var s := rng.randf_range(44.0, 60.0)
 	var basis_y := -0.50 * s
 	var traeger: Array = []
-	var n := rng.randi_range(3, 4)
+	var n := rng.randi_range(5, 6)
 	var y := basis_y + 0.62 * s
 	var drift := Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)).normalized()
 	for i in n:
-		# Der Stapel verjuengt sich nach oben und lehnt sich leicht in eine Richtung —
-		# senkrecht uebereinander gesetzte Kugeln lesen sich als Schneemann.
-		var f := 1.0 - 0.20 * float(i)
-		var r := Vector3(0.92 * s * f, 0.86 * s * f, 0.92 * s * f)
-		var seit := drift * (float(i) * rng.randf_range(0.10, 0.26) * s)
+		# Der Stapel verjuengt sich nach oben und lehnt sich leicht in eine Richtung.
+		# DICHT GESTAPELT (Schritt 0,55..0,75 Radius) UND MIT SEITENWUELSTEN JE EBENE: mit
+		# einem Schritt von mehr als einem Radius standen einzelne Kugeln uebereinander, und
+		# jeder Turm am Horizont war ein Schneemann.
+		var f := 1.0 - 0.13 * float(i)
+		var r := Vector3(0.92 * s * f, 0.80 * s * f, 0.92 * s * f)
+		var seit := drift * (float(i) * rng.randf_range(0.08, 0.18) * s)
 		var m := Vector3(seit.x, y, seit.y)
 		traeger.append([m, r])
 		st.append_from(src_kern if i == 0 else src_schulter, 0,
 			Transform3D(Basis().scaled(r), m))
-		y += r.y * rng.randf_range(1.05, 1.30)
+		for k in rng.randi_range(1, 2):
+			var ang := rng.randf() * TAU
+			var rw := r * rng.randf_range(0.50, 0.68)
+			var mw := m + Vector3(cos(ang) * r.x * 0.62, rng.randf_range(-0.2, 0.25) * r.y,
+				sin(ang) * r.z * 0.62)
+			traeger.append([mw, rw])
+			st.append_from(src_schulter, 0, Transform3D(Basis().scaled(rw), mw))
+		y += r.y * rng.randf_range(0.55, 0.75)
 	# Schultern nur unten: die Saeule soll auf einem breiten Fuss stehen.
 	for i in rng.randi_range(2, 3):
 		var ang := rng.randf() * TAU

@@ -331,6 +331,28 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
   `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
 
+## Lebendige Welt (2026-09): Wolkenstrassen, Baumwind, Voegel
+- WOLKENSTRASSEN (`CloudField._strassen_wert`, `STRASSEN_JE_TYP`): die Deckung der
+  wandernden Decken folgt zusaetzlich Strassen laengs des Windes (Rauschen 9 km x 1,5 km
+  gedreht) und Feldern (~11 km); Groesse nach Dichte quadratisch 0,48..1,85. Vorher ein
+  gleichmaessiges Wattebausch-Raster (Ballung ~480 m bei 340 m Rasterabstand).
+- TURMWOLKEN (`_form_turm`): 5-6 Ebenen, Schritt 0,55-0,75 Radius, Seitenwuelste je Ebene —
+  vorher Kugeln im Abstand > Radius = Schneemaenner am Horizont.
+- BAUMWIND (Flora-Shader in TerrainWorld.setup): Auslenkung ~Hoehe², Boeen als wandernde
+  Welle, in WELTRICHTUNG gerechnet und per transpose(m)/s² in den Instanzraum gedreht
+  (jeder Baum ist beliebig gedreht). Nur bis 900 m. Kosten nicht messbar.
+- VOEGEL (`Main._voegel_aufbauen`, `_schwarm`): je Schwarm EIN GPUParticles3D, Bahn im
+  Partikel-Shader aus TIME (Kreis bzw. Schwarm um wanderndes Zentrum), Fluegelschlag im
+  Zeichen-Shader. Moewen an den Kuesten, Kraehen/Stare ueber Feldern, Greife ueber
+  Schlucht/Kette/Hochtal, Raben am Vulkan. Groessen stilisiert (~2x echt). FALLE: das erste
+  Vogelnetz lag in EINER Ebene — von gleicher Hoehe aus unsichtbar (per capture_aabb
+  belegt: die Partikel waren da). Jetzt Rumpf mit Volumen, Moewenfluegel mit V-Stellung,
+  Kreisende legen sich 20-35 Grad in die Kurve.
+- WERKZEUGE: `_gefuehl_bilder.gd` haelt das Flugzeug waehrend des Wartens fest (sonst flog
+  es Kilometer weiter, Chunks am Startpunkt wurden abgebaut, im Bild ein blasses Band, das
+  im Spiel nicht existiert), `GEFUEHL_OHNE=fern|wasser|wolken|formationen` zum Eingrenzen;
+  `_luftbild.gd` mit `LUFT_REL=1` = Hoehen ueber Grund.
+
 ## Sondergelaende der Hauptinsel (2026-09): Kalkplateau, Teufelsschlucht, Felsenstadt, Nadelkueste
 Orte zum Herumfliegen, alle im HOEHENFELD (Kollision, Farbe, Bewuchs, Karte, Fernschuerze
 gratis). Lage/Masse in `Main._sondergelaende` (feste Seeds), Gelaende in TerrainWorld
