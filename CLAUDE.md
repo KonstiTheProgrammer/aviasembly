@@ -248,7 +248,7 @@ README.md                Steuerung + Feature-Überblick (Spielersicht).
 - STREAMING: 2 eigene Worker-Faeden (`WORKER_FAEDEN`, Messreihe dort) — die Chunks kosten
   ~50 % mehr; im WorkerThreadPool standen sie hinter der Fernschuerze (schlechter als 1 Faden).
   Jeder Faden kostet den Hauptfaden Zeit: CPU je Flugframe jetzt ~1,8 ms (vorher ~1,2).
-- Wasserplatte 7,4 × VIEW_DIST (Fernebene ist eine Ebene: seitlich reicht die Sicht weiter).
+- Wasser: siehe Abschnitt „Wasser" (Meeresscheibe bis zum Horizont statt Platte).
 - KARTE: Feinstufe (2048) wartet, bis die Fernschuerze steht (sonst 36 s Horizont beim Start,
   jetzt 4,6 s; die Feinstufe braucht dafuer ~64 s statt 48). Hangschattierung in
   `WorldMap._zeile` ist SYMMETRISCH (Gefaelle · Lichtrichtung, kein Lambert): Lambert dunkelt
@@ -257,6 +257,49 @@ README.md                Steuerung + Feature-Überblick (Spielersicht).
 - Belege: `_luftbild.gd`, `_welt_uebersicht.gd`, `_ruck_check.gd` (Rueckstand in Baumreichweite
   ~30 wie vorher), Hochtal-Checks (`_gebirge_check`, `_kaverne_*`, `_tor_check`) unveraendert.
   `_haupt_pruefsumme.gd` gilt ab jetzt fuer den NEUEN Stand (Eingriffe an Regionen pruefen).
+
+## Wasser (Umbau 2026-09: undurchsichtig, Tiefentextur, Meer bis zum Horizont)
+Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebunden von
+`water.gdshader` (UNDURCHSICHTIG + `EIGENER_DUNST`: Meer, Fluesse) und `water_see.gdshader`
+(`DURCHSICHTIG`: Inlandseen, klein im Bild). Materialien baut `TerrainWorld._water_mat`.
+- GEMESSEN (`tools/_wasser_zeit.gd`, 4K MSAA 4x, mit/ohne Wasser): alt 2,8 / 3,4 / 3,5 ms
+  (Strand / Gegenlicht / offene See 2,5 km), neu −0,1 / 0,3 / 1,3 ms. Die Posten waren:
+  Tiefenpuffer lesen (~1 ms: Godot kopiert/loest ihn auf, sobald EIN sichtbares Material
+  `hint_depth_texture` nutzt), Mischen der durchsichtigen Flaeche (~1 ms), anisotrope
+  Filterung der Wellentextur (1–2 ms!). Undurchsichtiges Wasser verdeckt dafuer im
+  Tiefen-Vorpass den Meeresgrund — deshalb am Strand billiger als gar kein Wasser.
+- TIEFE OHNE TIEFENPUFFER: zwei Hoehentexturen. FEIN = 8-m-Raster der geladenen Chunks
+  (`_make_chunk_data` liefert je Chunk einen 48×48-Block `tiefe`, `_tiefe_eintragen`
+  blittet ihn RINGFOERMIG in ein 1152²-RH-Bild — Chunk (kx,kz) → Block (kx mod 24, kz mod
+  24); abgebaute Chunks bekommen `TIEFE_LEER` = 20000; Upload hoechstens alle 0,12 s).
+  Der Shader interpoliert EXAKT die zwei Dreiecke je Zelle wie das Gelaendenetz. GROB =
+  rohe Hoehen der Weltkarte (`WorldMap.generate_image(..., hoehen_aus)` → Main
+  `_wasser_grund_bild`/`_wasser_grund_setzen` → `setze_grobe_tiefe`), 512 dann 2048 px.
+  Durchsichtigkeit wird nachgebildet: `grund_col` (Sand; je Klima in `_wasser_klima`)
+  scheint mit exp(−Tiefe/`klarheit`) durch.
+- MEER BIS ZUM HORIZONT (`unendlich`): Netz `_meer_scheibe` traegt nur ein Ringmass s; der
+  Vertex-Shader legt s = 1 auf den Kreis, in dem die Meeresebene die Kugel `schale_r`
+  (= 0,975 × Fernebene, `setze_sichtweite`) schneidet, und zieht alles dahinter auf dem
+  Sichtstrahl auf die Kugel. FALLE: mit FESTEN Ringradien entstand zwischen letztem
+  ebenen und erstem herangezogenen Ring eine Rampe (aus 700 m bis 140 m hoch), die ferne
+  Felder als graue Flaeche verdeckte. Jenseits der Fernebene malt die Scheibe Land aus der
+  Grobkarte als dunstige Silhouette (`land_col`).
+- EIGENER DUNST (`fog_disabled`): Godots Nebel saehe hinter der Kugel nur deren Radius →
+  Knick im Verlauf, aus 2,5 km Hoehe ein Bogen quer durchs Meer. Der Shader rechnet
+  Godots Formel selbst mit der ECHTEN Entfernung; Farbe/Dichte aus der Umgebung
+  (`setze_nebel_licht` einmal nach setup, `setze_dunst` je Frame aus
+  `Main._wolken_aufenthalt`): Nebellicht (linear) gemischt mit sky `col_deep` um
+  `fog_aerial_perspective`, plus Sonnenstreuung.
+- WELLEN: `shaders/wasser_wellen.res` (von `tools/_wellen_textur.gd`): kachelbare Summe von
+  56 Sinuswellen mit ganzzahligen Wellenvektoren, RGBA-Halbfloat = (dh/du, dh/dv, h,
+  Schaumnetz), Mipmaps. Fuenf Oktaven (Duenung doppelt → wandernde Gruppen) je EIN Abruf;
+  kurze Oktaven und Schaumnetz entfallen in der Ferne. KEINE Anisotropie (s. Messung).
+  Brandung: Linien gleicher TIEFE laufen aufs Ufer zu (`brandung*`), Schaumkronen auf
+  Kaemmen in rauen Windfeldern (`weisskappen`, `windfelder`), Durchleuchtung im Gegenlicht.
+- Werkzeuge: `_wasser_zeit.gd` (GPU-Preis, 4K), `_tiefe_upload_zeit.gd` (Upload im Fenster —
+  headless ist `ImageTexture.update` ein Leerlauf), `_luftbild.gd` (wartet jetzt bis 9000
+  Frames auf die Schuerze: nach einem 20-km-Sprung braucht die grobe Stufe ~67 s, solange
+  die 2048er-Karte rechnet — vorher entstanden Bilder mit fehlender Kachel).
 
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
 Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen

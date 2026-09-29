@@ -154,7 +154,7 @@ const STUFE_RUHE := [0.4, 0.2, 0.12]           # Anteil des weichen Farbfelds
 ## die Kachel wird danach noch beschnitten.
 static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 		vorrang := true, faeden := 4, stopp: Array = [false], mitte := Vector2.ZERO,
-		detail := 0) -> Image:
+		detail := 0, hoehen_aus: Array = []) -> Image:
 	var zelle := 2.0 * world_r / float(kante - 1)
 	var sperre := Mutex.new()
 	var t0 := Time.get_ticks_usec()
@@ -212,6 +212,9 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 		hs.append_array(zeilen_h[i])
 		ks.append_array(zeilen_k[i])
 	zeiten.append((Time.get_ticks_usec() - t0) / 1000.0)
+	# Die ROHEN Hoehen braucht auch das Wasser (Tiefe jenseits der geladenen Chunks,
+	# TerrainWorld.setze_grobe_tiefe) — sie sind hier ohnehin schon gerechnet.
+	hoehen_aus.append(hs)
 
 	# GEGLAETTETE HOEHEN (fuer Relief, Hoehenlinien UND die Farbwahl): auf GLATT_M
 	# herunter und kubisch wieder hoch.

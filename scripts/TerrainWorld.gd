@@ -2357,16 +2357,18 @@ func klima_gewicht(x: float, z: float) -> Vector3:
 	return w
 
 
-# Wasserfarben je Klima: [flach, Lagune, tief, Ferne]. Die Hauptinsel behaelt die
-# Standardwerte des Shaders (water.gdshader).
+# Wasserfarben je Klima: [flach, Lagune, tief, Grund]. Die Hauptinsel behaelt die
+# Standardwerte des Shaders (wasser_kern.gdshaderinc). Grund = was in der Untiefe
+# durchscheint: Strandsand, im Norden grauer Kies, im Sueden heller Korallensand, im
+# Westen roetlicher Sand.
 const WASSER_HAUPT := [Color(0.32, 0.80, 0.78), Color(0.15, 0.55, 0.68),
-	Color(0.06, 0.29, 0.55), Color(0.0, 0.233, 0.440)]
+	Color(0.06, 0.29, 0.55), Color(0.80, 0.72, 0.52)]
 const WASSER_NORD := [Color(0.30, 0.50, 0.52), Color(0.13, 0.34, 0.42),
-	Color(0.04, 0.19, 0.32), Color(0.02, 0.15, 0.26)]
+	Color(0.04, 0.19, 0.32), Color(0.52, 0.53, 0.50)]
 const WASSER_SUED := [Color(0.36, 0.90, 0.80), Color(0.10, 0.64, 0.72),
-	Color(0.04, 0.33, 0.56), Color(0.0, 0.26, 0.46)]
+	Color(0.04, 0.33, 0.56), Color(0.90, 0.86, 0.72)]
 const WASSER_WEST := [Color(0.34, 0.74, 0.72), Color(0.14, 0.50, 0.62),
-	Color(0.06, 0.27, 0.50), Color(0.0, 0.22, 0.42)]
+	Color(0.06, 0.27, 0.50), Color(0.80, 0.62, 0.44)]
 var _wasser_klima_pos := Vector3(1.0e9, 0.0, 0.0)
 
 
@@ -2383,7 +2385,7 @@ func _wasser_klima(pos: Vector3) -> void:
 	var m := _water.material_override as ShaderMaterial
 	if m == null:
 		return
-	var namen := ["shallow_col", "mid_col", "deep_col", "far_col"]
+	var namen := ["shallow_col", "mid_col", "deep_col", "grund_col"]
 	for k in 4:
 		var c: Color = WASSER_HAUPT[k]
 		c = c.lerp(WASSER_NORD[k], w.x).lerp(WASSER_SUED[k], w.y).lerp(WASSER_WEST[k], w.z)
@@ -2994,6 +2996,31 @@ var _water: MeshInstance3D
 # gesetzt; der Vorgabewert hier ist nur eine Notbremse, falls das jemand vergisst.
 var sonne_richtung := Vector3(0.55, 0.62, 0.55).normalized()
 var _wasser_mats: Array[ShaderMaterial] = []
+# --- WASSERTIEFE FUER DEN WASSER-SHADER -------------------------------------------------
+# Das Wasser liest die Tiefe nicht mehr aus dem Tiefenpuffer (Begruendung und Messung in
+# shaders/wasser_kern.gdshaderinc), sondern aus der Gelaendehoehe:
+#   FEIN: das 8-m-Hoehenraster JEDES geladenen Chunks, RINGFOERMIG adressiert — der Chunk
+#         (kx, kz) liegt immer im Block (kx mod 24, kz mod 24). 24 Chunks = 9216 m, mehr
+#         als der Durchmesser der geladenen Flaeche (2 x (VIEW_DIST + 1,5 CHUNK) = 8752 m),
+#         also teilen sich nie zwei geladene Chunks einen Block. Abgebaute Chunks werden mit
+#         TIEFE_LEER ueberschrieben, dort gilt dann die Grobkarte.
+#   GROB: die Hoehen der Weltkarte (Main, 512 dann 2048 Punkte fuer die ganze Welt).
+const TIEFE_N := 1152
+const TIEFE_LEER := 20000.0
+# Hochladen hoechstens so oft: im Reiseflug kommt fast jeden Frame ein Chunk dazu, die
+# Textur sind 2,6 MB.
+const TIEFE_UPLOAD_S := 0.12
+var _tiefe_img: Image
+var _tiefe_tex: ImageTexture
+var _tiefe_leer: Image
+var _tiefe_dirty := false
+var _tiefe_upload_t := -1.0
+var _grob_tex: ImageTexture
+var _grob_r := 0.0
+var _grob_n := 0
+var _wellen_tex: Texture2D
+var _schale_r := 8800.0
+var _dunst := 0.00013
 var _last_cc := Vector2i(2147483647, 0)   # zuletzt verarbeitete Spieler-Chunk-Zelle
 var _last_pos := Vector3.ZERO
 
@@ -3257,26 +3284,20 @@ void fragment() {
 	_flora_mat.shader = fsh
 	_flora_fade_setzen()
 	# Wasserfläche (rein optisch; Kollision = WorldBoundary bei SEA_Y in Main)
+	_tiefe_vorbereiten()
 	_water = MeshInstance3D.new()
-	var wm := PlaneMesh.new()
-	# UEBER DIE FERNEBENE HINAUS, NICHT NUR UEBER DIE CHUNKS.
-	#
-	# Mit 2.4 lag die Kante der mitlaufenden Platte bei 4560 m — die Kamera sieht aber
-	# weiter. Ueber Land faellt das nie auf, weil dort Gelaende steht; ueber offener See
-	# stand im Bild eine schnurgerade diagonale Naht quer durch das Wasser, an der die
-	# Platte auf das Meer der Fernschuerze traf (aufgefallen erst, als die Insel groesser
-	# wurde und es ueberhaupt offene See zu sehen gab).
-	# 5.0 gibt 9500 m halbe Kante und liegt damit hinter der Fernebene der Kamera. Die
-	# Platte bleibt zwei Dreiecke — das kostet nichts.
-	# 7.4 STATT 5.0 (14 km halbe Kante): die Fernebene ist eine EBENE, keine Kugel. An den
-	# Bildraendern (16:9, 64 Grad vertikal = ~90 Grad horizontal) reicht die Sicht bei 9 km
-	# Tiefe seitlich bis ~12,7 km — dort endete die Platte bei 9,5 km, und im Gegenlicht
-	# stand ihre gerade Kante als heller Streifen im Meer.
-	wm.size = Vector2(VIEW_DIST * 7.4, VIEW_DIST * 7.4)
-	_water.mesh = wm
-	_water.position = Vector3(0, SEA_Y + 0.15, 0)
-	# Tropisches Tiefen-Wasser (Shader): tuerkise Untiefen -> Lagune -> tiefes Blau
-	# ueber den Tiefenpuffer, Schaumkante am Ufer, Fresnel-Himmelsspiegelung.
+	# MEERESSCHEIBE BIS ZUM HORIZONT. Vorher eine mitlaufende Platte (zuletzt 28 km), die
+	# an der Fernebene der Kamera (9 km) endete: ab ~700 m Flughoehe stand ihre Kante als
+	# Linie tief unter dem Horizont, darueber ein flaches Band Himmelsfarbe. Jetzt legt der
+	# Vertex-Shader die Scheibe um die Kamera und zieht alles jenseits der Fernebene auf den
+	# Sichtstrahl heran (siehe "UNENDLICHES MEER" in shaders/wasser_kern.gdshaderinc).
+	_water.mesh = _meer_scheibe()
+	# Der Knoten bleibt im Ursprung, der Shader legt die Scheibe um die Kamera. Sie ist
+	# also IMMER im Bild — die Box nur so gross, dass nie etwas wegschneidet.
+	_water.custom_aabb = AABB(Vector3(-2.0e7, -100.0, -2.0e7), Vector3(4.0e7, 200.0, 4.0e7))
+	_water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Tropisches Tiefen-Wasser (Shader): tuerkise Untiefen -> Lagune -> tiefes Blau,
+	# Brandung und Schaum am Ufer, Fresnel-Himmelsspiegelung.
 	_water.material_override = _water_mat(MEER)
 	add_child(_water)
 	# Inland-Seen: DERSELBE Shader wie das Meer, nur ruhiger parametriert. Frueher hing
@@ -5189,12 +5210,6 @@ func _build_lake_water(lk: Dictionary) -> void:
 		# selbst ungleich breit, ohne eine einzige neue Farbe.
 		# Stadtsee und Canyonsee behalten 3.0 — sie sind weiter nur 4 m tief.
 		wm.set_shader_parameter("depth_fade", 9.0)
-		# UND DIE UNTIEFE MUSS FARBE HABEN. alpha_shallow 0.40 heisst: in den Untiefen sieht
-		# man zu 60 % den Grund. Das ist am Meeresschelf richtig, hier war es der Grund fuer
-		# den milchigen Ring — der Kies darunter ist die hellste Flaeche des Tals. Mit 0.68
-		# steht ueber dem Schelf Wasser statt Dunst; der Kies scheint noch durch, gibt dem
-		# Tuerkis aber nur seine Helligkeit und nicht mehr seine Farbe.
-		wm.set_shader_parameter("alpha_shallow", 0.68)
 		# Kraeftigeres Tuerkis fuer den Schelf und ein tiefes Petrol dahinter. Der alte
 		# shallow_col (0.30/0.63/0.60) war ein Graugruen — auf 40 % Deckung blieb davon
 		# nichts uebrig.
@@ -5288,7 +5303,32 @@ const FLUSS := 2
 ## dieselben Zahlen auf die 9,1-km-Meeresplatte wie auf ein 30 m breites Flussband.
 func _water_mat(typ: int) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
-	m.shader = load("res://shaders/water.gdshader")
+	# Seen durchsichtig (klein im Bild), Meer und Fluesse undurchsichtig — Begruendung und
+	# Messung in shaders/wasser_kern.gdshaderinc.
+	m.shader = load("res://shaders/water_see.gdshader" if typ == SEE
+		else "res://shaders/water.gdshader")
+	m.set_shader_parameter("wellen_tex", _wellen_tex)
+	m.set_shader_parameter("tiefe_fein", _tiefe_tex)
+	m.set_shader_parameter("fein_da", _tiefe_tex != null)
+	m.set_shader_parameter("fein_n", TIEFE_N)
+	m.set_shader_parameter("fein_zelle", CHUNK / float(CELLS))
+	m.set_shader_parameter("fein_mitte", Vector2(_last_pos.x, _last_pos.z))
+	# Bis hier stehen Chunks sicher (VIEW_DIST um den Spieler, die Kamera haengt etwas
+	# dahinter); dahinter blendet der Shader auf die Grobkarte.
+	m.set_shader_parameter("fein_r", VIEW_DIST - 250.0)
+	if _grob_tex != null:
+		m.set_shader_parameter("tiefe_grob", _grob_tex)
+		m.set_shader_parameter("grob_da", true)
+		m.set_shader_parameter("grob_r", _grob_r)
+		m.set_shader_parameter("grob_n", float(_grob_n))
+	if typ == MEER:
+		m.set_shader_parameter("unendlich", true)
+		m.set_shader_parameter("wasser_y", SEA_Y + 0.15)
+		m.set_shader_parameter("schale_r", _schale_r)
+		m.set_shader_parameter("dunst_dichte", _dunst)
+		m.set_shader_parameter("brandung", 1.0)
+		m.set_shader_parameter("weisskappen", 0.45)
+		m.set_shader_parameter("windfelder", 1.0)
 	if typ == SEE:
 		# 3,0 m statt 6,5: das Becken ist nur 4 m tief (surf-4 in height_at). Mit einem
 		# Verlauf ueber 6,5 m blieb der ganze See in der hellen Uferfarbe stehen und sah
@@ -5313,16 +5353,14 @@ func _water_mat(typ: int) -> ShaderMaterial:
 		m.set_shader_parameter("ripple_len", 1.5)
 		m.set_shader_parameter("ripple_amp", 0.011)
 		m.set_shader_parameter("ripple_speed", 1.53)
-		# Binnengewaesser sind KLAR: in den Untiefen soll der Grund durchscheinen, nicht
-		# ein tuerkiser Deckel liegen. Am Meer bleibt es deckender (Schwebstoffe, Gischt).
-		m.set_shader_parameter("alpha_shallow", 0.40)
-		m.set_shader_parameter("alpha_deep", 0.85)
 		m.set_shader_parameter("deep_col", Color(0.07, 0.27, 0.44))
-		# Binnengewaesser sind nie 2,6 km weit weg -> keine Weltkanten-Angleichung.
-		m.set_shader_parameter("far_start", 9000.0)
-		m.set_shader_parameter("far_end", 9500.0)
 	elif typ == FLUSS:
-		m.set_shader_parameter("depth_fade", 3.2)
+		# UNDURCHSICHTIG seit dem Wasser-Umbau: der Grund scheint nur noch nachgebildet
+		# durch (grund_col/klarheit unten). Mit dem alten depth_fade 3.2 lag der ganze Fluss
+		# in deep_col — ein dunkelblaues Band. 5 m Verlauf und klareres Wasser geben den
+		# Kiesgrund und das Gruen-Tuerkis zurueck, das er als durchsichtige Flaeche hatte.
+		m.set_shader_parameter("depth_fade", 5.0)
+		m.set_shader_parameter("mid_col", Color(0.18, 0.50, 0.52))
 		m.set_shader_parameter("foam_band", 0.30)
 		m.set_shader_parameter("waterline", 0.12)
 		m.set_shader_parameter("foam_strength", 0.14)
@@ -5339,12 +5377,10 @@ func _water_mat(typ: int) -> ShaderMaterial:
 		m.set_shader_parameter("ripple_len", 1.3)
 		m.set_shader_parameter("ripple_amp", 0.012)
 		m.set_shader_parameter("ripple_speed", 2.93)
-		m.set_shader_parameter("ripple_fade", 500.0)
-		m.set_shader_parameter("alpha_shallow", 0.28)
-		m.set_shader_parameter("alpha_deep", 0.80)
-		m.set_shader_parameter("deep_col", Color(0.09, 0.32, 0.46))
-		m.set_shader_parameter("far_start", 9000.0)
-		m.set_shader_parameter("far_end", 9500.0)
+		m.set_shader_parameter("deep_col", Color(0.11, 0.36, 0.46))
+		# Flussgrund: Kies statt Strandsand.
+		m.set_shader_parameter("grund_col", Color(0.62, 0.58, 0.46))
+		m.set_shader_parameter("klarheit", 1.4)
 	m.set_shader_parameter("sun_dir", sonne_richtung)
 	_wasser_mats.append(m)
 	return m
@@ -5362,22 +5398,153 @@ func setze_sonne(richtung: Vector3) -> void:
 		m.set_shader_parameter("sun_dir", richtung)
 
 
+## Tiefenraster, Wellentextur und Leer-Block anlegen (vor dem ersten Wassermaterial).
+func _tiefe_vorbereiten() -> void:
+	_tiefe_img = Image.create(TIEFE_N, TIEFE_N, false, Image.FORMAT_RH)
+	_tiefe_img.fill(Color(TIEFE_LEER, 0.0, 0.0))
+	_tiefe_tex = ImageTexture.create_from_image(_tiefe_img)
+	_tiefe_leer = Image.create(CELLS, CELLS, false, Image.FORMAT_RH)
+	_tiefe_leer.fill(Color(TIEFE_LEER, 0.0, 0.0))
+	_wellen_tex = ImageTexture.create_from_image(load("res://shaders/wasser_wellen.res"))
+
+
+## Traegt den Hoehenblock eines Chunks in das ringfoermige Tiefenraster ein.
+func _tiefe_eintragen(key: Vector2i, block: Image) -> void:
+	if _tiefe_img == null or block == null:
+		return
+	var n := roundi(float(TIEFE_N) / float(CELLS))     # 24 Bloecke je Kante
+	_tiefe_img.blit_rect(block, Rect2i(0, 0, CELLS, CELLS),
+		Vector2i(posmod(key.x, n) * CELLS, posmod(key.y, n) * CELLS))
+	_tiefe_dirty = true
+
+
+func _tiefe_hochladen() -> void:
+	var t0 := Time.get_ticks_usec() if profil_an else 0
+	_tiefe_tex.update(_tiefe_img)
+	_tiefe_dirty = false
+	_tiefe_upload_t = Time.get_ticks_msec() * 0.001
+	_pz("tiefe_upload", t0)
+	if profil_an:
+		profil["tiefe_upload_n"] = float(profil.get("tiefe_upload_n", 0.0)) + 1.0
+
+
+## MEERESSCHEIBE: Ringe um den Ursprung mit dem RINGMASS s statt eines Radius. Der
+## Vertex-Shader legt s = 1 auf den Kreis, in dem die Meeresebene die Fernkugel schneidet,
+## und zieht alles mit s > 1 auf die Kugel (siehe "FALLE" in wasser_kern.gdshaderinc).
+## Innen muessen die Ringe nur die Ebene tragen, aussen die Bildflaeche bis zum Horizont
+## decken; das Fragment rechnet ohnehin mit dem echten Schnittpunkt.
+func _meer_scheibe() -> ArrayMesh:
+	var ringe := PackedFloat32Array([0.0, 0.004, 0.012, 0.03, 0.07, 0.15, 0.3, 0.5, 0.75, 1.0,
+		1.08, 1.2, 1.4, 1.8, 2.6, 4.0, 7.0, 14.0, 40.0, 150.0, 1000.0, 1.0e4, 1.0e6])
+	const SEG := 96
+	var v := PackedVector3Array()
+	var n := PackedVector3Array()
+	var idx := PackedInt32Array()
+	v.append(Vector3.ZERO)
+	n.append(Vector3.UP)
+	for r in range(1, ringe.size()):
+		for i in SEG:
+			var a := TAU * float(i) / float(SEG)
+			v.append(Vector3(cos(a) * ringe[r], 0.0, sin(a) * ringe[r]))
+			n.append(Vector3.UP)
+	for i in SEG:
+		idx.append_array([0, 1 + (i + 1) % SEG, 1 + i])
+	for r in range(1, ringe.size() - 1):
+		var a0 := 1 + (r - 1) * SEG
+		var b0 := 1 + r * SEG
+		for i in SEG:
+			var k := (i + 1) % SEG
+			idx.append_array([a0 + i, a0 + k, b0 + k, a0 + i, b0 + k, b0 + i])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = v
+	arr[Mesh.ARRAY_NORMAL] = n
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh
+
+
+## GROBE TIEFE: Hoehen der ganzen Welt aus der Weltkarte (Main), Bild in FORMAT_RH, Punkt
+## (0,0) bei (-world_r, -world_r), Punkt (n-1, n-1) bei (+world_r, +world_r).
+func setze_grobe_tiefe(img: Image, world_r: float) -> void:
+	_grob_tex = ImageTexture.create_from_image(img)
+	_grob_r = world_r
+	_grob_n = img.get_width()
+	print("Wassergrund: Grobkarte %d px (%.0f m je Punkt)" % [_grob_n, 2.0 * world_r / float(_grob_n - 1)])
+	for m in _wasser_mats:
+		m.set_shader_parameter("tiefe_grob", _grob_tex)
+		m.set_shader_parameter("grob_da", true)
+		m.set_shader_parameter("grob_r", _grob_r)
+		m.set_shader_parameter("grob_n", float(_grob_n))
+
+
+## NEBEL FUER DAS WASSER. Meer und Fluesse rechnen ihren Dunst selbst (EIGENER_DUNST in
+## wasser_kern.gdshaderinc) — nach derselben Formel wie Godot und aus DENSELBEN Werten, die
+## Main der Umgebung gibt. Einmal die festen Groessen (Luftperspektive, Sonnenstreuung,
+## Himmel unter dem Horizont), dann laufend Dichte und Nebelfarbe.
+var _nebel_luft := 0.62
+var _nebel_himmel := Color(0.066, 0.136, 0.269)      # linear
+var _nebel_farbe := Color(0.75, 0.82, 0.92)          # sRGB, wie die Umgebung
+
+
+func setze_nebel_licht(env: Environment, sonne: DirectionalLight3D) -> void:
+	_nebel_luft = env.fog_aerial_perspective
+	_nebel_farbe = env.fog_light_color
+	var himmel := env.sky.sky_material as ShaderMaterial if env.sky != null else null
+	if himmel != null and himmel.shader != null:
+		var tief: Variant = himmel.get_shader_parameter("col_deep")
+		if tief == null:
+			tief = RenderingServer.shader_get_parameter_default(himmel.shader.get_rid(), "col_deep")
+		if tief is Color:
+			_nebel_himmel = (tief as Color).srgb_to_linear()
+		elif tief is Vector3:
+			var v: Vector3 = tief
+			_nebel_himmel = Color(v.x, v.y, v.z).srgb_to_linear()
+	var st := Vector3.ZERO
+	if sonne != null:
+		var c := sonne.light_color.srgb_to_linear() * sonne.light_energy * env.fog_sun_scatter
+		st = Vector3(c.r, c.g, c.b)
+	for m in _wasser_mats:
+		m.set_shader_parameter("dunst_sonne", st)
+	_dunst = -1.0
+	setze_dunst(env.fog_density, env.fog_light_color)
+
+
+## Aktuelle Nebeldichte und -farbe (Main._wolken_aufenthalt, jedes Bild).
+func setze_dunst(dichte: float, farbe: Color) -> void:
+	if absf(dichte - _dunst) < 1.0e-8 and farbe.is_equal_approx(_nebel_farbe):
+		return
+	_dunst = dichte
+	_nebel_farbe = farbe
+	var c := farbe.srgb_to_linear().lerp(_nebel_himmel, _nebel_luft)
+	for m in _wasser_mats:
+		m.set_shader_parameter("dunst_dichte", dichte)
+		m.set_shader_parameter("dunst_col", Vector3(c.r, c.g, c.b))
+
+
+## Fernebene der Kamera: die Meeresscheibe muss knapp davor enden.
+func setze_sichtweite(fern: float) -> void:
+	_schale_r = fern * 0.975
+	if _water != null:
+		(_water.material_override as ShaderMaterial).set_shader_parameter("schale_r", _schale_r)
+
+
 func update_center(world_pos: Vector3) -> void:
 	var t_k := Time.get_ticks_usec() if profil_an else 0
 	_chunks_pflegen(world_pos)
 	_pz("pflege", t_k)
 	_last_pos = world_pos
-	# Wasser folgt dem Spieler (riesige Platte, aber endlich). Das WELLENMUSTER folgt
-	# NICHT mit: water.gdshader tastet die Weltposition des Fragments ab, nicht die UV
-	# des Meshes. Frueher flog das ganze Muster mit dem Flugzeug mit und stand deshalb
-	# relativ zum Spieler still. Diese Zeilen duerfen also verschieben, was sie wollen.
-	_water.position.x = world_pos.x
-	_water.position.z = world_pos.z
+	# Die Meeresscheibe legt der Vertex-Shader selbst um die Kamera — hier nichts zu tun.
 	_wasser_klima(world_pos)
 	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
 	if cc == _last_cc:
 		return   # gleiche Zelle -> Lade-Plan unverändert (kein Scan pro Frame)
 	_last_cc = cc
+	# Mitte der geladenen Chunks: bis fein_r darum gilt das feine Tiefenraster.
+	var fm := Vector2(world_pos.x, world_pos.z)
+	for m in _wasser_mats:
+		m.set_shader_parameter("fein_mitte", fm)
 	var t_p := Time.get_ticks_usec() if profil_an else 0
 	var r := int(ceil(VIEW_DIST / CHUNK))
 	var want := {}
@@ -5396,6 +5563,7 @@ func update_center(world_pos: Vector3) -> void:
 		if not want.has(key):
 			_chunks[key].queue_free()
 			_chunks.erase(key)
+			_tiefe_eintragen(key, _tiefe_leer)
 	if new_jobs.is_empty():
 		_pz("plan", t_p)
 		return
@@ -5452,7 +5620,7 @@ func _worker_loop() -> void:
 		# Bepflanzung nie am Main-Thread an und die gestreamte Welt bleibt kahl
 		# (nur build_now_around um den Spawn hatte je Baeume).
 		_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
-			"flora": data["flora"], "rocks": data["rocks"]})
+			"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"]})
 		_mutex.unlock()
 
 func _process(_delta: float) -> void:
@@ -5479,11 +5647,13 @@ func _process(_delta: float) -> void:
 			continue
 		var t_a := Time.get_ticks_usec() if profil_an else 0
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
-			item.get("rocks", []))
+			item.get("rocks", []), item.get("tiefe", null))
 		_pz("attach", t_a)
 	var t_n := Time.get_ticks_usec() if profil_an else 0
 	_flora_nachziehen()
 	_pz("flora_nachzug", t_n)
+	if _tiefe_dirty and Time.get_ticks_msec() * 0.001 - _tiefe_upload_t >= TIEFE_UPLOAD_S:
+		_tiefe_hochladen()
 
 
 ## Haengt aufgeschobene Flora nach, gedeckelt durch ein Zeitbudget statt durch eine feste
@@ -5656,13 +5826,16 @@ func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> vo
 		if _chunks.has(keys[i]):
 			continue
 		var data: Dictionary = daten[i]
-		_attach_chunk(keys[i], data["mesh"], data["shape"], data["flora"], data["rocks"])
+		_attach_chunk(keys[i], data["mesh"], data["shape"], data["flora"], data["rocks"],
+			data["tiefe"])
 	# HIER KEIN AUFSCHUB. _attach_chunk stellt die Flora nur in die Warteschlange, damit
 	# der Ruck beim Nachladen im Flug verschwindet. Diese Funktion ist aber der
 	# SYNCHRONE Weg — Spawnbereich und Renderwerkzeuge verlassen sich darauf, dass
 	# hinterher wirklich alles steht. Ohne den Vollabbau stuenden Baeume erst Frames
 	# spaeter, und jedes Abnahmebild waere um seine Vegetation betrogen.
 	_flora_alles_nachziehen()
+	if _tiefe_dirty:
+		_tiefe_hochladen()     # synchroner Weg: danach muss auch das Wasser stimmen
 
 
 ## Warteschlange in einem Zug leeren, ohne Zeitbudget.
@@ -5675,7 +5848,8 @@ func _flora_alles_nachziehen() -> void:
 
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
-		flora: Dictionary = {}, rocks: Array = []) -> void:
+		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null) -> void:
+	_tiefe_eintragen(key, tiefe)
 	var node := Node3D.new()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -6199,7 +6373,15 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			var tmp: Variant = l[k]
 			l[k] = l[q]
 			l[q] = tmp
-	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks}
+	# HOEHENBLOCK FUER DAS WASSER: die ersten CELLS x CELLS Stuetzpunkte (die letzte Zeile
+	# und Spalte gehoeren dem Nachbarn). Halbfloat reicht: am Wasser liegen die Hoehen
+	# nahe null, dort ist er auf Millimeter genau.
+	var th := PackedFloat32Array()
+	for j in CELLS:
+		th.append_array(hs.slice(j * (CELLS + 1), j * (CELLS + 1) + CELLS))
+	var tiefe := Image.create_from_data(CELLS, CELLS, false, Image.FORMAT_RF, th.to_byte_array())
+	tiefe.convert(Image.FORMAT_RH)
+	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks, "tiefe": tiefe}
 
 
 ## Wie frei ist die Stelle fuer Bewuchs? 0 = eingeebneter Flugplatz/Plateau (auf der

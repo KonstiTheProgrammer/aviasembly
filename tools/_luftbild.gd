@@ -41,6 +41,7 @@ func _hin() -> void:
 	var env: Environment = m.get("env_sky")
 	if env != null:
 		env.fog_density = m.nebel_frei_bei(p.y)
+		m.terrain.setze_dunst(env.fog_density, env.fog_light_color)
 
 
 func _process(_d: float) -> bool:
@@ -79,11 +80,11 @@ func _process(_d: float) -> bool:
 		return false
 	# Nach dem Umsetzen warten, bis die Fernschuerze um die neue Stelle steht (sie streamt
 	# mit dem Flugzeug, siehe Main._fern_pruefen) — hoechstens 40 s.
-	if t0 > 0 and f - t0 >= 90 and f - t0 < 2400 and not m.call("fern_bereit", shots[i][1]):
+	if t0 > 0 and f - t0 >= 90 and f - t0 < 9000 and not m.call("fern_bereit", shots[i][1]):
 		return false
 	# ... und bis die Baeume eingehaengt sind (hoechstens zwei Chunks je Frame, siehe
 	# TerrainWorld.FLORA_PRO_FRAME) — sonst fehlen ganze Chunkreihen als Streifen im Wald.
-	if t0 > 0 and f - t0 >= 90 and f - t0 < 2400 \
+	if t0 > 0 and f - t0 >= 90 and f - t0 < 9000 \
 			and (not (m.terrain.get("_flora_warteschlange") as Array).is_empty()
 				or not (m.terrain.get("_pending") as Dictionary).is_empty()
 				or not (m.terrain.get("_done") as Array).is_empty()):

@@ -124,6 +124,10 @@ Klima, durch Meeresstraßen getrennt (mit kleinen Trittstein-Inseln dazwischen):
 
 Alle Regionen stehen auf der Karte (**M**); ein Klick auf einen Flugplatz setzt dort einen Wegpunkt.
 
+Das **Meer reicht bis zum Horizont**: türkise Untiefen, durch die der Sand scheint,
+Brandungslinien, die auf die Strände zulaufen, Schaumkronen auf offener See, ein
+Glitzerpfad unter der Sonne und ferne Küsten als Silhouette im Dunst.
+
 ## 🧩 Bauteile
 
 - **Rumpf:** Cockpit (Basis), modernes Transport-Cockpit, B-29-Glasnase,

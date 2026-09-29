@@ -1029,6 +1029,8 @@ func _setup_world() -> void:
 	terrain = TerrainWorld.new()
 	# EIN Sonnenstand fuer Himmel, Licht UND Wasser. Muss VOR dem Bauen gesetzt sein,
 	# damit die Wasser-Materialien gleich mit der richtigen Richtung entstehen.
+	# Die Meeresscheibe endet knapp vor der Fernebene der Kamera.
+	terrain.setze_sichtweite(KAMERA_FERN)
 	terrain.setze_sonne(Basis.from_euler(Vector3(
 		deg_to_rad(SONNE_WINKEL.x), deg_to_rad(SONNE_WINKEL.y), 0.0)).z)
 	# DIESELBE RICHTUNG AN DIE BAUWERKE. Landmarks faerbt Fels nach Sonnen- und
@@ -1717,6 +1719,8 @@ func _setup_world() -> void:
 		{"start": TAL_START, "richtung": TAL_RICHTUNG, "laenge": TAL_LAENGE,
 			"halbbreite": tal_hb})
 	_region_hoehen()
+	# Meer und Fluesse rechnen ihren Dunst selbst — aus denselben Werten wie die Umgebung.
+	terrain.setze_nebel_licht(env_sky, sonne_licht)
 	# FELSWAND AM TALSCHLUSS. Ohne sie ist die Wand hinter ADLERHORST auf 480 m Breite
 	# um ganze 34 m gegliedert (gemessen, tools/_wandprofil.gd) — eine Ebene, die im
 	# Anflug 60 Prozent des Bildes fuellt und als Kulisse gelesen wird.
@@ -1942,10 +1946,13 @@ func _setup_world() -> void:
 	# steht hinter der Schuerze an und wird ausgetauscht, sobald sie fertig ist.
 	_map_thread = Thread.new()
 	_map_thread.start(func() -> void:
-		var grob := WorldMap.generate_image(terrain, 512, WorldMap.WORLD_R, true, 4, _map_stopp)
+		var hg: Array = []
+		var grob := WorldMap.generate_image(terrain, 512, WorldMap.WORLD_R, true, 4, _map_stopp,
+			Vector2.ZERO, 0, hg)
 		if grob == null:
 			return
 		call_deferred("_on_map_image_ready", grob, false)
+		call_deferred("_wasser_grund_setzen", _wasser_grund_bild(hg, 512))
 		# ERST DIE FERNSCHUERZE. Die feine Karte rechnet ~40 s auf allen Kernen und stand
 		# dabei gegen das erste Schuerzenpaket: gemessen brauchte der Horizont am
 		# Startplatz 36 s statt 11. Die grobe Karte ist dann schon da — die feine darf
@@ -1959,8 +1966,11 @@ func _setup_world() -> void:
 		# 2048 STATT 1024, seit die Welt 168 km misst: sonst laege ein Bildpunkt bei 164 m
 		# und die Hauptinsel waere in der Uebersicht gröber als vor der Vergroesserung.
 		# Bezahlbar, weil drei Viertel Meer sind (gemessen ~40 s im Hintergrund).
-		var fein := WorldMap.generate_image(terrain, 2048, WorldMap.WORLD_R, false, 4, _map_stopp)
+		var hf: Array = []
+		var fein := WorldMap.generate_image(terrain, 2048, WorldMap.WORLD_R, false, 4, _map_stopp,
+			Vector2.ZERO, 0, hf)
 		if fein != null:
+			call_deferred("_wasser_grund_setzen", _wasser_grund_bild(hf, 2048))
 			call_deferred("_on_map_image_ready", fein, true))
 	for af in airfields:
 		_build_airfield(af)
@@ -2335,6 +2345,10 @@ func _wolken_aufenthalt(delta: float) -> void:
 		var k := pow(wolken_dichte, NEBEL_KURVE)
 		var cam_y := camera.global_position.y if camera != null else pos.y
 		env_sky.fog_density = lerpf(nebel_frei_bei(cam_y), NEBEL_WOLKE, k)
+		# Dunst jenseits der Meeresscheibe (wasser_kern: "Dunst hinter der Schale") —
+		# dieselbe Dichte, sonst truebte das ferne Meer anders als das ferne Land.
+		if terrain != null:
+			terrain.setze_dunst(env_sky.fog_density, NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k))
 		env_sky.fog_light_color = NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k)
 		# Auch der HIMMEL muss mit eintrueben, sonst steht mitten im Weiss noch ein
 		# blauer Zenit — der Nebel faerbt nur Geometrie, nicht den Hintergrund.
@@ -6877,6 +6891,24 @@ func _build_windfarm(center: Vector3) -> void:
 		var rotor := Landmarks.build_windmill(fly_world, Vector3(p.x, h - 0.4, p.z),
 			0.6 + rng.randf_range(-0.15, 0.15))
 		_wind_rotors.append(rotor)
+
+
+## Rohe Kartenhoehen als Halbfloat-Bild fuer das Wasser (laeuft im Kartenfaden: die
+## Umwandlung von 2048 x 2048 Werten soll keinen Frame kosten).
+static func _wasser_grund_bild(hoehen: Array, kante: int) -> Image:
+	if hoehen.is_empty():
+		return null
+	var hs: PackedFloat32Array = hoehen[0]
+	var img := Image.create_from_data(kante, kante, false, Image.FORMAT_RF, hs.to_byte_array())
+	img.convert(Image.FORMAT_RH)
+	return img
+
+
+## Das Wasser bekommt die Gelaendehoehe der ganzen Welt: jenseits der geladenen Chunks
+## (~3,5 km) liest es daraus die Tiefe — Untiefen und Lagunen bis zum Horizont.
+func _wasser_grund_setzen(img: Image) -> void:
+	if img != null and terrain != null and is_instance_valid(terrain):
+		terrain.setze_grobe_tiefe(img, WorldMap.WORLD_R)
 
 
 func _on_map_image_ready(img: Image, fertig := true) -> void:

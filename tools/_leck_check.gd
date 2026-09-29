@@ -72,7 +72,12 @@ func _process(_d: float) -> bool:
 				for v in z.values():
 					im_baum += int(v)
 				var terr: Node = m.get("terrain")
-				var terr_knoten := _anzahl(terr)
+				# DIE FERNSCHUERZE GEHOERT ZUM GELAENDE: sie streamt genauso und wird im
+				# Hintergrund fertig, wann der Faden es schafft — mal vor, mal nach Zyklus 2.
+				# Kam sie danach, standen ihre 90 Grob-Kacheln als "+15 Knoten je Zyklus" im
+				# Urteil (LECK-VERDACHT ohne Leck).
+				var fern: Node = m.get("fern_root")
+				var terr_knoten := _anzahl(terr) + (_anzahl(fern) if fern != null else 0)
 				ohne_gelaende.append(knoten[-1] - terr_knoten)
 				print("Zyklus %d: Knoten %d (Gelaende %d in %d Chunks, Rest %d, Waisen %d)  Objekte %d" % [
 					zyklus + 1, knoten[-1], terr_knoten, (terr.get("_chunks") as Dictionary).size(),
