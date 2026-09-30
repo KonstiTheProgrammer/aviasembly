@@ -598,8 +598,22 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   65 536, ~4000 Instanzen); mit zwei Flora-MultiMeshes je Art und Chunk lief er ueber
   ("Too many instances using shader instance variables") und das weiche Erscheinen fiel
   still aus → project.godot `rendering/limits/global_shader_variables/buffer_size=262144`.
-- OFFEN: Grasmaske (4 ms) koennte auch fein erst bei Annaeherung entstehen. Die Flora-
-  Sparstufe bei 1,2 km ist ein harter Wechsel (Sichtweite, FADE_DISABLED).
+- FLORA-SPARSTUFE WEICH (`STUFE_S`, `_flora_stufe_wechseln`): der Rundgang entscheidet je
+  Chunk im 3D-ABSTAND zur Chunkmitte (Meta `mitte_h`) mit symmetrischem Totband
+  (`FLORA_HYSTERESE` ±50 m um `_flora_grob_ab`). Beim NAEHERKOMMEN blenden beide Formen in
+  0,35 s uebereinander (Instanzparameter `rolle`, `stufe_fern`, `stufe_start`; danach wird
+  die ausgehende unsichtbar, `_stufe_ende`), beim Entfernen (meist hinter dem Flugzeug)
+  wird hart umgeschaltet. Nur `visible` und Instanzparameter — kein Netzwechsel an einer
+  eingehaengten MultiMesh. GEMESSEN (280 m/s, je 2 Laeufe): 3,8 % Frames ueber 20 ms wie der
+  harte Wechsel. IRRWEGE: (a) Band nach Abstand je Pflanze — die Sichtweite gilt je
+  MultiMesh, beide Formen mussten eine halbe Chunkdiagonale weiter sichtbar bleiben: 39 %;
+  (b) 2D-Abstand mit Band nur nach aussen: ~20 % mehr volle Baeume, 10-12 %. Bei ~16 ms
+  Framezeit liegt das Bild genau an der 60-Hz-Kante — jedes Prozent Flora kippt Frames auf
+  25 ms.
+- OFFEN: Grasmaske nur bei Annaeherung — bewusst NICHT gemacht (feine Chunks sind nach den
+  Detailstufen ein kleiner Teil der Arbeit, Ersparnis ~3 % der Worker-Zeit, dafuer eigener
+  Auftragstyp und Raster im Speicher). 450 m/s: ~25 % Frames ueber 20 ms (Hauptfaden-
+  Streaming nur ~0,8 ms; staendiges Hochladen neuer Netze/Puffer), bei 280 m/s 3-4 %.
 
 ## Doerfer und Landstrassen (2026-09)
 Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue

@@ -174,11 +174,9 @@ const PFLEGE_SCHEIBEN := 6
 # Deckel haelt die Spitze bei 0,8 ms, und 2 je Frame sind 120 je Sekunde gegenueber den
 # rund 9, die beim Ueberqueren einer Chunkzelle wirklich anfallen.
 const PFLEGE_BAU_PRO_FRAME := 2
-# Totbaender. Ohne sie kippt ein Chunk, der genau auf der Grenze liegt, bei jedem
-# Rundgang hin und her — und jedes Kippen kostet einen Physik-Einfuegevorgang bzw. einen
-# Netzwechsel an der MultiMesh.
+# Totband. Ohne es kippt ein Chunk, der genau auf der Grenze liegt, bei jedem Rundgang hin
+# und her — und jedes Kippen kostet einen Physik-Einfuegevorgang.
 const KOLL_HYSTERESE := 90.0
-const FLORA_HYSTERESE := 120.0
 # GEMESSEN (1280x720, VSync aus, Reiseflug 400 m ueber Land, Blick in die Ferne):
 #                       Bildzeit   Primitive
 #   ohne Sparstufen     7,86 ms    7.354.668
@@ -293,6 +291,20 @@ const WACHSEN_S := 1.6
 # 10,8 % statt 1,4 % Frames ueber 20 ms (tools/_tempo_nachladen.gd, 280 m/s): der Bewuchs ist
 # der teuerste Teil des Bildes.
 const VERGEHEN_S := 0.5
+# UEBERGANG DER FLORA-SPARSTUFE bei _flora_grob_ab. Frueher schaltete die Sichtweite hart:
+# jede Pflanze wechselte schlagartig ihre Form, und ein Viertel verschwand. Jetzt ZEITLICH je
+# Chunk: kreuzt er die Grenze (Rundgang, mit FLORA_HYSTERESE), blenden seine beiden
+# MultiMeshes in STUFE_S uebereinander — die ausgehende Form schrumpft, die kommende waechst
+# (Shader: rolle, stufe_start, stufe_fern) —, danach wird die ausgehende unsichtbar
+# (_stufe_ende). Doppelt gezeichnet wird nur, was gerade wechselt.
+# ERSTE FASSUNG, NICHT WIEDERHOLEN: ein Band nach Abstand je Pflanze. Die Sichtweite gilt
+# aber je MultiMesh (ganzer Chunk), also mussten beide Formen eine halbe Chunkdiagonale
+# weiter sichtbar bleiben — volle und grobe Baeume liefen zwischen 0,7 und 1,7 km beide
+# durch den Vertex-Shader: 39 % statt 3 % langsame Frames.
+const STUFE_S := 0.35
+const FLORA_HYSTERESE := 50.0
+const ROLLE_VOLL := 1.0
+const ROLLE_GROB := 2.0
 # DETAILSTUFEN. Chunks, deren Mitte weiter als FEIN_DIST vom Spieler liegt, entstehen GROB
 # (16-m-Raster: ein Viertel der Hoehen- und Farbproben, Bewuchs auf 16-m-Zellen mit gleicher
 # Dichte, keine Grasmaske). Kommt man naeher, wird der grobe Chunk durch einen feinen
@@ -3129,6 +3141,7 @@ var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (bestellt, im Bau oder fertig vor dem Einhaengen)
 var _in_arbeit: Dictionary = {} # Vector2i -> true (ein Worker baut gerade; unter _mutex)
 var _vergehend: Array = []      # [Knoten, Freigabezeit] abgeloester grober Chunks
+var _stufe_ende: Array = []     # [Flora-Liste, Zeit, fern] laufender Sparstufen-Wechsel
 var _flug_dir := Vector2.ZERO   # geglaettete Bewegungsrichtung (Vorrang voraus)
 var _flug_schritt := 0.0        # geglaetteter Weg je Frame (m), fuer FEIN_HINTEN_AB
 var _mat: ShaderMaterial
@@ -3517,6 +3530,12 @@ global uniform float welt_zeit;
 instance uniform float erschienen = -1000.0;
 // Beim Abloesen eines groben Chunks durch den feinen schrumpfen seine Pflanzen weg.
 instance uniform float vergehen = 1.0e9;
+// Sparstufen-Uebergang (TerrainWorld.STUFE_S): rolle 1 = volle Form, 2 = grobe, 0 = ohne;
+// stufe_fern = Zielstufe des Chunks (1 = grob), stufe_start = Beginn des Wechsels.
+instance uniform float rolle = 0.0;
+instance uniform float stufe_fern = 0.0;
+instance uniform float stufe_start = -1000.0;
+const float STUFE_S = 0.35;    // = TerrainWorld.STUFE_S
 const float WACHSEN_S = 1.6;   // = TerrainWorld.WACHSEN_S
 const float VERGEHEN_S = 0.5;  // = TerrainWorld.VERGEHEN_S
 // WIND: die Baeume wiegen sich — die Krone mehr als der Stamm (quadratisch mit der Hoehe
@@ -3542,7 +3561,13 @@ void vertex() {
 	float wachsen = smoothstep(0.0, 1.0,
 		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0))
 		* (1.0 - smoothstep(0.0, 1.0, clamp((welt_zeit - vergehen) / VERGEHEN_S, 0.0, 1.0)));
-	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
+	float stufe = 1.0;
+	if (rolle > 0.5) {
+		float ziel = rolle > 1.5 ? stufe_fern : 1.0 - stufe_fern;
+		float k = smoothstep(0.0, 1.0, clamp((welt_zeit - stufe_start) / STUFE_S, 0.0, 1.0));
+		stufe = mix(1.0 - ziel, ziel, k);
+	}
+	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen * stufe;
 	if (d_kam < 900.0 && wind_staerke > 0.0) {
 		mat3 m = mat3(MODEL_MATRIX);
 		float h_w = max((m * VERTEX).y, 0.0);
@@ -6995,7 +7020,7 @@ func _chunk_bauen(job_v: Variant) -> void:
 	# (nur build_now_around um den Spawn hatte je Baeume).
 	_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
 		"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"],
-		"gras": data["gras"], "stufe": data["stufe"]})
+		"gras": data["gras"], "stufe": data["stufe"], "mitte_h": data["mitte_h"]})
 	_mutex.unlock()
 
 
@@ -7017,6 +7042,33 @@ func _chunk_abloesen(key: Vector2i, alt: Node3D) -> void:
 			if is_instance_valid(mmi):
 				(mmi as GeometryInstance3D).set_instance_shader_parameter("vergehen", jetzt)
 	_vergehend.append([alt, jetzt + VERGEHEN_S + 0.1])
+
+
+## Flora-Sparstufe eines Chunks wechseln (Liste seiner {voll, grob}). Beide Formen sichtbar,
+## der Shader blendet in STUFE_S um; danach blendet _process die ausgehende aus. sofort =
+## ohne Uebergang (Grafikstufe geaendert).
+func _flora_stufe_wechseln(liste: Array, fern: bool, sofort: bool) -> void:
+	var start := -1000.0 if sofort else welt_zeit()
+	for e in liste:
+		for mmi in [e["voll"], e["grob"]]:
+			if not is_instance_valid(mmi):
+				continue
+			var g := mmi as GeometryInstance3D
+			g.set_instance_shader_parameter("stufe_fern", 1.0 if fern else 0.0)
+			g.set_instance_shader_parameter("stufe_start", start)
+			g.visible = true
+	if sofort:
+		_flora_stufe_ausblenden(liste, fern)
+	else:
+		_stufe_ende.append([liste, start + STUFE_S + 0.05, fern])
+
+
+func _flora_stufe_ausblenden(liste: Array, fern: bool) -> void:
+	for e in liste:
+		if is_instance_valid(e["voll"]):
+			(e["voll"] as GeometryInstance3D).visible = not fern
+		if is_instance_valid(e["grob"]):
+			(e["grob"] as GeometryInstance3D).visible = fern
 
 
 ## Uhr des weichen Erscheinens (globale Shader-Variable welt_zeit, Sekunden).
@@ -7059,8 +7111,16 @@ func _process(_delta: float) -> void:
 			_chunk_abloesen(key, alt)
 		var t_a := Time.get_ticks_usec() if profil_an else 0
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
-			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null), true, stufe)
+			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null), true, stufe,
+			float(item.get("mitte_h", 0.0)))
 		_pz("attach", t_a)
+	# Abgeschlossene Flora-Stufenwechsel: die ausgehende Form ausblenden
+	if not _stufe_ende.is_empty():
+		var jetzt_s := welt_zeit()
+		for i in range(_stufe_ende.size() - 1, -1, -1):
+			if jetzt_s >= float(_stufe_ende[i][1]):
+				_flora_stufe_ausblenden(_stufe_ende[i][0], bool(_stufe_ende[i][2]))
+				_stufe_ende.remove_at(i)
 	# Abgeloeste grobe Chunks freigeben, sobald ihre Pflanzen weggeschrumpft sind
 	if not _vergehend.is_empty():
 		var jetzt := welt_zeit()
@@ -7120,6 +7180,12 @@ func _chunks_pflegen(mitte: Vector3) -> void:
 	# Quadrate vergleichen spart je Chunk eine Wurzel.
 	var koll_ein := KOLLISIONS_DIST * KOLLISIONS_DIST
 	var koll_aus := (KOLLISIONS_DIST + KOLL_HYSTERESE) * (KOLLISIONS_DIST + KOLL_HYSTERESE)
+	# Symmetrisches Totband um _flora_grob_ab, im 3D-ABSTAND zur Chunkmitte (wie frueher die
+	# Sichtweite, die hier schaltete: aus der Hoehe wird die grobe Form frueher genommen).
+	# Mit 2D-Abstand und Band nur nach aussen standen ~20 % mehr volle Baeume — gemessen
+	# 10 % statt 3-4 % Frames ueber 20 ms.
+	var grob_ein := (_flora_grob_ab + FLORA_HYSTERESE) * (_flora_grob_ab + FLORA_HYSTERESE)
+	var grob_aus := (_flora_grob_ab - FLORA_HYSTERESE) * (_flora_grob_ab - FLORA_HYSTERESE)
 	while rest > 0 and _pflege_i < _pflege_keys.size():
 		var key: Vector2i = _pflege_keys[_pflege_i]
 		_pflege_i += 1
@@ -7146,8 +7212,26 @@ func _chunks_pflegen(mitte: Vector3) -> void:
 			if kn != null:
 				kn.queue_free()
 			node.set_meta("koll", false)
-		# (Die Flora-Sparstufe wechselt der Renderer selbst: zwei MultiMeshes je Art mit
-		# Sichtweiten-Grenzen, siehe _attach_multi.)
+		# --- Flora-Sparstufe: nur Sichtbarkeit und Instanzparameter, kein Netzwechsel an einer
+		# eingehaengten MultiMesh (der liess den Hauptfaden auf den Renderfaden warten).
+		var liste: Array = node.get_meta("flora_mmis", [])
+		if liste.is_empty():
+			continue
+		var fern: bool = node.get_meta("fern", false)
+		var dy := mitte.y - float(node.get_meta("mitte_h", 0.0))
+		var d3 := d2 + dy * dy
+		var soll := fern
+		if fern and d3 < grob_aus:
+			soll = false
+		elif not fern and d3 > grob_ein:
+			soll = true
+		if soll != fern:
+			node.set_meta("fern", soll)
+			# Weich nur beim NAEHERKOMMEN (grob -> voll, meist voraus im Bild). Wird ein Chunk
+			# fern, liegt er im Geradeausflug hinter dem Flugzeug — dort genuegt der harte
+			# Wechsel, und das Bild spart die Doppelzeichnung (gemessen: sie allein machte
+			# bei 280 m/s aus 3-4 % rund 12 % Frames ueber 20 ms).
+			_flora_stufe_wechseln(liste, soll, soll)
 
 
 func _flora_nachziehen() -> void:
@@ -7214,7 +7298,7 @@ func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> vo
 			continue
 		var data: Dictionary = daten[i]
 		_attach_chunk(keys[i], data["mesh"], data["shape"], data["flora"], data["rocks"],
-			data["tiefe"], data["gras"])
+			data["tiefe"], data["gras"], false, STUFE_FEIN, float(data["mitte_h"]))
 	# HIER KEIN AUFSCHUB. _attach_chunk stellt die Flora nur in die Warteschlange, damit
 	# der Ruck beim Nachladen im Flug verschwindet. Diese Funktion ist aber der
 	# SYNCHRONE Weg — Spawnbereich und Renderwerkzeuge verlassen sich darauf, dass
@@ -7458,7 +7542,7 @@ static func boden_textur() -> ImageTexture:
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null,
-		gras: Image = null, weich := false, stufe := STUFE_FEIN) -> void:
+		gras: Image = null, weich := false, stufe := STUFE_FEIN, mitte_h := 0.0) -> void:
 	# Grobe Chunks haben keine Grasmaske: den Ring an ihrer Stelle LEEREN, sonst stuende dort
 	# das Gras des Chunks, der vorher auf diesem Ringplatz lag.
 	_tiefe_eintragen(key, tiefe, gras if gras != null else _gras_leer)
@@ -7476,6 +7560,9 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	node.set_meta("key", key)
 	node.set_meta("stufe", stufe)
 	var d := _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z))
+	node.set_meta("mitte_h", mitte_h)
+	var dy := _last_pos.y - mitte_h
+	node.set_meta("fern", d * d + dy * dy > _flora_grob_ab * _flora_grob_ab)   # Flora-Sparstufe
 	if d <= KOLLISIONS_DIST:
 		var t_kb := Time.get_ticks_usec() if profil_an else 0
 		_kollision_bauen(node)
@@ -7523,6 +7610,11 @@ func setze_baumweite(stufe: int) -> void:
 		for e in liste:
 			if is_instance_valid(e["voll"]) and is_instance_valid(e["grob"]):
 				_flora_reichweiten(e["voll"], e["grob"])
+		var dxz := _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z))
+		var dyh := _last_pos.y - float(node.get_meta("mitte_h", 0.0))
+		var fern := dxz * dxz + dyh * dyh > _flora_grob_ab * _flora_grob_ab
+		node.set_meta("fern", fern)
+		_flora_stufe_wechseln(liste, fern, true)
 
 
 ## Wandelt eine Liste von Transformationen in den Rohpuffer einer MultiMesh um.
@@ -7577,6 +7669,14 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array, weich := false) -> vo
 	var voll := _flora_mmi(mesh, xfs.size(), puf, box)
 	var grob := _flora_mmi(_grob_cache[mesh], n_grob, puf.slice(0, n_grob * 12), box)
 	_flora_reichweiten(voll, grob)
+	voll.set_instance_shader_parameter("rolle", ROLLE_VOLL)
+	grob.set_instance_shader_parameter("rolle", ROLLE_GROB)
+	# Stufe des Chunks (fern = grobe Form), ohne Uebergang
+	var fern: bool = parent.get_meta("fern", false)
+	voll.set_instance_shader_parameter("stufe_fern", 1.0 if fern else 0.0)
+	grob.set_instance_shader_parameter("stufe_fern", 1.0 if fern else 0.0)
+	voll.visible = not fern
+	grob.visible = fern
 	if weich:
 		var jetzt := welt_zeit()
 		voll.set_instance_shader_parameter("erschienen", jetzt)
@@ -7605,13 +7705,10 @@ func _flora_mmi(mesh: Mesh, n: int, puf: PackedFloat32Array, box: AABB) -> Multi
 
 ## Sichtweiten der beiden Stufen (auch nach einem Wechsel der Grafikstufe). Harter Schnitt
 ## am Ende erst dort, wo der Shader die Instanzen laengst auf Groesse 0 gefahren hat
-## (FLORA_FADE_END + halbe Chunk-Diagonale) — nichts poppt. Die Raender der Stufengrenze
-## wirken als Totband (FLORA_HYSTERESE), damit nichts auf der Grenze flackert.
+## (FLORA_FADE_END + halbe Chunk-Diagonale) — nichts poppt. Welche der beiden Stufen steht,
+## entscheidet nicht die Sichtweite, sondern der Rundgang (siehe STUFE_S).
 func _flora_reichweiten(voll: MultiMeshInstance3D, grob: MultiMeshInstance3D) -> void:
-	voll.visibility_range_end = _flora_grob_ab
-	voll.visibility_range_end_margin = FLORA_HYSTERESE * 0.5
-	grob.visibility_range_begin = _flora_grob_ab
-	grob.visibility_range_begin_margin = FLORA_HYSTERESE * 0.5
+	voll.visibility_range_end = _flora_dist
 	grob.visibility_range_end = _flora_dist
 
 
@@ -8160,7 +8257,8 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 	var tiefe := Image.create_from_data(CELLS, CELLS, false, Image.FORMAT_RF, th.to_byte_array())
 	tiefe.convert(Image.FORMAT_RH)
 	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks, "tiefe": tiefe,
-		"gras": gras, "stufe": STUFE_GROB if grob else STUFE_FEIN}
+		"gras": gras, "stufe": STUFE_GROB if grob else STUFE_FEIN,
+		"mitte_h": hs[(zn >> 1) * (zn + 1) + (zn >> 1)]}
 
 
 ## Wie frei ist die Stelle fuer Bewuchs? 0 = eingeebneter Flugplatz/Plateau (auf der
