@@ -573,10 +573,33 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   (`_fw_*`, Setter), Seen in der Farbe (`_see_farb2`). height_at 13,2 → 12,1 us (Inselmittel),
   Chunk 59 → 56 ms (+1,7 fuer das weiche Erscheinen). Profil-Anteile (mit Messmarken):
   Gebirgsformen, Massive, Kuestenversatz, Wasserformen — der Rest sind die Rauschaufrufe selbst.
-- OFFEN/Hebel fuer mehr: Chunk-Detailstufen (ferne Chunks mit 16 m) waeren der naechste grosse
-  Schritt (~4x billiger fern), brauchen aber Naht-Behandlung und einen Wechsel beim
-  Naeherkommen; Grasmaske (4 ms) nur fuer nahe Chunks. Die Flora-Sparstufe bei 1,2 km ist
-  ein harter Wechsel (Sichtweite, FADE_DISABLED).
+- CHUNK-DETAILSTUFEN (Nutzerwunsch): Chunks mit Mitte jenseits `FEIN_DIST` (1100 m) entstehen
+  GROB — `_make_chunk_data(key, AUFTRAG_GROB)`: 16-m-Raster (zn = 24, ein Viertel der Proben,
+  height_at/_face_color mit Zellweite 16), Bewuchs auf 16-m-Zellen mit gleicher Dichte
+  (`flaeche`, Steilheit auf 8 m normiert `slope_k`, Felsstreuung ±0,375·step), keine Grasmaske
+  (Ring an der Stelle geleert), Kollision gleich weit (16 m), Tiefenblock auf 48x48
+  hochgerechnet. Kosten 18 statt 59 ms. Die FEINE Stufe ist BITGLEICH zum Stand davor
+  (Pruefsumme ueber Netz, Baeume, Felsen, Tiefe, Gras, Kollision; alle Faktoren genau 1).
+  Auftraege sind Vector3i (x, z, Art): fehlende Chunks entstehen IMMER zuerst grob (Abdecken
+  vor Verfeinern), Verfeinern (`AUFTRAG_FEIN_AUS_GROB`) mit Nachrang `FEIN_NACHRANG` und im
+  Schnellflug (`FEIN_HINTEN_AB`) nicht hinter dem Flugzeug (`FEIN_HINTEN`). Das Abloesen
+  (`_chunk_abloesen`): altes Gelaende sofort unsichtbar, Kollision weg, alte Pflanzen
+  schrumpfen in `VERGEHEN_S` (0,5 s, Shader "vergehen"), Knoten danach frei (`_vergehend`);
+  der feine Chunk waechst aus der groben Flaeche (`_grob_flaeche`, jeder 2. Punkt des feinen
+  Rasters). RANDSTREIFEN (`RAND_TIEF` 20 m) an jeder Chunkkante gegen Spalten fein/grob.
+  Build_now_around (Start, Werkzeuge) baut weiter fein.
+  GEMESSEN (_tempo_nachladen): 280 m/s 0 Loecher (vorher bis 30), Chunks ≥ 3,6 km voraus;
+  450 m/s 0 Loecher (vorher 60+, Vorlauf 0,3 km) ≥ 3,3 km voraus. Frames ueber 20 ms bei
+  280 m/s 3-4 % wie vorher. Der Zusatz-Worker ist wieder aus (`WORKER_ZUSATZ` 0): die
+  Abdeckung ist ohne ihn gleich gut, bei weniger CPU.
+  FALLEN: (1) Alte und neue Baeume 2,4 s gleichzeitig (erste Fassung) = 10,8 % statt 1,4 %
+  langsame Frames — der Bewuchs ist der teuerste Teil des Bildes, deshalb VERGEHEN_S kurz.
+  (2) INSTANZ-UNIFORMS belegen je Instanz einen Platz im globalen Shader-Puffer (Standard
+  65 536, ~4000 Instanzen); mit zwei Flora-MultiMeshes je Art und Chunk lief er ueber
+  ("Too many instances using shader instance variables") und das weiche Erscheinen fiel
+  still aus → project.godot `rendering/limits/global_shader_variables/buffer_size=262144`.
+- OFFEN: Grasmaske (4 ms) koennte auch fein erst bei Annaeherung entstehen. Die Flora-
+  Sparstufe bei 1,2 km ist ein harter Wechsel (Sichtweite, FADE_DISABLED).
 
 ## Doerfer und Landstrassen (2026-09)
 Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue
@@ -1219,6 +1242,11 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   `physics_interpolation_mode = OFF` (TerrainWorld, Fernschuerze, Landstrassen, CityBuilder-
   Viertel), und an eingehaengten MultiMeshes wird nichts mehr umgestellt (Details im
   Abschnitt „Nachladen: Schnellflug und weiches Erscheinen"). Headless faellt das nicht auf.
+- **Instanz-Uniforms haben ein Budget.** Jede Instanz, deren Material `instance uniform`s hat,
+  belegt einen Block im globalen Shader-Puffer (`rendering/limits/global_shader_variables/
+  buffer_size`, Standard 65 536 → rund 4000 Instanzen). Laeuft er voll, meldet Godot „Too many
+  instances using shader instance variables" und die Parameter wirken still nicht mehr.
+  Im Projekt auf 262 144 gestellt (Chunk-Detailstufen, zwei Flora-MultiMeshes je Art).
 - **`visibility_range` misst ab der Huelle der Geometrie** (nachgemessen: Knoten am Ursprung,
   Geometrie 5 km daneben, Kamera davor → sichtbar), nicht ab dem Knotenursprung.
 - **WorkerThreadPool-Gruppen stehen in einer Schlange.** Die Fernschürze legt beim Start 577

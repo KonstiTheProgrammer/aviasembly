@@ -288,6 +288,29 @@ const MAX_ATTACH_PER_FRAME := 3
 # Uhr: die globale Shader-Variable welt_zeit (project.godot, je Frame in _process gesetzt).
 const MORPH_S := 1.4
 const WACHSEN_S := 1.6
+# Die alten Pflanzen eines abgeloesten groben Chunks schrumpfen KURZ weg. Mit 2,4 s standen
+# alte und neue Baeume lange gleichzeitig da — bei vielen Abloesungen je Sekunde gemessen
+# 10,8 % statt 1,4 % Frames ueber 20 ms (tools/_tempo_nachladen.gd, 280 m/s): der Bewuchs ist
+# der teuerste Teil des Bildes.
+const VERGEHEN_S := 0.5
+# DETAILSTUFEN. Chunks, deren Mitte weiter als FEIN_DIST vom Spieler liegt, entstehen GROB
+# (16-m-Raster: ein Viertel der Hoehen- und Farbproben, Bewuchs auf 16-m-Zellen mit gleicher
+# Dichte, keine Grasmaske). Kommt man naeher, wird der grobe Chunk durch einen feinen
+# ersetzt: das Gelaende waechst dabei aus der groben Flaeche (UV2, _grob_flaeche), die
+# alten Pflanzen schrumpfen weg, die neuen wachsen ein. Die Kollision der groben Stufe hat
+# dieselbe Weite wie die der feinen (16 m), im Schnellflug ist man also auch dort sicher.
+# 1100 m: der volle Bewuchs (bis _flora_grob_ab, 1200 m) steht damit fast ganz auf feinen
+# Chunks, und der Wechsel geschieht weit genug weg, um nicht aufzufallen.
+const FEIN_DIST := 1100.0
+const STUFE_FEIN := 0
+const STUFE_GROB := 1
+const AUFTRAG_FEIN := 0            # fein, waechst aus der Fernschuerze
+const AUFTRAG_FEIN_AUS_GROB := 1   # fein anstelle eines groben, waechst aus dessen Flaeche
+const AUFTRAG_GROB := 2
+const RAND_TIEF := 20.0            # Randstreifen gegen Spalten zwischen den Stufen (m)
+const FEIN_NACHRANG := 1500.0      # Verfeinern kommt nach dem Abdecken (m Vorrang-Abstand)
+const FEIN_HINTEN := 300.0         # weiter hinter dem Flugzeug wird nicht verfeinert (m) ...
+const FEIN_HINTEN_AB := 1.5        # ... aber nur im schnellen Flug (m je Frame, ~90 m/s)
 
 # --- VULKANKEGEL -------------------------------------------------------------------------
 # Diese drei Zahlen stehen NICHT in der Massivtabelle, weil sie nicht einen bestimmten Berg
@@ -2267,7 +2290,7 @@ func _region_dichte(reg: int, x: float, z: float, h: float, ny: float) -> float:
 ## Dreiecksflaeche ist die der Hauptinsel (siehe _make_chunk_data).
 func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: float,
 		cz: float, hc: float, slope: float, x0: float, z0: float, step: float,
-		h00: float, h10: float, h01: float, h11: float) -> void:
+		h00: float, h10: float, h01: float, h11: float, flaeche := 1.0) -> void:
 	var ny := 1.0 - slope / 12.0
 	var dens := _region_dichte(reg, cx, cz, hc, ny)
 	if dens <= 0.004:
@@ -2283,7 +2306,7 @@ func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: 
 		per_cell *= 0.42
 	elif biom == Biome.TAIGA:
 		per_cell *= 0.58
-	var expect := per_cell * dens
+	var expect := per_cell * dens * flaeche
 	var n := int(floor(expect))
 	if rng.randf() < expect - float(n):
 		n += 1
@@ -3105,7 +3128,9 @@ enum Biome { WALD, WUESTE, HOCHLAND, HEIDE, TUNDRA, TAIGA, DSCHUNGEL, GRASLAND, 
 var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (bestellt, im Bau oder fertig vor dem Einhaengen)
 var _in_arbeit: Dictionary = {} # Vector2i -> true (ein Worker baut gerade; unter _mutex)
+var _vergehend: Array = []      # [Knoten, Freigabezeit] abgeloester grober Chunks
 var _flug_dir := Vector2.ZERO   # geglaettete Bewegungsrichtung (Vorrang voraus)
+var _flug_schritt := 0.0        # geglaetteter Weg je Frame (m), fuer FEIN_HINTEN_AB
 var _mat: ShaderMaterial
 static var _boden_tex: ImageTexture
 var _water: MeshInstance3D
@@ -3490,7 +3515,10 @@ uniform float fade_end;
 // jede leicht versetzt. Ohne gesetzten Zeitpunkt (Startbereich) sofort voll.
 global uniform float welt_zeit;
 instance uniform float erschienen = -1000.0;
+// Beim Abloesen eines groben Chunks durch den feinen schrumpfen seine Pflanzen weg.
+instance uniform float vergehen = 1.0e9;
 const float WACHSEN_S = 1.6;   // = TerrainWorld.WACHSEN_S
+const float VERGEHEN_S = 0.5;  // = TerrainWorld.VERGEHEN_S
 // WIND: die Baeume wiegen sich — die Krone mehr als der Stamm (quadratisch mit der Hoehe
 // ueber dem Fuss), und langsam wandernde Boeen laufen als Wellen durch den Wald. Die
 // Auslenkung wird in WELTRICHTUNG gerechnet und in den Raum der Instanz zurueckgedreht —
@@ -3512,7 +3540,8 @@ void vertex() {
 	COLOR.rgb *= mix(vec3(1.0), vec3(0.86 + 0.26 * z1, 0.90 + 0.18 * z1, 0.84 + 0.18 * z2),
 		laub_v);
 	float wachsen = smoothstep(0.0, 1.0,
-		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0));
+		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0))
+		* (1.0 - smoothstep(0.0, 1.0, clamp((welt_zeit - vergehen) / VERGEHEN_S, 0.0, 1.0)));
 	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
 	if (d_kam < 900.0 && wind_staerke > 0.0) {
 		mat3 m = mat3(MODEL_MATRIX);
@@ -6776,6 +6805,8 @@ func update_center(world_pos: Vector3) -> void:
 	var bew := Vector2(world_pos.x - _last_pos.x, world_pos.z - _last_pos.z)
 	if bew.length() > 0.05 and bew.length() < 400.0:
 		_flug_dir = (_flug_dir * 0.92 + bew.normalized() * 0.08)
+	if bew.length() < 400.0:
+		_flug_schritt = lerpf(_flug_schritt, bew.length(), 0.1)
 	_last_pos = world_pos
 	# Die Meeresscheibe legt der Vertex-Shader selbst um die Kamera — hier nichts zu tun.
 	_wasser_klima(world_pos)
@@ -6793,13 +6824,15 @@ func update_center(world_pos: Vector3) -> void:
 	# Quadrate und ohne Funktionsaufruf je Zelle: diese Schleife laeuft bei jedem Zellwechsel
 	# ueber ~530 Zellen im selben Frame (siehe _vorrang zum Ruckler, den das ausmacht).
 	var grenze2 := (VIEW_DIST + CHUNK) * (VIEW_DIST + CHUNK)
+	var fein2 := FEIN_DIST * FEIN_DIST
 	for cy in range(cc.y - r, cc.y + r + 1):
 		var dz := (float(cy) + 0.5) * CHUNK - world_pos.z
 		for cx in range(cc.x - r, cc.x + r + 1):
 			var dx := (float(cx) + 0.5) * CHUNK - world_pos.x
-			if dx * dx + dz * dz > grenze2:
+			var d2 := dx * dx + dz * dz
+			if d2 > grenze2:
 				continue
-			want[Vector2i(cx, cy)] = true
+			want[Vector2i(cx, cy)] = d2 < fein2      # true = soll fein sein (FEIN_DIST)
 	# entfernte Chunks abbauen
 	for key in _chunks.keys():
 		if not want.has(key):
@@ -6826,18 +6859,39 @@ func update_center(world_pos: Vector3) -> void:
 	# sort_custom und _vorrang im Vergleicher waren das bei ~370 Chunks einige tausend
 	# Skriptaufrufe — gemessen bis 24 ms in EINEM Frame, bei jedem Zellwechsel (im
 	# Schnellflug alle 1-2 s ein spuerbarer Ruckler).
-	var kandidaten: Array[Vector2i] = []
+	# Ein Auftrag ist (x, z, Auftragsart): fehlt der Chunk, entsteht er in seiner Soll-Stufe;
+	# steht er grob, soll aber fein sein, wird er ersetzt (AUFTRAG_FEIN_AUS_GROB).
+	var kandidaten: Array[Vector3i] = []
 	var schluessel := PackedInt64Array()
 	for key in want:
-		if not _chunks.has(key) and not _in_arbeit.has(key) and not fertig.has(key):
-			schluessel.append((int(_vorrang(key, pc, vor) * 16.0) << 20) | kandidaten.size())
-			kandidaten.append(key)
+		if _in_arbeit.has(key) or fertig.has(key):
+			continue
+		var soll_fein: bool = want[key]
+		var auftrag := -1
+		var nachrang := 0.0
+		if not _chunks.has(key):
+			# ERST ABDECKEN, DANN VERFEINERN: auch nahe Chunks entstehen zuerst grob (18 statt
+			# 59 ms). Gemessen bei 450 m/s: mit "nah gleich fein" fehlten voraus Chunks,
+			# weil die teuren feinen die Worker banden.
+			auftrag = AUFTRAG_GROB
+		elif soll_fein and int((_chunks[key] as Node).get_meta("stufe", STUFE_FEIN)) == STUFE_GROB:
+			# Verfeinern erst nach der Abdeckung, und nicht hinter dem Flugzeug (dorthin
+			# schaut die Verfolgerkamera nicht; dreht man, kommt es wieder nach vorn).
+			var dk := _chunk_center(key) - pc
+			if vor != Vector2.ZERO and _flug_schritt > FEIN_HINTEN_AB and dk.dot(vor) < -FEIN_HINTEN:
+				continue
+			auftrag = AUFTRAG_FEIN_AUS_GROB
+			nachrang = FEIN_NACHRANG
+		if auftrag < 0:
+			continue
+		schluessel.append((int((_vorrang(key, pc, vor) + nachrang) * 16.0) << 20) | kandidaten.size())
+		kandidaten.append(Vector3i(key.x, key.y, auftrag))
 	schluessel.sort()
 	for sk in schluessel:
 		_jobs.append(kandidaten[sk & 0xFFFFF])
 	_pending = _in_arbeit.duplicate()
-	for key in _jobs:
-		_pending[key] = true
+	for job in _jobs:
+		_pending[Vector2i(job.x, job.y)] = true
 	for key in fertig:
 		_pending[key] = true
 	var neu := _jobs.size() - alt_n
@@ -6884,7 +6938,7 @@ const WORKER_FAEDEN := 2
 # Hauptinsel kostet 170 ms (gemessen tools/_tempo_nachladen.gd; die frueheren ~22 ms
 # galten vor Gebirge, Kueste und Feldflur), zwei Faeden liefern damit ~12 je Sekunde — bei
 # 450 m/s braucht die Vorderkante des Sichtkreises aber ~26.
-const WORKER_ZUSATZ := 1
+const WORKER_ZUSATZ := 0
 const ZUSATZ_AB := 8
 const VORAUS_GEWICHT := 0.6
 # Messwerte fuer Werkzeuge (tools/_tempo_nachladen.gd): Bauzeit der Worker (unter _mutex
@@ -6900,13 +6954,13 @@ func _worker_loop() -> void:
 		if _exit:
 			return
 		_mutex.lock()
-		var key_v: Variant = _jobs.pop_front() if not _jobs.is_empty() else null
-		if key_v != null:
-			_in_arbeit[key_v] = true
+		var job_v: Variant = _jobs.pop_front() if not _jobs.is_empty() else null
+		if job_v != null:
+			_in_arbeit[Vector2i(job_v.x, job_v.y)] = true
 		_mutex.unlock()
-		if key_v == null:
+		if job_v == null:
 			continue
-		_chunk_bauen(key_v)
+		_chunk_bauen(job_v)
 
 
 ## Zusatzfaden: schaut alle 40 ms nach und nimmt nur Auftraege, solange mehr als ZUSATZ_AB
@@ -6915,20 +6969,21 @@ func _worker_loop() -> void:
 func _zusatz_loop() -> void:
 	while not _exit:
 		_mutex.lock()
-		var key_v: Variant = _jobs.pop_front() if _jobs.size() > ZUSATZ_AB else null
-		if key_v != null:
-			_in_arbeit[key_v] = true
+		var job_v: Variant = _jobs.pop_front() if _jobs.size() > ZUSATZ_AB else null
+		if job_v != null:
+			_in_arbeit[Vector2i(job_v.x, job_v.y)] = true
 		_mutex.unlock()
-		if key_v == null:
+		if job_v == null:
 			OS.delay_msec(40)
 			continue
-		_chunk_bauen(key_v)
+		_chunk_bauen(job_v)
 
 
-func _chunk_bauen(key_v: Variant) -> void:
-	var key: Vector2i = key_v
+func _chunk_bauen(job_v: Variant) -> void:
+	var job: Vector3i = job_v
+	var key := Vector2i(job.x, job.y)
 	var t_w := Time.get_ticks_usec()
-	var data := _make_chunk_data(key)
+	var data := _make_chunk_data(key, job.z)
 	if _exit:
 		return
 	_mutex.lock()
@@ -6940,8 +6995,28 @@ func _chunk_bauen(key_v: Variant) -> void:
 	# (nur build_now_around um den Spawn hatte je Baeume).
 	_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
 		"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"],
-		"gras": data["gras"]})
+		"gras": data["gras"], "stufe": data["stufe"]})
 	_mutex.unlock()
+
+
+## Einen GROBEN Chunk abloesen, weil sein feiner Nachfolger da ist: das Gelaende sofort
+## ausblenden (der Nachfolger beginnt genau auf dessen Flaeche), die Kollision sofort weg,
+## die Pflanzen in VERGEHEN_S wegschrumpfen lassen (Shader "vergehen") — waehrend die neuen
+## einwachsen —, danach den Knoten freigeben (_process, _vergehend).
+func _chunk_abloesen(key: Vector2i, alt: Node3D) -> void:
+	_chunks.erase(key)
+	alt.set_meta("abgeloest", true)
+	for c in alt.get_children():
+		if c is MeshInstance3D:
+			(c as MeshInstance3D).visible = false
+		elif c is StaticBody3D:
+			c.queue_free()
+	var jetzt := welt_zeit()
+	for e in alt.get_meta("flora_mmis", []):
+		for mmi in [e["voll"], e["grob"]]:
+			if is_instance_valid(mmi):
+				(mmi as GeometryInstance3D).set_instance_shader_parameter("vergehen", jetzt)
+	_vergehend.append([alt, jetzt + VERGEHEN_S + 0.1])
 
 
 ## Uhr des weichen Erscheinens (globale Shader-Variable welt_zeit, Sekunden).
@@ -6971,13 +7046,30 @@ func _process(_delta: float) -> void:
 		var key: Vector2i = item["key"]
 		_pending.erase(key)
 		# inzwischen außer Reichweite? -> verwerfen (wird bei Bedarf neu geplant)
-		if _chunks.has(key) or _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
+		if _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
 			mess_verworfen += 1
 			continue
+		var stufe := int(item.get("stufe", STUFE_FEIN))
+		if _chunks.has(key):
+			# Nur ein feiner darf einen groben abloesen; alles andere ist doppelt.
+			var alt: Node3D = _chunks[key]
+			if stufe != STUFE_FEIN or int(alt.get_meta("stufe", STUFE_FEIN)) != STUFE_GROB:
+				mess_verworfen += 1
+				continue
+			_chunk_abloesen(key, alt)
 		var t_a := Time.get_ticks_usec() if profil_an else 0
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
-			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null), true)
+			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null), true, stufe)
 		_pz("attach", t_a)
+	# Abgeloeste grobe Chunks freigeben, sobald ihre Pflanzen weggeschrumpft sind
+	if not _vergehend.is_empty():
+		var jetzt := welt_zeit()
+		for i in range(_vergehend.size() - 1, -1, -1):
+			if jetzt >= float(_vergehend[i][1]):
+				var n: Variant = _vergehend[i][0]
+				if is_instance_valid(n):
+					(n as Node).queue_free()
+				_vergehend.remove_at(i)
 	var t_n := Time.get_ticks_usec() if profil_an else 0
 	_flora_nachziehen()
 	_pz("flora_nachzug", t_n)
@@ -7067,7 +7159,7 @@ func _flora_nachziehen() -> void:
 		var e: Dictionary = _flora_warteschlange.pop_front()
 		var n: Variant = e["node"]
 		# Der Chunk kann laengst wieder abgebaut sein — dann faellt seine Flora weg.
-		if is_instance_valid(n):
+		if is_instance_valid(n) and not (n as Node).has_meta("abgeloest"):
 			_attach_multi(n, e["mesh"], e["xfs"], bool(e.get("weich", false)))
 			getan += 1
 		# STUECKZAHL VOR ZEITBUDGET. Das Budget allein genuegt nicht: es wird NACH einem
@@ -7366,8 +7458,10 @@ static func boden_textur() -> ImageTexture:
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null,
-		gras: Image = null, weich := false) -> void:
-	_tiefe_eintragen(key, tiefe, gras)
+		gras: Image = null, weich := false, stufe := STUFE_FEIN) -> void:
+	# Grobe Chunks haben keine Grasmaske: den Ring an ihrer Stelle LEEREN, sonst stuende dort
+	# das Gras des Chunks, der vorher auf diesem Ringplatz lag.
+	_tiefe_eintragen(key, tiefe, gras if gras != null else _gras_leer)
 	var node := Node3D.new()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -7380,6 +7474,7 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	# Chunk ohnehin sofort nah, der Koerper entsteht also im selben Frame.
 	node.set_meta("shape", shape)
 	node.set_meta("key", key)
+	node.set_meta("stufe", stufe)
 	var d := _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z))
 	if d <= KOLLISIONS_DIST:
 		var t_kb := Time.get_ticks_usec() if profil_an else 0
@@ -7568,7 +7663,7 @@ func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
 ## mit height_at(..., 32) ab (ohne das feine Felsrelief, siehe DETAILMASS) und teilt ihre
 ## Zellen mit derselben Diagonale 00-11 — hier genau so nachgerechnet. 13 x 13 Proben je
 ## Chunk, gemessen ~2 ms.
-func _schuerzen_hoehen(ox: float, oz: float, step: float) -> PackedVector2Array:
+func _schuerzen_hoehen(ox: float, oz: float, step: float, zn: int = CELLS) -> PackedVector2Array:
 	const FZ := 32.0
 	@warning_ignore("integer_division")
 	var ng := int(CHUNK / FZ) + 1
@@ -7577,7 +7672,7 @@ func _schuerzen_hoehen(ox: float, oz: float, step: float) -> PackedVector2Array:
 	for j in ng:
 		for i in ng:
 			g[j * ng + i] = maxf(height_at(ox + float(i) * FZ, oz + float(j) * FZ, FZ), SEA_Y)
-	var nv := CELLS + 1
+	var nv := zn + 1
 	var uv2 := PackedVector2Array()
 	uv2.resize(nv * nv)
 	var k := step / FZ
@@ -7599,25 +7694,60 @@ func _schuerzen_hoehen(ox: float, oz: float, step: float) -> PackedVector2Array:
 	return uv2
 
 
-func _make_chunk_data(key: Vector2i) -> Dictionary:
+## Die GROBE FLAECHE (16-m-Raster, Diagonale 00-11) an jedem Eckpunkt eines feinen Chunks
+## (UV2.x), aus jedem zweiten Punkt des feinen Rasters. Ein feiner Chunk, der einen groben
+## ersetzt, waechst daraus in seine Form. (Das grobe Raster tastet mit Zellweite 16 ab, also
+## mit 78 % des feinen Felsreliefs — der Rest waechst im Morph mit, nichts springt.)
+func _grob_flaeche(hs: PackedFloat32Array, zn: int) -> PackedVector2Array:
+	var nv := zn + 1
+	var uv2 := PackedVector2Array()
+	uv2.resize(nv * nv)
+	for j in nv:
+		for i in nv:
+			var gx := float(i) * 0.5
+			var gz := float(j) * 0.5
+			var ci := mini(int(gx), (zn >> 1) - 1) * 2
+			var cj := mini(int(gz), (zn >> 1) - 1) * 2
+			var fx := gx - float(ci >> 1)
+			var fz := gz - float(cj >> 1)
+			var h00 := hs[cj * nv + ci]
+			var h10 := hs[cj * nv + ci + 2]
+			var h01 := hs[(cj + 2) * nv + ci]
+			var h11 := hs[(cj + 2) * nv + ci + 2]
+			var h := (h00 + fx * (h10 - h00) + fz * (h11 - h10)) if fx > fz \
+				else (h00 + fz * (h01 - h00) + fx * (h11 - h01))
+			uv2[j * nv + i] = Vector2(h, 0.0)
+	return uv2
+
+
+func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 	var ox := float(key.x) * CHUNK
 	var oz := float(key.y) * CHUNK
-	var step := CHUNK / float(CELLS)
+	# DETAILSTUFE (siehe FEIN_DIST): grob = 16-m-Raster, ein Viertel der Proben. Alle
+	# Rechnungen unten laufen ueber zn/rn/step; fuer die feine Stufe ist jeder Faktor genau 1
+	# und jede Rechnung dieselbe wie vorher (bitgleich, _haupt_pruefsumme).
+	var grob := auftrag == AUFTRAG_GROB
+	var zn: int = (CELLS >> 1) if grob else CELLS
+	var rn := zn + 3
+	var step := CHUNK / float(zn)
+	var flaeche := (step / 8.0) * (step / 8.0)     # Zellflaeche in 8-m-Zellen (Bewuchsdichte)
+	var slope_k := 8.0 / step                      # Steilheit je 8 m, wie alle Schwellen
+	var ks: int = 1 if grob else KOLL_SCHRITT
 	# HOEHEN MIT EINEM RAND: das Netz ist GLATT schattiert (Normale je Eckpunkt aus den
 	# Nachbarhoehen), und damit die Normalen an der Chunkgrenze mit denen des Nachbarn
 	# uebereinstimmen, braucht jeder Randpunkt auch die Hoehe jenseits der Grenze. Sonst
 	# stuende jede Chunkkante als Lichtnaht im Gelaende. Kostet 200 height_at mehr (+8 %),
 	# dafuer faellt _face_color von 4608 Aufrufen (je Dreieck) auf 2401 (je Eckpunkt).
 	var hr := PackedFloat32Array()
-	hr.resize(RAND_N * RAND_N)
-	for j in RAND_N:
-		for i in RAND_N:
-			hr[j * RAND_N + i] = height_at(ox + float(i - 1) * step, oz + float(j - 1) * step)
+	hr.resize(rn * rn)
+	for j in rn:
+		for i in rn:
+			hr[j * rn + i] = height_at(ox + float(i - 1) * step, oz + float(j - 1) * step, step)
 	var hs := PackedFloat32Array()
-	hs.resize((CELLS + 1) * (CELLS + 1))
-	for j in CELLS + 1:
-		for i in CELLS + 1:
-			hs[j * (CELLS + 1) + i] = hr[(j + 1) * RAND_N + i + 1]
+	hs.resize((zn + 1) * (zn + 1))
+	for j in zn + 1:
+		for i in zn + 1:
+			hs[j * (zn + 1) + i] = hr[(j + 1) * rn + i + 1]
 	# LIEGT UEBERHAUPT EINE ROEHRE IN DIESEM CHUNK? Dieselbe Vorpruefung wie bei den
 	# Fluessen und aus demselben Grund: der Test je Zelle ist billig, aber er laeuft
 	# 2304 mal je Chunk mal vier Ecken, und in ueber 99 % aller Chunks gibt es nichts zu
@@ -7636,9 +7766,9 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	# Hoechster Flussspiegel in der Naehe dieses Chunks (Zellenraster, einmal je Chunk).
 	var fluss_h := _fluss_bereich_h(ox - 20.0, oz - 20.0, CHUNK + 40.0)
 	var fluss_chunk := fluss_h > -INF
-	var nv := CELLS + 1
-	var nrms := glatte_normalen(hr, CELLS, step)
-	var mulde := mulden(hr, CELLS, step)
+	var nv := zn + 1
+	var nrms := glatte_normalen(hr, zn, step)
+	var mulde := mulden(hr, zn, step)
 	var verts := PackedVector3Array()
 	verts.resize(nv * nv)
 	var cols := PackedColorArray()
@@ -7648,16 +7778,16 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			var o := j * nv + i
 			var p := Vector3(ox + float(i) * step, hs[o], oz + float(j) * step)
 			verts[o] = p
-			var farbe := _face_color(p, nrms[o].y, 8.0, nrms[o])
+			var farbe := _face_color(p, nrms[o].y, step, nrms[o])
 			# Kiesufer nur knapp ueber dem Wasser der Fluesse in der Naehe (je Chunk bestimmt).
 			if p.y < fluss_h + 2.5:
 				farbe = _ufer_farbe(farbe, p)
 			cols[o] = mulden_ton(farbe, mulde[o])
 	var idx := PackedInt32Array()
-	idx.resize(CELLS * CELLS * 6)
+	idx.resize(zn * zn * 6)
 	var ni := 0
-	for j in CELLS:
-		for i in CELLS:
+	for j in zn:
+		for i in zn:
 			var o := j * nv + i
 			# ROEHRE AUSSPAREN. Sobald EINE Ecke im Lichtraum liegt, faellt die ganze
 			# Zelle weg — nicht erst, wenn alle vier drin sind. Sonst blieben an der
@@ -7677,8 +7807,45 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			idx[ni + 5] = o + nv
 			ni += 6
 	idx.resize(ni)
-	var mesh := netz_aus(verts, nrms, cols, idx, _schuerzen_hoehen(ox, oz, step))
-	var gras := _gras_block(ox, oz, hs, cols)
+	# Woraus der Chunk beim Erscheinen waechst: aus der Fernschuerze, oder — beim Wechsel
+	# grob -> fein — aus der groben Flaeche, die an seiner Stelle stand.
+	var uv2 := _grob_flaeche(hs, zn) if auftrag == AUFTRAG_FEIN_AUS_GROB \
+		else _schuerzen_hoehen(ox, oz, step, zn)
+	# RANDSTREIFEN: je Kante ein senkrechter Streifen RAND_TIEF nach unten. Wo ein feiner an
+	# einen groben Chunk stoesst, liegen die Zwischenpunkte der feinen Kante nicht auf der
+	# geraden groben Kante — ohne Streifen klaffte dort ein Spalt, durch den man auf die
+	# tief abgesenkte Schuerze saehe. Gleiche Normale und Farbe wie die Kante, damit der
+	# Streifen im Spalt wie Gelaende aussieht. Wicklung je Kante aus der Aussenrichtung.
+	var kanten := [[0, 1, Vector3(0, 0, -1)], [zn * (zn + 1), 1, Vector3(0, 0, 1)],
+		[0, zn + 1, Vector3(-1, 0, 0)], [zn, zn + 1, Vector3(1, 0, 0)]]
+	for kante in kanten:
+		var anf: int = kante[0]
+		var schritt: int = kante[1]
+		var aussen: Vector3 = kante[2]
+		var unten0 := verts.size()
+		for k in zn + 1:
+			var o: int = anf + k * schritt
+			verts.append(verts[o] - Vector3(0.0, RAND_TIEF, 0.0))
+			nrms.append(nrms[o])
+			cols.append(cols[o])
+			uv2.append(uv2[o] - Vector2(RAND_TIEF, 0.0))
+		for k in zn:
+			var a: int = anf + k * schritt
+			var b: int = anf + (k + 1) * schritt
+			if tunnel_chunk and (_im_tunnel(verts[a]) or _im_tunnel(verts[b])):
+				continue
+			var a2 := unten0 + k
+			var b2 := unten0 + k + 1
+			# Front = im Uhrzeigersinn von aussen: das Kreuzprodukt zeigt dann NACH INNEN.
+			var dreh := (verts[b] - verts[a]).cross(verts[b2] - verts[a]).dot(aussen) > 0.0
+			if dreh:
+				idx.append_array([a, b2, b, a, a2, b2])
+			else:
+				idx.append_array([a, b, b2, a, b2, a2])
+	var mesh := netz_aus(verts, nrms, cols, idx, uv2)
+	# Grasmaske nur fein: Gras waechst ohnehin nur 105 m um die Kamera, grobe Chunks liegen
+	# jenseits von FEIN_DIST (dort bleibt der Ring leer, siehe _attach_chunk).
+	var gras: Image = null if grob else _gras_block(ox, oz, hs, cols)
 	# --- FLORA: deterministisch aus Seed+Chunk — Bäume in Wald-Clustern, Felsen
 	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
 	var rng := RandomNumberGenerator.new()
@@ -7697,18 +7864,18 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	# darunter — mit height_at gesampelt schwebten sie auf Graten und steckten in Mulden.
 	var river_chunk := fluss_chunk
 	var strasse_chunk := _strassen_an and _st_huelle.intersects(Rect2(ox, oz, CHUNK, CHUNK))
-	for j in CELLS:
-		for i in CELLS:
-			var h00 := hs[j * (CELLS + 1) + i]
-			var h10 := hs[j * (CELLS + 1) + i + 1]
-			var h01 := hs[(j + 1) * (CELLS + 1) + i]
-			var h11 := hs[(j + 1) * (CELLS + 1) + i + 1]
+	for j in zn:
+		for i in zn:
+			var h00 := hs[j * (zn + 1) + i]
+			var h10 := hs[j * (zn + 1) + i + 1]
+			var h01 := hs[(j + 1) * (zn + 1) + i]
+			var h11 := hs[(j + 1) * (zn + 1) + i + 1]
 			var hc := (h00 + h10 + h01 + h11) * 0.25
 			if hc < SEA_Y + 1.0:
 				continue
 			# Steilheit als Hoehenunterschied ueber die 8-m-Zelle (aus dem Raster, gratis)
 			var slope := maxf(maxf(absf(h10 - h00), absf(h01 - h00)),
-				maxf(absf(h11 - h10), absf(h11 - h01)))
+				maxf(absf(h11 - h10), absf(h11 - h01))) * slope_k
 			var cx := ox + (float(i) + 0.5) * step
 			var cz := oz + (float(j) + 0.5) * step
 			# Eingeebnete Flugplaetze/Plateaus bleiben frei — frueher besorgte das die
@@ -7743,12 +7910,12 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			# FELSEN: unabhaengig vom Wald, bevorzugt an Haengen und in Hochlagen.
 			# Auch oberhalb der Baumgrenze (dort tragen sie die Bergsilhouette).
 			if rng.randf() < steil * open * (0.004 + clampf(slope * 0.012, 0.0, 0.05)
-					+ (0.02 if hc > 45.0 else 0.0)):
+					+ (0.02 if hc > 45.0 else 0.0)) * flaeche:
 				var rsc := Vector3(rng.randf_range(0.7, 2.6), rng.randf_range(0.5, 1.9),
 					rng.randf_range(0.7, 2.6))
 				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc),
-					Vector3(cx + rng.randf_range(-3.0, 3.0), hc - 0.3,
-						cz + rng.randf_range(-3.0, 3.0))))
+					Vector3(cx + rng.randf_range(-step * 0.375, step * 0.375), hc - 0.3,
+						cz + rng.randf_range(-step * 0.375, step * 0.375))))
 			# --- BEWUCHS ---
 			# NEUE REGIONEN: eigene Baumgrenze (Nordland tief, Dschungel bis auf die
 			# Karstkuppen), eigene Arten und Dichte — siehe _region_flora.
@@ -7779,7 +7946,8 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 				continue
 			if reg != Region.HAUPT:
 				_region_flora(reg, rng, flora, cx, cz, hc, slope,
-					ox + float(i) * step, oz + float(j) * step, step, h00, h10, h01, h11)
+					ox + float(i) * step, oz + float(j) * step, step, h00, h10, h01, h11,
+					flaeche)
 				continue
 			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
 			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.
@@ -7819,7 +7987,7 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 				if hc > 28.0:
 					continue
 				per_cell *= 0.05   # Wueste: nur Oasen-Tupfer im Rauschen-Hoch
-			var expect := per_cell * dens * edge
+			var expect := per_cell * dens * edge * flaeche
 			var n := int(floor(expect))
 			if rng.randf() < expect - float(n):
 				n += 1
@@ -7907,26 +8075,26 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	# Die Eckpunkte liegen ohnehin schon vor, sie werden oben beim Netzbau mitgeschrieben.
 	# ConcavePolygonShape3D.set_faces() geht direkt an die Physik und fasst den Renderer
 	# nicht an.
-	# KOLLISIONSFLAECHE aus DEMSELBEN Hoehenraster, aber nur jedem KOLL_SCHRITT-ten Punkt.
+	# KOLLISIONSFLAECHE aus DEMSELBEN Hoehenraster, aber nur jedem ks-ten Punkt.
 	# Eigene Schleife statt im Netzbau mitgeschrieben, weil die Weite eine andere ist.
-	# Ganzzahlig gewollt: 48 / 2 = 24 geht glatt auf. Wer KOLL_SCHRITT aendert, waehlt
-	# einen Teiler von CELLS — sonst bliebe am Chunkrand ein Streifen ohne Kollision.
+	# Ganzzahlig gewollt: 48 / 2 = 24 geht glatt auf. Wer ks aendert, waehlt
+	# einen Teiler von zn — sonst bliebe am Chunkrand ein Streifen ohne Kollision.
 	@warning_ignore("integer_division")
-	var kc := CELLS / KOLL_SCHRITT
-	var kstep := step * float(KOLL_SCHRITT)
+	var kc := zn / ks
+	var kstep := step * float(ks)
 	var faces := PackedVector3Array()
 	faces.resize(kc * kc * 6)
 	var fi := 0
 	for j in kc:
 		for i in kc:
-			var gi := i * KOLL_SCHRITT
-			var gj := j * KOLL_SCHRITT
+			var gi := i * ks
+			var gj := j * ks
 			var x0 := ox + float(gi) * step
 			var z0 := oz + float(gj) * step
-			var k00 := hs[gj * (CELLS + 1) + gi]
-			var k10 := hs[gj * (CELLS + 1) + gi + KOLL_SCHRITT]
-			var k01 := hs[(gj + KOLL_SCHRITT) * (CELLS + 1) + gi]
-			var k11 := hs[(gj + KOLL_SCHRITT) * (CELLS + 1) + gi + KOLL_SCHRITT]
+			var k00 := hs[gj * (zn + 1) + gi]
+			var k10 := hs[gj * (zn + 1) + gi + ks]
+			var k01 := hs[(gj + ks) * (zn + 1) + gi]
+			var k11 := hs[(gj + ks) * (zn + 1) + gi + ks]
 			var p00 := Vector3(x0, k00, z0)
 			var p10 := Vector3(x0 + kstep, k10, z0)
 			var p01 := Vector3(x0, k01, z0 + kstep)
@@ -7963,16 +8131,36 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			var tmp: Variant = l[k]
 			l[k] = l[q]
 			l[q] = tmp
-	# HOEHENBLOCK FUER DAS WASSER: die ersten CELLS x CELLS Stuetzpunkte (die letzte Zeile
+	# HOEHENBLOCK FUER DAS WASSER: die ersten zn x zn Stuetzpunkte (die letzte Zeile
 	# und Spalte gehoeren dem Nachbarn). Halbfloat reicht: am Wasser liegen die Hoehen
 	# nahe null, dort ist er auf Millimeter genau.
 	var th := PackedFloat32Array()
-	for j in CELLS:
-		th.append_array(hs.slice(j * (CELLS + 1), j * (CELLS + 1) + CELLS))
+	if not grob:
+		for j in zn:
+			th.append_array(hs.slice(j * (zn + 1), j * (zn + 1) + zn))
+	else:
+		# Der Ring erwartet je Chunk 48 x 48 Stuetzpunkte im 8-m-Abstand: aus dem groben
+		# Raster mit denselben Dreiecken (Diagonale 00-11) hochgerechnet.
+		th.resize(CELLS * CELLS)
+		var nvg := zn + 1
+		for j in CELLS:
+			for i in CELLS:
+				var gx := float(i) * 0.5
+				var gz := float(j) * 0.5
+				var ci := int(gx)
+				var cj := int(gz)
+				var fx := gx - float(ci)
+				var fz := gz - float(cj)
+				var g00 := hs[cj * nvg + ci]
+				var g10 := hs[cj * nvg + ci + 1]
+				var g01 := hs[(cj + 1) * nvg + ci]
+				var g11 := hs[(cj + 1) * nvg + ci + 1]
+				th[j * CELLS + i] = (g00 + fx * (g10 - g00) + fz * (g11 - g10)) if fx > fz \
+					else (g00 + fz * (g01 - g00) + fx * (g11 - g01))
 	var tiefe := Image.create_from_data(CELLS, CELLS, false, Image.FORMAT_RF, th.to_byte_array())
 	tiefe.convert(Image.FORMAT_RH)
 	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks, "tiefe": tiefe,
-		"gras": gras}
+		"gras": gras, "stufe": STUFE_GROB if grob else STUFE_FEIN}
 
 
 ## Wie frei ist die Stelle fuer Bewuchs? 0 = eingeebneter Flugplatz/Plateau (auf der
