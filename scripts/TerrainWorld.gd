@@ -6687,12 +6687,16 @@ func update_center(world_pos: Vector3) -> void:
 	var t_p := Time.get_ticks_usec() if profil_an else 0
 	var r := int(ceil(VIEW_DIST / CHUNK))
 	var want := {}
+	# Quadrate und ohne Funktionsaufruf je Zelle: diese Schleife laeuft bei jedem Zellwechsel
+	# ueber ~530 Zellen im selben Frame (siehe _vorrang zum Ruckler, den das ausmacht).
+	var grenze2 := (VIEW_DIST + CHUNK) * (VIEW_DIST + CHUNK)
 	for cy in range(cc.y - r, cc.y + r + 1):
+		var dz := (float(cy) + 0.5) * CHUNK - world_pos.z
 		for cx in range(cc.x - r, cc.x + r + 1):
-			var key := Vector2i(cx, cy)
-			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > VIEW_DIST + CHUNK:
+			var dx := (float(cx) + 0.5) * CHUNK - world_pos.x
+			if dx * dx + dz * dz > grenze2:
 				continue
-			want[key] = true
+			want[Vector2i(cx, cy)] = true
 	# entfernte Chunks abbauen
 	for key in _chunks.keys():
 		if not want.has(key):
@@ -6714,11 +6718,20 @@ func update_center(world_pos: Vector3) -> void:
 		fertig[e["key"]] = true
 	var alt_n := _jobs.size()
 	_jobs.clear()
+	# NATIV SORTIEREN: Vorrang einmal je Chunk rechnen und mit dem Index in EINE Ganzzahl
+	# packen (Vorrang in 1/16 m oben, Index unten), dann PackedInt64Array.sort(). Mit
+	# sort_custom und _vorrang im Vergleicher waren das bei ~370 Chunks einige tausend
+	# Skriptaufrufe — gemessen bis 24 ms in EINEM Frame, bei jedem Zellwechsel (im
+	# Schnellflug alle 1-2 s ein spuerbarer Ruckler).
+	var kandidaten: Array[Vector2i] = []
+	var schluessel := PackedInt64Array()
 	for key in want:
 		if not _chunks.has(key) and not _in_arbeit.has(key) and not fertig.has(key):
-			_jobs.append(key)
-	_jobs.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return _vorrang(a, pc, vor) < _vorrang(b, pc, vor))
+			schluessel.append((int(_vorrang(key, pc, vor) * 16.0) << 20) | kandidaten.size())
+			kandidaten.append(key)
+	schluessel.sort()
+	for sk in schluessel:
+		_jobs.append(kandidaten[sk & 0xFFFFF])
 	_pending = _in_arbeit.duplicate()
 	for key in _jobs:
 		_pending[key] = true

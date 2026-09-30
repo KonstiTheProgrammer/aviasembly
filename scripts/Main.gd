@@ -2915,14 +2915,20 @@ func _fern_ring(p: Vector2, r: float, vor := Vector2.ZERO) -> Array[Vector2i]:
 	var x1 := mini(floori((p.x + r) / FERN_KACHEL), half - 1)
 	var z0 := maxi(floori((p.y - r) / FERN_KACHEL), -half)
 	var z1 := mini(floori((p.y + r) / FERN_KACHEL), half - 1)
-	var raus: Array[Vector2i] = []
+	var alle: Array[Vector2i] = []
+	var schluessel := PackedInt64Array()
 	for kz in range(z0, z1 + 1):
 		for kx in range(x0, x1 + 1):
 			var key := Vector2i(kx, kz)
 			if _fern_kachel_mitte(key).distance_to(p) < r:
-				raus.append(key)
-	raus.sort_custom(func(u: Vector2i, v: Vector2i) -> bool:
-		return _fern_vorrang(u, p, vor) < _fern_vorrang(v, p, vor))
+				# Vorrang und Index in eine Ganzzahl, dann nativ sortieren (ein Vergleicher
+				# in GDScript kostete je Pruefung Millisekunden, siehe TerrainWorld.update_center)
+				schluessel.append((int(_fern_vorrang(key, p, vor) * 4.0) << 20) | alle.size())
+				alle.append(key)
+	schluessel.sort()
+	var raus: Array[Vector2i] = []
+	for sk in schluessel:
+		raus.append(alle[sk & 0xFFFFF])
 	return raus
 
 

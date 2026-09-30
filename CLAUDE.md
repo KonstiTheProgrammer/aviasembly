@@ -507,6 +507,16 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   Hauptinsel 135 ms statt der dokumentierten ~22 ms, und mehrere Faeden bremsten sich an
   GETEILTEN Woerterbuechern aus (sechs Faeden lieferten weniger als zwei); (3) Schuerze und
   Kartenkacheln belegten ALLE Pool-Faeden bzw. standen hinter der 2048er-Karte an.
+- RUCKLER-FALLE (Nutzer: „ruckelt, nicht mehr smooth" nach dem ersten Umbau): das Neu-
+  sortieren der Auftragsliste per `sort_custom` mit `_vorrang` im Vergleicher kostete bei
+  ~370 Chunks bis 24 ms in EINEM Frame, bei jedem Zellwechsel (im Flug alle 1-3 s). Jetzt:
+  Vorrang einmal je Chunk, mit dem Index in eine Ganzzahl gepackt, `PackedInt64Array.sort()`
+  (nativ) — Spitze 1,6–4 ms; dasselbe in `Main._fern_ring`. Allgemein: GDScript-Vergleicher
+  ueber Hunderte Elemente im Frame sind teuer. `_tempo_nachladen` meldet jetzt Spitzen je
+  Abschnitt, Frames ueber 20/33 ms und ordnet langsame Frames Ereignissen zu (Zellwechsel,
+  Chunk, Schuerze, Kachel). Vergleich 150 m/s: alter Stand 73 % der Frames ueber 20 ms
+  (Warten auf den Renderfaden), neu ~5 % (120-Hz-Takt: 25-ms-Frames), keiner ueber 33 ms.
+  Niedrige Fadenprioritaet fuer die Worker brachte messbar nichts.
 - AUFTRAGSLISTE (`TerrainWorld.update_center`): bei jedem Zellwechsel NEU aufgestellt —
   nur Gewolltes, nicht Stehendes, nicht im Bau (`_in_arbeit`), nicht fertig wartend (`_done`),
   sortiert nach `_vorrang` (Abstand, voraus bis auf 40 % verkuerzt, `VORAUS_GEWICHT`,

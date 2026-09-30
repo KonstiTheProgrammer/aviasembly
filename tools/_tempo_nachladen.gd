@@ -30,6 +30,15 @@ var t_probe := 0.0
 var warte := 0
 var zeilen: Array = []
 var frames: Array = []
+var _pr_alt := {}
+var _ev_fern := 0
+var _ev_kachel := 0
+var _ev_chunks := 0
+var _ev_cc := Vector2i.ZERO
+var _ev_vorher: Array = []
+var _ev_langsam := {}
+var _ev_alle := {}
+var _pr_max := {}
 var _frame_i := 0
 
 
@@ -77,6 +86,39 @@ func _process(d: float) -> bool:
 	if phase == 1:
 		t_flug += d
 		frames.append(d)
+		# Ereignisse dieses Frames, um langsame Frames zuzuordnen
+		var ev := []
+		var gz := (m.get("_fern_grob_mi") as Dictionary).size() + (m.get("_fern_fein_mi") as Dictionary).size()
+		if gz != _ev_fern:
+			ev.append("schuerze")
+			_ev_fern = gz
+		var wmk: WorldMap = m.get("world_map")
+		var kz := (wmk.get("_kacheln") as Dictionary).size() if wmk != null else 0
+		if kz != _ev_kachel:
+			ev.append("kachel")
+			_ev_kachel = kz
+		var cz := (t.get("_chunks") as Dictionary).size()
+		if cz > _ev_chunks:
+			ev.append("chunk")
+		_ev_chunks = cz
+		var lcc: Vector2i = t.get("_last_cc")
+		if lcc != _ev_cc:
+			ev.append("zelle")
+			_ev_cc = lcc
+		if d > 0.020:
+			var k := ",".join(PackedStringArray(_ev_vorher)) if not _ev_vorher.is_empty() else "-"
+			_ev_langsam[k] = int(_ev_langsam.get(k, 0)) + 1
+		for e in _ev_vorher:
+			_ev_alle[e] = int(_ev_alle.get(e, 0)) + 1
+		_ev_vorher = ev
+		# Spitzen je Abschnitt: Zuwachs der Profilsummen in diesem Frame
+		var pr: Dictionary = t.get("profil")
+		for k in pr:
+			var alt := float(_pr_alt.get(k, 0.0))
+			var dz := float(pr[k]) - alt
+			_pr_alt[k] = float(pr[k])
+			if not String(k).ends_with("_n") and dz > float(_pr_max.get(k, 0.0)):
+				_pr_max[k] = dz
 		pos += dir * v * d
 		# Hoehe weich ueber dem Gelaende VORAUS halten (nicht jeden Huegel nachzeichnen)
 		var voraus := pos + dir * v * 2.0
@@ -193,6 +235,21 @@ func _probe(t: TerrainWorld) -> void:
 
 
 func _bericht() -> void:
+	var ueber20 := 0
+	var ueber33 := 0
+	for x in frames:
+		if x > 0.020:
+			ueber20 += 1
+		if x > 0.0333:
+			ueber33 += 1
+	print("SPITZEN Frames ueber 20 ms: %d, ueber 33 ms: %d von %d" % [ueber20, ueber33, frames.size()])
+	for k in _ev_langsam:
+		print("LANGSAM nach [%s]: %d Frames" % [k, _ev_langsam[k]])
+	for k in _ev_alle:
+		print("EREIGNIS %s: %d mal" % [k, _ev_alle[k]])
+	for k in _pr_max:
+		if float(_pr_max[k]) > 1000.0:
+			print("SPITZE %-16s max %.2f ms in einem Frame" % [k, float(_pr_max[k]) / 1000.0])
 	var pr: Dictionary = m.terrain.get("profil")
 	var zeilen_p: Array = []
 	for k in pr:
