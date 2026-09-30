@@ -39,3 +39,10 @@ common/physics_interpolation=true
 
 anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.55, 0.72, 0.92, 1)
+
+[shader_globals]
+
+welt_zeit={
+"type": "float",
+"value": 0.0
+}

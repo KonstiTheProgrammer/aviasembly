@@ -494,7 +494,7 @@ gratis). Lage/Masse in `Main._sondergelaende` (feste Seeds), Gelaende in Terrain
   Schuerze jetzt vorher an (`_fern_stopp` + wait_to_finish). Befund dabei: der Bergsee-
   Abfluss meldet "ZU HOCH" (Schwelle +208 m) — so auch im alten Stand, nicht angefasst.
 
-## Nachladen im Schnellflug (2026-09)
+## Nachladen: Schnellflug und weiches Erscheinen (2026-09)
 Nutzer: „mit einem schnellen Flugzeug laedt die Map viel zu langsam — du bist zu schnell".
 Gemessen mit `tools/_tempo_nachladen.gd` (IM FENSTER, Echtzeit; fliegt eine Gerade mit festem
 Tempo und misst alle 0,5 s den Vorlauf von Chunks, Loechern im 2-km-Umkreis, Schuerze grob/
@@ -551,9 +551,32 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   Luecken im 2-km-Umkreis von der Schuerze gedeckt, Minimap ≥ 5 km, feine Schuerze ≥ 4 km,
   Frame 16,5 ms (alter Stand 15,0 — aber dort kam ab 28 s gar nichts mehr an). 450 m/s: die
   Chunks fallen seitlich zurueck (CPU-Grenze), die Schuerze deckt alles.
-- OFFEN/Hebel fuer mehr: Chunkbau weiter verbilligen (height_at 10 us je Probe ist der groesste
-  Posten), Kuestenformen-Woerterbuecher (`_kf_*`) und Massiv-Woerterbuecher im Vorfilterbereich
-  sind noch geteilte Variants.
+- WEICHES ERSCHEINEN (Nutzer: „Optik und Feeling" beim Reinladen): ein GESTREAMTER Chunk
+  waechst in `MORPH_S` (1,4 s) aus der Hoehe der Fernschuerze in seine Form, seine Pflanzen
+  wachsen in `WACHSEN_S` (1,6 s, je Pflanze um bis 0,5 s versetzt) aus dem Boden. Vorher
+  sprang das Gelaende um das in der Schuerze fehlende Felsrelief (bis ~20 m) und der Wald
+  stand schlagartig da. Technik: UV2.x = Schuerzenhoehe je Eckpunkt (`_schuerzen_hoehen`:
+  13 x 13 Proben height_at(..., 32) — das 32er-Raster laesst das Felsrelief weg, siehe
+  DETAILMASS —, gleiche Diagonale 00-11 wie die Schuerze), `instance uniform erschienen` je
+  Chunk-MeshInstance und je Flora-MultiMesh, globale Shader-Uhr `welt_zeit`
+  (project.godot `[shader_globals]`, je Frame in `TerrainWorld._process` =
+  `TerrainWorld.welt_zeit()`). Nur der Streaming-Weg (`_attach_chunk(..., weich = true)`,
+  Flora-Eintrag "weich"); Startbereich/`build_now_around` stehen sofort. MORPH_S/WACHSEN_S
+  stehen ZUSAETZLICH als Konstanten in `gelaende_kern` bzw. im Flora-Shader — gleich halten.
+  Kosten: +1,7 ms je Chunk (Worker), Framezeit unveraendert (gemessen). Sichtprobe:
+  `tools/_weich_bild.gd [x z]` (setzt das Alter je Bild selbst: 0,05 / 0,7 / 2,0 s).
+- WEITERE VORFILTER (alle bitgleich, `_haupt_pruefsumme`): Kuestenformen abgeflacht
+  (`_kf_pts` + Bereiche `_kf_*_ab`, Gesamtlaenge `_kf_*_ges` — `_kf_lage` summierte sie je
+  Aufruf neu —, Reichweite `_kf_*_raus`/`_kf_g_bmax` VOR dem Woerterbuch; `_kf_flach` gibt ein
+  Array zurueck, ein Vector3 haette die 64-Bit-Laenge auf 32 Bit gekuerzt), Massive gepackt
+  (`_ms_r/_ms_typ/_ms_dehn/_ms_drall`, keine String-Erzeugung je Probe mehr), Felswaende
+  (`_fw_*`, Setter), Seen in der Farbe (`_see_farb2`). height_at 13,2 → 12,1 us (Inselmittel),
+  Chunk 59 → 56 ms (+1,7 fuer das weiche Erscheinen). Profil-Anteile (mit Messmarken):
+  Gebirgsformen, Massive, Kuestenversatz, Wasserformen — der Rest sind die Rauschaufrufe selbst.
+- OFFEN/Hebel fuer mehr: Chunk-Detailstufen (ferne Chunks mit 16 m) waeren der naechste grosse
+  Schritt (~4x billiger fern), brauchen aber Naht-Behandlung und einen Wechsel beim
+  Naeherkommen; Grasmaske (4 ms) nur fuer nahe Chunks. Die Flora-Sparstufe bei 1,2 km ist
+  ein harter Wechsel (Sichtweite, FADE_DISABLED).
 
 ## Doerfer und Landstrassen (2026-09)
 Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue
@@ -1195,7 +1218,7 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   jeder weitere ~0,3 ms. Statische Welt-Wurzeln tragen deshalb
   `physics_interpolation_mode = OFF` (TerrainWorld, Fernschuerze, Landstrassen, CityBuilder-
   Viertel), und an eingehaengten MultiMeshes wird nichts mehr umgestellt (Details im
-  Abschnitt „Nachladen im Schnellflug"). Headless faellt das nicht auf.
+  Abschnitt „Nachladen: Schnellflug und weiches Erscheinen"). Headless faellt das nicht auf.
 - **`visibility_range` misst ab der Huelle der Geometrie** (nachgemessen: Knoten am Ursprung,
   Geometrie 5 km daneben, Kamera davor → sichtbar), nicht ab dem Knotenursprung.
 - **WorkerThreadPool-Gruppen stehen in einer Schlange.** Die Fernschürze legt beim Start 577

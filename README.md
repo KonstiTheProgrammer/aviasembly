@@ -150,6 +150,10 @@ ferne Berge verblassen zu hellblauen Silhouetten. In Bodennähe wiegen sich **Gr
 Wind. Laubbäume haben runde, bauschige Kronen, oben sonnig, unten kühl, und leuchten im
 Gegenlicht auf; jeder Baum hat seinen eigenen Grünton.
 
+Die Landschaft lädt beim Fliegen nahtlos nach, auch im Überschallflug: Was voraus liegt,
+kommt zuerst. Neu geladenes Gelände wächst weich aus der Fernansicht in seine volle Form,
+und die Bäume sprießen aus dem Boden, statt plötzlich dazustehen.
+
 Die Welt lebt: Möwen kreisen über Küsten und Seen, Krähen- und Starenschwärme ziehen über die
 Felder, Greifvögel segeln in der Thermik über Schlucht und Gebirge, der Wald wiegt sich im
 Wind, und die Schönwetterwolken stehen in langen Wolkenstraßen.

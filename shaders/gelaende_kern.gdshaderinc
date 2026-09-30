@@ -55,6 +55,12 @@ float chunk_da(vec2 xz) {
 // GLUT AUS DEM ALPHAKANAL (Lavarinnen am Vulkan) — siehe TerrainWorld.setup. Die Schuerze
 // hat keinen: dort traegt COLOR.a die Grundabsenkung.
 const float GLUT = 2.2;
+// WEICHES ERSCHEINEN (TerrainWorld.MORPH_S): ein gestreamter Chunk waechst aus der Hoehe
+// der Fernschuerze (UV2.x, siehe _schuerzen_hoehen) in seine Form. Ohne gesetzten
+// Zeitpunkt (Startbereich, Felsboegen ohne UV2) sofort voll.
+global uniform float welt_zeit;
+instance uniform float erschienen = -1000.0;
+const float MORPH_S = 1.4;   // = TerrainWorld.MORPH_S
 #endif
 
 #include "res://shaders/palette.gdshaderinc"
@@ -63,6 +69,12 @@ varying vec3 w_pos;
 varying vec3 w_nrm;
 
 void vertex() {
+#ifndef FERN
+	float morph = smoothstep(0.0, 1.0, clamp((welt_zeit - erschienen) / MORPH_S, 0.0, 1.0));
+	if (morph < 1.0) {
+		VERTEX.y = mix(UV2.x, VERTEX.y, morph);
+	}
+#endif
 	w_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	w_nrm = mat3(MODEL_MATRIX) * NORMAL;
 #ifdef FERN

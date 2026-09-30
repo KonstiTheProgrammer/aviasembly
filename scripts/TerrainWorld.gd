@@ -280,6 +280,14 @@ const SEA_Y := -6.0             # Meeresspiegel (Main legt dort die Kollisionseb
 # sich also _done auf. 3 je Frame raeumen den Schwall ab, ohne die Spitze zu erhoehen;
 # bei 6 stieg der schlimmste Frame von 3,9 auf 6,7 ms.
 const MAX_ATTACH_PER_FRAME := 3
+# WEICHES ERSCHEINEN. Gestreamte Chunks wachsen in MORPH_S aus der Hoehe der Fernschuerze
+# (die bis dahin an ihrer Stelle lag, siehe gelaende_kern chunk_da) in ihre volle Form, ihre
+# Pflanzen wachsen in WACHSEN_S aus dem Boden (je Pflanze leicht versetzt). Vorher sprang
+# das Gelaende beim Eintreffen um das weggelassene Felsrelief (bis ~20 m) und der Wald
+# stand schlagartig da — im Schnellflug, wo die Schuerze die Luecken deckt, mitten im Bild.
+# Uhr: die globale Shader-Variable welt_zeit (project.godot, je Frame in _process gesetzt).
+const MORPH_S := 1.4
+const WACHSEN_S := 1.6
 
 # --- VULKANKEGEL -------------------------------------------------------------------------
 # Diese drei Zahlen stehen NICHT in der Massivtabelle, weil sie nicht einen bestimmten Berg
@@ -1696,6 +1704,7 @@ var lakes: Array = []:          # [{pos: Vector3, r: float, surf: float}] Inland
 var _see_x := PackedFloat64Array()
 var _see_z := PackedFloat64Array()
 var _see_reich2 := PackedFloat64Array()
+var _see_farb2 := PackedFloat64Array()     # _face_color_grund: (_rmax+120)^2, sonst -1
 
 
 ## Nach jeder Aenderung an `lakes` oder ihren Umrissen (setup ruft es nach dem Bauen der
@@ -1704,7 +1713,13 @@ func seen_vorfilter_bauen() -> void:
 	_see_x = PackedFloat64Array()
 	_see_z = PackedFloat64Array()
 	_see_reich2 = PackedFloat64Array()
+	_see_farb2 = PackedFloat64Array()
 	for lk in lakes:
+		if lk.has("_rad"):
+			var kr := float(lk["_rmax"]) + 120.0
+			_see_farb2.append(kr * kr + 1.0)
+		else:
+			_see_farb2.append(-1.0)
 		var lp: Vector3 = lk["pos"]
 		var r := float(lk["r"])
 		if lk.has("_rad"):
@@ -1724,6 +1739,13 @@ var massifs: Array = []         # [{pos: Vector3, r: float, peak: float}] erzwun
 var _ms_x := PackedFloat64Array()
 var _ms_z := PackedFloat64Array()
 var _ms_reich2 := PackedFloat64Array()
+var _ms_r := PackedFloat64Array()
+var _ms_typ := PackedByteArray()
+var _ms_dehn := PackedFloat64Array()
+var _ms_drall := PackedFloat64Array()
+const MS_BERG := 0
+const MS_VULKAN := 1
+const MS_ANDERE := 2
 # TALKORRIDOR des Hochtals: {start, richtung, laenge, halbbreite: PackedFloat32Array}.
 # Nur die ALMWIESE in _face_color liest ihn — das Hoehenfeld nicht. Warum es ihn gibt,
 # steht bei TAL_WIESE_HUB.
@@ -1757,7 +1779,20 @@ var _tal_lg := 0.0
 ## Eintrag: {"x","z","r","r2","h0","h1","amp","fx","fz","fr"}. h0/h1 blenden das Relief
 ## ueber der Hoehe ein (unten aus, damit Talboden und Portalstirn unberuehrt bleiben),
 ## fx/fz/fr halten einen Kreis frei, in dem gebaute Teile an das Gelaende anschliessen.
-var felswaende: Array = []
+var felswaende: Array = []:
+	set(v):
+		felswaende = v
+		_fw_x = PackedFloat64Array()
+		_fw_z = PackedFloat64Array()
+		_fw_r2 = PackedFloat64Array()
+		for fw in felswaende:
+			_fw_x.append(float(fw["x"]))
+			_fw_z.append(float(fw["z"]))
+			_fw_r2.append(float(fw["r2"]))
+# Vorfilter der Felswaende (height_at je Probe, _face_color je Eckpunkt), wie bei den Seen.
+var _fw_x := PackedFloat64Array()
+var _fw_z := PackedFloat64Array()
+var _fw_r2 := PackedFloat64Array()
 
 # =====================================================================================
 # LANDMASSEN — die Welt jenseits der Hauptinsel, jede mit eigenem Klima
@@ -2645,6 +2680,20 @@ var _kf_g: Array = []                     # Gebirge (art "gebirge"), siehe _kf_g
 var _kf_g_bb := PackedFloat64Array()
 var _kf_ab_g := 1.0e18
 var _kf_ab_w := 1.0e18
+# ABGEFLACHT fuer height_at (je Probe): alle Formpunkte in EINEM Packed-Array, je Form ein
+# Bereich [anfang, ende), die Gesamtlaenge vorberechnet (_kf_lage summierte sie bei JEDEM
+# Aufruf neu) und die Reichweite, damit der haeufige Fall "Probe im Huellkreis, aber
+# ausserhalb der Form" kein geteiltes Woerterbuch mehr anfasst. Gleiche Rechnung, bitgleich.
+var _kf_pts := PackedVector2Array()
+var _kf_l_ab := PackedInt32Array()
+var _kf_w_ab := PackedInt32Array()
+var _kf_g_ab := PackedInt32Array()
+var _kf_l_ges := PackedFloat64Array()
+var _kf_w_ges := PackedFloat64Array()
+var _kf_g_ges := PackedFloat64Array()
+var _kf_l_raus := PackedFloat64Array()
+var _kf_w_raus := PackedFloat64Array()
+var _kf_g_bmax := PackedFloat64Array()
 
 
 ## Abstand zu einer Polylinie und Lage darauf.
@@ -2652,17 +2701,27 @@ var _kf_ab_w := 1.0e18
 ## Zurueck kommt (Abstand, Laufparameter 0..1). Den Laufparameter braucht die Hoehe: eine
 ## Kette soll in der Mitte hoch und an den Enden niedrig sein, und dafuer muss die Form
 ## wissen, WO auf ihrer Achse der Punkt liegt — nicht nur, wie weit daneben.
-func _kf_lage(x: float, z: float, pts: PackedVector2Array) -> Vector2:
-	var best := 1.0e18
-	var best_s := 0.0
-	var lauf := 0.0
+## Punkte einer Form an _kf_pts anhaengen. Rueckgabe (anfang, ende, Gesamtlaenge) — die
+## Summe wie frueher in _kf_lage, die Reihenfolge ist Teil der Bitgleichheit. (Keine
+## Packed-Arrays als Ziel uebergeben: das waeren Kopien, siehe Strassenraster.)
+func _kf_flach(pts: PackedVector2Array) -> Array:
+	var anfang := _kf_pts.size()
+	_kf_pts.append_array(pts)
 	var gesamt := 0.0
 	for i in pts.size() - 1:
 		gesamt += pts[i].distance_to(pts[i + 1])
+	return [anfang, _kf_pts.size(), gesamt]     # Array: die Summe bleibt 64 Bit
+
+
+## Abstand zur Achse der Form mit den Punkten _kf_pts[a..e) und Lage darauf (0..1).
+func _kf_lage(x: float, z: float, a0: int, e0: int, gesamt: float) -> Vector2:
+	var best := 1.0e18
+	var best_s := 0.0
+	var lauf := 0.0
 	var p := Vector2(x, z)
-	for i in pts.size() - 1:
-		var a := pts[i]
-		var b := pts[i + 1]
+	for i in range(a0, e0 - 1):
+		var a := _kf_pts[i]
+		var b := _kf_pts[i + 1]
 		var ab := b - a
 		var l2 := ab.length_squared()
 		var t := 0.0 if l2 < 0.001 else clampf((p - a).dot(ab) / l2, 0.0, 1.0)
@@ -2674,7 +2733,6 @@ func _kf_lage(x: float, z: float, pts: PackedVector2Array) -> Vector2:
 	return Vector2(sqrt(best), best_s)
 
 
-## Hoehe an der Stelle s (0..1) der Achse, linear zwischen den Stuetzwerten.
 func _kf_hoehe(hs: PackedFloat32Array, s: float) -> float:
 	if hs.size() == 1:
 		return hs[0]
@@ -2703,11 +2761,11 @@ func _kf_land(x: float, z: float, h: float) -> float:
 		var dz := z - _kf_l_bb[b + 1]
 		if dx * dx + dz * dz > _kf_l_bb[b + 2]:
 			continue
-		var kf: Dictionary = _kf_l[i]
-		var lage := _kf_lage(x, z, kf["pts"])
-		var r_aus: float = float(kf["r_aus"])
+		var lage := _kf_lage(x, z, _kf_l_ab[i * 2], _kf_l_ab[i * 2 + 1], _kf_l_ges[i])
+		var r_aus: float = _kf_l_raus[i]
 		if lage.x >= r_aus:
 			continue
+		var kf: Dictionary = _kf_l[i]
 		# "breit_rausch": die Breite schwankt laengs der Form (Anteil). Ohne das hatte die
 		# Hakenzunge ueberall genau dieselbe Breite und las sich als gezeichneter Ring.
 		var brr: float = float(kf.get("breit_rausch", 0.0))
@@ -2749,11 +2807,11 @@ func _kf_wasser(x: float, z: float, h: float) -> float:
 		var dz := z - _kf_w_bb[b + 1]
 		if dx * dx + dz * dz > _kf_w_bb[b + 2]:
 			continue
-		var kf: Dictionary = _kf_w[i]
-		var lage := _kf_lage(x, z, kf["pts"])
-		var r_aus: float = float(kf["r_aus"])
+		var lage := _kf_lage(x, z, _kf_w_ab[i * 2], _kf_w_ab[i * 2 + 1], _kf_w_ges[i])
+		var r_aus: float = _kf_w_raus[i]
 		if lage.x >= r_aus:
 			continue
+		var kf: Dictionary = _kf_w[i]
 		var sohle := SEA_Y + _kf_hoehe(kf["hs"], lage.y)
 		# "breite": Faktor laengs der Form (Golfe verengen sich zum Kopf), "breit_rausch":
 		# unruhiger Rand. Ohne beides waren Buchten gezeichnete Kapseln.
@@ -2838,11 +2896,11 @@ func _kf_gebirge(x: float, z: float, h: float) -> float:
 		var dz := z - _kf_g_bb[b + 1]
 		if dx * dx + dz * dz > _kf_g_bb[b + 2]:
 			continue
-		var kf: Dictionary = _kf_g[i]
-		var bmax: float = kf["_bmax"]
-		var d := _kf_lage(x, z, kf["pts"]).x
+		var bmax: float = _kf_g_bmax[i]
+		var d := _kf_lage(x, z, _kf_g_ab[i * 2], _kf_g_ab[i * 2 + 1], _kf_g_ges[i]).x
 		if d > bmax * 1.4:
 			continue
+		var kf: Dictionary = _kf_g[i]
 		var p0: Vector2 = kf["_p0"]
 		var ax: Vector2 = kf["_ax"]
 		var rx := x - p0.x
@@ -3428,6 +3486,11 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 shader_type spatial;
 uniform float fade_start;
 uniform float fade_end;
+// WEICHES ERSCHEINEN (TerrainWorld.WACHSEN_S): gestreamte Pflanzen wachsen aus dem Boden,
+// jede leicht versetzt. Ohne gesetzten Zeitpunkt (Startbereich) sofort voll.
+global uniform float welt_zeit;
+instance uniform float erschienen = -1000.0;
+const float WACHSEN_S = 1.6;   // = TerrainWorld.WACHSEN_S
 // WIND: die Baeume wiegen sich — die Krone mehr als der Stamm (quadratisch mit der Hoehe
 // ueber dem Fuss), und langsam wandernde Boeen laufen als Wellen durch den Wald. Die
 // Auslenkung wird in WELTRICHTUNG gerechnet und in den Raum der Instanz zurueckgedreht —
@@ -3448,7 +3511,9 @@ void vertex() {
 	float laub_v = clamp((COLOR.g - max(COLOR.r, COLOR.b)) * 8.0, 0.0, 1.0);
 	COLOR.rgb *= mix(vec3(1.0), vec3(0.86 + 0.26 * z1, 0.90 + 0.18 * z1, 0.84 + 0.18 * z2),
 		laub_v);
-	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, d_kam);
+	float wachsen = smoothstep(0.0, 1.0,
+		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0));
+	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
 	if (d_kam < 900.0 && wind_staerke > 0.0) {
 		mat3 m = mat3(MODEL_MATRIX);
 		float h_w = max((m * VERTEX).y, 0.0);
@@ -3778,10 +3843,12 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 		var dz := z - _ms_z[mi]
 		if dx * dx + dz * dz > _ms_reich2[mi]:
 			continue
-		var ms: Dictionary = massifs[mi]
-		var mr := float(ms["r"])
-		var typ := String(ms.get("type", "berg"))
-		var dehn := float(ms.get("dehnung", 1.0))
+		# Radius, Typ, Dehnung und Drall aus Packed-Arrays (_ms_vorfilter_bauen): hier stand
+		# je Probe String(ms.get("type")) — eine String-Erzeugung — und vier Zugriffe auf
+		# ein geteiltes Woerterbuch, bevor feststand, ob die Probe ueberhaupt im Massiv liegt.
+		var mr := _ms_r[mi]
+		var typ_nr := _ms_typ[mi]
+		var dehn := _ms_dehn[mi]
 		var md := sqrt(dx * dx + dz * dz)
 		# GEDREHTE ELLIPSE STATT KREIS. Der Fussabdruck war bei jedem Massiv rund, und
 		# damit sah jeder Berg von oben gleich aus — der wirksamste Hebel gegen
@@ -3789,7 +3856,7 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 		# dehnung 1.0 laesst alles wie vorher; alle vorhandenen Massive haben keinen Wert
 		# und bleiben unveraendert.
 		if dehn != 1.0:
-			var dr := float(ms.get("drall", 0.0))
+			var dr := _ms_drall[mi]
 			var cc := cos(dr)
 			var ss := sin(dr)
 			var rx := dx * cc + dz * ss
@@ -3797,6 +3864,7 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 			md = sqrt((rx / dehn) * (rx / dehn) + (rz * dehn) * (rz * dehn))
 			if md > mr:
 				continue
+		var ms: Dictionary = massifs[mi]
 		# UNTERWASSER-SCHELF fuer Inseln und Vulkane (tuerkiser Ring). Er reicht bewusst
 		# UEBER den Kegelradius hinaus und laeuft dort aus.
 		# WARUM AUSSERHALB: frueher endete der Kegel am Rand bei der Konstanten SEA_Y - 9,
@@ -3805,7 +3873,7 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 		# folgt, stand im Bild ein rasiermesserscharfer, perfekt kreisrunder Farbsprung
 		# Tuerkis gegen Tiefblau ueber zwei Pixel — ein aufgemalter Planschbeckenrand.
 		# Jetzt steigt der Grund von aussen her an und der Kegel setzt stufenlos darauf auf.
-		if typ != "berg":
+		if typ_nr != MS_BERG:
 			var schelf := 1.0 - smoothstep(mr * 0.95, mr * 1.9, md)
 			if schelf > 0.0:
 				h = maxf(h, lerpf(h, SEA_Y - 9.0, schelf))
@@ -3890,7 +3958,7 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 			var sch := float(ms.get("schaerfe", 0.0))
 			if sch > 0.0:
 				s = lerpf(s, clampf(1.0 - md / mr, 0.0, 1.0), sch)
-			if typ == "berg":
+			if typ_nr == MS_BERG:
 				var top := float(ms["peak"]) * s * (0.68 + 0.32 * rdg)
 				top += s * crag * 30.0
 				# GRAT-AMPLITUDE, BEIDSEITIG. Der Vorgabewert 30 m gibt einer 200-m-Kuppe
@@ -4152,7 +4220,7 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 								* (3.24 * v * v - 1.0) * q * q
 						if lpn > 0.0:
 							top += lpn * _vulkan_lappen(ad, md, mr)
-				if typ == "vulkan":
+				if typ_nr == MS_VULKAN:
 					# --- KRATER IM ABGESTUMPFTEN GIPFEL ------------------------------
 					# "rand_h" schaltet ihn ein; ohne den Wert bleibt es bei der alten
 					# abgezogenen Delle (siehe else).
@@ -4376,13 +4444,15 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# Rippen und Runsen, die eine Wand senkrecht gliedern, das Fleckenrauschen die
 	# Koernung darauf. _ridge laeuft mit 1/1700 Grundfrequenz und vier Oktaven; mit
 	# Faktor 12 auf den Koordinaten sind das Rippen von rund 140 m, herunter bis 18 m.
-	for fw in felswaende:
-		var fdx: float = x - float(fw["x"])
-		var fdz: float = z - float(fw["z"])
+	for fi in _fw_x.size():
+		var fdx: float = x - _fw_x[fi]
+		var fdz: float = z - _fw_z[fi]
 		var fd2 := fdx * fdx + fdz * fdz
-		# Vorfilter zuerst: ausserhalb der Zone kostet die Wand zwei Multiplikationen.
-		if fd2 >= float(fw["r2"]):
+		# Vorfilter zuerst: ausserhalb der Zone kostet die Wand zwei Multiplikationen (aus
+		# Packed-Arrays, ohne das geteilte Woerterbuch).
+		if fd2 >= _fw_r2[fi]:
 			continue
+		var fw: Dictionary = felswaende[fi]
 		# HOEHENTOR. Unten aus: der Talboden ist eingeebnet, und die Portalstirn schliesst
 		# dort an das Gelaende an. Erst ab h0 blendet das Relief ein.
 		var hk := smoothstep(float(fw["h0"]), float(fw["h1"]), h)
@@ -4688,6 +4758,16 @@ func _kf_vorfilter_bauen() -> void:
 	_kf_l = []
 	_kf_w = []
 	_kf_g = []
+	_kf_pts = PackedVector2Array()
+	_kf_l_ab = PackedInt32Array()
+	_kf_w_ab = PackedInt32Array()
+	_kf_g_ab = PackedInt32Array()
+	_kf_l_ges = PackedFloat64Array()
+	_kf_w_ges = PackedFloat64Array()
+	_kf_g_ges = PackedFloat64Array()
+	_kf_l_raus = PackedFloat64Array()
+	_kf_w_raus = PackedFloat64Array()
+	_kf_g_bmax = PackedFloat64Array()
 	_kf_ab_g = 1.0e18
 	var lb := PackedFloat64Array()
 	var wb := PackedFloat64Array()
@@ -4716,15 +4796,30 @@ func _kf_vorfilter_bauen() -> void:
 			var grad: float = mitte.distance_to(hi) + float(kf["_bmax"]) * 1.4
 			_kf_g.append(kf)
 			gb.append_array([mitte.x, mitte.y, grad * grad])
+			var flg := _kf_flach(pts)
+			_kf_g_ab.append(int(flg[0]))
+			_kf_g_ab.append(int(flg[1]))
+			_kf_g_ges.append(float(flg[2]))
+			_kf_g_bmax.append(float(kf["_bmax"]))
 			_kf_ab_g = minf(_kf_ab_g, maxf(mitte.length() - grad, 0.0))
 			continue
 		if String(kf["art"]) == "land":
 			_kf_l.append(kf)
 			lb.append_array([mitte.x, mitte.y, rad * rad])
+			var fll := _kf_flach(pts)
+			_kf_l_ab.append(int(fll[0]))
+			_kf_l_ab.append(int(fll[1]))
+			_kf_l_ges.append(float(fll[2]))
+			_kf_l_raus.append(float(kf["r_aus"]))
 			_kf_ab_l = minf(_kf_ab_l, maxf(mitte.length() - rad, 0.0))
 		else:
 			_kf_w.append(kf)
 			wb.append_array([mitte.x, mitte.y, rad * rad])
+			var flw := _kf_flach(pts)
+			_kf_w_ab.append(int(flw[0]))
+			_kf_w_ab.append(int(flw[1]))
+			_kf_w_ges.append(float(flw[2]))
+			_kf_w_raus.append(float(kf["r_aus"]))
 			# GETRENNTE TORE FUER LAND UND WASSER. Der Fjord liegt viel weiter draussen
 			# als der Fuss des Kaps; ein gemeinsames Tor muesste sich nach dem naeheren
 			# von beiden richten und liesse jede Probe im ganzen Aussenring auch noch die
@@ -4745,11 +4840,19 @@ func _ms_vorfilter_bauen() -> void:
 	_ms_x = PackedFloat64Array()
 	_ms_z = PackedFloat64Array()
 	_ms_reich2 = PackedFloat64Array()
+	_ms_r = PackedFloat64Array()
+	_ms_typ = PackedByteArray()
+	_ms_dehn = PackedFloat64Array()
+	_ms_drall = PackedFloat64Array()
 	for ms in massifs:
 		var mp: Vector3 = ms["pos"]
 		var mr := float(ms["r"])
 		var typ := String(ms.get("type", "berg"))
 		var dehn := float(ms.get("dehnung", 1.0))
+		_ms_r.append(mr)
+		_ms_typ.append(MS_BERG if typ == "berg" else (MS_VULKAN if typ == "vulkan" else MS_ANDERE))
+		_ms_dehn.append(dehn)
+		_ms_drall.append(float(ms.get("drall", 0.0)))
 		var reichweite := mr * (1.0 if typ == "berg" else 1.9) * maxf(dehn, 1.0 / dehn)
 		_ms_x.append(mp.x)
 		_ms_z.append(mp.z)
@@ -6841,7 +6944,13 @@ func _chunk_bauen(key_v: Variant) -> void:
 	_mutex.unlock()
 
 
+## Uhr des weichen Erscheinens (globale Shader-Variable welt_zeit, Sekunden).
+static func welt_zeit() -> float:
+	return float(Time.get_ticks_msec()) * 0.001
+
+
 func _process(_delta: float) -> void:
+	RenderingServer.global_shader_parameter_set("welt_zeit", welt_zeit())
 	_gras_nachfuehren()
 	# fertige Chunks einhängen (billig: Nodes + fertige Resources)
 	for i in MAX_ATTACH_PER_FRAME:
@@ -6867,7 +6976,7 @@ func _process(_delta: float) -> void:
 			continue
 		var t_a := Time.get_ticks_usec() if profil_an else 0
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
-			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null))
+			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null), true)
 		_pz("attach", t_a)
 	var t_n := Time.get_ticks_usec() if profil_an else 0
 	_flora_nachziehen()
@@ -6959,7 +7068,7 @@ func _flora_nachziehen() -> void:
 		var n: Variant = e["node"]
 		# Der Chunk kann laengst wieder abgebaut sein — dann faellt seine Flora weg.
 		if is_instance_valid(n):
-			_attach_multi(n, e["mesh"], e["xfs"])
+			_attach_multi(n, e["mesh"], e["xfs"], bool(e.get("weich", false)))
 			getan += 1
 		# STUECKZAHL VOR ZEITBUDGET. Das Budget allein genuegt nicht: es wird NACH einem
 		# Eintrag geprueft, und ein einzelner kostet mit echtem Renderer bis zu 3,7 ms
@@ -7030,7 +7139,7 @@ func _flora_alles_nachziehen() -> void:
 		var e: Dictionary = _flora_warteschlange.pop_front()
 		var n: Variant = e["node"]
 		if is_instance_valid(n):
-			_attach_multi(n, e["mesh"], e["xfs"])
+			_attach_multi(n, e["mesh"], e["xfs"], bool(e.get("weich", false)))
 
 
 # --- GLATTES GELAENDENETZ (Chunks und Fernschuerze) ---------------------------------------
@@ -7080,7 +7189,8 @@ static func mulden_ton(c: Color, mulde: float) -> Color:
 
 
 static func netz_aus(verts: PackedVector3Array, nrms: PackedVector3Array,
-		cols: PackedColorArray, idx: PackedInt32Array) -> ArrayMesh:
+		cols: PackedColorArray, idx: PackedInt32Array,
+		uv2 := PackedVector2Array()) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	if idx.is_empty():
 		return mesh
@@ -7089,6 +7199,8 @@ static func netz_aus(verts: PackedVector3Array, nrms: PackedVector3Array,
 	arr[Mesh.ARRAY_VERTEX] = verts
 	arr[Mesh.ARRAY_NORMAL] = nrms
 	arr[Mesh.ARRAY_COLOR] = cols
+	if not uv2.is_empty():
+		arr[Mesh.ARRAY_TEX_UV2] = uv2      # x = Hoehe der Fernschuerze (weiches Erscheinen)
 	arr[Mesh.ARRAY_INDEX] = idx
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
@@ -7254,12 +7366,14 @@ static func boden_textur() -> ImageTexture:
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null,
-		gras: Image = null) -> void:
+		gras: Image = null, weich := false) -> void:
 	_tiefe_eintragen(key, tiefe, gras)
 	var node := Node3D.new()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	mi.material_override = _mat
+	if weich:
+		mi.set_instance_shader_parameter("erschienen", welt_zeit())
 	node.add_child(mi)
 	# Die Form wird am Knoten hinterlegt und der Koerper erst gebaut, wenn der Chunk nahe
 	# genug ist (siehe _chunks_pflegen). Beim Spawn und in den Renderwerkzeugen ist der
@@ -7282,9 +7396,10 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	# liegt am Rand der Sichtweite, wo die Flora ohnehin klein und ausgeblendet ist.
 	for art in flora.keys():
 		_flora_warteschlange.append({"node": node, "mesh": _flora.get(art, _mesh_conifer),
-			"xfs": flora[art]})
+			"xfs": flora[art], "weich": weich})
 	if not rocks.is_empty():
-		_flora_warteschlange.append({"node": node, "mesh": _mesh_rock, "xfs": rocks})
+		_flora_warteschlange.append({"node": node, "mesh": _mesh_rock, "xfs": rocks,
+			"weich": weich})
 
 
 ## Baumweite umschalten: 0 = nah, 1 = normal, 2 = weit. Wirkt sofort auf alle vorhandenen
@@ -7339,7 +7454,7 @@ static func _xf_puffer(xfs: Array, huelle: Array = []) -> PackedFloat32Array:
 	return buf
 
 
-func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
+func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array, weich := false) -> void:
 	if xfs.is_empty() or mesh == null:
 		return
 	# ZWEI MULTIMESHES JE ART, DER RENDERER WAEHLT PER SICHTWEITE: die volle bis
@@ -7367,6 +7482,10 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 	var voll := _flora_mmi(mesh, xfs.size(), puf, box)
 	var grob := _flora_mmi(_grob_cache[mesh], n_grob, puf.slice(0, n_grob * 12), box)
 	_flora_reichweiten(voll, grob)
+	if weich:
+		var jetzt := welt_zeit()
+		voll.set_instance_shader_parameter("erschienen", jetzt)
+		grob.set_instance_shader_parameter("erschienen", jetzt)
 	parent.add_child(voll)
 	parent.add_child(grob)
 	# AM CHUNK-KNOTEN, nicht in einer globalen Liste (mit dem Chunk geht auch seine Liste).
@@ -7442,6 +7561,42 @@ func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
 	# also ein maxf gegen null und das Ergebnis bitgenau das bisherige.
 	dens = maxf(dens, vulkan_kragen(x, z, h))
 	return clampf(dens * edge, 0.0, 1.0)
+
+
+## HOEHE DER FEINEN FERNSCHUERZE an jedem Eckpunkt eines Chunks (UV2.x), damit der Chunk
+## beim Erscheinen genau von dort aus in seine Form waechst. Die Schuerze tastet alle 32 m
+## mit height_at(..., 32) ab (ohne das feine Felsrelief, siehe DETAILMASS) und teilt ihre
+## Zellen mit derselben Diagonale 00-11 — hier genau so nachgerechnet. 13 x 13 Proben je
+## Chunk, gemessen ~2 ms.
+func _schuerzen_hoehen(ox: float, oz: float, step: float) -> PackedVector2Array:
+	const FZ := 32.0
+	@warning_ignore("integer_division")
+	var ng := int(CHUNK / FZ) + 1
+	var g := PackedFloat32Array()
+	g.resize(ng * ng)
+	for j in ng:
+		for i in ng:
+			g[j * ng + i] = maxf(height_at(ox + float(i) * FZ, oz + float(j) * FZ, FZ), SEA_Y)
+	var nv := CELLS + 1
+	var uv2 := PackedVector2Array()
+	uv2.resize(nv * nv)
+	var k := step / FZ
+	for j in nv:
+		for i in nv:
+			var gx := float(i) * k
+			var gz := float(j) * k
+			var ci := mini(int(gx), ng - 2)
+			var cj := mini(int(gz), ng - 2)
+			var fx := gx - float(ci)
+			var fz := gz - float(cj)
+			var h00 := g[cj * ng + ci]
+			var h10 := g[cj * ng + ci + 1]
+			var h01 := g[(cj + 1) * ng + ci]
+			var h11 := g[(cj + 1) * ng + ci + 1]
+			var h := (h00 + fx * (h10 - h00) + fz * (h11 - h10)) if fx > fz \
+				else (h00 + fz * (h01 - h00) + fx * (h11 - h01))
+			uv2[j * nv + i] = Vector2(h, 0.0)
+	return uv2
 
 
 func _make_chunk_data(key: Vector2i) -> Dictionary:
@@ -7522,7 +7677,7 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			idx[ni + 5] = o + nv
 			ni += 6
 	idx.resize(ni)
-	var mesh := netz_aus(verts, nrms, cols, idx)
+	var mesh := netz_aus(verts, nrms, cols, idx, _schuerzen_hoehen(ox, oz, step))
 	var gras := _gras_block(ox, oz, hs, cols)
 	# --- FLORA: deterministisch aus Seed+Chunk — Bäume in Wald-Clustern, Felsen
 	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
@@ -9069,12 +9224,13 @@ func _face_color(cen: Vector3, ny: float, zelle: float = 8.0,
 		* maxf(smoothstep(0.68, 0.58, ny), smoothstep(HAUPT_FELS_AB - 180.0,
 			HAUPT_FELS_AB + 60.0, cen.y))
 	# Benannte Felswaende legen darauf noch etwas drauf (siehe felswaende).
-	for fw in felswaende:
-		var fdx: float = cen.x - float(fw["x"])
-		var fdz: float = cen.z - float(fw["z"])
+	for fi in _fw_x.size():
+		var fdx: float = cen.x - _fw_x[fi]
+		var fdz: float = cen.z - _fw_z[fi]
 		var fd2 := fdx * fdx + fdz * fdz
-		if fd2 >= float(fw["r2"]):
+		if fd2 >= _fw_r2[fi]:
 			continue
+		var fw: Dictionary = felswaende[fi]
 		var hk := smoothstep(float(fw["h0"]), float(fw["h1"]), cen.y)
 		if hk <= 0.004:
 			continue
@@ -9166,7 +9322,14 @@ func _face_color_grund(cen: Vector3, ny: float) -> Color:
 	# ZUERST DER ABSTAND (nur Quadrate, keine Wurzel): die Funktion laeuft je DREIECK,
 	# 4608-mal pro Chunk ueber die ganze Welt, und fast immer liegt die Stelle draussen.
 	var kies := 0.0
-	for lk in lakes:
+	for li in _see_x.size():
+		# Vorfilter ohne Woerterbuch (_see_reich2 >= (_rmax+120)^2 nur fuer Bergseen, siehe
+		# seen_vorfilter_bauen); die genaue Pruefung folgt unveraendert.
+		var vx := cen.x - _see_x[li]
+		var vz := cen.z - _see_z[li]
+		if vx * vx + vz * vz > _see_farb2[li]:
+			continue
+		var lk: Dictionary = lakes[li]
 		if not lk.has("_rad"):
 			continue
 		var lp: Vector3 = lk["pos"]
