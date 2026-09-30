@@ -135,10 +135,12 @@ am Grund. Vor der Südostflanke liegt die **Felsenstadt**, ein Feld freistehende
 zum Slalomfliegen, und vor der Westküste die **Nadelküste**: Kreidenadeln im türkisen Meer
 mit dem **Meerestor**, einem Felsbogen, durch den man hindurchfliegen kann.
 
-Das Gelände ist **glatt modelliert statt facettiert**: weiche Hügel und Bergflanken mit
-Bodenstruktur aus der Nähe (Grasbüschel, Erde, Geröll), großen helleren und dunkleren,
-trockeneren und satteren Flecken aus der Höhe und geschichtetem Kalk an Felswänden. Die Bäume
-haben weiche, durchscheinende Kronen mit Blattwerk, jeder Baum einen eigenen Grünton.
+Der Look ist **modern-stilisiert, in Richtung Zelda/Ghibli**: weiche Hügel und Bergflanken
+in einer gemalten Palette (sattes Blaugrün im Wald, sonniges Gelbgrün auf den Wiesen, warmer
+Fels, blauweißer Schnee), weiches warmes Sonnenlicht mit kühlen Schatten und viel Luft —
+ferne Berge verblassen zu hellblauen Silhouetten. In Bodennähe wiegen sich **Graswiesen** im
+Wind. Laubbäume haben runde, bauschige Kronen, oben sonnig, unten kühl, und leuchten im
+Gegenlicht auf; jeder Baum hat seinen eigenen Grünton.
 
 Die Welt lebt: Möwen kreisen über Küsten und Seen, Krähen- und Starenschwärme ziehen über die
 Felder, Greifvögel segeln in der Thermik über Schlucht und Gebirge, der Wald wiegt sich im

@@ -3035,6 +3035,11 @@ const TIEFE_UPLOAD_S := 0.12
 var _tiefe_img: Image
 var _tiefe_tex: ImageTexture
 var _tiefe_leer: Image
+var _gras_img: Image
+var _gras_tex: ImageTexture
+var _gras_leer: Image
+var _gras_knoten: Array[GPUParticles3D] = []
+var _gras_an := true
 var _tiefe_dirty := false
 var _tiefe_upload_t := -1.0
 var _grob_tex: ImageTexture
@@ -3282,29 +3287,17 @@ uniform vec2 wind_richtung = vec2(0.80, 0.60);
 uniform float wind_staerke = 1.0;
 // JEDER BAUM EIN WENIG ANDERS: Helligkeit und Ton je Instanz aus einem Hash ihrer Lage —
 // sonst stand ein Wald aus einem einzigen Gruen da. Nur auf dem Laub (gruen dominiert).
-// BLATTWERK: das Laub bekommt Korn aus der Bodentextur, im OBJEKTRAUM projiziert (der Baum
-// traegt sein Muster mit, wenn er sich im Wind wiegt), auf die Ebene der groessten
-// Normalenkomponente — sonst liefe es an den Seiten der Krone in Streifen.
-// NUR EINE vec2-VARYING: die Flora sind Millionen Eckpunkte, und auf Apples Kachel-GPU
-// kostet jede Varying Speicherbandbreite je Eckpunkt. Mit zehn getrennten Floats (Objektlage,
-// Normale, Ton, Laub) stieg die Flora-Zeit in 4K (tools/_gelaende_zeit.gd) von 4,0 auf
-// 6,5 ms. Der Laubanteil kommt deshalb im Fragment aus COLOR, der Ton je Baum geht in
-// COLOR, und Lage/Normale nur als fertige 2D-Koordinate.
-uniform sampler2D boden_tex : filter_linear_mipmap, repeat_enable;
-varying vec2 blatt;   // Blatt-UV (mit Versatz je Baum)
+// Der Ton geht in COLOR selbst (die Farbe wird ohnehin interpoliert): KEINE eigene Varying.
+// Auf Apples Kachel-GPU kostet jede Varying je Eckpunkt Speicherbandbreite — mit zehn
+// Floats stieg die Flora-Zeit in 4K (tools/_gelaende_zeit.gd) von 4,0 auf 6,5 ms.
 void vertex() {
 	vec3 wo = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	float d_kam = distance(wo, CAMERA_POSITION_WORLD);
 	float z1 = fract(sin(dot(wo.xz, vec2(12.9898, 78.233))) * 43758.5453);
 	float z2 = fract(z1 * 91.7 + 0.31);
-	// Der Ton je Baum geht in COLOR selbst (die Farbe wird ohnehin interpoliert) — keine
-	// eigene Varying dafuer.
 	float laub_v = clamp((COLOR.g - max(COLOR.r, COLOR.b)) * 8.0, 0.0, 1.0);
-	COLOR.rgb *= mix(vec3(1.0), vec3(0.84 + 0.30 * z1, 0.88 + 0.20 * z1, 0.80 + 0.16 * z2),
+	COLOR.rgb *= mix(vec3(1.0), vec3(0.86 + 0.26 * z1, 0.90 + 0.18 * z1, 0.84 + 0.18 * z2),
 		laub_v);
-	vec3 an = abs(NORMAL);
-	vec2 uv = an.y > max(an.x, an.z) ? VERTEX.xz : (an.x > an.z ? VERTEX.zy : VERTEX.xy);
-	blatt = uv * (1.0 / 2.6) + vec2(z1, z2) * 3.1;
 	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, d_kam);
 	if (d_kam < 900.0 && wind_staerke > 0.0) {
 		mat3 m = mat3(MODEL_MATRIX);
@@ -3321,28 +3314,29 @@ void vertex() {
 }
 void fragment() {
 	vec3 c = COLOR.rgb;
-	float laub = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
 	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
-	// Blattwerk nur nah (gemessen ~0,7 ms in 4K im Wald, wenn es auf JEDEM Laubpixel
-	// laeuft) — jenseits von 400 m mittelt die Textur ohnehin zu Grau.
-	float blatt_k = laub * (1.0 - smoothstep(250.0, 400.0, length(VERTEX)));
-	if (blatt_k > 0.01) {
-		vec4 t = texture(boden_tex, blatt);
-		ALBEDO *= 1.0 + (t.r - 0.5) * 0.9 * blatt_k;
-		NORMAL = normalize(NORMAL + vec3(t.b - 0.5, t.a - 0.5, 0.0) * 1.1 * blatt_k);
-	}
-	ROUGHNESS = 1.0;
-	SPECULAR = 0.1;
-	// Durchscheinendes Laub: mit der Sonne im Ruecken leuchten die Kronenraender auf.
-	BACKLIGHT = ALBEDO * 0.55 * laub;
+}
+// WEICHES LICHT (Stil Zelda/Ghibli, wie das Gelaende): breiter, gemalter Uebergang, und
+// Laub SCHEINT DURCH, wenn die Sonne dahinter steht — die Kronenraender gluehen warm auf.
+// Laub wird am ALBEDO erkannt (gruen dominiert) — so braucht es keine Varying.
+void light() {
+	float ndl = dot(NORMAL, LIGHT);
+	float w = smoothstep(-0.30, 0.75, ndl);
+	vec3 l = LIGHT_COLOR * ATTENUATION * (1.0 / PI);
+	float laub = clamp((ALBEDO.g - max(ALBEDO.r, ALBEDO.b)) * 14.0, 0.0, 1.0);
+	float gegen = pow(clamp(-dot(LIGHT, VIEW), 0.0, 1.0), 3.0) * laub;
+	// Durchscheinen auch im Eigenschatten der Krone (sonst gluehte nie etwas: die abgewandten
+	// Blaetter liegen fast immer im Schatten der vorderen).
+	vec3 durch = LIGHT_COLOR * (0.35 + 0.65 * ATTENUATION) * (1.0 / PI);
+	DIFFUSE_LIGHT += l * w * 0.95 + durch * gegen * 0.9 * vec3(1.0, 1.05, 0.55);
 }
 """
 	_flora_mat = ShaderMaterial.new()
 	_flora_mat.shader = fsh
-	_flora_mat.set_shader_parameter("boden_tex", boden_textur())
 	_flora_fade_setzen()
 	# Wasserfläche (rein optisch; Kollision = WorldBoundary bei SEA_Y in Main)
 	_tiefe_vorbereiten()
+	_gras_aufbauen()
 	_water = MeshInstance3D.new()
 	# MEERESSCHEIBE BIS ZUM HORIZONT. Vorher eine mitlaufende Platte (zuletzt 28 km), die
 	# an der Fernebene der Kamera (9 km) endete: ab ~700 m Flughoehe stand ihre Kante als
@@ -6101,22 +6095,30 @@ func _tiefe_vorbereiten() -> void:
 	_tiefe_tex = ImageTexture.create_from_image(_tiefe_img)
 	_tiefe_leer = Image.create(CELLS, CELLS, false, Image.FORMAT_RH)
 	_tiefe_leer.fill(Color(TIEFE_LEER, 0.0, 0.0))
+	# Grasmaske im selben Ring (siehe _gras_block): RG8, 1,3 MB.
+	_gras_img = Image.create(TIEFE_N, TIEFE_N, false, Image.FORMAT_RG8)
+	_gras_tex = ImageTexture.create_from_image(_gras_img)
+	_gras_leer = Image.create(CELLS, CELLS, false, Image.FORMAT_RG8)
 	_wellen_tex = ImageTexture.create_from_image(load("res://shaders/wasser_wellen.res"))
 
 
-## Traegt den Hoehenblock eines Chunks in das ringfoermige Tiefenraster ein.
-func _tiefe_eintragen(key: Vector2i, block: Image) -> void:
+## Traegt den Hoehenblock (und die Grasmaske) eines Chunks in die ringfoermigen Raster ein.
+func _tiefe_eintragen(key: Vector2i, block: Image, gras: Image = null) -> void:
 	if _tiefe_img == null or block == null:
 		return
 	var n := roundi(float(TIEFE_N) / float(CELLS))     # 24 Bloecke je Kante
-	_tiefe_img.blit_rect(block, Rect2i(0, 0, CELLS, CELLS),
-		Vector2i(posmod(key.x, n) * CELLS, posmod(key.y, n) * CELLS))
+	var ziel := Vector2i(posmod(key.x, n) * CELLS, posmod(key.y, n) * CELLS)
+	_tiefe_img.blit_rect(block, Rect2i(0, 0, CELLS, CELLS), ziel)
+	if gras != null and _gras_img != null:
+		_gras_img.blit_rect(gras, Rect2i(0, 0, CELLS, CELLS), ziel)
 	_tiefe_dirty = true
 
 
 func _tiefe_hochladen() -> void:
 	var t0 := Time.get_ticks_usec() if profil_an else 0
 	_tiefe_tex.update(_tiefe_img)
+	if _gras_tex != null:
+		_gras_tex.update(_gras_img)
 	_tiefe_dirty = false
 	_tiefe_upload_t = Time.get_ticks_msec() * 0.001
 	_pz("tiefe_upload", t0)
@@ -6263,7 +6265,7 @@ func update_center(world_pos: Vector3) -> void:
 		if not want.has(key):
 			_chunks[key].queue_free()
 			_chunks.erase(key)
-			_tiefe_eintragen(key, _tiefe_leer)
+			_tiefe_eintragen(key, _tiefe_leer, _gras_leer)
 	if new_jobs.is_empty():
 		_pz("plan", t_p)
 		return
@@ -6320,10 +6322,12 @@ func _worker_loop() -> void:
 		# Bepflanzung nie am Main-Thread an und die gestreamte Welt bleibt kahl
 		# (nur build_now_around um den Spawn hatte je Baeume).
 		_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
-			"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"]})
+			"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"],
+			"gras": data["gras"]})
 		_mutex.unlock()
 
 func _process(_delta: float) -> void:
+	_gras_nachfuehren()
 	# fertige Chunks einhängen (billig: Nodes + fertige Resources)
 	for i in MAX_ATTACH_PER_FRAME:
 		_mutex.lock()
@@ -6347,7 +6351,7 @@ func _process(_delta: float) -> void:
 			continue
 		var t_a := Time.get_ticks_usec() if profil_an else 0
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
-			item.get("rocks", []), item.get("tiefe", null))
+			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null))
 		_pz("attach", t_a)
 	var t_n := Time.get_ticks_usec() if profil_an else 0
 	_flora_nachziehen()
@@ -6527,7 +6531,7 @@ func build_now_around(world_pos: Vector3, radius: float, recenter := true) -> vo
 			continue
 		var data: Dictionary = daten[i]
 		_attach_chunk(keys[i], data["mesh"], data["shape"], data["flora"], data["rocks"],
-			data["tiefe"])
+			data["tiefe"], data["gras"])
 	# HIER KEIN AUFSCHUB. _attach_chunk stellt die Flora nur in die Warteschlange, damit
 	# der Ruck beim Nachladen im Flug verschwindet. Diese Funktion ist aber der
 	# SYNCHRONE Weg — Spawnbereich und Renderwerkzeuge verlassen sich darauf, dass
@@ -6608,6 +6612,150 @@ static func netz_aus(verts: PackedVector3Array, nrms: PackedVector3Array,
 	return mesh
 
 
+# --- GRASWIESEN (Stil Zelda/Ghibli) ------------------------------------------------------
+# Grasbueschel um die Kamera, ganz auf der GPU (shaders/gras_bahn.gdshader platziert,
+# shaders/gras.gdshader zeichnet). Zwei Ringe: dicht und klein bis GRAS_NAH_R, lockerer und
+# groesser bis GRAS_FERN_R. Ab ~240 m ueber Grund blendet der Shader alles aus, ab
+# GRAS_AUS_UEBER wird gar nicht mehr gezeichnet.
+const GRAS_NAH_SEITE := 150
+const GRAS_NAH_ABSTAND := 0.7
+const GRAS_NAH_R := 52.0
+const GRAS_FERN_SEITE := 112
+const GRAS_FERN_ABSTAND := 1.9
+const GRAS_FERN_R := 105.0
+const GRAS_AUS_UEBER := 260.0
+
+
+## Grasmaske eines Chunks, je 8-m-Zelle: R = Dichte (gruene Bodenfarbe, flach, nicht auf
+## Flugplatz/Plateau, ueber dem Wasser), G = Helligkeit der Bodenfarbe (Lage auf der Gruen-
+## Rampe, wie im Gelaende-Shader). Laeuft im Worker, liest nur.
+func _gras_block(ox: float, oz: float, hs: PackedFloat32Array, cols: PackedColorArray) -> Image:
+	var nv := CELLS + 1
+	var step := CHUNK / float(CELLS)
+	var gm := PackedByteArray()
+	gm.resize(CELLS * CELLS * 2)
+	for j in CELLS:
+		for i in CELLS:
+			var o := j * nv + i
+			var c := (cols[o] + cols[o + 1] + cols[o + nv] + cols[o + nv + 1]) * 0.25
+			var gruen := clampf((c.g - maxf(c.r, c.b)) * 7.0, 0.0, 1.0)
+			if gruen <= 0.02:
+				continue
+			var h00 := hs[o]
+			var h10 := hs[o + 1]
+			var h01 := hs[o + nv]
+			var h11 := hs[o + nv + 1]
+			if minf(minf(h00, h10), minf(h01, h11)) < SEA_Y + 1.2:
+				continue
+			var hang := maxf(maxf(absf(h10 - h00), absf(h01 - h00)),
+				maxf(absf(h11 - h10), absf(h11 - h01)))
+			var dichte := gruen * (1.0 - smoothstep(3.2, 5.6, hang))
+			if dichte <= 0.02:
+				continue
+			dichte *= _open_ground(ox + (float(i) + 0.5) * step, oz + (float(j) + 0.5) * step)
+			var lum := c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722
+			gm[(j * CELLS + i) * 2] = clampi(roundi(dichte * 255.0), 0, 255)
+			gm[(j * CELLS + i) * 2 + 1] = clampi(roundi(lum * 255.0), 0, 255)
+	return Image.create_from_data(CELLS, CELLS, false, Image.FORMAT_RG8, gm)
+
+
+## Ein Grasbueschel: fuenf gebogene Halme, je Fuss (2 Punkte), Mitte (2), Spitze (1).
+## COLOR.r = Hoehe am Halm (0..1), der Shader faerbt und biegt danach.
+static func _gras_netz() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4711
+	for k in 5:
+		var a := TAU * float(k) / 5.0 + rng.randf_range(-0.3, 0.3)
+		var quer := Vector3(cos(a), 0.0, sin(a))
+		var vor := Vector3(-sin(a), 0.0, cos(a))
+		var fuss := Vector3(rng.randf_range(-0.22, 0.22), 0.0, rng.randf_range(-0.22, 0.22))
+		var h := rng.randf_range(0.55, 0.85)
+		var b := rng.randf_range(0.07, 0.10)
+		var bogen := rng.randf_range(0.12, 0.30)
+		var p0l := fuss - quer * b
+		var p0r := fuss + quer * b
+		var pm := fuss + vor * bogen * 0.3 + Vector3(0.0, h * 0.55, 0.0)
+		var p1l := pm - quer * b * 0.6
+		var p1r := pm + quer * b * 0.6
+		var p2 := fuss + vor * bogen + Vector3(0.0, h, 0.0)
+		for tri in [[p0l, 0.0, p0r, 0.0, p1r, 0.55], [p0l, 0.0, p1r, 0.55, p1l, 0.55],
+				[p1l, 0.55, p1r, 0.55, p2, 1.0]]:
+			for q in 3:
+				st.set_color(Color(float(tri[q * 2 + 1]), 0.0, 0.0))
+				st.set_normal(Vector3.UP)
+				st.add_vertex(tri[q * 2])
+	st.index()
+	return st.commit()
+
+
+func _gras_aufbauen() -> void:
+	var netz := _gras_netz()
+	var zeichnen := ShaderMaterial.new()
+	zeichnen.shader = load("res://shaders/gras.gdshader")
+	zeichnen.set_shader_parameter("boden_tex", boden_textur())
+	for stufe in 2:
+		var gp := GPUParticles3D.new()
+		gp.name = "Gras_nah" if stufe == 0 else "Gras_fern"
+		var seite := GRAS_NAH_SEITE if stufe == 0 else GRAS_FERN_SEITE
+		gp.amount = seite * seite
+		gp.lifetime = 10000.0
+		gp.explosiveness = 1.0
+		gp.one_shot = false
+		gp.fixed_fps = 0            # jedes Bild neu setzen (sonst hinkt das Raster 30 Hz nach)
+		gp.interpolate = false
+		gp.local_coords = false
+		gp.visibility_aabb = AABB(Vector3(-100000, -500, -100000), Vector3(200000, 5000, 200000))
+		gp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var pm := ShaderMaterial.new()
+		pm.shader = load("res://shaders/gras_bahn.gdshader")
+		pm.set_shader_parameter("tiefe_fein", _tiefe_tex)
+		pm.set_shader_parameter("gras_maske", _gras_tex)
+		pm.set_shader_parameter("fein_n", TIEFE_N)
+		pm.set_shader_parameter("fein_zelle", CHUNK / float(CELLS))
+		pm.set_shader_parameter("seite", seite)
+		pm.set_shader_parameter("abstand", GRAS_NAH_ABSTAND if stufe == 0 else GRAS_FERN_ABSTAND)
+		pm.set_shader_parameter("r_innen", 0.0 if stufe == 0 else GRAS_NAH_R * 0.85)
+		pm.set_shader_parameter("r_aussen", GRAS_NAH_R if stufe == 0 else GRAS_FERN_R)
+		pm.set_shader_parameter("groesse", 1.0 if stufe == 0 else 1.45)
+		gp.process_material = pm
+		gp.draw_pass_1 = netz
+		gp.material_override = zeichnen
+		gp.emitting = true
+		gp.visible = false
+		add_child(gp)
+		_gras_knoten.append(gp)
+
+
+## Grafikeinstellung: Graswiesen an/aus.
+func setze_gras(an: bool) -> void:
+	_gras_an = an
+	if not an:
+		for gp in _gras_knoten:
+			gp.visible = false
+
+
+## Je Bild: Kamera an die Platzierung geben, ueber GRAS_AUS_UEBER gar nicht zeichnen.
+func _gras_nachfuehren() -> void:
+	if _gras_knoten.is_empty() or not is_inside_tree():
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null or not _gras_an:
+		for gp in _gras_knoten:
+			gp.visible = false
+		return
+	var p := cam.global_position
+	var ueber := p.y - maxf(height_at(p.x, p.z), SEA_Y)
+	var an := ueber < GRAS_AUS_UEBER and is_visible_in_tree()
+	for gp in _gras_knoten:
+		gp.visible = an
+		if an:
+			var pm := gp.process_material as ShaderMaterial
+			pm.set_shader_parameter("kamera", p)
+			pm.set_shader_parameter("ueber_grund", ueber)
+
+
 ## Detailtextur des Gelaende-Shaders (tools/_boden_textur.gd), einmal geladen und von
 ## Chunks, Fernschuerze und Felsboegen (Landmarks) geteilt.
 static func boden_textur() -> ImageTexture:
@@ -6617,8 +6765,9 @@ static func boden_textur() -> ImageTexture:
 
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
-		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null) -> void:
-	_tiefe_eintragen(key, tiefe)
+		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null,
+		gras: Image = null) -> void:
+	_tiefe_eintragen(key, tiefe, gras)
 	var node := Node3D.new()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
@@ -6888,6 +7037,7 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			ni += 6
 	idx.resize(ni)
 	var mesh := netz_aus(verts, nrms, cols, idx)
+	var gras := _gras_block(ox, oz, hs, cols)
 	# --- FLORA: deterministisch aus Seed+Chunk — Bäume in Wald-Clustern, Felsen
 	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
 	var rng := RandomNumberGenerator.new()
@@ -7176,7 +7326,8 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 		th.append_array(hs.slice(j * (CELLS + 1), j * (CELLS + 1) + CELLS))
 	var tiefe := Image.create_from_data(CELLS, CELLS, false, Image.FORMAT_RF, th.to_byte_array())
 	tiefe.convert(Image.FORMAT_RH)
-	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks, "tiefe": tiefe}
+	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks, "tiefe": tiefe,
+		"gras": gras}
 
 
 ## Wie frei ist die Stelle fuer Bewuchs? 0 = eingeebneter Flugplatz/Plateau (auf der
@@ -9135,9 +9286,9 @@ func _load_flora() -> Dictionary:
 # Staemme, Totholz und Kakteen bleiben hart — die sind auch in echt kantig/rund genug.
 const HART_BLEIBEN := ["Totholz", "Kaktus"]
 const KRONE_WEICH := 1.0         # Anteil der Huellennormale (1 = rein, erlaubt Verschweissen)
-const KRONE_INNEN := 0.62        # Helligkeit ganz innen in der Krone
-const KRONE_UNTEN := 0.80        # Helligkeit an der Kronenunterseite
-const KRONE_SATT := 0.72         # Saettigung des Laubs gegenueber der Palette
+const KRONE_INNEN := 0.66        # Helligkeit ganz innen in der Krone
+const KRONE_UNTEN_TON := Vector3(0.66, 0.80, 0.86)   # Kronenunterseite: kuehl, tief
+const KRONE_OBEN_TON := Vector3(1.14, 1.10, 0.84)    # Kronenoberseite: warm, sonnig
 
 
 ## Gehoert der Eckpunkt zum Laub? Gruen, oder hell/weiss oben in der Krone (Schnee auf der
@@ -9154,6 +9305,7 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 	var ab := quelle.get_aabb()
 	var hoehe := maxf(ab.size.y, 0.01)
 	var raus := ArrayMesh.new()
+	var schatten_arr: Array = []
 	for si in quelle.get_surface_count():
 		var arr := quelle.surface_get_arrays(si)
 		var vs_v: Variant = arr[Mesh.ARRAY_VERTEX]
@@ -9161,6 +9313,7 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 		var ns_v: Variant = arr[Mesh.ARRAY_NORMAL]
 		if vs_v == null or cs_v == null or ns_v == null:
 			raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			schatten_arr.append(arr)
 			continue
 		var vs: PackedVector3Array = vs_v
 		var cs: PackedColorArray = cs_v
@@ -9187,6 +9340,7 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 				hi = hi.max(vs[i])
 		if lo.x == INF:
 			raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+			schatten_arr.append(arr)
 			continue
 		# LAUBBALLEN FINDEN: Birke, Eiche, Kiefer tragen mehrere getrennte Ballen. Eine
 		# einzige Huelle um den ganzen Baum drehte die Innenseiten der Ballen gegen ihre
@@ -9234,17 +9388,16 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 			if not mit_schatten:
 				cs[i] = c0
 				continue
-			# NATUERLICHERES GRUEN: die Palette war fuer flache Facetten gewaehlt (reines,
-			# kraeftiges Gruen) und steht auf weich schattierten Kronen wie Plastik da.
-			var grau := c0.r * 0.30 + c0.g * 0.59 + c0.b * 0.11
-			c0 = Color(lerpf(grau, c0.r, KRONE_SATT), lerpf(grau, c0.g, KRONE_SATT),
-				lerpf(grau, c0.b, KRONE_SATT) * 1.04, c0.a)
-			# Tiefenschatten ueber die GANZE Krone: Laub tief im Inneren und unten dunkler.
+			# GEMALTER VERLAUF UEBER DIE KRONE (Stil Zelda/Ghibli): oben warm und hell
+			# (sonniges Gelbgruen), unten kuehl und tief (Blaugruen), innen dunkel.
 			var dk := vs[i] - mitte
 			var tief := clampf(Vector3(dk.x / r.x, dk.y / r.y, dk.z / r.z).length(), 0.0, 1.0)
 			var oben := clampf((vs[i].y - lo.y) / maxf(hi.y - lo.y, 0.01), 0.0, 1.0)
-			var f := lerpf(KRONE_INNEN, 1.0, tief) * lerpf(KRONE_UNTEN, 1.0, oben)
-			cs[i] = Color(c0.r * f, c0.g * f, c0.b * f, c0.a)
+			var f := lerpf(KRONE_INNEN, 1.0, tief)
+			var ton := KRONE_UNTEN_TON.lerp(KRONE_OBEN_TON, oben)
+			if minf(c0.r, minf(c0.g, c0.b)) > 0.7:
+				ton = Vector3(0.90, 0.95, 1.0).lerp(Vector3.ONE, oben)   # Schnee bleibt weiss
+			cs[i] = Color(c0.r * f * ton.x, c0.g * f * ton.y, c0.b * f * ton.z, c0.a)
 		arr[Mesh.ARRAY_NORMAL] = ns
 		arr[Mesh.ARRAY_COLOR] = cs
 		# Tangenten passen nach dem Umbiegen der Normalen nicht mehr (und werden nicht
@@ -9255,10 +9408,53 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 		# Flag entsteht das volle Float-Format, und die Flora lag in 4K rund 0,45 ms hoeher.
 		raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr, [], {},
 			quelle.surface_get_format(si) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
-	# Und das SCHATTENNETZ (nur Lage, entdoppelt) — die Lagen sind unveraendert.
-	if quelle is ArrayMesh and (quelle as ArrayMesh).shadow_mesh != null:
-		raus.shadow_mesh = (quelle as ArrayMesh).shadow_mesh
+		schatten_arr.append(arr)
+	# EIGENES SCHATTENNETZ (nur Lage, entdoppelt), aus DENSELBEN Dreiecken gebaut.
+	# FALLE, teuer gelernt: das Schattennetz des Imports zu uebernehmen sah harmlos aus (die
+	# Lagen sind unveraendert) — aber Godot zeichnet mit ihm auch den TIEFEN-VORPASS. Es
+	# passte nach dem Neuaufbau nicht mehr exakt (andere Kodierung/Reihenfolge), der
+	# Farbdurchgang verwarf danach Teile jeder Krone: Loecher, fehlende Staemme, Kronen als
+	# zerrissene Platten. Und die Messung sah dabei "billiger" aus, weil weniger gezeichnet wurde.
+	raus.shadow_mesh = _schattennetz(schatten_arr,
+		quelle.surface_get_format(0) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
 	return raus
+
+
+## Nur-Lage-Netz fuer Schatten und Tiefen-Vorpass: gleiche Lagen zusammengelegt, dieselben
+## Dreiecke in derselben Reihenfolge.
+static func _schattennetz(flaechen: Array, komprimiert: int) -> ArrayMesh:
+	var sm := ArrayMesh.new()
+	for arr: Array in flaechen:
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var ix_v: Variant = arr[Mesh.ARRAY_INDEX]
+		var nv := PackedVector3Array()
+		var neu := PackedInt32Array()
+		neu.resize(vs.size())
+		var schon: Dictionary = {}
+		for i in vs.size():
+			var k: Variant = schon.get(vs[i])
+			if k == null:
+				k = nv.size()
+				schon[vs[i]] = k
+				nv.append(vs[i])
+			neu[i] = k
+		var nix := PackedInt32Array()
+		if ix_v != null:
+			var ix: PackedInt32Array = ix_v
+			nix.resize(ix.size())
+			for t in ix.size():
+				nix[t] = neu[ix[t]]
+		else:
+			nix = neu
+		var sa := []
+		sa.resize(Mesh.ARRAY_MAX)
+		sa[Mesh.ARRAY_VERTEX] = nv
+		sa[Mesh.ARRAY_INDEX] = nix
+		# GLEICH KOMPRIMIEREN WIE DAS HAUPTNETZ: das komprimiert die Lagen auf 16 bit relativ
+		# zur Huelle. Ein unkomprimiertes Schattennetz lag um Bruchteile daneben, und der
+		# Farbdurchgang (Tiefenvergleich gegen den Vorpass) zeichnete dann GAR NICHTS mehr.
+		sm.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, sa, [], {}, komprimiert)
+	return sm
 
 
 ## LAUB VERSCHWEISSEN. Das Modell ist flach schattiert exportiert: jede Flaeche hat ihre

@@ -85,7 +85,9 @@ const WOLKEN_LAGEN := ["kumulus", "turm", "schaefchen", "linse"]
 # Abnahme las das als "flaches Diorama von oben fotografiert, hintere Kante retuschiert".
 # 0.00013 gibt auf 3 km 32 Prozent und auf 10 km 73: eine durchgehende Rampe statt eines
 # Aufklebers, und damit liest sich nah gegen fern.
-const NEBEL_FREI := 0.00013
+# STIL ZELDA/GHIBLI (2026-09): etwas mehr Dunst, die Ferne soll in helles Blau kippen —
+# Tiefe ueber Luft statt ueber Texturdetail (siehe shaders/gelaende_kern.gdshaderinc).
+const NEBEL_FREI := 0.000155
 # DUNST NIMMT MIT DER FLUGHOEHE AB (siehe nebel_frei_bei): in der Hoehe laeuft die
 # Sichtlinie durch duennere Luft. Ohne das stand das Hochgebirge aus 2 km Hoehe betrachtet
 # genauso verwaschen da wie das Tiefland. Godots Hoehennebel (fog_height) hilft dafuer
@@ -104,7 +106,10 @@ const NEBEL_WOLKE := 0.020
 # 0.75/0.82/0.92 haelt b-r bei 0.17 — die Luftperspektive bleibt deutlich blau (sonst
 # verliert die Ferne ihre Tiefe und der Horizont trennt sich vom Himmel), aber sie
 # ueberfaerbt das Motiv nicht mehr.
-const NEBEL_FARBE_FREI := Color(0.75, 0.82, 0.92)
+# STIL ZELDA/GHIBLI: der Dunst darf wieder deutlich himmelblau sein (ferne Berge als helle
+# blaue Silhouetten) — der Basalt des Vulkans bleibt trotzdem dunkel, weil der Gelaende-
+# Shader seine Helligkeit nicht mehr anhebt.
+const NEBEL_FARBE_FREI := Color(0.70, 0.81, 0.95)
 const NEBEL_FARBE_WOLKE := Color(0.93, 0.95, 0.97)
 # Kennlinie: erst tief in der Wolke wird es wirklich weiss. Linear waere die Sicht schon
 # beim Streifen einer Kante halb zu, und das fuehlt sich falsch an.
@@ -1061,7 +1066,10 @@ func _setup_world() -> void:
 	# Beleuchtung aus allen Richtungen zugleich und fuellte jeden Schatten wieder auf.
 	# Weniger Ambient macht die Schattenseite dunkel genug, dass die Sonnenseite ueberhaupt
 	# als solche zu erkennen ist.
-	env.ambient_light_energy = 0.52
+	# STIL ZELDA/GHIBLI: etwas mehr Himmelslicht — die Schattenseiten sollen kuehl-blau
+	# und lesbar sein, nicht dunkel. Der weiche Terminator im Gelaende-Shader (light())
+	# nimmt der Sonnenseite dafuer nichts weg.
+	env.ambient_light_energy = 0.62
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	# WICHTIG: tonemap_white=1.0 presste die GESAMTE Range platt -> alles pastellig-milchig
 	# ("fade Map"). white=6 gibt ACES seine Dynamik zurueck, Farben duerfen wieder satt sein.
@@ -1082,7 +1090,9 @@ func _setup_world() -> void:
 	env.ssao_horizon = 0.07
 	env.ssao_light_affect = 0.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.18
+	# 1.06 SEIT DEM STIL ZELDA/GHIBLI (vorher 1.18): die Palette ist jetzt selbst gefuehrt, die
+	# pauschale Anhebung machte aus Wiese und Wald Bonbonfarben.
+	env.adjustment_saturation = 1.06
 	env.adjustment_contrast = 1.05
 	env.adjustment_brightness = 1.0
 	# FILMISCHE FARBABSTIMMUNG als 3D-Tabelle — laeuft im Tonemap-Pass mit, kostet also
@@ -1098,11 +1108,13 @@ func _setup_world() -> void:
 	# aendert den Nebel im Flug oder beim Aufbau, aber nicht beides — und die Abnahmebilder
 	# (tools/_terrain_render.gd) kommen ohne Flugzeug aus, laufen also NUR ueber diesen Pfad.
 	env.fog_light_color = NEBEL_FARBE_FREI
-	env.fog_sun_scatter = 0.15
+	# Warmer Sonnendunst in Blickrichtung Sonne (Stil Zelda/Ghibli).
+	env.fog_sun_scatter = 0.35
 	env.fog_density = NEBEL_FREI
 	# 0.62 STATT 0.30. Der Wert bestimmt, wie stark der Nebel die Farbe des HIMMELS
 	# annimmt statt einer festen Nebelfarbe — also wie sehr Ferne sich in Luft aufloest.
-	env.fog_aerial_perspective = 0.62
+	# 0.74 seit dem Stil Zelda/Ghibli: die Ferne kippt staerker in den Himmel.
+	env.fog_aerial_perspective = 0.74
 	env.fog_sky_affect = 0.1
 	# GLOW: AUS — und zwar gemessen, nicht aus Geschmack.
 	# Die Nachbelichtungskette dieser Szene wurde durchkalibriert (Graukeil durch
@@ -1165,8 +1177,10 @@ func _setup_world() -> void:
 	sun.rotation_degrees = SONNE_WINKEL
 	# 1.55 UND WAERMER. Mit halbiertem Ambient muss die Sonne mehr tragen, und eine tief
 	# stehende Sonne ist waermer — 26 Grad Hoehe sind spaeter Nachmittag, nicht Mittag.
-	sun.light_color = Color(1.0, 0.94, 0.80)
-	sun.light_energy = 1.55
+	# STIL ZELDA/GHIBLI: waermer und etwas kraeftiger — warm gegen kuehl (Himmelslicht in den
+	# Schatten) ist der Kontrast, den der Look traegt.
+	sun.light_color = Color(1.0, 0.91, 0.74)
+	sun.light_energy = 1.7
 	sun.shadow_enabled = true
 	# SCHATTEN DUERFEN NICHT SCHWARZ SEIN — und das ist die Kehrseite des halbierten
 	# Ambients. Gemessen nach der Umstellung: die verschattete Canyonwand stand bei
@@ -1219,7 +1233,10 @@ func _setup_world() -> void:
 	# 130 Grad Azimut, also grob gegenueber der Sonne, und ist kuehl gefaerbt — es hebt
 	# die Schattenseiten an, ohne die Sonnenseite zu beruehren, und gibt ihnen nebenbei
 	# den kalten Ton, den Himmelslicht in Wirklichkeit hat.
-	underfill.light_energy = 0.62
+	# 0.46 SEIT DEM STIL ZELDA/GHIBLI: mit dem breiten Terminator der Gelaende-/Flora-
+	# Shader (light()) traegt das Gegenlicht weiter in die Flaeche — etwas gedaempft, sonst
+	# wird die Schattenseite flach.
+	underfill.light_energy = 0.46
 	underfill.shadow_enabled = false
 	sky_lights.add_child(underfill)
 

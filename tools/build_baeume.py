@@ -164,49 +164,62 @@ class Baum:
         self._faerbe(neu, farbe, streuung)
 
     def knolle(self, mitte, r, farbe, segs=7, ringe=2, quetsch=1.0, streuung=0.13,
-               organisch=True):
-        """Laubkrone: gestapelte Ringe mit zufaellig gestoertem Radius.
+               organisch=True, flach=False):
+        """Laubkrone.
 
-        organisch=True (Standard): grosse Kronen zwei Seiten mehr, jeder Punkt einzeln
-        verwuerfelt (Beulen statt Ringe), und die Deckel sind flache KUPPELN (Faecher zu
-        einem angehobenen Mittelpunkt) statt ebener Vielecke — die ebenen Deckel machten
-        aus jeder Krone einen Pilzhut. Nur der Kaktus bleibt beim alten Aufbau."""
+        organisch=True (Standard, Stil Zelda/Ghibli): ein RUNDER, bauschiger Ballen — ein
+        Ellipsoid aus Breitenkreisen mit Polen, jeder Punkt leicht verwuerfelt. Mindestens
+        zehn (grosse Kronen zwoelf) Seiten und vier Breitenkreise, Stauchung hoechstens auf
+        0.62 (flach=True laesst flache Schirmkronen wie die Akazie zu). Die erste Fassung
+        stapelte zwei, drei Ringe mit ebenen Deckeln — von unten sah jede Krone aus wie ein
+        Pilzhut oder eine Platte.
+        organisch=False: der alte kantige Aufbau (nur noch der Kaktus)."""
         m = mathutils.Vector(mitte)
-        if organisch and r >= 1.0:
-            segs += 2
+        if organisch:
+            segs = max(segs, 12 if r >= 1.0 else 9)
+            breiten = 4 if r >= 0.9 else 3
+            if not flach:
+                quetsch = max(quetsch, 0.62)
+            phase = self.rng.uniform(0.0, 2.0 * math.pi)
+            ringe_p = []
+            for k in range(breiten):
+                phi = math.pi * (k + 1) / (breiten + 1)
+                rr = r * math.sin(phi)
+                z = m.z - math.cos(phi) * r * quetsch
+                ring = []
+                for i in range(segs):
+                    a = phase + 2.0 * math.pi * (i + self.rng.uniform(-0.12, 0.12)) / segs
+                    j = self.rng.uniform(0.92, 1.08)
+                    ring.append(mathutils.Vector((m.x + math.cos(a) * rr * j,
+                                                  m.y + math.sin(a) * rr * j,
+                                                  z + self.rng.uniform(-0.04, 0.04) * r)))
+                ringe_p.append(ring)
+            for k in range(len(ringe_p) - 1):
+                self._bruecke(ringe_p[k], ringe_p[k + 1], farbe, streuung)
+            for pts, oben in ((ringe_p[-1], True), (ringe_p[0], False)):
+                pol = self.bm.verts.new((m.x, m.y, m.z + (1.0 if oben else -1.0) * r * quetsch))
+                vs = [self.bm.verts.new(p) for p in pts]
+                neu = []
+                for i in range(len(vs)):
+                    j2 = (i + 1) % len(vs)
+                    try:
+                        neu.append(self.bm.faces.new([vs[i], vs[j2], pol] if oben
+                                                     else [vs[j2], vs[i], pol]))
+                    except ValueError:
+                        pass
+                self._faerbe(neu, farbe, streuung)
+            return
         stufen = []
         for k in range(ringe + 2):
             t = float(k) / (ringe + 1)
             rr = r * math.sin(math.pi * min(max(t, 0.06), 0.94)) ** 0.65
             rr *= self.rng.uniform(0.88, 1.12)
             z = m.z + (t - 0.5) * 2.0 * r * quetsch
-            ring = self._ring((m.x, m.y, z), rr, segs, phase=self.rng.uniform(0, 1.0))
-            if organisch:
-                beule = []
-                for p in ring:
-                    d = p - mathutils.Vector((m.x, m.y, z))
-                    beule.append(mathutils.Vector((m.x, m.y, z)) + d * self.rng.uniform(0.9, 1.1)
-                                 + mathutils.Vector((0, 0, self.rng.uniform(-0.07, 0.07) * r)))
-                ring = beule
-            stufen.append(ring)
+            stufen.append(self._ring((m.x, m.y, z), rr, segs, phase=self.rng.uniform(0, 1.0)))
         for k in range(len(stufen) - 1):
             self._bruecke(stufen[k], stufen[k + 1], farbe, streuung)
         # Deckel oben und unten
         for pts, oben in ((stufen[-1], True), (stufen[0], False)):
-            if organisch:
-                zr = sum(p.z for p in pts) / len(pts)
-                kuppe = self.bm.verts.new((m.x, m.y, zr + (0.20 if oben else -0.10) * r * quetsch))
-                vs = [self.bm.verts.new(p) for p in pts]
-                neu = []
-                for i in range(len(vs)):
-                    j = (i + 1) % len(vs)
-                    try:
-                        neu.append(self.bm.faces.new([vs[i], vs[j], kuppe] if oben
-                                                     else [vs[j], vs[i], kuppe]))
-                    except ValueError:
-                        pass
-                self._faerbe(neu, farbe, streuung)
-                continue
             vs = [self.bm.verts.new(p) for p in (pts if oben else list(reversed(pts)))]
             try:
                 self._faerbe([self.bm.faces.new(vs)], farbe, streuung)
@@ -423,7 +436,7 @@ def akazie():
         b.stamm((0.1, 0.0, 2.1), ende, 0.14, 0.08, RINDE_AKAZIE, segs=4)
     for mitte, rr in (((0.9, 0.3, 5.0), 2.2), ((-1.0, 0.6, 4.9), 2.0), ((0.2, -0.9, 5.1), 2.0),
                       ((0.0, 0.0, 5.3), 2.6)):
-        b.knolle(mitte, rr, AKAZIE, segs=8, ringe=1, quetsch=0.22)
+        b.knolle(mitte, rr, AKAZIE, segs=8, ringe=1, quetsch=0.30, flach=True)
     return b.objekt()
 
 

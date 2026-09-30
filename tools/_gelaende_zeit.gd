@@ -65,6 +65,7 @@ func _lauf() -> void:
 	]
 	var gpu := false
 	var summe := Vector3.ZERO
+	var gras_summe := 0.0
 	# GZ_NUR=Wald,Mittel: nur diese Stellungen (Namensanfang)
 	var nur := OS.get_environment("GZ_NUR")
 	if nur != "":
@@ -100,13 +101,17 @@ func _lauf() -> void:
 		_flora(false)
 		var o_flora := await _median()
 		_flora(true)
+		_gras(false)
+		var o_gras := await _median()
+		_gras(true)
 		gpu = gpu or alles.y > 0.0
 		summe += Vector3(alles.x, alles.x - o_det.x, alles.x - o_flora.x)
-		print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f ms"
-			% [st[0], alles.x, alles.x - o_det.x, alles.x - o_flora.x])
+		gras_summe += alles.x - o_gras.x
+		print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f ms"
+			% [st[0], alles.x, alles.x - o_det.x, alles.x - o_flora.x, alles.x - o_gras.x])
 	summe /= float(stellungen.size())
-	print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f ms"
-		% ["MITTEL", summe.x, summe.y, summe.z])
+	print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f ms"
+		% ["MITTEL", summe.x, summe.y, summe.z, gras_summe / float(stellungen.size())])
 	print("GELAENDEZEIT Quelle: ", "GPU-Zeitstempel" if gpu else "Wandzeit (4K)")
 	_fertig = true
 	quit()
@@ -117,6 +122,13 @@ func _detail(k: float) -> void:
 	for mt in mats:
 		if mt is ShaderMaterial:
 			(mt as ShaderMaterial).set_shader_parameter("detail_staerke", k)
+
+
+## Graswiesen (TerrainWorld._gras_knoten) — auf einem Stand ohne Gras ein Leerlauf.
+func _gras(an: bool) -> void:
+	main.terrain.set("_gras_an", an)
+	for n in main.terrain.find_children("Gras_*", "GPUParticles3D", true, false):
+		(n as Node3D).visible = an
 
 
 func _flora(an: bool) -> void:

@@ -188,7 +188,7 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          wegpunkt.png) — wartet per `kacheln_bereit()` auf die scharfen Kacheln.
 scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 384-m-Chunks,
                          8-m-Raster, GLATT schattiert (Normale+Farbe je Eckpunkt, siehe Abschnitt
-                         „Gelaende-Look"), Shader shaders/gelaende_kern.gdshaderinc.
+                         „Welt-Look"), Shader shaders/gelaende_kern.gdshaderinc, Graswiesen.
                          HÖHE (height_at): sanfte fBm-Grundwelligkeit + RIDGED-Noise-Bergketten,
                          skaliert mit relief_at (sehr grobes Rauschen 0=Ebene..1=Alpen) und
                          Distanz-Ramp (Spawn ruhig, Gebirge ab ~3 km). BIOME (biome_at, grobes
@@ -332,48 +332,74 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
   `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
 
-## Gelaende-Look (2026-09): glatt statt Low-Poly
-Wunsch des Nutzers: der Low-Poly-Stil passte nicht zum Spielkonzept. Umgebaut, OHNE die
-Gelaendeform, Kollision oder Farbregeln (_face_color) anzufassen:
+## Welt-Look (2026-09): Stil Zelda BotW / Ghibli
+Verlauf: Low-Poly (Facetten) passte laut Nutzer nicht zum Spielkonzept → erste glatte Fassung
+mit Rauschkorn-Detailtextur, Fleckenmuster und Blattrauschen wirkte "billig und alt" →
+Nutzerentscheid: MODERN-STILISIERT wie Zelda/Ghibli (Memory `stil-zelda-ghibli`). Keine
+hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
 - GLATTES NETZ (`TerrainWorld._make_chunk_data`, `Main._fern_kachel`): Hoehenraster MIT RAND
   ((n+3)^2, `RAND_N`), Normale je Eckpunkt aus zentralen Differenzen (`glatte_normalen`) —
   der Rand sorgt dafuer, dass Nachbarchunks an der Naht dieselbe Normale haben. Farbe je
   Eckpunkt (`_face_color` mit Eckpunkt + Normale, 2401 statt 4608 Aufrufe je Chunk),
-  indiziertes Netz (2401 statt 13824 Eckpunkte), dieselben Dreiecke (Diagonale 00-11 —
-  Wasser-Tiefentextur, Baumfuss, Kollision rechnen damit). MULDENTOENUNG (`mulden`,
-  `mulden_ton`): Rinnen dunkler, Grate heller — traegt die Form, die vorher die Facetten
-  zeigten. Tunnelzellen fallen weiter weg (Index ausgelassen).
-- SHADER `shaders/gelaende_kern.gdshaderinc` (Chunks `gelaende.gdshader`, Schuerze
-  `gelaende_fern.gdshader` mit FERN = Grundabsenkung, Felsboegen): Detailtextur
-  `shaders/boden_detail.res` (`tools/_boden_textur.gd`: R Korn, G Flecken, BA Ableitung).
-  Grossvariation immer (1,9 km / 470 m, Bewuchs trocken/satt), Korn + Relief bis 1,4 km,
-  an steilen Flanken aus der WANDEBENE projiziert (von oben projiziert gab es senkrechte
-  Kratzer), Felsbaenke an steilem Nicht-Gruen (Streckung 3:1 — bei 12:1 sah es aus wie
-  gebuerstetes Blech). Material aus der Farbe (gruen/Schnee). Bewuchs leicht entsaettigt
-  (die Palette war fuer Facetten gemacht und wirkte glatt lindgruen). Glut weiter aus COLOR.a.
-- BAEUME: `_weiche_krone` beim Laden — Laub (gruen, oder weiss oben = Schnee) bekommt die
-  Normale eines Ellipsoids JE LAUBBALLEN (Union-Find ueber gleiche Eckpunktlagen; EINE Huelle
-  um den ganzen Baum beleuchtete die Innenseiten der Ballen von der falschen Seite), Farbe je
-  Lage gemittelt (das Bauskript wuerfelt jeder Flaeche eine Helligkeit — Flickenmuster),
-  Tiefenschatten innen/unten, leicht entsaettigt. Danach `_laub_verschweissen`: gleiche Lage
-  = gleicher Eckpunkt. Totholz/Kaktus bleiben hart. Stellvertreter ebenfalls weich.
-  Import-Kompression und Schattennetz werden uebernommen (sonst +0,45 ms).
-- FLORA-SHADER: Ton je Baum (Hash der Lage, in COLOR), Blattwerk aus der Bodentextur im
-  Objektraum bis 400 m, BACKLIGHT (durchscheinendes Laub, kostet nichts messbares).
-  NUR EINE vec2-VARYING — zehn Floats kosteten auf Apples Kachel-GPU 2,5 ms in 4K.
-- MODELLE (`tools/build_baeume.py`): Fichte 5 Kraenze x 10 Zweige mit `organisch=True`
-  (verwuerfelte, haengende Zweigspitzen), Laubkronen (`knolle`) mit Kuppeln statt ebener
-  Deckel und Beulen. Nach Aenderung: Blender --background --python, dann `--editor --import`.
-- FELSBOEGEN (Landmarks): glatt (smooth group 1) und mit dem Gelaende-Shader.
-- GEMESSEN (`tools/_gelaende_zeit.gd`, 4K MSAA 4x, 5 Stellungen, alt → neu): Bild im Mittel
-  13,96 → 13,96 ms; Bodendetail 0,22 ms (Schlucht 0,57); Flora 2,51 → 2,02 ms (Wald tief
-  3,97 → 2,78). Chunkbau 27,8 → 19,7 ms je Chunk (weniger _face_color, indiziert).
-  `_ruck_check` (im FENSTER laufen lassen, headless rafft er 60 s auf 1 s Echtzeit):
-  p99 2,5 → 1,3 ms, Spitze 9,8 → 4,4 ms — die Fernfassungen der Baeume (`_grob_cache`)
-  werden jetzt beim Laden gebaut statt beim ersten Gebrauch im Flug. `_skriptzeit`
-  unveraendert (Silberfluss 2,01 ms). `_haupt_pruefsumme` bitgleich.
+  indiziertes Netz, dieselben Dreiecke (Diagonale 00-11 — Wasser-Tiefentextur, Baumfuss,
+  Kollision rechnen damit). MULDENTOENUNG (`mulden`, `mulden_ton`): Rinnen dunkler, Grate
+  heller. Chunkbau 27,8 → 19,7 ms (mit Grasmaske 22,5 ms). `_face_color`/Hoehe/Wald/Biom
+  unveraendert (`_haupt_pruefsumme` bitgleich). `_skriptzeit` unveraendert (Silberfluss 1,99).
+- PALETTE + LICHT (`shaders/palette.gdshaderinc`, geteilt von Gelaende und Gras): EINE
+  Gruen-Rampe (GRAS_TIEF Blaugruen → MITTE → HELL Gelbgruen, bewusst gedeckt — hellere Werte
+  gaben mit Sonne 1.7 grelles Lindgelb); Lage auf der Rampe aus der Helligkeit der Rohfarbe
+  (`gras_lage`: Waldboden dunkel, trockene Wiese hell) + sehr grosse Verlaeufe (`VERLAUF`,
+  5,2/1,3 km, G-Kanal von `boden_detail.res`) + Almen heller. Fels: nur der FARBTON aus einer
+  kuehl-grau → warm-Kalk-Rampe, Helligkeit bleibt (sonst wurde der Vulkanbasalt mittelgrau),
+  an steilen Flanken grosse weiche Baenke aus dem G-Kanal (der R-Kanal ist Korn = Rauschen).
+  Schnee blauweiss. `weiches_licht` in light(): smoothstep(-0.18, 0.72, N·L) statt Lambert.
+- GELAENDE-SHADER `shaders/gelaende_kern.gdshaderinc` (Chunks `gelaende.gdshader`, Schuerze
+  `gelaende_fern.gdshader` mit FERN = Grundabsenkung, Felsboegen in Landmarks). Glut der
+  Lavarinnen weiter aus COLOR.a.
+- UMGEBUNG (Main._setup_world): Dunst NEBEL_FREI 0.000155, NEBEL_FARBE_FREI himmelblau
+  (0.70/0.81/0.95), aerial 0.74, Sonnenstreuung 0.35, Ambient 0.62, Sonne warm 1.7
+  (1.0/0.91/0.74), Gegenlicht 0.46, Saettigung 1.06 (vorher 1.18: Bonbonfarben).
+- BAEUME: Modelle (`tools/build_baeume.py`): Fichte 5 Kraenze x 10 verwuerfelte Zweige
+  (`organisch=True`), Laubkronen (`knolle`) als RUNDE Ellipsoide mit Polen (mind. 10/12
+  Seiten, 4 Breitenkreise, Stauchung >= 0.62, `flach=True` nur Akazie) — vorher Pilzhuete.
+  Beim Laden `_weiche_krone`: Normale je LAUBBALLEN (Union-Find ueber Eckpunktlagen),
+  Farbe je Lage gemittelt (Flicken der Flaechenstreuung weg), Verlauf oben warm/hell
+  (KRONE_OBEN_TON) → unten kuehl/tief (KRONE_UNTEN_TON), innen dunkler; dann
+  `_laub_verschweissen` (gleiche Lage = ein Eckpunkt). Flora-Shader: Ton je Baum in COLOR,
+  weiches Licht + Durchscheinen im Gegenlicht (in light(), Laub am ALBEDO erkannt — KEINE
+  Varying: zehn Floats kosteten auf Apples Kachel-GPU 2,5 ms in 4K).
+  FALLE SCHATTENNETZ (teuer gelernt): `shadow_mesh` des Imports zu uebernehmen ging schief —
+  Godot zeichnet damit auch den TIEFEN-VORPASS; es passte nach dem Neuaufbau nicht exakt und
+  der Farbdurchgang verwarf Teile jeder Krone (Loecher, fehlende Staemme, zerrissene Platten)
+  — und die Messung sah dadurch "billiger" aus. Ein eigenes, UNKOMPRIMIERTES Schattennetz war
+  noch schlimmer (gar nichts sichtbar: 16-bit-Lagen des Hauptnetzes ≠ Float-Lagen). Jetzt
+  `_schattennetz` aus denselben Dreiecken mit DEMSELBEN Kompressionsflag. Beleg: Einzelbaum-
+  Render roh vs. aufbereitet (Werkzeug im Verlauf, `TerrainWorld._weiche_krone` direkt).
+- GRASWIESEN (`_gras_aufbauen`, `shaders/gras_bahn.gdshader` platziert, `gras.gdshader`
+  zeichnet): GPUParticles3D auf WELTFESTEM Raster um die Kamera (Hash je Zelle → nichts
+  schwimmt), zwei Ringe (150² a 0,7 m bis 52 m, 112² a 1,9 m bis 105 m), Hoehe aus der
+  Wasser-Tiefentextur (exakte Dreiecke), Maske `_gras_block` je Chunk (RG8 im selben Ring:
+  Dichte aus gruener Bodenfarbe/flach/`_open_ground`, Helligkeit fuer die Rampe). Halme mit
+  Normale nach OBEN (auch Rueckseite, cull_disabled) → gleiche Beleuchtung wie der Boden.
+  Ab ~240 m ueber Grund aus, `GRAS_AUS_UEBER` gar nicht gezeichnet. `setze_gras(an)`.
+  FALLE: Partikel-Builtins (INDEX, TRANSFORM, CUSTOM) gibt es nur direkt in start()/
+  process() — in eine Hilfsfunktion als Parameter reichen.
+- GEMESSEN (`tools/_gelaende_zeit.gd`, 4K MSAA 4x, 5 Stellungen): Bild im Mittel vor allen
+  Umbauten 13,96 ms → jetzt 13,71; Flora 2,51 → 2,07 (korrekt gezeichnet, rundere Kronen);
+  Gras 0,57 ms im Wald auf 22 m, 0,2 am Hang, 0 ab Reiseflughoehe. `_ruck_check` im FENSTER
+  (headless rafft er 60 s auf 1 s Echtzeit): Fernfassungen der Baeume (`_grob_cache`) werden
+  beim Laden gebaut statt beim ersten Gebrauch im Flug.
+- WERKZEUG-FALLEN: `_luftbild` fotografiert nach einem Kamerasprung, bevor die Pflegeschleife
+  die Chunks auf die Nahstufe stellt — Baeume in Chunks, die vom Start aus >1,2 km entfernt
+  angelegt wurden, stehen dann als Fern-Stellvertreter (flache Rauten) im Nahbild. Test-HOMEs
+  im Scratchpad koennen zwischen Sitzungen geleert werden: dann Erststart mit NEUEM Welt-Seed
+  (andere Welt!) — vorher den Fortschritt (world_seed) aus dem echten user:// kopieren.
 - FALLE: Tests mit Main.tscn und `--quit-after` ohne umgebogenes HOME laufen gegen den echten
   Spielstand — auch fuer den Warnungscheck immer HOME umbiegen.
+- BEKANNT, ALT (nicht durch den Look): seltener Absturz beim Start (etwa 1 von 16–48), der
+  Kartenfaden (WorldMap._grobfarben) meldet "propagate_notification ... caller thread" in
+  `match reg:` der Nordregion und stuerzt ab. Auch auf 4f8a9da nachgewiesen. Werkzeug zum
+  Nachstellen: `tools/_start_stress.gd` (mehrfach parallel, je eigenes HOME).
 
 ## Lebendige Welt (2026-09): Wolkenstrassen, Baumwind, Voegel
 - WOLKENSTRASSEN (`CloudField._strassen_wert`, `STRASSEN_JE_TYP`): die Deckung der
