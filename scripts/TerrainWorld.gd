@@ -99,14 +99,16 @@ const FLORA_FADE_RAND := 300.0
 # von 921 600 Bildpunkten, alle im Mitteldistanzband, und die beiden Ausschnitte sind
 # nebeneinander nicht zu unterscheiden.
 const FLORA_GROB_AB := 1200.0
-# Anteil der Pflanzen, der jenseits davon noch gezeichnet wird. Die Transformationen
-# stehen in zufaelliger Reihenfolge im Puffer, ein Praefix ist also eine gleichmaessige
-# Stichprobe der Flaeche — deshalb genuegt visible_instance_count und es muss nichts
-# neu gebaut werden.
 # Ab so vielen Dreiecken lohnt sich ein Stellvertretermesh fuer die Fernstufe (siehe
 # _stellvertreter). Darunter ist das Original schon billiger als der Ersatz.
 const STELLV_AB_DREIECK := 40
-const FLORA_GROB_ANTEIL := 0.75
+# Anteil der Pflanzen, der jenseits davon noch gezeichnet wird (ein Praefix des gemischten
+# Puffers). JETZT ALLE: mit 0,75 verschwand an der Grenze jeder vierte Baum eines Chunks —
+# im Tiefflug sah man das als staendig verschwindende Baeume (Nutzerbeschwerde). Die Fern-
+# stufe spart nur noch ueber das Stellvertreternetz. GEMESSEN (tools/_tempo_nachladen.gd,
+# 280 m/s, 140 m ueber Wald, je zwei Laeufe): Frames ueber 20 ms 30-31 % mit 0,75 gegen
+# 28-31 % mit 1,0 — kein messbarer Preis.
+const FLORA_GROB_ANTEIL := 1.0
 # Zeitbudget je Frame fuer das Nachziehen aufgeschobener Flora (Mikrosekunden).
 # 1200 us ist rund ein Vierzehntel eines 60-Hz-Frames: genug, damit ein Chunk in wenigen
 # Frames vollstaendig bestueckt ist, wenig genug, um im Bild nicht aufzufallen.
@@ -286,30 +288,20 @@ const MAX_ATTACH_PER_FRAME := 3
 # Uhr: die globale Shader-Variable welt_zeit (project.godot, je Frame in _process gesetzt).
 const MORPH_S := 1.4
 const WACHSEN_S := 1.6
-# Die alten Pflanzen eines abgeloesten groben Chunks schrumpfen KURZ weg. Mit 2,4 s standen
-# alte und neue Baeume lange gleichzeitig da — bei vielen Abloesungen je Sekunde gemessen
-# 10,8 % statt 1,4 % Frames ueber 20 ms (tools/_tempo_nachladen.gd, 280 m/s): der Bewuchs ist
-# der teuerste Teil des Bildes.
-const VERGEHEN_S := 0.5
-# UEBERGANG DER FLORA-SPARSTUFE bei _flora_grob_ab. Frueher schaltete die Sichtweite hart:
-# jede Pflanze wechselte schlagartig ihre Form, und ein Viertel verschwand. Jetzt ZEITLICH je
-# Chunk: kreuzt er die Grenze (Rundgang, mit FLORA_HYSTERESE), blenden seine beiden
-# MultiMeshes in STUFE_S uebereinander — die ausgehende Form schrumpft, die kommende waechst
-# (Shader: rolle, stufe_start, stufe_fern) —, danach wird die ausgehende unsichtbar
-# (_stufe_ende). Doppelt gezeichnet wird nur, was gerade wechselt.
-# ERSTE FASSUNG, NICHT WIEDERHOLEN: ein Band nach Abstand je Pflanze. Die Sichtweite gilt
-# aber je MultiMesh (ganzer Chunk), also mussten beide Formen eine halbe Chunkdiagonale
-# weiter sichtbar bleiben — volle und grobe Baeume liefen zwischen 0,7 und 1,7 km beide
-# durch den Vertex-Shader: 39 % statt 3 % langsame Frames.
-const STUFE_S := 0.35
+# FLORA-SPARSTUFE bei _flora_grob_ab: der Rundgang schaltet je Chunk HART zwischen voller
+# und grober Form um (nur Sichtbarkeit, im 3D-Abstand mit Totband FLORA_HYSTERESE).
+# IRRWEGE, NICHT WIEDERHOLEN: (a) ein Uebergangsband je Pflanze nach Abstand — die Sichtweite
+# gilt je MultiMesh, beide Formen mussten eine halbe Chunkdiagonale weiter sichtbar bleiben:
+# 39 % statt 3 % langsame Frames; (b) zeitliches Ueberblenden (Schrumpfen/Wachsen) — der
+# Nutzer fand das verwirrend ("diese Animation ... verwirrt"), ebenso das Wegschrumpfen der
+# Pflanzen beim Abloesen grob -> fein.
 const FLORA_HYSTERESE := 50.0
-const ROLLE_VOLL := 1.0
-const ROLLE_GROB := 2.0
 # DETAILSTUFEN. Chunks, deren Mitte weiter als FEIN_DIST vom Spieler liegt, entstehen GROB
-# (16-m-Raster: ein Viertel der Hoehen- und Farbproben, Bewuchs auf 16-m-Zellen mit gleicher
-# Dichte, keine Grasmaske). Kommt man naeher, wird der grobe Chunk durch einen feinen
-# ersetzt: das Gelaende waechst dabei aus der groben Flaeche (UV2, _grob_flaeche), die
-# alten Pflanzen schrumpfen weg, die neuen wachsen ein. Die Kollision der groben Stufe hat
+# (16-m-Raster: ein Viertel der Hoehen- und Farbproben, keine Grasmaske; der Bewuchs ist
+# derselbe wie fein). Kommt man naeher, wird der grobe Chunk durch einen feinen
+# ersetzt: das Gelaende waechst dabei aus der groben Flaeche (UV2, _bewuchs_raster); die
+# Pflanzen sind in beiden Stufen DIESELBEN und werden ohne Animation getauscht, sobald die
+# neuen vollstaendig stehen (_chunk_abloesen). Die Kollision der groben Stufe hat
 # dieselbe Weite wie die der feinen (16 m), im Schnellflug ist man also auch dort sicher.
 # 1100 m: der volle Bewuchs (bis _flora_grob_ab, 1200 m) steht damit fast ganz auf feinen
 # Chunks, und der Wechsel geschieht weit genug weg, um nicht aufzufallen.
@@ -318,11 +310,25 @@ const STUFE_FEIN := 0
 const STUFE_GROB := 1
 const AUFTRAG_FEIN := 0            # fein, waechst aus der Fernschuerze
 const AUFTRAG_FEIN_AUS_GROB := 1   # fein anstelle eines groben, waechst aus dessen Flaeche
-const AUFTRAG_GROB := 2
+const AUFTRAG_GROB := 2            # nur Gelaende; der Bewuchs folgt als AUFTRAG_BEWUCHS
+const AUFTRAG_BEWUCHS := 3         # Bewuchs eines stehenden groben Chunks nachreichen
+# Nachrang des Bewuchses gegenueber dem Abdecken (m Vorrang-Abstand): ein Chunk 1 km voraus
+# bekommt seine Baeume vor dem Gelaende am Rand der Sichtweite, aber nach dem naechsten Loch.
+const BEWUCHS_NACHRANG := 1000.0
+# Hinter dem Flugzeug werden im Schnellflug nur Chunks bis VIEW_DIST - HINTEN_RAND bestellt.
+const HINTEN_RAND := 1000.0
 const RAND_TIEF := 20.0            # Randstreifen gegen Spalten zwischen den Stufen (m)
 const FEIN_NACHRANG := 1500.0      # Verfeinern kommt nach dem Abdecken (m Vorrang-Abstand)
 const FEIN_HINTEN := 300.0         # weiter hinter dem Flugzeug wird nicht verfeinert (m) ...
 const FEIN_HINTEN_AB := 1.5        # ... aber nur im schnellen Flug (m je Frame, ~90 m/s)
+# BEWUCHS-VORLAGE. Weil beide Stufen dieselben Pflanzen setzen, muss der feine Nachfolger sie
+# nicht neu ausrechnen (die Schleife ueber 2304 Zellen kostet ~12 ms, gut ein Fuenftel des
+# feinen Baus): grobe Chunks, die bald verfeinert werden (Mitte naeher als FEIN_DIST +
+# VORLAGE_RAND), legen ihren Bewuchs in _bewuchs_vorlage ab, der feine Bau uebernimmt ihn und
+# setzt nur die Standhoehe neu (_bewuchs_umsetzen). Nur diese nahen, damit der Speicher klein
+# bleibt (~1200 Transformationen je Chunk).
+const VORLAGE_RAND := 800.0
+const AUFTRAG_MERKEN := 4          # Bit im Auftrag: Bewuchs fuer den Nachfolger ablegen
 
 # --- VULKANKEGEL -------------------------------------------------------------------------
 # Diese drei Zahlen stehen NICHT in der Massivtabelle, weil sie nicht einen bestimmten Berg
@@ -2302,7 +2308,7 @@ func _region_dichte(reg: int, x: float, z: float, h: float, ny: float) -> float:
 ## Dreiecksflaeche ist die der Hauptinsel (siehe _make_chunk_data).
 func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: float,
 		cz: float, hc: float, slope: float, x0: float, z0: float, step: float,
-		h00: float, h10: float, h01: float, h11: float, flaeche := 1.0) -> void:
+		h00: float, h10: float, h01: float, h11: float) -> void:
 	var ny := 1.0 - slope / 12.0
 	var dens := _region_dichte(reg, cx, cz, hc, ny)
 	if dens <= 0.004:
@@ -2318,7 +2324,7 @@ func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: 
 		per_cell *= 0.42
 	elif biom == Biome.TAIGA:
 		per_cell *= 0.58
-	var expect := per_cell * dens * flaeche
+	var expect := per_cell * dens
 	var n := int(floor(expect))
 	if rng.randf() < expect - float(n):
 		n += 1
@@ -3140,8 +3146,10 @@ enum Biome { WALD, WUESTE, HOCHLAND, HEIDE, TUNDRA, TAIGA, DSCHUNGEL, GRASLAND, 
 var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
 var _pending: Dictionary = {}   # Vector2i -> true (bestellt, im Bau oder fertig vor dem Einhaengen)
 var _in_arbeit: Dictionary = {} # Vector2i -> true (ein Worker baut gerade; unter _mutex)
-var _vergehend: Array = []      # [Knoten, Freigabezeit] abgeloester grober Chunks
-var _stufe_ende: Array = []     # [Flora-Liste, Zeit, fern] laufender Sparstufen-Wechsel
+var _vergehend: Array = []      # abgeloeste grobe Chunks (warten auf die Flora des Nachfolgers)
+var _bewuchs_vorlage: Dictionary = {}  # Vector2i -> [flora, rocks] eines groben (unter _mutex)
+var _grob_hd: Dictionary = {}   # Vector2i -> Entscheidungsflaeche eines groben Chunks, fuer
+								# seinen Bewuchs-Auftrag (unter _mutex)
 var _flug_dir := Vector2.ZERO   # geglaettete Bewegungsrichtung (Vorrang voraus)
 var _flug_schritt := 0.0        # geglaetteter Weg je Frame (m), fuer FEIN_HINTEN_AB
 var _mat: ShaderMaterial
@@ -3528,16 +3536,7 @@ uniform float fade_end;
 // jede leicht versetzt. Ohne gesetzten Zeitpunkt (Startbereich) sofort voll.
 global uniform float welt_zeit;
 instance uniform float erschienen = -1000.0;
-// Beim Abloesen eines groben Chunks durch den feinen schrumpfen seine Pflanzen weg.
-instance uniform float vergehen = 1.0e9;
-// Sparstufen-Uebergang (TerrainWorld.STUFE_S): rolle 1 = volle Form, 2 = grobe, 0 = ohne;
-// stufe_fern = Zielstufe des Chunks (1 = grob), stufe_start = Beginn des Wechsels.
-instance uniform float rolle = 0.0;
-instance uniform float stufe_fern = 0.0;
-instance uniform float stufe_start = -1000.0;
-const float STUFE_S = 0.35;    // = TerrainWorld.STUFE_S
 const float WACHSEN_S = 1.6;   // = TerrainWorld.WACHSEN_S
-const float VERGEHEN_S = 0.5;  // = TerrainWorld.VERGEHEN_S
 // WIND: die Baeume wiegen sich — die Krone mehr als der Stamm (quadratisch mit der Hoehe
 // ueber dem Fuss), und langsam wandernde Boeen laufen als Wellen durch den Wald. Die
 // Auslenkung wird in WELTRICHTUNG gerechnet und in den Raum der Instanz zurueckgedreht —
@@ -3559,15 +3558,8 @@ void vertex() {
 	COLOR.rgb *= mix(vec3(1.0), vec3(0.86 + 0.26 * z1, 0.90 + 0.18 * z1, 0.84 + 0.18 * z2),
 		laub_v);
 	float wachsen = smoothstep(0.0, 1.0,
-		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0))
-		* (1.0 - smoothstep(0.0, 1.0, clamp((welt_zeit - vergehen) / VERGEHEN_S, 0.0, 1.0)));
-	float stufe = 1.0;
-	if (rolle > 0.5) {
-		float ziel = rolle > 1.5 ? stufe_fern : 1.0 - stufe_fern;
-		float k = smoothstep(0.0, 1.0, clamp((welt_zeit - stufe_start) / STUFE_S, 0.0, 1.0));
-		stufe = mix(1.0 - ziel, ziel, k);
-	}
-	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen * stufe;
+		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0));
+	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
 	if (d_kam < 900.0 && wind_staerke > 0.0) {
 		mat3 m = mat3(MODEL_MATRIX);
 		float h_w = max((m * VERTEX).y, 0.0);
@@ -6888,6 +6880,9 @@ func update_center(world_pos: Vector3) -> void:
 	# steht er grob, soll aber fein sein, wird er ersetzt (AUFTRAG_FEIN_AUS_GROB).
 	var kandidaten: Array[Vector3i] = []
 	var schluessel := PackedInt64Array()
+	var vorlage2 := (FEIN_DIST + VORLAGE_RAND) * (FEIN_DIST + VORLAGE_RAND)
+	var schnell := vor != Vector2.ZERO and _flug_schritt > FEIN_HINTEN_AB
+	var hinten_rand2 := (VIEW_DIST - HINTEN_RAND) * (VIEW_DIST - HINTEN_RAND)
 	for key in want:
 		if _in_arbeit.has(key) or fertig.has(key):
 			continue
@@ -6895,25 +6890,46 @@ func update_center(world_pos: Vector3) -> void:
 		var auftrag := -1
 		var nachrang := 0.0
 		if not _chunks.has(key):
-			# ERST ABDECKEN, DANN VERFEINERN: auch nahe Chunks entstehen zuerst grob (18 statt
-			# 59 ms). Gemessen bei 450 m/s: mit "nah gleich fein" fehlten voraus Chunks,
-			# weil die teuren feinen die Worker banden.
+			# ERST ABDECKEN, DANN VERFEINERN: auch nahe Chunks entstehen zuerst grob (13 statt
+			# 57 ms, ohne Bewuchs). Gemessen bei 450 m/s: mit "nah gleich fein" fehlten voraus
+			# Chunks, weil die teuren feinen die Worker banden.
+			# Im Schnellflug nicht, was hinten am Rand liegt: es faellt Sekunden spaeter aus
+			# der Reichweite (gemessen 280 m/s: 205 von 1600 Chunks fertig und verworfen).
+			if schnell:
+				var dh := _chunk_center(key) - pc
+				if dh.length_squared() > hinten_rand2 and dh.dot(vor) < -0.5 * dh.length():
+					continue
 			auftrag = AUFTRAG_GROB
-		elif soll_fein and int((_chunks[key] as Node).get_meta("stufe", STUFE_FEIN)) == STUFE_GROB:
-			# Verfeinern erst nach der Abdeckung, und nicht hinter dem Flugzeug (dorthin
-			# schaut die Verfolgerkamera nicht; dreht man, kommt es wieder nach vorn).
+		elif int((_chunks[key] as Node).get_meta("stufe", STUFE_FEIN)) == STUFE_GROB:
+			# Verfeinern bzw. Bewuchs nachreichen erst nach der Abdeckung, und nicht hinter dem
+			# Flugzeug (dorthin schaut die Verfolgerkamera nicht; dreht man, kommt es wieder
+			# nach vorn). Der feine Bau setzt einen fehlenden Bewuchs selbst.
 			var dk := _chunk_center(key) - pc
 			if vor != Vector2.ZERO and _flug_schritt > FEIN_HINTEN_AB and dk.dot(vor) < -FEIN_HINTEN:
 				continue
-			auftrag = AUFTRAG_FEIN_AUS_GROB
-			nachrang = FEIN_NACHRANG
+			if soll_fein:
+				auftrag = AUFTRAG_FEIN_AUS_GROB
+				nachrang = FEIN_NACHRANG
+			elif (_chunks[key] as Node).has_meta("bewuchs_offen"):
+				auftrag = AUFTRAG_BEWUCHS
+				nachrang = BEWUCHS_NACHRANG
 		if auftrag < 0:
 			continue
+		if auftrag == AUFTRAG_BEWUCHS and _chunk_center(key).distance_squared_to(pc) < vorlage2:
+			auftrag |= AUFTRAG_MERKEN
 		schluessel.append((int((_vorrang(key, pc, vor) + nachrang) * 16.0) << 20) | kandidaten.size())
 		kandidaten.append(Vector3i(key.x, key.y, auftrag))
 	schluessel.sort()
 	for sk in schluessel:
 		_jobs.append(kandidaten[sk & 0xFFFFF])
+	# Vorlagen ausser Reichweite verwerfen (der Chunk ist weg; kommt er wieder, entsteht er
+	# neu). Eine liegengebliebene ist nie falsch — der Bewuchs haengt nur am Schluessel.
+	for key in _bewuchs_vorlage.keys():
+		if not want.has(key):
+			_bewuchs_vorlage.erase(key)
+	for key in _grob_hd.keys():
+		if not want.has(key):
+			_grob_hd.erase(key)
 	_pending = _in_arbeit.duplicate()
 	for job in _jobs:
 		_pending[Vector2i(job.x, job.y)] = true
@@ -7007,12 +7023,25 @@ func _zusatz_loop() -> void:
 func _chunk_bauen(job_v: Variant) -> void:
 	var job: Vector3i = job_v
 	var key := Vector2i(job.x, job.y)
+	var auftrag := job.z & 3
 	var t_w := Time.get_ticks_usec()
-	var data := _make_chunk_data(key, job.z)
+	if auftrag == AUFTRAG_BEWUCHS:
+		_bewuchs_bauen(key, job.z & AUFTRAG_MERKEN != 0, t_w)
+		return
+	var vorlage: Array = []
+	if auftrag == AUFTRAG_FEIN_AUS_GROB:
+		_mutex.lock()
+		vorlage = _bewuchs_vorlage.get(key, [])
+		_bewuchs_vorlage.erase(key)
+		_grob_hd.erase(key)
+		_mutex.unlock()
+	var data := _make_chunk_data(key, auftrag, vorlage)
 	if _exit:
 		return
 	_mutex.lock()
 	_in_arbeit.erase(key)
+	if data["bewuchs_offen"]:
+		_grob_hd[key] = data["hd"]
 	mess_worker_us += Time.get_ticks_usec() - t_w
 	mess_worker_n += 1
 	# WICHTIG: flora/rocks MUESSEN mit — sonst kommt die im Worker berechnete
@@ -7020,14 +7049,40 @@ func _chunk_bauen(job_v: Variant) -> void:
 	# (nur build_now_around um den Spawn hatte je Baeume).
 	_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
 		"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"],
-		"gras": data["gras"], "stufe": data["stufe"], "mitte_h": data["mitte_h"]})
+		"gras": data["gras"], "stufe": data["stufe"], "mitte_h": data["mitte_h"],
+		"bewuchs_offen": data["bewuchs_offen"]})
 	_mutex.unlock()
 
 
-## Einen GROBEN Chunk abloesen, weil sein feiner Nachfolger da ist: das Gelaende sofort
-## ausblenden (der Nachfolger beginnt genau auf dessen Flaeche), die Kollision sofort weg,
-## die Pflanzen in VERGEHEN_S wegschrumpfen lassen (Shader "vergehen") — waehrend die neuen
-## einwachsen —, danach den Knoten freigeben (_process, _vergehend).
+## Bewuchs-Auftrag: Pflanzen fuer einen stehenden groben Chunk, auf dessen Flaeche (hd).
+## Legt sie fuer den feinen Nachfolger ab, wenn er bald kommt (merken, siehe VORLAGE_RAND).
+func _bewuchs_bauen(key: Vector2i, merken: bool, t_w: int) -> void:
+	_mutex.lock()
+	var hd: PackedFloat32Array = _grob_hd.get(key, PackedFloat32Array())
+	_mutex.unlock()
+	if hd.is_empty():
+		# Nicht mehr da (ausser Reichweite aufgeraeumt) — die Flaeche neu tasten.
+		hd = _make_chunk_data(key, AUFTRAG_GROB)["hd"]
+	var fr := _bewuchs_rechnen(key, hd, hd) if not hd.is_empty() else [{}, []]
+	if _exit:
+		return
+	_mutex.lock()
+	_in_arbeit.erase(key)
+	_grob_hd.erase(key)
+	mess_worker_us += Time.get_ticks_usec() - t_w
+	mess_worker_n += 1
+	if merken:
+		# Nur gelesen, nie veraendert — der Hauptfaden liest dieselben Arrays beim Einhaengen.
+		_bewuchs_vorlage[key] = fr
+	_done.append({"key": key, "nur_bewuchs": true, "flora": fr[0], "rocks": fr[1]})
+	_mutex.unlock()
+
+
+## Einen GROBEN Chunk abloesen, weil sein feiner Nachfolger da ist: Gelaende und Kollision
+## sofort weg (der Nachfolger beginnt genau auf dessen Flaeche). Die PFLANZEN BLEIBEN, bis
+## der Nachfolger alle seinen eingehaengt hat (Zaehler "flora_offen", _flora_nachziehen) —
+## es sind dieselben, nur auf der feineren Flaeche; getauscht wird ohne Animation, im
+## selben Frame, in dem die letzte neue Art steht.
 func _chunk_abloesen(key: Vector2i, alt: Node3D) -> void:
 	_chunks.erase(key)
 	alt.set_meta("abgeloest", true)
@@ -7036,34 +7091,13 @@ func _chunk_abloesen(key: Vector2i, alt: Node3D) -> void:
 			(c as MeshInstance3D).visible = false
 		elif c is StaticBody3D:
 			c.queue_free()
-	var jetzt := welt_zeit()
-	for e in alt.get_meta("flora_mmis", []):
-		for mmi in [e["voll"], e["grob"]]:
-			if is_instance_valid(mmi):
-				(mmi as GeometryInstance3D).set_instance_shader_parameter("vergehen", jetzt)
-	_vergehend.append([alt, jetzt + VERGEHEN_S + 0.1])
+	_vergehend.append(alt)
 
 
-## Flora-Sparstufe eines Chunks wechseln (Liste seiner {voll, grob}). Beide Formen sichtbar,
-## der Shader blendet in STUFE_S um; danach blendet _process die ausgehende aus. sofort =
-## ohne Uebergang (Grafikstufe geaendert).
-func _flora_stufe_wechseln(liste: Array, fern: bool, sofort: bool) -> void:
-	var start := -1000.0 if sofort else welt_zeit()
-	for e in liste:
-		for mmi in [e["voll"], e["grob"]]:
-			if not is_instance_valid(mmi):
-				continue
-			var g := mmi as GeometryInstance3D
-			g.set_instance_shader_parameter("stufe_fern", 1.0 if fern else 0.0)
-			g.set_instance_shader_parameter("stufe_start", start)
-			g.visible = true
-	if sofort:
-		_flora_stufe_ausblenden(liste, fern)
-	else:
-		_stufe_ende.append([liste, start + STUFE_S + 0.05, fern])
-
-
-func _flora_stufe_ausblenden(liste: Array, fern: bool) -> void:
+## Flora-Sparstufe eines Chunks umschalten (Liste seiner {voll, grob}): nur Sichtbarkeit —
+## kein Netzwechsel an einer eingehaengten MultiMesh (der liess den Hauptfaden auf den
+## Renderfaden warten).
+func _flora_stufe_setzen(liste: Array, fern: bool) -> void:
 	for e in liste:
 		if is_instance_valid(e["voll"]):
 			(e["voll"] as GeometryInstance3D).visible = not fern
@@ -7101,34 +7135,41 @@ func _process(_delta: float) -> void:
 		if _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
 			mess_verworfen += 1
 			continue
+		if item.has("nur_bewuchs"):
+			_bewuchs_nachreichen(key, item["flora"], item["rocks"])
+			continue
 		var stufe := int(item.get("stufe", STUFE_FEIN))
+		var ersatz := false
+		var alt_kahl := false
 		if _chunks.has(key):
 			# Nur ein feiner darf einen groben abloesen; alles andere ist doppelt.
 			var alt: Node3D = _chunks[key]
 			if stufe != STUFE_FEIN or int(alt.get_meta("stufe", STUFE_FEIN)) != STUFE_GROB:
 				mess_verworfen += 1
 				continue
+			alt_kahl = alt.has_meta("bewuchs_offen")
 			_chunk_abloesen(key, alt)
+			ersatz = true
 		var t_a := Time.get_ticks_usec() if profil_an else 0
+		# Stand auf dem groben noch nichts, gibt es nichts zu tauschen: die Pflanzen des feinen
+		# wachsen dann ganz normal aus dem Boden (weich), statt verdeckt auf den Tausch zu warten.
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
 			item.get("rocks", []), item.get("tiefe", null), item.get("gras", null), true, stufe,
-			float(item.get("mitte_h", 0.0)))
+			float(item.get("mitte_h", 0.0)), not ersatz or alt_kahl)
+		if item.get("bewuchs_offen", false):
+			_bewuchs_bestellen(key)
 		_pz("attach", t_a)
-	# Abgeschlossene Flora-Stufenwechsel: die ausgehende Form ausblenden
-	if not _stufe_ende.is_empty():
-		var jetzt_s := welt_zeit()
-		for i in range(_stufe_ende.size() - 1, -1, -1):
-			if jetzt_s >= float(_stufe_ende[i][1]):
-				_flora_stufe_ausblenden(_stufe_ende[i][0], bool(_stufe_ende[i][2]))
-				_stufe_ende.remove_at(i)
-	# Abgeloeste grobe Chunks freigeben, sobald ihre Pflanzen weggeschrumpft sind
+	# Abgeloeste grobe Chunks freigeben, sobald ihr Nachfolger alle Pflanzen stehen hat (oder
+	# verschwunden ist, z. B. ausser Reichweite)
 	if not _vergehend.is_empty():
-		var jetzt := welt_zeit()
 		for i in range(_vergehend.size() - 1, -1, -1):
-			if jetzt >= float(_vergehend[i][1]):
-				var n: Variant = _vergehend[i][0]
-				if is_instance_valid(n):
-					(n as Node).queue_free()
+			var alt: Variant = _vergehend[i]
+			if not is_instance_valid(alt):
+				_vergehend.remove_at(i)
+				continue
+			var nf: Variant = _chunks.get((alt as Node).get_meta("key"))
+			if nf == null or not is_instance_valid(nf) or int((nf as Node).get_meta("flora_offen", 0)) <= 0:
+				(alt as Node).queue_free()
 				_vergehend.remove_at(i)
 	var t_n := Time.get_ticks_usec() if profil_an else 0
 	_flora_nachziehen()
@@ -7227,11 +7268,7 @@ func _chunks_pflegen(mitte: Vector3) -> void:
 			soll = true
 		if soll != fern:
 			node.set_meta("fern", soll)
-			# Weich nur beim NAEHERKOMMEN (grob -> voll, meist voraus im Bild). Wird ein Chunk
-			# fern, liegt er im Geradeausflug hinter dem Flugzeug — dort genuegt der harte
-			# Wechsel, und das Bild spart die Doppelzeichnung (gemessen: sie allein machte
-			# bei 280 m/s aus 3-4 % rund 12 % Frames ueber 20 ms).
-			_flora_stufe_wechseln(liste, soll, soll)
+			_flora_stufe_setzen(liste, soll)
 
 
 func _flora_nachziehen() -> void:
@@ -7244,7 +7281,7 @@ func _flora_nachziehen() -> void:
 		var n: Variant = e["node"]
 		# Der Chunk kann laengst wieder abgebaut sein — dann faellt seine Flora weg.
 		if is_instance_valid(n) and not (n as Node).has_meta("abgeloest"):
-			_attach_multi(n, e["mesh"], e["xfs"], bool(e.get("weich", false)))
+			_flora_eintrag_haengen(n, e)
 			getan += 1
 		# STUECKZAHL VOR ZEITBUDGET. Das Budget allein genuegt nicht: es wird NACH einem
 		# Eintrag geprueft, und ein einzelner kostet mit echtem Renderer bis zu 3,7 ms
@@ -7314,8 +7351,67 @@ func _flora_alles_nachziehen() -> void:
 	while not _flora_warteschlange.is_empty():
 		var e: Dictionary = _flora_warteschlange.pop_front()
 		var n: Variant = e["node"]
-		if is_instance_valid(n):
-			_attach_multi(n, e["mesh"], e["xfs"], bool(e.get("weich", false)))
+		if is_instance_valid(n) and not (n as Node).has_meta("abgeloest"):
+			_flora_eintrag_haengen(n, e)
+
+
+## Einen Flora-Eintrag einhaengen und mitzaehlen. Ist der Chunk ein ERSATZ (fein fuer grob),
+## bleiben seine MultiMeshes verdeckt, bis die letzte Art steht; dann werden sie im selben
+## Frame sichtbar, in dem _process den Vorgaenger freigibt (gleiche Pflanzen, kein Flimmern
+## durch doppelte Baeume, keine Luecke).
+## Ein grober Chunk ohne Bewuchs steht: Bewuchs-Auftrag hinten anstellen (der naechste
+## Plan beim Zellwechsel sortiert ihn ein). Ohne diesen Anstoss kaeme er erst nach 384 m Flug
+## — im Stand oder im Kreisen nie.
+func _bewuchs_bestellen(key: Vector2i) -> void:
+	var node: Node3D = _chunks[key]
+	node.set_meta("bewuchs_offen", true)
+	var z := AUFTRAG_BEWUCHS
+	if _chunk_center(key).distance_squared_to(Vector2(_last_pos.x, _last_pos.z)) \
+			< (FEIN_DIST + VORLAGE_RAND) * (FEIN_DIST + VORLAGE_RAND):
+		z |= AUFTRAG_MERKEN
+	_mutex.lock()
+	var neu := not _in_arbeit.has(key)
+	if neu:
+		_jobs.append(Vector3i(key.x, key.y, z))
+		_pending[key] = true
+	_mutex.unlock()
+	if neu:
+		_sem.post()
+
+
+## Bewuchs-Auftrag geliefert: die Pflanzen an den (noch) groben Chunk haengen — ueber die
+## Warteschlange wie beim Einhaengen, weich aus dem Boden. Ist der Chunk inzwischen fein
+## ersetzt oder weg, hat er seinen Bewuchs schon selbst bzw. braucht keinen mehr.
+func _bewuchs_nachreichen(key: Vector2i, flora: Dictionary, rocks: Array) -> void:
+	var roh: Variant = _chunks.get(key)
+	if roh == null or not is_instance_valid(roh) or not (roh as Node).has_meta("bewuchs_offen"):
+		mess_verworfen += 1
+		return
+	var node: Node3D = roh
+	node.remove_meta("bewuchs_offen")
+	for art in flora.keys():
+		_flora_warteschlange.append({"node": node, "mesh": _flora.get(art, _mesh_conifer),
+			"xfs": flora[art], "weich": true})
+	if not rocks.is_empty():
+		_flora_warteschlange.append({"node": node, "mesh": _mesh_rock, "xfs": rocks, "weich": true})
+	node.set_meta("flora_offen", int(node.get_meta("flora_offen", 0)) + flora.size()
+		+ (0 if rocks.is_empty() else 1))
+
+
+func _flora_eintrag_haengen(n: Node3D, e: Dictionary) -> void:
+	_attach_multi(n, e["mesh"], e["xfs"], bool(e.get("weich", false)))
+	var offen := int(n.get_meta("flora_offen", 1)) - 1
+	n.set_meta("flora_offen", offen)
+	if offen <= 0 and n.has_meta("ersatz"):
+		n.remove_meta("ersatz")
+		_flora_stufe_setzen(n.get_meta("flora_mmis", []), bool(n.get_meta("fern", false)))
+		# IM SELBEN FRAME den Vorgaenger weg — sonst stuenden seine Pflanzen einen Frame lang
+		# doppelt im Bild (tools/_baum_ausfall_check.gd sah genau das als halbierte Zahl).
+		var key: Vector2i = n.get_meta("key")
+		for alt in _vergehend:
+			if is_instance_valid(alt) and (alt as Node).get_meta("key") == key:
+				(alt as Node3D).visible = false
+				(alt as Node).queue_free()
 
 
 # --- GLATTES GELAENDENETZ (Chunks und Fernschuerze) ---------------------------------------
@@ -7542,7 +7638,8 @@ static func boden_textur() -> ImageTexture:
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 		flora: Dictionary = {}, rocks: Array = [], tiefe: Image = null,
-		gras: Image = null, weich := false, stufe := STUFE_FEIN, mitte_h := 0.0) -> void:
+		gras: Image = null, weich := false, stufe := STUFE_FEIN, mitte_h := 0.0,
+		pflanzen_weich := true) -> void:
 	# Grobe Chunks haben keine Grasmaske: den Ring an ihrer Stelle LEEREN, sonst stuende dort
 	# das Gras des Chunks, der vorher auf diesem Ringplatz lag.
 	_tiefe_eintragen(key, tiefe, gras if gras != null else _gras_leer)
@@ -7578,10 +7675,13 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	# liegt am Rand der Sichtweite, wo die Flora ohnehin klein und ausgeblendet ist.
 	for art in flora.keys():
 		_flora_warteschlange.append({"node": node, "mesh": _flora.get(art, _mesh_conifer),
-			"xfs": flora[art], "weich": weich})
+			"xfs": flora[art], "weich": weich and pflanzen_weich})
 	if not rocks.is_empty():
 		_flora_warteschlange.append({"node": node, "mesh": _mesh_rock, "xfs": rocks,
-			"weich": weich})
+			"weich": weich and pflanzen_weich})
+	node.set_meta("flora_offen", flora.size() + (0 if rocks.is_empty() else 1))
+	if weich and not pflanzen_weich and int(node.get_meta("flora_offen")) > 0:
+		node.set_meta("ersatz", true)
 
 
 ## Baumweite umschalten: 0 = nah, 1 = normal, 2 = weit. Wirkt sofort auf alle vorhandenen
@@ -7614,7 +7714,7 @@ func setze_baumweite(stufe: int) -> void:
 		var dyh := _last_pos.y - float(node.get_meta("mitte_h", 0.0))
 		var fern := dxz * dxz + dyh * dyh > _flora_grob_ab * _flora_grob_ab
 		node.set_meta("fern", fern)
-		_flora_stufe_wechseln(liste, fern, true)
+		_flora_stufe_setzen(liste, fern)
 
 
 ## Wandelt eine Liste von Transformationen in den Rohpuffer einer MultiMesh um.
@@ -7645,12 +7745,12 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array, weich := false) -> vo
 	if xfs.is_empty() or mesh == null:
 		return
 	# ZWEI MULTIMESHES JE ART, DER RENDERER WAEHLT PER SICHTWEITE: die volle bis
-	# _flora_grob_ab, die grobe (Stellvertreter, nur FLORA_GROB_ANTEIL der Pflanzen) ab dort.
+	# _flora_grob_ab, die grobe (Stellvertreter, FLORA_GROB_ANTEIL der Pflanzen) ab dort.
 	# Frueher tauschte _chunks_pflegen das Netz einer einzigen MultiMesh um — und jedes
 	# Tauschen an einer eingehaengten MultiMesh liess den Hauptfaden auf den Renderfaden
 	# warten: gemessen 2,6 ms je Frame im Schnellflug, frisch gelieferte Chunks (fast immer
 	# "fern") sogar 9 ms (tools/_tempo_nachladen.gd, Profil). Jetzt wird nach dem Einhaengen
-	# nichts mehr umgestellt. Preis: der Puffer der groben Stufe (+75 %, einige MB).
+	# nichts mehr umgestellt. Preis: der Puffer der groben Stufe (einige MB).
 	# Die grobe Fassung wird je Quellmesh EINMAL gebaut und von allen Chunks geteilt.
 	if not _grob_cache.has(mesh):
 		_grob_cache[mesh] = _grobe_fassung(mesh)
@@ -7667,16 +7767,14 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array, weich := false) -> vo
 	var box := AABB(lo, hi - lo)
 	var n_grob := maxi(int(xfs.size() * FLORA_GROB_ANTEIL), 1)
 	var voll := _flora_mmi(mesh, xfs.size(), puf, box)
-	var grob := _flora_mmi(_grob_cache[mesh], n_grob, puf.slice(0, n_grob * 12), box)
+	var grob := _flora_mmi(_grob_cache[mesh], n_grob,
+		puf if n_grob == xfs.size() else puf.slice(0, n_grob * 12), box)
 	_flora_reichweiten(voll, grob)
-	voll.set_instance_shader_parameter("rolle", ROLLE_VOLL)
-	grob.set_instance_shader_parameter("rolle", ROLLE_GROB)
-	# Stufe des Chunks (fern = grobe Form), ohne Uebergang
+	# Stufe des Chunks (fern = grobe Form); ein Ersatz-Chunk bleibt verdeckt, bis alles steht
 	var fern: bool = parent.get_meta("fern", false)
-	voll.set_instance_shader_parameter("stufe_fern", 1.0 if fern else 0.0)
-	grob.set_instance_shader_parameter("stufe_fern", 1.0 if fern else 0.0)
-	voll.visible = not fern
-	grob.visible = fern
+	var verdeckt := parent.has_meta("ersatz")
+	voll.visible = not fern and not verdeckt
+	grob.visible = fern and not verdeckt
 	if weich:
 		var jetzt := welt_zeit()
 		voll.set_instance_shader_parameter("erschienen", jetzt)
@@ -7706,7 +7804,7 @@ func _flora_mmi(mesh: Mesh, n: int, puf: PackedFloat32Array, box: AABB) -> Multi
 ## Sichtweiten der beiden Stufen (auch nach einem Wechsel der Grafikstufe). Harter Schnitt
 ## am Ende erst dort, wo der Shader die Instanzen laengst auf Groesse 0 gefahren hat
 ## (FLORA_FADE_END + halbe Chunk-Diagonale) — nichts poppt. Welche der beiden Stufen steht,
-## entscheidet nicht die Sichtweite, sondern der Rundgang (siehe STUFE_S).
+## entscheidet nicht die Sichtweite, sondern der Rundgang (_flora_stufe_setzen).
 func _flora_reichweiten(voll: MultiMeshInstance3D, grob: MultiMeshInstance3D) -> void:
 	voll.visibility_range_end = _flora_dist
 	grob.visibility_range_end = _flora_dist
@@ -7791,33 +7889,39 @@ func _schuerzen_hoehen(ox: float, oz: float, step: float, zn: int = CELLS) -> Pa
 	return uv2
 
 
-## Die GROBE FLAECHE (16-m-Raster, Diagonale 00-11) an jedem Eckpunkt eines feinen Chunks
-## (UV2.x), aus jedem zweiten Punkt des feinen Rasters. Ein feiner Chunk, der einen groben
-## ersetzt, waechst daraus in seine Form. (Das grobe Raster tastet mit Zellweite 16 ab, also
-## mit 78 % des feinen Felsreliefs — der Rest waechst im Morph mit, nichts springt.)
-func _grob_flaeche(hs: PackedFloat32Array, zn: int) -> PackedVector2Array:
-	var nv := zn + 1
-	var uv2 := PackedVector2Array()
-	uv2.resize(nv * nv)
+## Die GROBE FLAECHE auf dem 8-m-Raster ((CELLS+1)^2 Werte): das 16-m-Raster (grob: hs
+## selbst; fein: jeder zweite Punkt, bitgleich dieselben Werte) mit den Dreiecken der groben
+## Stufe (Diagonale 00-11) hochgerechnet. Daraus entscheiden BEIDE Stufen ihren Bewuchs, der
+## Tiefenblock der groben Stufe entsteht daraus, und ein feiner Chunk, der einen groben
+## ersetzt, waechst von hier aus in seine Form (UV2).
+func _bewuchs_raster(hs: PackedFloat32Array, zn: int) -> PackedFloat32Array:
+	var ng := (CELLS >> 1) + 1
+	var nf := zn + 1
+	var hg := PackedFloat32Array()
+	hg.resize(ng * ng)
+	var k := 1 if zn == (CELLS >> 1) else 2       # Abstand der 16-m-Punkte in hs
+	for j in ng:
+		for i in ng:
+			hg[j * ng + i] = hs[(j * k) * nf + i * k]
+	var nv := CELLS + 1
+	var aus := PackedFloat32Array()
+	aus.resize(nv * nv)
 	for j in nv:
 		for i in nv:
-			var gx := float(i) * 0.5
-			var gz := float(j) * 0.5
-			var ci := mini(int(gx), (zn >> 1) - 1) * 2
-			var cj := mini(int(gz), (zn >> 1) - 1) * 2
-			var fx := gx - float(ci >> 1)
-			var fz := gz - float(cj >> 1)
-			var h00 := hs[cj * nv + ci]
-			var h10 := hs[cj * nv + ci + 2]
-			var h01 := hs[(cj + 2) * nv + ci]
-			var h11 := hs[(cj + 2) * nv + ci + 2]
-			var h := (h00 + fx * (h10 - h00) + fz * (h11 - h10)) if fx > fz \
-				else (h00 + fz * (h01 - h00) + fx * (h11 - h01))
-			uv2[j * nv + i] = Vector2(h, 0.0)
-	return uv2
+			var ci := mini(i >> 1, ng - 2)
+			var cj := mini(j >> 1, ng - 2)
+			var fx := float(i) * 0.5 - float(ci)
+			var fz := float(j) * 0.5 - float(cj)
+			var g00 := hg[cj * ng + ci]
+			var g10 := hg[cj * ng + ci + 1]
+			var g01 := hg[(cj + 1) * ng + ci]
+			var g11 := hg[(cj + 1) * ng + ci + 1]
+			aus[j * nv + i] = (g00 + fx * (g10 - g00) + fz * (g11 - g10)) if fx > fz \
+				else (g00 + fz * (g01 - g00) + fx * (g11 - g01))
+	return aus
 
 
-func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
+func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN, vorlage: Array = []) -> Dictionary:
 	var ox := float(key.x) * CHUNK
 	var oz := float(key.y) * CHUNK
 	# DETAILSTUFE (siehe FEIN_DIST): grob = 16-m-Raster, ein Viertel der Proben. Alle
@@ -7827,8 +7931,9 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 	var zn: int = (CELLS >> 1) if grob else CELLS
 	var rn := zn + 3
 	var step := CHUNK / float(zn)
-	var flaeche := (step / 8.0) * (step / 8.0)     # Zellflaeche in 8-m-Zellen (Bewuchsdichte)
-	var slope_k := 8.0 / step                      # Steilheit je 8 m, wie alle Schwellen
+	# Beide Stufen tasten mit Zellweite 8 ab (height_at(..., 8.0)): die Punkte der groben
+	# sind damit BITGENAU jeder zweite Punkt der feinen. Darauf beruht, dass beide denselben
+	# Bewuchs setzen (siehe _bewuchs_raster) und die feine genau aus der groben waechst.
 	var ks: int = 1 if grob else KOLL_SCHRITT
 	# HOEHEN MIT EINEM RAND: das Netz ist GLATT schattiert (Normale je Eckpunkt aus den
 	# Nachbarhoehen), und damit die Normalen an der Chunkgrenze mit denen des Nachbarn
@@ -7839,30 +7944,16 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 	hr.resize(rn * rn)
 	for j in rn:
 		for i in rn:
-			hr[j * rn + i] = height_at(ox + float(i - 1) * step, oz + float(j - 1) * step, step)
+			hr[j * rn + i] = height_at(ox + float(i - 1) * step, oz + float(j - 1) * step, 8.0)
 	var hs := PackedFloat32Array()
 	hs.resize((zn + 1) * (zn + 1))
 	for j in zn + 1:
 		for i in zn + 1:
 			hs[j * (zn + 1) + i] = hr[(j + 1) * rn + i + 1]
-	# LIEGT UEBERHAUPT EINE ROEHRE IN DIESEM CHUNK? Dieselbe Vorpruefung wie bei den
-	# Fluessen und aus demselben Grund: der Test je Zelle ist billig, aber er laeuft
-	# 2304 mal je Chunk mal vier Ecken, und in ueber 99 % aller Chunks gibt es nichts zu
-	# finden. Ein Rechteckvergleich je Chunk erledigt die alle auf einmal.
-	var tunnel_chunk := false
-	for t in tunnel:
-		var tb: Vector3 = t["pos"]
-		var td: Vector2 = t["dir"]
-		var te := Vector2(tb.x, tb.z) + td * float(t["laenge"])
-		var pad: float = float(t["halb_b"]) + CHUNK
-		if ox + CHUNK > minf(tb.x, te.x) - pad and ox < maxf(tb.x, te.x) + pad \
-				and oz + CHUNK > minf(tb.z, te.y) - pad and oz < maxf(tb.z, te.y) + pad:
-			tunnel_chunk = true
-			break
+	var tunnel_chunk := _tunnel_im_chunk(ox, oz)
 
 	# Hoechster Flussspiegel in der Naehe dieses Chunks (Zellenraster, einmal je Chunk).
 	var fluss_h := _fluss_bereich_h(ox - 20.0, oz - 20.0, CHUNK + 40.0)
-	var fluss_chunk := fluss_h > -INF
 	var nv := zn + 1
 	var nrms := glatte_normalen(hr, zn, step)
 	var mulde := mulden(hr, zn, step)
@@ -7906,8 +7997,14 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 	idx.resize(ni)
 	# Woraus der Chunk beim Erscheinen waechst: aus der Fernschuerze, oder — beim Wechsel
 	# grob -> fein — aus der groben Flaeche, die an seiner Stelle stand.
-	var uv2 := _grob_flaeche(hs, zn) if auftrag == AUFTRAG_FEIN_AUS_GROB \
-		else _schuerzen_hoehen(ox, oz, step, zn)
+	var uv2 := PackedVector2Array()
+	if auftrag == AUFTRAG_FEIN_AUS_GROB:
+		var gf := _bewuchs_raster(hs, zn)
+		uv2.resize(gf.size())
+		for k in gf.size():
+			uv2[k] = Vector2(gf[k], 0.0)
+	else:
+		uv2 = _schuerzen_hoehen(ox, oz, step, zn)
 	# RANDSTREIFEN: je Kante ein senkrechter Streifen RAND_TIEF nach unten. Wo ein feiner an
 	# einen groben Chunk stoesst, liegen die Zwischenpunkte der feinen Kante nicht auf der
 	# geraden groben Kante — ohne Streifen klaffte dort ein Spalt, durch den man auf die
@@ -7940,213 +8037,23 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 			else:
 				idx.append_array([a, b, b2, a, b2, a2])
 	var mesh := netz_aus(verts, nrms, cols, idx, uv2)
-	# Grasmaske nur fein: Gras waechst ohnehin nur 105 m um die Kamera, grobe Chunks liegen
-	# jenseits von FEIN_DIST (dort bleibt der Ring leer, siehe _attach_chunk).
+	# Grasmaske nur fein: Gras waechst ohnehin nur 105 m um die Kamera, und ein grober Chunk
+	# ist verfeinert, bevor man ihn erreicht (dort bleibt der Ring leer, siehe _attach_chunk).
 	var gras: Image = null if grob else _gras_block(ox, oz, hs, cols)
-	# --- FLORA: deterministisch aus Seed+Chunk — Bäume in Wald-Clustern, Felsen
-	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(Vector3i(key.x, key.y, seed_value))
-	# ARTENWAHL: nicht mehr nur Nadel/Laub, sondern sieben Arten nach Biom und HOEHE —
-	# Tiefland Laubwald mit Unterholz, Mittellage Nadelmischwald, ab 42 m Bergfichten mit
-	# einzelnen abgestorbenen Staemmen, Wueste Palmenoasen mit Trockenbewuchs. Dadurch
-	# wiederholt sich aus der Luft kein Muster.
+	# --- FLORA (_bewuchs_rechnen). GROBE CHUNKS BEKOMMEN HIER KEINE: ihr Bewuchs ist ein
+	# eigener, nachrangiger Auftrag (AUFTRAG_BEWUCHS), damit im Schnellflug erst das Gelaende
+	# steht. Die Schleife kostet ~11 ms und machte grobe Chunks von 13 auf 25 ms teuer —
+	# gemessen bei 450 m/s fehlten damit bis zu 14 Chunks im Umkreis von 2 km.
+	var hd := _bewuchs_raster(hs, zn)
 	var flora: Dictionary = {}      # Art -> Array[Transform3D]
 	var rocks: Array = []
-	# DICHTE: frueher 150 Zufallsproben je Chunk (147 000 m^2) — nach allen Filtern blieben
-	# 14 Baeume uebrig, also einer je 100 m Abstand. Aus der Luft war das eine kahle Wiese.
-	# Jetzt wird jede Zelle des OHNEHIN BERECHNETEN Hoehenrasters besetzt: kein einziger
-	# zusaetzlicher height_at-Aufruf (der teure Teil: fBm + Ridge + Massive + Fluesse), und
-	# die Baeume stehen exakt auf der facettierten Flaeche statt auf der glatten Kurve
-	# darunter — mit height_at gesampelt schwebten sie auf Graten und steckten in Mulden.
-	var river_chunk := fluss_chunk
-	var strasse_chunk := _strassen_an and _st_huelle.intersects(Rect2(ox, oz, CHUNK, CHUNK))
-	for j in zn:
-		for i in zn:
-			var h00 := hs[j * (zn + 1) + i]
-			var h10 := hs[j * (zn + 1) + i + 1]
-			var h01 := hs[(j + 1) * (zn + 1) + i]
-			var h11 := hs[(j + 1) * (zn + 1) + i + 1]
-			var hc := (h00 + h10 + h01 + h11) * 0.25
-			if hc < SEA_Y + 1.0:
-				continue
-			# Steilheit als Hoehenunterschied ueber die 8-m-Zelle (aus dem Raster, gratis)
-			var slope := maxf(maxf(absf(h10 - h00), absf(h01 - h00)),
-				maxf(absf(h11 - h10), absf(h11 - h01))) * slope_k
-			var cx := ox + (float(i) + 0.5) * step
-			var cz := oz + (float(j) + 0.5) * step
-			# Eingeebnete Flugplaetze/Plateaus bleiben frei — frueher besorgte das die
-			# Hoehenschwelle nebenbei, jetzt explizit (siehe FLORA_MIN_H).
-			# AM VULKAN WAECHST WEDER AUF DEM ERSTARRTEN STROM NOCH OBERHALB SEINER
-			# BAUMGRENZE ETWAS (vulkan_bewuchs). Der Strom ist dieselbe Maske, mit der
-			# _face_color das schwarze Band ueber die gruene Ebene legt: ohne sie stuende der
-			# Wald mitten darauf — genau der Widerspruch zwischen Farbe und Bewuchs, der beim
-			# Blockschutt am Felsentor schon einmal der Befund war. Die Baumgrenze wiederum
-			# ist die des KEGELS und nicht die der Welt, die bei 230 m auf einem Drittel
-			# dieser Flanke saesse.
-			var open := _open_ground(cx, cz) * vulkan_bewuchs(cx, cz, hc)
-			if open <= 0.01:
-				continue
-			# Auf und direkt neben der Strasse waechst nichts und liegt kein Fels.
-			if strasse_chunk and strasse_abstand(cx, cz) < STRASSE_B_HAUPT + 6.0:
-				continue
-			# AUF EINER SENKRECHTEN WAND LIEGT NICHTS. `slope` ist der groesste
-			# Hoehenunterschied ueber die 8-m-Zelle, 8 m sind also genau 45 Grad.
-			#
-			# WARUM DAS HIER FEHLTE UND WAS ES ANRICHTET: der Bewuchs hat so eine Schranke
-			# laengst (er blendet zwischen slope 2,8 und 4,6 aus, also 19 bis 30 Grad),
-			# die FELSBROCKEN nicht — im Gegenteil, ihre Wahrscheinlichkeit STEIGT mit der
-			# Neigung, weil Blockschutt an Haengen liegt. Das stimmt bis rund 40 Grad und
-			# ist darueber falsch: an der Talschlusswand vor ADLERHORST standen gemessen
-			# 19 Broecken zwischen 108 und 488 m Hoehe auf einer fast senkrechten Wand,
-			# also frei in der Luft und mitten im Anflugbild.
-			# DIE SCHRANKE GILT FUER JEDE STEILWAND DER WELT, nicht nur fuer diese eine —
-			# ein Rechteck um das Portal haette denselben Fehler an der Fjordwand, am
-			# Canyon und am Vulkankegel stehen lassen.
-			var steil := 1.0 - smoothstep(6.4, 8.0, slope)
-			# FELSEN: unabhaengig vom Wald, bevorzugt an Haengen und in Hochlagen.
-			# Auch oberhalb der Baumgrenze (dort tragen sie die Bergsilhouette).
-			if rng.randf() < steil * open * (0.004 + clampf(slope * 0.012, 0.0, 0.05)
-					+ (0.02 if hc > 45.0 else 0.0)) * flaeche:
-				var rsc := Vector3(rng.randf_range(0.7, 2.6), rng.randf_range(0.5, 1.9),
-					rng.randf_range(0.7, 2.6))
-				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc),
-					Vector3(cx + rng.randf_range(-step * 0.375, step * 0.375), hc - 0.3,
-						cz + rng.randf_range(-step * 0.375, step * 0.375))))
-			# --- BEWUCHS ---
-			# NEUE REGIONEN: eigene Baumgrenze (Nordland tief, Dschungel bis auf die
-			# Karstkuppen), eigene Arten und Dichte — siehe _region_flora.
-			var reg := region_at(cx, cz)
-			var grenze := FLORA_MAX_H if reg == Region.HAUPT else _region_baumgrenze(reg)
-			if hc < FLORA_MIN_H or hc > grenze:
-				continue   # Strand/Wasser bzw. ueber der Baumgrenze
-			# DIE SCHRANKE MUSS DEN HOECHSTEN SEE KENNEN. Hier stand fest "hc < 34.0", und
-			# der Bergsee liegt auf 78 m: seine Wanne fiel komplett durch die Pruefung, und
-			# sobald seine Flachzone weg war (die als Freihaltezone alles unterdrueckt hat),
-			# stand im Bild ein geschlossener Nadelwald IM See. Fuer die Fluesse bleibt es
-			# bei 34 m — ihre Splines reichen bis 112 m hinauf, und ein Bachbett muss keine
-			# Baumsperre ueber das halbe Bergland ziehen.
-			# DIE 34.0 WAREN FEST VERDRAHTET UND FALSCH. Der Canyonfluss entspringt auf
-			# 46 m; oberhalb von 34 wurde die Flusspruefung uebersprungen, und im Bild
-			# standen dort Nadelbaeume MITTEN IM WASSER. Aufgefallen ist es erst, als die
-			# Kamera "IN die Schlucht" auf den Talboden wanderte — von oben verdeckt der
-			# Bewuchs am Ufer, was im Fluss steht.
-			# _flora_fluss_h wird jetzt aus den Fluessen selbst abgeleitet, so wie
-			# _flora_wasser_h aus den Seen.
-			if hc < _flora_wasser_h and _submerged(cx, cz, hc, river_chunk and hc < fluss_h + 1.0):
-				continue   # See- und Flussbett: nicht unter Wasser pflanzen
-			# UND NICHT IM LICHTRAUM EINER ROEHRE. Der Bewuchs richtet sich nach
-			# height_at, und das liefert weiter die Hoehe des ungeloechterten Berges —
-			# ohne diese Zeile stuenden ueber der Aussparung Fichten auf einer Flaeche,
-			# die es nicht mehr gibt, also frei in der Luft ueber dem Tunnelmund.
-			if tunnel_chunk and _im_tunnel(Vector3(cx, hc, cz)):
-				continue
-			if reg != Region.HAUPT:
-				_region_flora(reg, rng, flora, cx, cz, hc, slope,
-					ox + float(i) * step, oz + float(j) * step, step, h00, h10, h01, h11,
-					flaeche)
-				continue
-			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
-			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.
-			var edge := open * smoothstep(FLORA_MIN_H, FLORA_FULL_H, hc) \
-				* (1.0 - smoothstep(FLORA_DUENN_AB, FLORA_MAX_H, hc)) \
-				* (1.0 - smoothstep(BERGWALD_STEIL_AB, BERGWALD_STEIL_AB + 1.8, slope))
-			if edge <= 0.005:
-				continue
-			var biome := biome_at(cx, cz)
-			# DER WALDKRAGEN DES VULKANS, und er steht GANZ OBEN, weil er alles darunter
-			# betrifft (Begruendung bei vulkan_kragen). Ausserhalb des Kegels ist er null und
-			# jede Zeile darunter bleibt exakt die bisherige.
-			# IM KRAGEN GILT DAS BIOM NICHT. Das ist keine Bequemlichkeit, sondern die
-			# eigentliche Reparatur: gemessen sind 17 von 64 Fussrichtungen WUESTE, und die
-			# Weltregel laesst dort ein Zwanzigstel der Dichte stehen, sperrt alles ueber 28 m
-			# UND pflanzt Palmen. In diesen Sektoren fehlte der Kragen deshalb vollstaendig —
-			# das waren die 7 von 32 Richtungen ganz ohne Wald. Auf einem Aschekegel mit
-			# Steigungsregen ist ein geschlossener Nadelwaldguertel ohnehin das Naheliegende,
-			# und die Vorlage zeigt genau ihn.
-			var kragen := vulkan_kragen(cx, cz, hc)
-			if kragen > 0.01:
-				biome = Biome.WALD
-			var f := _forest.get_noise_2d(cx, cz)
-			# Waldkern dicht, Rand ausduennend, echte Lichtungen unter f = -0.28.
-			var dens := smoothstep(-0.28, 0.30, f)
-			var kk := land_kammer(cx, cz)
-			dens = clampf(dens * dens * kammer_wald(kk), 0.0, 1.0)
-			dens = _feld_wald(cx, cz, hc, dens, kk)
-			dens = maxf(dens, kragen)
-			# AUWALD am Fluss: Laubbaeume dicht im Talband, nicht auf dem Kies.
-			if river_chunk and hc < fluss_h + 14.0:
-				dens = maxf(dens, _auwald(cx, cz, hc))
-			var per_cell := FLORA_PER_CELL
-			if biome == Biome.HEIDE:
-				per_cell *= 0.30   # offene Heide -> Strauchwerk und einzelne Baeume
-			elif biome == Biome.WUESTE:
-				if hc > 28.0:
-					continue
-				per_cell *= 0.05   # Wueste: nur Oasen-Tupfer im Rauschen-Hoch
-			var expect := per_cell * dens * edge * flaeche
-			var n := int(floor(expect))
-			if rng.randf() < expect - float(n):
-				n += 1
-			for k in n:
-				var u := rng.randf()
-				var v := rng.randf()
-				# Hoehe auf der TATSAECHLICHEN Dreiecksflaeche (Diagonale v00-v11 wie
-				# oben trianguliert), damit kein Stamm in der Facette haengt.
-				var hp := (h00 + u * (h10 - h00) + v * (h11 - h10)) if u >= v \
-					else (h00 + v * (h01 - h00) + u * (h11 - h01))
-				var art := ""
-				var lo := 1.1
-				var hi := 2.0
-				if biome == Biome.WUESTE:
-					var w := rng.randf()
-					if w < 0.34:
-						art = "Palme"
-						lo = 1.0
-						hi = 1.7
-					elif w < 0.52:
-						art = "Totholz"
-						lo = 0.9
-						hi = 1.5
-					else:
-						art = "Busch"
-						lo = 0.8
-						hi = 1.8
-				else:
-					var r := rng.randf()
-					if hp > 42.0:
-						art = "Fichte" if r < 0.86 else "Totholz"
-					elif hp > 24.0:
-						if r < 0.50:
-							art = "Fichte"
-						elif r < 0.82:
-							art = "Kiefer"
-						else:
-							art = "Birke"
-					else:
-						if r < 0.26:
-							art = "Eiche"
-						elif r < 0.50:
-							art = "Birke"
-						elif r < 0.70:
-							art = "Fichte"
-						elif r < 0.80:
-							art = "Kiefer"
-						else:
-							art = "Busch"
-					if biome == Biome.HEIDE and rng.randf() < 0.45:
-						art = "Busch"   # offene Heide ist vor allem Strauchwerk
-					if art == "Busch":
-						lo = 0.8
-						hi = 1.8
-				var sc := rng.randf_range(lo, hi)
-				var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
-					Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)),
-					Vector3(ox + (float(i) + u) * step, hp - 0.15,
-						oz + (float(j) + v) * step))
-				if not flora.has(art):
-					flora[art] = []
-				flora[art].append(xf)
+	if not grob:
+		if vorlage.is_empty():
+			var fr := _bewuchs_rechnen(key, hd, hs)
+			flora = fr[0]
+			rocks = fr[1]
+		else:
+			_bewuchs_umsetzen(vorlage, hs, ox, oz, flora, rocks)
 	# KOLLISION: WEITER ALS DREIECKSNETZ — HeightMapShape3D wurde geprueft und ist hier
 	# LANGSAMER. Die Idee lag nahe (hs ist genau das 49x49-Raster, aus dem auch das Netz
 	# entsteht, ein Hoehenfeld braucht keinen BVH), aber gemessen stieg das Einhaengen von
@@ -8213,6 +8120,269 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 		faces.resize(fi)
 	var shape := ConcavePolygonShape3D.new()
 	shape.set_faces(faces)
+	# HOEHENBLOCK FUER DAS WASSER: die ersten zn x zn Stuetzpunkte (die letzte Zeile
+	# und Spalte gehoeren dem Nachbarn). Halbfloat reicht: am Wasser liegen die Hoehen
+	# nahe null, dort ist er auf Millimeter genau.
+	var th := PackedFloat32Array()
+	if not grob:
+		for j in zn:
+			th.append_array(hs.slice(j * (zn + 1), j * (zn + 1) + zn))
+	else:
+		# Der Ring erwartet je Chunk 48 x 48 Stuetzpunkte im 8-m-Abstand: die grobe Flaeche
+		# auf dem 8-m-Raster (dieselbe wie fuer den Bewuchs), ohne letzte Zeile/Spalte.
+		for j in CELLS:
+			th.append_array(hd.slice(j * (CELLS + 1), j * (CELLS + 1) + CELLS))
+	var tiefe := Image.create_from_data(CELLS, CELLS, false, Image.FORMAT_RF, th.to_byte_array())
+	tiefe.convert(Image.FORMAT_RH)
+	# Grob: Bewuchs steht noch aus, wenn irgendwo Land ist (hd geht an den Bewuchs-Auftrag).
+	var bewuchs_offen := false
+	if grob:
+		for h in hd:
+			if h >= SEA_Y + 1.0:
+				bewuchs_offen = true
+				break
+	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks, "tiefe": tiefe,
+		"gras": gras, "stufe": STUFE_GROB if grob else STUFE_FEIN,
+		"mitte_h": hs[(zn >> 1) * (zn + 1) + (zn >> 1)],
+		"hd": hd if bewuchs_offen else PackedFloat32Array(), "bewuchs_offen": bewuchs_offen}
+
+
+## BEWUCHS EINES CHUNKS (Pflanzen und Felsen), gemischt, als [flora, rocks]. hd ist die
+## Entscheidungsflaeche (8-m-Raster aus dem groben 16-m-Raster, _bewuchs_raster — in beiden
+## Stufen bitgleich), hp_src die Standflaeche (grob: hd, fein: das feine Raster). Laeuft im
+## Worker: im feinen Bau direkt, fuer grobe Chunks als eigener Auftrag (AUFTRAG_BEWUCHS).
+func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat32Array) -> Array:
+	var ox := float(key.x) * CHUNK
+	var oz := float(key.y) * CHUNK
+	var tunnel_chunk := _tunnel_im_chunk(ox, oz)
+	# Hoechster Flussspiegel in der Naehe dieses Chunks (Zellenraster, einmal je Chunk).
+	var fluss_h := _fluss_bereich_h(ox - 20.0, oz - 20.0, CHUNK + 40.0)
+	# --- FLORA: deterministisch aus Seed+Chunk — Bäume in Wald-Clustern, Felsen
+	# verstreut. Nur Transforms berechnen (Worker); MultiMesh baut der Main-Thread.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(Vector3i(key.x, key.y, seed_value))
+	# ARTENWAHL: nicht mehr nur Nadel/Laub, sondern sieben Arten nach Biom und HOEHE —
+	# Tiefland Laubwald mit Unterholz, Mittellage Nadelmischwald, ab 42 m Bergfichten mit
+	# einzelnen abgestorbenen Staemmen, Wueste Palmenoasen mit Trockenbewuchs. Dadurch
+	# wiederholt sich aus der Luft kein Muster.
+	var flora: Dictionary = {}      # Art -> Array[Transform3D]
+	var rocks: Array = []
+	# DICHTE: frueher 150 Zufallsproben je Chunk (147 000 m^2) — nach allen Filtern blieben
+	# 14 Baeume uebrig, also einer je 100 m Abstand. Aus der Luft war das eine kahle Wiese.
+	# Jetzt wird jede Zelle des OHNEHIN BERECHNETEN Hoehenrasters besetzt: kein einziger
+	# zusaetzlicher height_at-Aufruf (der teure Teil: fBm + Ridge + Massive + Fluesse), und
+	# die Baeume stehen exakt auf der facettierten Flaeche statt auf der glatten Kurve
+	# darunter — mit height_at gesampelt schwebten sie auf Graten und steckten in Mulden.
+	var river_chunk := fluss_h > -INF
+	var strasse_chunk := _strassen_an and _st_huelle.intersects(Rect2(ox, oz, CHUNK, CHUNK))
+	# Vulkan in Reichweite? Sonst liefern vulkan_bewuchs 1 und vulkan_kragen 0, und die zwei
+	# Aufrufe je Zelle (zusammen ~0,8 us, ~1,8 ms je Chunk) sparen wir uns.
+	var vulkan_chunk := _vulkan_im_rechteck(ox, oz, CHUNK)
+	# BEWUCHS UNABHAENGIG VON DER DETAILSTUFE. Grob und fein setzen DIESELBEN Pflanzen: jede
+	# Entscheidung (Hoehe, Steilheit, Gewaesser, Dichte, Art, Lage) faellt auf der groben
+	# Flaeche (hd, 8-m-Raster aus dem 16-m-Raster), die in beiden Stufen bitgleich ist; nur
+	# die STANDHOEHE kommt aus der eigenen Flaeche (hp_src). Frueher hatte die grobe Stufe
+	# eigene 16-m-Zellen — beim Wechsel grob -> fein verschwand jeder Baum eines Stuecks und
+	# ein anderer wuchs woanders nach, oft direkt unter dem Flugzeug (Nutzer: "die Baeume
+	# verschwinden die ganze Zeit ... diese Animation verwirrt").
+	const FZ := 8.0
+	for j in CELLS:
+		for i in CELLS:
+			var d00 := hd[j * (CELLS + 1) + i]
+			var d10 := hd[j * (CELLS + 1) + i + 1]
+			var d01 := hd[(j + 1) * (CELLS + 1) + i]
+			var d11 := hd[(j + 1) * (CELLS + 1) + i + 1]
+			var hc := (d00 + d10 + d01 + d11) * 0.25
+			if hc < SEA_Y + 1.0:
+				continue
+			# Steilheit als Hoehenunterschied ueber die 8-m-Zelle (grobe Flaeche, beide Stufen)
+			var slope := maxf(maxf(absf(d10 - d00), absf(d01 - d00)),
+				maxf(absf(d11 - d10), absf(d11 - d01)))
+			# Standflaeche der Zelle (eigene Stufe)
+			var h00 := hp_src[j * (CELLS + 1) + i]
+			var h10 := hp_src[j * (CELLS + 1) + i + 1]
+			var h01 := hp_src[(j + 1) * (CELLS + 1) + i]
+			var h11 := hp_src[(j + 1) * (CELLS + 1) + i + 1]
+			var hc_steh := (h00 + h10 + h01 + h11) * 0.25
+			var cx := ox + (float(i) + 0.5) * FZ
+			var cz := oz + (float(j) + 0.5) * FZ
+			# Eingeebnete Flugplaetze/Plateaus bleiben frei — frueher besorgte das die
+			# Hoehenschwelle nebenbei, jetzt explizit (siehe FLORA_MIN_H).
+			# AM VULKAN WAECHST WEDER AUF DEM ERSTARRTEN STROM NOCH OBERHALB SEINER
+			# BAUMGRENZE ETWAS (vulkan_bewuchs). Der Strom ist dieselbe Maske, mit der
+			# _face_color das schwarze Band ueber die gruene Ebene legt: ohne sie stuende der
+			# Wald mitten darauf — genau der Widerspruch zwischen Farbe und Bewuchs, der beim
+			# Blockschutt am Felsentor schon einmal der Befund war. Die Baumgrenze wiederum
+			# ist die des KEGELS und nicht die der Welt, die bei 230 m auf einem Drittel
+			# dieser Flanke saesse.
+			var open := _open_ground(cx, cz)
+			if vulkan_chunk:
+				open *= vulkan_bewuchs(cx, cz, hc)
+			if open <= 0.01:
+				continue
+			# Auf und direkt neben der Strasse waechst nichts und liegt kein Fels.
+			if strasse_chunk and strasse_abstand(cx, cz) < STRASSE_B_HAUPT + 6.0:
+				continue
+			# AUF EINER SENKRECHTEN WAND LIEGT NICHTS. `slope` ist der groesste
+			# Hoehenunterschied ueber die 8-m-Zelle, 8 m sind also genau 45 Grad.
+			#
+			# WARUM DAS HIER FEHLTE UND WAS ES ANRICHTET: der Bewuchs hat so eine Schranke
+			# laengst (er blendet zwischen slope 2,8 und 4,6 aus, also 19 bis 30 Grad),
+			# die FELSBROCKEN nicht — im Gegenteil, ihre Wahrscheinlichkeit STEIGT mit der
+			# Neigung, weil Blockschutt an Haengen liegt. Das stimmt bis rund 40 Grad und
+			# ist darueber falsch: an der Talschlusswand vor ADLERHORST standen gemessen
+			# 19 Broecken zwischen 108 und 488 m Hoehe auf einer fast senkrechten Wand,
+			# also frei in der Luft und mitten im Anflugbild.
+			# DIE SCHRANKE GILT FUER JEDE STEILWAND DER WELT, nicht nur fuer diese eine —
+			# ein Rechteck um das Portal haette denselben Fehler an der Fjordwand, am
+			# Canyon und am Vulkankegel stehen lassen.
+			var steil := 1.0 - smoothstep(6.4, 8.0, slope)
+			# FELSEN: unabhaengig vom Wald, bevorzugt an Haengen und in Hochlagen.
+			# Auch oberhalb der Baumgrenze (dort tragen sie die Bergsilhouette).
+			if rng.randf() < steil * open * (0.004 + clampf(slope * 0.012, 0.0, 0.05)
+					+ (0.02 if hc > 45.0 else 0.0)):
+				var rsc := Vector3(rng.randf_range(0.7, 2.6), rng.randf_range(0.5, 1.9),
+					rng.randf_range(0.7, 2.6))
+				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc),
+					Vector3(cx + rng.randf_range(-3.0, 3.0), hc_steh - 0.3,
+						cz + rng.randf_range(-3.0, 3.0))))
+			# --- BEWUCHS ---
+			# NEUE REGIONEN: eigene Baumgrenze (Nordland tief, Dschungel bis auf die
+			# Karstkuppen), eigene Arten und Dichte — siehe _region_flora.
+			var reg := region_at(cx, cz)
+			var grenze := FLORA_MAX_H if reg == Region.HAUPT else _region_baumgrenze(reg)
+			if hc < FLORA_MIN_H or hc > grenze:
+				continue   # Strand/Wasser bzw. ueber der Baumgrenze
+			# DIE SCHRANKE MUSS DEN HOECHSTEN SEE KENNEN. Hier stand fest "hc < 34.0", und
+			# der Bergsee liegt auf 78 m: seine Wanne fiel komplett durch die Pruefung, und
+			# sobald seine Flachzone weg war (die als Freihaltezone alles unterdrueckt hat),
+			# stand im Bild ein geschlossener Nadelwald IM See. Fuer die Fluesse bleibt es
+			# bei 34 m — ihre Splines reichen bis 112 m hinauf, und ein Bachbett muss keine
+			# Baumsperre ueber das halbe Bergland ziehen.
+			# DIE 34.0 WAREN FEST VERDRAHTET UND FALSCH. Der Canyonfluss entspringt auf
+			# 46 m; oberhalb von 34 wurde die Flusspruefung uebersprungen, und im Bild
+			# standen dort Nadelbaeume MITTEN IM WASSER. Aufgefallen ist es erst, als die
+			# Kamera "IN die Schlucht" auf den Talboden wanderte — von oben verdeckt der
+			# Bewuchs am Ufer, was im Fluss steht.
+			# _flora_fluss_h wird jetzt aus den Fluessen selbst abgeleitet, so wie
+			# _flora_wasser_h aus den Seen.
+			if hc < _flora_wasser_h and _submerged(cx, cz, hc, river_chunk and hc < fluss_h + 1.0):
+				continue   # See- und Flussbett: nicht unter Wasser pflanzen
+			# UND NICHT IM LICHTRAUM EINER ROEHRE. Der Bewuchs richtet sich nach
+			# height_at, und das liefert weiter die Hoehe des ungeloechterten Berges —
+			# ohne diese Zeile stuenden ueber der Aussparung Fichten auf einer Flaeche,
+			# die es nicht mehr gibt, also frei in der Luft ueber dem Tunnelmund.
+			if tunnel_chunk and _im_tunnel(Vector3(cx, hc, cz)):
+				continue
+			if reg != Region.HAUPT:
+				_region_flora(reg, rng, flora, cx, cz, hc, slope,
+					ox + float(i) * FZ, oz + float(j) * FZ, FZ, h00, h10, h01, h11)
+				continue
+			# Weiche Raender statt harter Schwellen — der frueher harte Schnitt bei
+			# h=0.8 / h=64 / Hang 2.6 zeichnete aus der Luft sichtbare Kanten.
+			var edge := open * smoothstep(FLORA_MIN_H, FLORA_FULL_H, hc) \
+				* (1.0 - smoothstep(FLORA_DUENN_AB, FLORA_MAX_H, hc)) \
+				* (1.0 - smoothstep(BERGWALD_STEIL_AB, BERGWALD_STEIL_AB + 1.8, slope))
+			if edge <= 0.005:
+				continue
+			var biome := biome_at(cx, cz)
+			# DER WALDKRAGEN DES VULKANS, und er steht GANZ OBEN, weil er alles darunter
+			# betrifft (Begruendung bei vulkan_kragen). Ausserhalb des Kegels ist er null und
+			# jede Zeile darunter bleibt exakt die bisherige.
+			# IM KRAGEN GILT DAS BIOM NICHT. Das ist keine Bequemlichkeit, sondern die
+			# eigentliche Reparatur: gemessen sind 17 von 64 Fussrichtungen WUESTE, und die
+			# Weltregel laesst dort ein Zwanzigstel der Dichte stehen, sperrt alles ueber 28 m
+			# UND pflanzt Palmen. In diesen Sektoren fehlte der Kragen deshalb vollstaendig —
+			# das waren die 7 von 32 Richtungen ganz ohne Wald. Auf einem Aschekegel mit
+			# Steigungsregen ist ein geschlossener Nadelwaldguertel ohnehin das Naheliegende,
+			# und die Vorlage zeigt genau ihn.
+			var kragen := vulkan_kragen(cx, cz, hc) if vulkan_chunk else 0.0
+			if kragen > 0.01:
+				biome = Biome.WALD
+			var f := _forest.get_noise_2d(cx, cz)
+			# Waldkern dicht, Rand ausduennend, echte Lichtungen unter f = -0.28.
+			var dens := smoothstep(-0.28, 0.30, f)
+			var kk := land_kammer(cx, cz)
+			dens = clampf(dens * dens * kammer_wald(kk), 0.0, 1.0)
+			dens = _feld_wald(cx, cz, hc, dens, kk)
+			dens = maxf(dens, kragen)
+			# AUWALD am Fluss: Laubbaeume dicht im Talband, nicht auf dem Kies.
+			if river_chunk and hc < fluss_h + 14.0:
+				dens = maxf(dens, _auwald(cx, cz, hc))
+			var per_cell := FLORA_PER_CELL
+			if biome == Biome.HEIDE:
+				per_cell *= 0.30   # offene Heide -> Strauchwerk und einzelne Baeume
+			elif biome == Biome.WUESTE:
+				if hc > 28.0:
+					continue
+				per_cell *= 0.05   # Wueste: nur Oasen-Tupfer im Rauschen-Hoch
+			var expect := per_cell * dens * edge
+			var n := int(floor(expect))
+			if rng.randf() < expect - float(n):
+				n += 1
+			for k in n:
+				var u := rng.randf()
+				var v := rng.randf()
+				# Hoehe auf der TATSAECHLICHEN Dreiecksflaeche (Diagonale v00-v11 wie
+				# oben trianguliert), damit kein Stamm in der Facette haengt.
+				var hp := (h00 + u * (h10 - h00) + v * (h11 - h10)) if u >= v \
+					else (h00 + v * (h01 - h00) + u * (h11 - h01))
+				# Die ART haengt an der Hoehe — auf der GROBEN Flaeche entschieden, sonst
+				# wechselt ein Baum an den Schwellen 24/42 m beim Verfeinern die Art.
+				var hart := (d00 + u * (d10 - d00) + v * (d11 - d10)) if u >= v \
+					else (d00 + v * (d01 - d00) + u * (d11 - d01))
+				var art := ""
+				var lo := 1.1
+				var hi := 2.0
+				if biome == Biome.WUESTE:
+					var w := rng.randf()
+					if w < 0.34:
+						art = "Palme"
+						lo = 1.0
+						hi = 1.7
+					elif w < 0.52:
+						art = "Totholz"
+						lo = 0.9
+						hi = 1.5
+					else:
+						art = "Busch"
+						lo = 0.8
+						hi = 1.8
+				else:
+					var r := rng.randf()
+					if hart > 42.0:
+						art = "Fichte" if r < 0.86 else "Totholz"
+					elif hart > 24.0:
+						if r < 0.50:
+							art = "Fichte"
+						elif r < 0.82:
+							art = "Kiefer"
+						else:
+							art = "Birke"
+					else:
+						if r < 0.26:
+							art = "Eiche"
+						elif r < 0.50:
+							art = "Birke"
+						elif r < 0.70:
+							art = "Fichte"
+						elif r < 0.80:
+							art = "Kiefer"
+						else:
+							art = "Busch"
+					if biome == Biome.HEIDE and rng.randf() < 0.45:
+						art = "Busch"   # offene Heide ist vor allem Strauchwerk
+					if art == "Busch":
+						lo = 0.8
+						hi = 1.8
+				var sc := rng.randf_range(lo, hi)
+				var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(
+					Vector3(sc, sc * rng.randf_range(0.9, 1.25), sc)),
+					Vector3(ox + (float(i) + u) * FZ, hp - 0.15,
+						oz + (float(j) + v) * FZ))
+				if not flora.has(art):
+					flora[art] = []
+				flora[art].append(xf)
 	# MISCHEN — sonst ist die Fernstufe gestreift. Sie zeigt nur ein Praefix der
 	# Transformationen (FLORA_GROB_ANTEIL, visible_instance_count), und der Kopfkommentar
 	# dort sagt zu Recht: das ist nur dann eine gleichmaessige Stichprobe, wenn die Liste
@@ -8228,37 +8398,66 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN) -> Dictionary:
 			var tmp: Variant = l[k]
 			l[k] = l[q]
 			l[q] = tmp
-	# HOEHENBLOCK FUER DAS WASSER: die ersten zn x zn Stuetzpunkte (die letzte Zeile
-	# und Spalte gehoeren dem Nachbarn). Halbfloat reicht: am Wasser liegen die Hoehen
-	# nahe null, dort ist er auf Millimeter genau.
-	var th := PackedFloat32Array()
-	if not grob:
-		for j in zn:
-			th.append_array(hs.slice(j * (zn + 1), j * (zn + 1) + zn))
-	else:
-		# Der Ring erwartet je Chunk 48 x 48 Stuetzpunkte im 8-m-Abstand: aus dem groben
-		# Raster mit denselben Dreiecken (Diagonale 00-11) hochgerechnet.
-		th.resize(CELLS * CELLS)
-		var nvg := zn + 1
-		for j in CELLS:
-			for i in CELLS:
-				var gx := float(i) * 0.5
-				var gz := float(j) * 0.5
-				var ci := int(gx)
-				var cj := int(gz)
-				var fx := gx - float(ci)
-				var fz := gz - float(cj)
-				var g00 := hs[cj * nvg + ci]
-				var g10 := hs[cj * nvg + ci + 1]
-				var g01 := hs[(cj + 1) * nvg + ci]
-				var g11 := hs[(cj + 1) * nvg + ci + 1]
-				th[j * CELLS + i] = (g00 + fx * (g10 - g00) + fz * (g11 - g10)) if fx > fz \
-					else (g00 + fz * (g01 - g00) + fx * (g11 - g01))
-	var tiefe := Image.create_from_data(CELLS, CELLS, false, Image.FORMAT_RF, th.to_byte_array())
-	tiefe.convert(Image.FORMAT_RH)
-	return {"mesh": mesh, "shape": shape, "flora": flora, "rocks": rocks, "tiefe": tiefe,
-		"gras": gras, "stufe": STUFE_GROB if grob else STUFE_FEIN,
-		"mitte_h": hs[(zn >> 1) * (zn + 1) + (zn >> 1)]}
+	return [flora, rocks]
+
+
+## LIEGT UEBERHAUPT EINE ROEHRE IN DIESEM CHUNK? Dieselbe Vorpruefung wie bei den Fluessen
+## und aus demselben Grund: der Test je Zelle ist billig, aber er laeuft 2304 mal je Chunk
+## mal vier Ecken, und in ueber 99 % aller Chunks gibt es nichts zu finden. Ein
+## Rechteckvergleich je Chunk erledigt die alle auf einmal.
+func _tunnel_im_chunk(ox: float, oz: float) -> bool:
+	for t in tunnel:
+		var tb: Vector3 = t["pos"]
+		var td: Vector2 = t["dir"]
+		var te := Vector2(tb.x, tb.z) + td * float(t["laenge"])
+		var pad: float = float(t["halb_b"]) + CHUNK
+		if ox + CHUNK > minf(tb.x, te.x) - pad and ox < maxf(tb.x, te.x) + pad \
+				and oz + CHUNK > minf(tb.z, te.y) - pad and oz < maxf(tb.z, te.y) + pad:
+			return true
+	return false
+
+
+## BEWUCHS EINES GROBEN VORGAENGERS AUF DIE FEINE FLAECHE (hs, 49 x 49) setzen: Art, Lage,
+## Drehung, Groesse und Reihenfolge bleiben, nur die Standhoehe wird neu bestimmt — mit
+## derselben Regel wie beim Pflanzen (Baum: Dreieck der 8-m-Zelle mit Diagonale 00-11,
+## 0,15 m eingesenkt; Fels: Mittel der vier Zellecken, 0,3 m). Schreibt in flora/rocks
+## (Referenztypen); die Vorlage selbst bleibt unberuehrt, der Hauptfaden liest sie womoeglich
+## gerade fuer den groben Chunk. Beleg: tools/_bewuchs_stufen_check.gd.
+func _bewuchs_umsetzen(vorlage: Array, hs: PackedFloat32Array, ox: float, oz: float,
+		flora: Dictionary, rocks: Array) -> void:
+	const FZ := 8.0
+	const W := CELLS + 1
+	var quelle: Dictionary = vorlage[0]
+	for art in quelle:
+		var alt: Array = quelle[art]
+		var neu: Array = []
+		neu.resize(alt.size())
+		for k in alt.size():
+			var xf: Transform3D = alt[k]
+			var fx := (xf.origin.x - ox) / FZ
+			var fz := (xf.origin.z - oz) / FZ
+			var i := clampi(floori(fx), 0, CELLS - 1)
+			var j := clampi(floori(fz), 0, CELLS - 1)
+			var u := clampf(fx - float(i), 0.0, 1.0)
+			var v := clampf(fz - float(j), 0.0, 1.0)
+			var o := j * W + i
+			var h00 := hs[o]
+			var h10 := hs[o + 1]
+			var h01 := hs[o + W]
+			var h11 := hs[o + W + 1]
+			var hp := (h00 + u * (h10 - h00) + v * (h11 - h10)) if u >= v \
+				else (h00 + v * (h01 - h00) + u * (h11 - h01))
+			xf.origin.y = hp - 0.15
+			neu[k] = xf
+		flora[art] = neu
+	for r in vorlage[1]:
+		var xf: Transform3D = r
+		# Felsen streuen hoechstens 3 m um die Zellmitte, bleiben also in ihrer Zelle.
+		var i := clampi(floori((xf.origin.x - ox) / FZ), 0, CELLS - 1)
+		var j := clampi(floori((xf.origin.z - oz) / FZ), 0, CELLS - 1)
+		var o := j * W + i
+		xf.origin.y = (hs[o] + hs[o + 1] + hs[o + W] + hs[o + W + 1]) * 0.25 - 0.3
+		rocks.append(xf)
 
 
 ## Wie frei ist die Stelle fuer Bewuchs? 0 = eingeebneter Flugplatz/Plateau (auf der
@@ -9059,6 +9258,18 @@ func _vulkan_baumgrenze(x: float, z: float, h: float) -> float:
 ##           Aufrufer) — sonst hat der Ring genau in diesen Sektoren sein Loch.
 ## WAS ER NICHT ANTASTET: Hangneigung, Lavastrom, Lappen und die Baumgrenze selbst. Der
 ## Kragen soll geschlossen sein, wo Wald wachsen kann, und nicht ueberall.
+## Reicht irgendein Vulkan (Haut oder Waldkragen) in das Quadrat ox/oz/seite hinein?
+func _vulkan_im_rechteck(ox: float, oz: float, seite: float) -> bool:
+	for vk in _vulkane:
+		var vx := float(vk["x"])
+		var vz := float(vk["z"])
+		var dx := maxf(maxf(ox - vx, vx - (ox + seite)), 0.0)
+		var dz := maxf(maxf(oz - vz, vz - (oz + seite)), 0.0)
+		if dx * dx + dz * dz <= maxf(float(vk["reich2"]), float(vk["kr2"])):
+			return true
+	return false
+
+
 func vulkan_kragen(x: float, z: float, h: float) -> float:
 	for vk in _vulkane:
 		var dx := x - float(vk["x"])

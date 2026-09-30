@@ -544,9 +544,9 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
 - HAUPTFADEN: Bewuchs-Einhaengen kostete 9,4 ms und der Sparstufenwechsel 3,6 ms JE FRAME —
   beides Warten auf den Renderfaden (siehe Stolpersteine: Physik-Interpolation + MultiMesh).
   Jetzt: Welt-Wurzeln ohne Physik-Interpolation, und je Art ZWEI MultiMeshes (voll bis
-  `_flora_grob_ab`, grob = Praefix `FLORA_GROB_ANTEIL` ab dort, `_flora_reichweiten`), der
-  Renderer waehlt per Sichtweite — `_chunks_pflegen` stellt keine Flora mehr um. Streaming auf
-  dem Hauptfaden jetzt ~0,5 ms je Frame (Profil).
+  `_flora_grob_ab`, grob = Stellvertreternetz ab dort, `_flora_reichweiten`); umgeschaltet
+  wird nur noch `visible` (je Chunk, siehe „Bewuchs unabhaengig von der Detailstufe") — nie
+  das Netz an einer eingehaengten MultiMesh. Streaming auf dem Hauptfaden ~0,5 ms je Frame.
 - ERGEBNIS 280 m/s (realistischer Schnellflug): Chunks ≥ 2,5 km voraus, zeitweise seitliche
   Luecken im 2-km-Umkreis von der Schuerze gedeckt, Minimap ≥ 5 km, feine Schuerze ≥ 4 km,
   Frame 16,5 ms (alter Stand 15,0 — aber dort kam ab 28 s gar nichts mehr an). 450 m/s: die
@@ -573,47 +573,62 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   (`_fw_*`, Setter), Seen in der Farbe (`_see_farb2`). height_at 13,2 → 12,1 us (Inselmittel),
   Chunk 59 → 56 ms (+1,7 fuer das weiche Erscheinen). Profil-Anteile (mit Messmarken):
   Gebirgsformen, Massive, Kuestenversatz, Wasserformen — der Rest sind die Rauschaufrufe selbst.
-- CHUNK-DETAILSTUFEN (Nutzerwunsch): Chunks mit Mitte jenseits `FEIN_DIST` (1100 m) entstehen
-  GROB — `_make_chunk_data(key, AUFTRAG_GROB)`: 16-m-Raster (zn = 24, ein Viertel der Proben,
-  height_at/_face_color mit Zellweite 16), Bewuchs auf 16-m-Zellen mit gleicher Dichte
-  (`flaeche`, Steilheit auf 8 m normiert `slope_k`, Felsstreuung ±0,375·step), keine Grasmaske
-  (Ring an der Stelle geleert), Kollision gleich weit (16 m), Tiefenblock auf 48x48
-  hochgerechnet. Kosten 18 statt 59 ms. Die FEINE Stufe ist BITGLEICH zum Stand davor
-  (Pruefsumme ueber Netz, Baeume, Felsen, Tiefe, Gras, Kollision; alle Faktoren genau 1).
-  Auftraege sind Vector3i (x, z, Art): fehlende Chunks entstehen IMMER zuerst grob (Abdecken
-  vor Verfeinern), Verfeinern (`AUFTRAG_FEIN_AUS_GROB`) mit Nachrang `FEIN_NACHRANG` und im
-  Schnellflug (`FEIN_HINTEN_AB`) nicht hinter dem Flugzeug (`FEIN_HINTEN`). Das Abloesen
-  (`_chunk_abloesen`): altes Gelaende sofort unsichtbar, Kollision weg, alte Pflanzen
-  schrumpfen in `VERGEHEN_S` (0,5 s, Shader "vergehen"), Knoten danach frei (`_vergehend`);
-  der feine Chunk waechst aus der groben Flaeche (`_grob_flaeche`, jeder 2. Punkt des feinen
-  Rasters). RANDSTREIFEN (`RAND_TIEF` 20 m) an jeder Chunkkante gegen Spalten fein/grob.
-  Build_now_around (Start, Werkzeuge) baut weiter fein.
-  GEMESSEN (_tempo_nachladen): 280 m/s 0 Loecher (vorher bis 30), Chunks ≥ 3,6 km voraus;
-  450 m/s 0 Loecher (vorher 60+, Vorlauf 0,3 km) ≥ 3,3 km voraus. Frames ueber 20 ms bei
-  280 m/s 3-4 % wie vorher. Der Zusatz-Worker ist wieder aus (`WORKER_ZUSATZ` 0): die
-  Abdeckung ist ohne ihn gleich gut, bei weniger CPU.
-  FALLEN: (1) Alte und neue Baeume 2,4 s gleichzeitig (erste Fassung) = 10,8 % statt 1,4 %
-  langsame Frames — der Bewuchs ist der teuerste Teil des Bildes, deshalb VERGEHEN_S kurz.
-  (2) INSTANZ-UNIFORMS belegen je Instanz einen Platz im globalen Shader-Puffer (Standard
-  65 536, ~4000 Instanzen); mit zwei Flora-MultiMeshes je Art und Chunk lief er ueber
-  ("Too many instances using shader instance variables") und das weiche Erscheinen fiel
-  still aus → project.godot `rendering/limits/global_shader_variables/buffer_size=262144`.
-- FLORA-SPARSTUFE WEICH (`STUFE_S`, `_flora_stufe_wechseln`): der Rundgang entscheidet je
-  Chunk im 3D-ABSTAND zur Chunkmitte (Meta `mitte_h`) mit symmetrischem Totband
-  (`FLORA_HYSTERESE` ±50 m um `_flora_grob_ab`). Beim NAEHERKOMMEN blenden beide Formen in
-  0,35 s uebereinander (Instanzparameter `rolle`, `stufe_fern`, `stufe_start`; danach wird
-  die ausgehende unsichtbar, `_stufe_ende`), beim Entfernen (meist hinter dem Flugzeug)
-  wird hart umgeschaltet. Nur `visible` und Instanzparameter — kein Netzwechsel an einer
-  eingehaengten MultiMesh. GEMESSEN (280 m/s, je 2 Laeufe): 3,8 % Frames ueber 20 ms wie der
-  harte Wechsel. IRRWEGE: (a) Band nach Abstand je Pflanze — die Sichtweite gilt je
-  MultiMesh, beide Formen mussten eine halbe Chunkdiagonale weiter sichtbar bleiben: 39 %;
-  (b) 2D-Abstand mit Band nur nach aussen: ~20 % mehr volle Baeume, 10-12 %. Bei ~16 ms
-  Framezeit liegt das Bild genau an der 60-Hz-Kante — jedes Prozent Flora kippt Frames auf
-  25 ms.
+- CHUNK-DETAILSTUFEN (Nutzerwunsch): Chunks mit Mitte jenseits `FEIN_DIST` (1100 m) stehen
+  GROB — `_make_chunk_data(key, AUFTRAG_GROB)`: 16-m-Raster (zn = 24, ein Viertel der Proben),
+  abgetastet mit `height_at(..., 8.0)` — die groben Punkte sind damit BITGENAU jeder zweite
+  feine. Keine Grasmaske (Ring an der Stelle geleert), Kollision gleich weit (16 m),
+  Tiefenblock auf 48x48 hochgerechnet, KEIN Bewuchs (siehe unten). Grob 14,5 ms, fein 57 ms
+  (mit Bewuchs-Vorlage 47). Auftraege sind Vector3i (x, z, Art | `AUFTRAG_MERKEN`): fehlende
+  Chunks entstehen IMMER zuerst grob (Abdecken vor Verfeinern), im Schnellflug nicht hinten am
+  Rand (`HINTEN_RAND`); Verfeinern (`AUFTRAG_FEIN_AUS_GROB`) mit Nachrang `FEIN_NACHRANG` und
+  im Schnellflug (`FEIN_HINTEN_AB`) nicht hinter dem Flugzeug (`FEIN_HINTEN`). Der feine Chunk
+  waechst aus der groben Flaeche (UV2 aus `_bewuchs_raster`). RANDSTREIFEN (`RAND_TIEF` 20 m)
+  an jeder Chunkkante gegen Spalten fein/grob. `build_now_around` (Start, Werkzeuge) baut fein.
+  INSTANZ-UNIFORMS belegen je Instanz einen Platz im globalen Shader-Puffer (Standard 65 536,
+  ~4000 Instanzen); mit zwei Flora-MultiMeshes je Art und Chunk lief er ueber ("Too many
+  instances using shader instance variables") → project.godot
+  `rendering/limits/global_shader_variables/buffer_size=262144`.
+- BEWUCHS UNABHAENGIG VON DER DETAILSTUFE (Nutzer: „die Baeume verschwinden die ganze Zeit,
+  auch wenn sie unter mir sind, und diese Animation, wenn die Renderobjekte ausgetauscht
+  werden, verwirrt"). Vorher setzte die grobe Stufe eigene 16-m-Zellen: beim Verfeinern
+  schrumpften die alten Baeume weg (`VERGEHEN_S`) und ANDERE wuchsen woanders nach; dazu zeigte
+  die Fernstufe nur 75 % der Pflanzen und blendete beim Naeherkommen ueber (`STUFE_S`). Alles
+  entfernt. Jetzt:
+  * EINE Entscheidungsflaeche: `_bewuchs_raster` rechnet aus dem 16-m-Raster ein 8-m-Raster
+    (Dreiecksregel 00-11) — in beiden Stufen bitgleich. `_bewuchs_rechnen(key, hd, hp_src)`
+    entscheidet ALLES darauf (Hoehe, Steilheit, Gewaesser, Dichte, Art — auch die
+    Hoehenschwellen der Baumart), nur die Standhoehe kommt aus der eigenen Flaeche. Beleg:
+    `tools/_bewuchs_stufen_check.gd` (16 Chunks: 0 Abweichungen in Art/Zahl/Lage/Drehung,
+    Hoehendifferenz Median 6 cm, 99 % 1,05 m, max 4,5 m).
+  * GROBE CHUNKS BEKOMMEN IHREN BEWUCHS ALS EIGENEN AUFTRAG (`AUFTRAG_BEWUCHS`, 10,9 ms,
+    Nachrang `BEWUCHS_NACHRANG`): im Gelaendeauftrag machte die 8-m-Schleife grobe Chunks von
+    14,5 auf 25 ms teuer, bei 450 m/s fehlten bis zu 14 Chunks im 2-km-Umkreis. Die Flaeche
+    (`hd`) legt der Worker in `_grob_hd` ab; `_bewuchs_bestellen` stellt den Auftrag beim
+    Einhaengen hinten an (sonst kaeme er erst beim naechsten Zellwechsel — im Stand nie),
+    `_bewuchs_nachreichen` haengt ihn weich an. Meta `bewuchs_offen`.
+  * VORLAGE: Bewuchs-Auftraege naeher als `FEIN_DIST + VORLAGE_RAND` legen ihr Ergebnis in
+    `_bewuchs_vorlage`; der feine Bau uebernimmt es (`_bewuchs_umsetzen`, nur neue Standhoehe,
+    Abweichung zum frisch gerechneten ≤ 1 mm) statt die Schleife neu zu rechnen.
+  * TAUSCH OHNE ANIMATION (`_chunk_abloesen`): altes Gelaende und Kollision sofort weg, die alten
+    Pflanzen BLEIBEN, die neuen haengen verdeckt ein (Meta `ersatz`, Zaehler `flora_offen`);
+    sobald die letzte steht, werden sie sichtbar und der Vorgaenger im SELBEN Frame
+    ausgeblendet (`_flora_eintrag_haengen`) — sonst stand der Wald einen Frame doppelt. Stand
+    auf dem groben noch kein Bewuchs, wachsen die neuen normal aus dem Boden.
+  * Fernstufe mit ALLEN Pflanzen (`FLORA_GROB_ANTEIL` 1.0), Wechsel voll/grob hart per
+    `visible` im 3D-Abstand mit Totband `FLORA_HYSTERESE` (`_flora_stufe_setzen`) — die
+    Formen sind in der Ferne ununterscheidbar, kein Ueberblenden mehr.
+  * Vulkan-Vorpruefung je Chunk (`_vulkan_im_rechteck`, bitgleich): spart ~1,8 ms je Chunk.
+  BELEG: `tools/_baum_ausfall_check.gd` (fliegt tief, zaehlt je Frame die sichtbaren
+  Pflanzen je Chunk ueber alle Knoten dieses Chunks; jede Abnahme naeher als 1,5 km ist ein
+  Ausfall): alter Stand 247 Ausfaelle in 30 s, jetzt 0 bei 30 Tauschvorgaengen.
+  GEMESSEN (_tempo_nachladen, Fenster): 280 m/s 0 Loecher, 2,3 % Frames ueber 20 ms (vorher
+  3,7 %); 450 m/s max 1 Loch in 2 von 78 Proben, 1,5 % ueber 20 ms (vorher ~25 %). Tiefflug
+  140 m ueber Wald, 280 m/s: 28-31 % ueber 20 ms, alter Stand 30-31 % — dort ist die GPU die
+  Grenze. `_haupt_pruefsumme` bitgleich. Die ~240 verworfenen Chunks im Werkzeug fallen alle
+  in der Startphase an (vor dem Messflug), im Flug keine.
 - OFFEN: Grasmaske nur bei Annaeherung — bewusst NICHT gemacht (feine Chunks sind nach den
   Detailstufen ein kleiner Teil der Arbeit, Ersparnis ~3 % der Worker-Zeit, dafuer eigener
-  Auftragstyp und Raster im Speicher). 450 m/s: ~25 % Frames ueber 20 ms (Hauptfaden-
-  Streaming nur ~0,8 ms; staendiges Hochladen neuer Netze/Puffer), bei 280 m/s 3-4 %.
+  Auftragstyp und Raster im Speicher).
 
 ## Doerfer und Landstrassen (2026-09)
 Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue
