@@ -27,6 +27,10 @@ const SICHT_FADE := 300.0
 
 static var _meshes: Dictionary = {}     # "Haus_Kirche" -> ArrayMesh (Fernstufe)
 static var _meshes_hd: Dictionary = {}  # dieselbe Form mit Nahdetails
+## FARBVARIANTEN (tools/build_haeuser_blend.py, VARIANTEN): "Haus_Bauernhaus" ->
+## ["Haus_Bauernhaus", "Haus_Bauernhaus_2", "Haus_Bauernhaus_3"]. Die Plaene nennen nur den
+## Grundtyp; build() waehlt je Bauplatz eine Variante aus der Lage (fest, jeder Start gleich).
+static var _varianten: Dictionary = {}
 static var _loaded := false
 
 ## FUER DIE KARTE (WorldMap): Grundrisse aller gesetzten Haeuser und Strassenstuecke in
@@ -67,6 +71,31 @@ static func _load_lib() -> void:
 	_loaded = true
 	_sammeln(LIB, _meshes)
 	_sammeln(LIB_HD, _meshes_hd)
+	# Varianten zuordnen: "<Grundtyp>_<Zahl>", dessen Grundtyp selbst existiert. (Namen wie
+	# "Haus_Stadthaus2" tragen die Zahl OHNE Unterstrich und sind eigene Typen.)
+	for nm in _meshes.keys():
+		var s := String(nm)
+		var i := s.rfind("_")
+		if i > 0 and s.substr(i + 1).is_valid_int() and _meshes.has(s.substr(0, i)):
+			var grund := s.substr(0, i)
+			if not _varianten.has(grund):
+				_varianten[grund] = [grund]
+			(_varianten[grund] as Array).append(s)
+	for grund in _varianten:
+		(_varianten[grund] as Array).sort()
+
+
+## Variante eines Typs fuer einen Bauplatz (Weltlage) — Hash der Lage, damit dasselbe Dorf bei
+## jedem Start gleich aussieht und Nachbarhaeuser selten dieselbe Farbe tragen.
+static func variante(typ: String, wx: float, wz: float) -> String:
+	var liste: Array = _varianten.get(typ, [])
+	if liste.size() < 2:
+		return typ
+	# hash() mischt alle Bits. Ein XOR zweier Produkte (erste Fassung) hatte gerade untere Bits,
+	# sobald die Bauplaetze auf einem geraden Raster lagen — bei zwei Varianten kam dann immer
+	# dieselbe heraus (tools/_haus_varianten_check.gd).
+	var h := hash(Vector2i(int(floor(wx * 0.5)), int(floor(wz * 0.5))))
+	return String(liste[h % liste.size()])
 
 
 static func has_lib() -> bool:
@@ -88,12 +117,17 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 	# Renderfaden, siehe TerrainWorld.setup)
 	node.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	parent.add_child(node)
-	# nach Typ buendeln -> je Typ ein MultiMesh
+	# nach Typ buendeln -> je Typ ein MultiMesh. Die Farbvariante wird HIER gewaehlt (aus der
+	# Weltlage des Bauplatzes); jede Variante ist ein eigenes Mesh, also ein eigenes MultiMesh.
 	var nach_typ: Dictionary = {}
 	for e in plan:
 		var t := String(e.get("typ", ""))
 		if not _meshes.has(t):
 			continue
+		if _varianten.has(t):
+			var o0: Vector2 = e.get("pos", Vector2.ZERO)
+			var r0: Vector3 = Basis(Vector3.UP, dreh) * Vector3(o0.x, 0.0, o0.y)
+			t = variante(t, center.x + r0.x, center.z + r0.z)
 		if not nach_typ.has(t):
 			nach_typ[t] = []
 		(nach_typ[t] as Array).append(e)

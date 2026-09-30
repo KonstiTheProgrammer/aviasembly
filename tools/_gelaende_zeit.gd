@@ -5,6 +5,7 @@
 ## sich alt gegen neu vergleichen.
 ##
 ## HOME=<test-home> Godot --path . --script res://tools/_gelaende_zeit.gd
+## GZ_NUR=Wald,Hang: nur diese Stellungen. GZ_ARTEN=1: zusaetzlich Flora-Kosten je Baumart.
 extends SceneTree
 const BREITE := 3840
 const HOCH := 2160
@@ -104,6 +105,17 @@ func _lauf() -> void:
 		_gras(false)
 		var o_gras := await _median()
 		_gras(true)
+		# GZ_ARTEN=1: Flora-Kosten JE ART (alle MultiMeshes dieser Art aus, Unterschied messen)
+		if OS.get_environment("GZ_ARTEN") != "":
+			var tw = main.terrain
+			var arten: Dictionary = {"Fels": [tw._mesh_rock, tw._grob_cache.get(tw._mesh_rock)]}
+			for art in tw._flora:
+				arten[art] = [tw._flora[art], tw._grob_cache.get(tw._flora[art])]
+			for art in arten:
+				_art(arten[art], false)
+				var o_art := await _median()
+				_art(arten[art], true)
+				print("    ART %-12s %5.2f ms" % [art, alles.x - o_art.x])
 		gpu = gpu or alles.y > 0.0
 		summe += Vector3(alles.x, alles.x - o_det.x, alles.x - o_flora.x)
 		gras_summe += alles.x - o_gras.x
@@ -131,9 +143,33 @@ func _gras(an: bool) -> void:
 		(n as Node3D).visible = an
 
 
+## Sichtbarkeit vor dem Ausblenden merken und EXAKT wiederherstellen. Frueher stellte
+## _flora(true) jede MultiMesh auf sichtbar — auch die Fernfassungen, die TerrainWorld je
+## nach Abstand gerade ausgeblendet hatte (voll und grob liegen als zwei Knoten je Art und
+## Chunk vor). Danach zeichnete die Szene jeden Baum doppelt, und jede folgende Messung
+## (Gras) lag zu hoch — daher die negativen Gras-Werte.
+var _gemerkt: Dictionary = {}
+
+
+func _art(meshes: Array, an: bool) -> void:
+	for n in main.terrain.find_children("*", "MultiMeshInstance3D", true, false):
+		var mm := (n as MultiMeshInstance3D).multimesh
+		if mm != null and mm.mesh in meshes:
+			_setze(n as Node3D, an)
+
+
 func _flora(an: bool) -> void:
 	for n in main.terrain.find_children("*", "MultiMeshInstance3D", true, false):
-		(n as Node3D).visible = an
+		_setze(n as Node3D, an)
+
+
+func _setze(n: Node3D, an: bool) -> void:
+	if not an:
+		_gemerkt[n] = n.visible
+		n.visible = false
+	elif _gemerkt.has(n):
+		n.visible = _gemerkt[n]
+		_gemerkt.erase(n)
 
 
 ## Median der Bildzeit; x = verwendeter Wert, y = GPU-Zeit (0 wenn nicht verfuegbar).

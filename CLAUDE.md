@@ -359,9 +359,26 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
 - UMGEBUNG (Main._setup_world): Dunst NEBEL_FREI 0.000155, NEBEL_FARBE_FREI himmelblau
   (0.70/0.81/0.95), aerial 0.74, Sonnenstreuung 0.35, Ambient 0.62, Sonne warm 1.7
   (1.0/0.91/0.74), Gegenlicht 0.46, Saettigung 1.06 (vorher 1.18: Bonbonfarben).
-- BAEUME: Modelle (`tools/build_baeume.py`): Fichte 5 Kraenze x 10 verwuerfelte Zweige
-  (`organisch=True`), Laubkronen (`knolle`) als RUNDE Ellipsoide mit Polen (mind. 10/12
-  Seiten, 4 Breitenkreise, Stauchung >= 0.62, `flach=True` nur Akazie) — vorher Pilzhuete.
+- BAEUME: Modelle (`tools/build_baeume.py`, zweite Fassung 2026-10; Datei zum Ansehen
+  `blender_lib/baeume.blend`). BEFUND der ersten Fassung: in JEDER Laubkrone zeigten 144
+  Flaechen nach innen (die ganze untere Kronenhaelfte, gemessen per Volumenvorzeichen) —
+  Kronen waren von der Seite/unten HOHL; Palm-/Farnwedel einseitig; Birkenringe standen als
+  Kragen ab; Schnee der Schneetanne schwebte als Baender neben den Kraenzen. Ursache: offene
+  Ringstreifen + `recalc_face_normals` (raet auf offenen Streifen falsch). JETZT: jedes Teil
+  ein GESCHLOSSENER Koerper im eigenen bmesh (`ballen` = Ikosaederkugel 80 bzw. UV 8x4 = 48
+  fuer Nebenballen, `kranz` = Kegel mit Zackenrand UND Unterseite, `rohr` = Zylinderzug per
+  Paralleltransport), Wicklung per Volumenvorzeichen gesichert, DANACH verdeckte Deckel
+  entfernt (`offen="uo"`: Fuss im Boden, Enden in der Krone). Wedel ZWEISEITIG (eigene
+  Eckpunkte, bmesh verbietet zwei Flaechen ueber dieselben). Staemme bis 0.8 m UNTER den
+  Boden (am Hang schwebte die Talseite). Schnee = Farbe in den Kerben jedes Kranzes. Kronen
+  als Wolken aus 3-5 Ballen, Stamm weich schattiert (`set_sharp_from_angle` 95 Grad),
+  Farbstreuung je ECKPUNKT (je Flaeche zerfiel der Stamm im Export in Einzelecken).
+  Neuer FELSBROCKEN "Fels" im selben glb (ersetzt `_build_rock_mesh`, der bleibt Ersatz).
+  LAUB-ERKENNUNG (`_ist_laub`): Farbregel Gruen > Rot (Holz/Rinde haben Rot >= Gruen) — eine
+  Marke im Alpha kam nicht an (glTF-Export ohne Alpha). Zahlen (`tools/_flora_zahlen.gd`,
+  nach der Aufbereitung): 3921 Dreiecke / 2208 Eckpunkte fuer 13 Arten (vorher 3743 / 3260).
+  GPU (`_gelaende_zeit`, 4K): Flora 2,27 -> 2,51 ms im Mittel, Wald 22 m 4,26 -> 4,53.
+  Sichtprobe: `tools/_flora_tafel.gd -- <ordner>` (Spielweg, drei Blickwinkel + Fernstufe).
   Beim Laden `_weiche_krone`: Normale je LAUBBALLEN (Union-Find ueber Eckpunktlagen),
   Farbe je Lage gemittelt (Flicken der Flaechenstreuung weg), Verlauf oben warm/hell
   (KRONE_OBEN_TON) → unten kuehl/tief (KRONE_UNTEN_TON), innen dunkler; dann
@@ -745,7 +762,7 @@ Biom ueber ±34 km bitgleich; Stand seit dem Hauptinsel-Neubau oben); VORHER/NAC
 - Plaetze EISHAFEN/PALMENBUCHT/TAFELBERG (`"region": true`) und Orte `REGION_ORTE`: Hoehe
   erst nach setup() aus dem Ring-Median (`_region_hoehen`); die Schluessel stehen vorher
   (Chunk-Worker liest schon). Trittstein-Inseln in den Meeresstrassen.
-- 13 Baumarten (`tools/build_baeume.py`, Blender 5.2 `--background`), neu: Schneetanne,
+- 13 Baumarten + Fels (`tools/build_baeume.py`, Blender 5.2 `--background`), neu: Schneetanne,
   Urwaldbaum, Baumfarn, Akazie, Mangrove, Kaktus. Fern-Stellvertreter: breite Kronen
   (b > 0,55 h) als abgeflachte Raute statt Kegel; Schnee zaehlt in der Kronenfarbe nur 0,4.
 - FERNSCHUERZE STREAMT (Main._fern_pruefen, 1×/s, auch im Hangar): grob bis FERN_GROB_R,
@@ -1254,6 +1271,17 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Leiste mit beiden Panels. FALLE dabei: die Leiste über die Baumform zu suchen brach beim
   nächsten Umbau still ab und die Probe mass etwas anderes — sie heisst jetzt `Werkzeugleiste`
   und wird über den Namen gefunden.
+- **Blender -> glTF -> Godot (Weltmodelle), drei Fallen:** (1) `create_icosphere(subdivisions=1)`
+  ist das NACKTE Ikosaeder (20 Flaechen), die 80er-Kugel ist `subdivisions=2`. (2) Der glTF-
+  Export schreibt die Vertexfarbe OHNE Alpha — Informationen dort kommen nie an. (3)
+  `recalc_face_normals` raet auf OFFENEN Streifen falsch herum; nur geschlossene Koerper
+  ausrichten (und per Volumenvorzeichen pruefen), Deckel erst danach entfernen.
+- **Messwerkzeuge muessen den Zustand WIEDERHERSTELLEN, nicht "einschalten".** `_gelaende_zeit`
+  setzte nach der Messung ohne Flora JEDE MultiMesh auf sichtbar — auch die Fernfassungen, die
+  TerrainWorld gerade ausgeblendet hatte. Ab da zeichnete die Szene jeden Baum doppelt, die
+  Fehler summierten sich von Stellung zu Stellung (Hang: "Flora 10 ms" statt 1,6; Gras
+  negativ). Jetzt merkt `_setze` den alten Zustand. Alte Flora-Zahlen vor 2026-10 sind davon
+  betroffen (Mittelwerte ueber mehrere Stellungen zu hoch).
 - **`node.visible` ist nur der EIGENE Schalter.** Wer „ist das zu sehen?" meint, muss auch die
   Eltern prüfen (oder den Zustand dort abfragen, wo er gesetzt wird). Beispiel: die Grafik-
   einstellung „Wolkenlagen" blendet das ganze CloudField aus, `CloudField.dichte_bei` prüfte
@@ -1354,9 +1382,39 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Alle Haeuser schauen nach -Y. FALLEN: (1) ein um 180 Grad gedrehtes Rechteck ist mit sich
   selbst deckungsgleich — 4 Windmuehlen-Fluegel als 4 Panels gaben 2 Duplikate mit
   Z-Fighting, richtig sind ZWEI gekreuzte Bahnen; (2) Blender-BaseColor ist LINEAR ->
-  `srgb2lin` wie beim Cockpit. `HAEUSER_PREVIEW=<ordner>` rendert Uebersicht, Reihen und
-  Detail-Nahaufnahmen (Workbench).
-- **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser gehen als EIN glb
+  `srgb2lin` wie beim Cockpit. `HAEUSER_PREVIEW=<ordner>` rendert Gruppenbilder (Dorf,
+  Stadt, Grossbauten, LOD, Varianten) und Nahaufnahmen (Workbench).
+  **UMBAU 2026-10 (Daecher, Dorfhaeuser, Varianten):**
+  * DACH-FEHLER: `dach(axis="x")` vertauschte Laenge und Spannweite — das Dach eines 11 x 8
+    Hauses war 8.8 lang und 11.8 breit, lag also QUER (vorn weit ueberhaengend, seitlich
+    standen die Wandecken frei). Betraf 13 Daecher = fast jedes Dorfhaus. Dazu war der Giebel
+    ein Dreieck in DACHFARBE aussen am Ueberstand, die Dachflaeche hauchduenn, und alle
+    Kamine/Masten waren auf das falsche Dach gesetzt (schwebten bis 0.9 m darueber).
+  * NEUES `dach()`: w/d = Masse des Baukoerpers in X/Y, axis = Firstrichtung. Die Platte ist
+    ein GESCHLOSSENER Koerper (`add_koerper`: Wicklung per recalc + Vorzeichen des Volumens,
+    nicht von Hand), laeuft durch die Wandkrone und endet UNTER ihr an der Traufe; sichtbare
+    Staerke (0.24/0.30 HD), Walmdach mit zur Neigung passendem Ueberstand. GIEBEL in
+    Wandfarbe BUENDIG in der Wandebene (Farbe = `wand_key`, den `box()` bei Baukoerpern
+    >= 12 m2 merkt; `giebel=` ueberschreibt, auch als (links, rechts)). Die Platte liegt um die
+    halbe Staerke hoeher als die Wandkrone — lief sie genau durch die Wandkante, flimmerte
+    dort eine gepunktete Linie. Rueckgabe = Dachmasse fuer `gaube(info, u, seite)` (Giebel-
+    gaube mit eigenem Dach und Fenster) und `kamin(info, u, lx)` (steht auf der Dachflaeche).
+  * Weitere Bausteine: `tuer(vordach=)`, `fenster(laeden=, kasten=)` (Fensterlaeden in beiden
+    Stufen, Blumenkasten HD), `sockel()` (HD), `feld(zweiseitig=True)` fuer frei stehende
+    Flaechen (Muehlenfluegel, Fahnen, Schilder, Gelaender — einseitig verschwanden sie von
+    hinten), `pultdach()` schliesst die Wand unter der Schraege (vorher klaffte ein Keil).
+  * Dorf-/Stadthaeuser neu modelliert: Bauernhaus (Gauben, Laeden), Fachwerk (Giebel zur
+    Strasse, vorkragendes OG, Fachwerk in BEIDEN Stufen), Kate (Reet-Walmdach 0.55 dick),
+    Scheune (Torrahmen, Heuluken, Dachreiter, Bretterfugen HD), Stadthaus2 (Giebelhaus),
+    Stadthaus3 (TREPPENGIEBEL), Reihenhaus (je Einheit Farbe/Tuer/Gaube/Kamin), Eckhaus,
+    Gasthaus (Laube, Schild), Villa (Walmdach mit Gauben).
+  * FARBVARIANTEN (`VARIANTEN`): Farbtausch je Materialschluessel (`Bau.tausch`), Export als
+    `<Typ>_2`, `<Typ>_3` (58 Meshes statt 42). CityBuilder ordnet sie beim Laden zu
+    (`_varianten`) und waehlt je Bauplatz per Hash der Weltlage (`variante()`); die Plaene
+    nennen weiter nur den Grundtyp. Beleg: `tools/_haus_varianten_check.gd`.
+  * `pruefen()` am Ende des Baus: jede geschlossene Insel mit positivem Volumen.
+  * Zahlen jetzt: LOD 135 Tris im Schnitt, HD 644 (Plattenbau 2120 max).
+- **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser (+16 Farbvarianten) gehen als EIN glb
   (`models/world_buildings.glb`, aus `build_haeuser_blend.py` mitexportiert) ins Spiel;
   `CityBuilder` zieht daraus die Meshes und setzt sie **je Typ und Viertel als ein
   MultiMeshInstance3D** (ein Draw-Call pro Typ, wie die Baeume) — und zwar ZWEIMAL: die

@@ -3506,6 +3506,12 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mesh_rock = _build_rock_mesh()
 	_mesh_palm = _build_palm_mesh()
 	_flora = _load_flora()
+	# DER FELSBROCKEN KOMMT MIT DEN BAEUMEN aus world_trees.glb (verbeulte Kugel, 80
+	# Dreiecke, Moos oben) — der prozedurale Doppelkegel oben bleibt nur Ersatz, falls er
+	# dort fehlt. Er ist keine Baumart und gehoert nicht in _flora.
+	if _flora.has("Fels"):
+		_mesh_rock = _flora["Fels"]
+		_flora.erase("Fels")
 	# FERNFASSUNGEN SOFORT BAUEN, nicht beim ersten Gebrauch im Flug: je Art kostet das
 	# (Stellvertreter/LOD + weiche Krone) bis zu ~8 ms, und die fielen sonst als 13 einzelne
 	# Ruckler in die ersten Flugminuten (tools/_ruck_check.gd, "p_flora_stufe"/"flora_nachzug").
@@ -10425,6 +10431,9 @@ func _load_flora() -> Dictionary:
 			if mi.mesh != null:
 				d[mi.name] = mi.mesh
 		sc.free()
+	# Fels: ohne weiche Krone (hart), mit Modell-Farben wie die Baeume.
+	if d.has("Fels") and not d["Fels"] is ArrayMesh:
+		d.erase("Fels")
 	for art in ARTEN:
 		if not d.has(art):
 			if art in ["Palme", "Baumfarn"]:
@@ -10453,12 +10462,14 @@ const KRONE_UNTEN_TON := Vector3(0.66, 0.80, 0.86)   # Kronenunterseite: kuehl, 
 const KRONE_OBEN_TON := Vector3(1.14, 1.10, 0.84)    # Kronenoberseite: warm, sonnig
 
 
-## Gehoert der Eckpunkt zum Laub? Gruen, oder hell/weiss oben in der Krone (Schnee auf der
-## Schneetanne). Birkenrinde ist ebenfalls hell, sitzt aber unten am Stamm.
-static func _ist_laub(c: Color, rel_h: float) -> bool:
-	if c.g > c.r * 1.04 and c.g >= c.b:
-		return true
-	return rel_h > 0.40 and minf(c.r, minf(c.g, c.b)) > 0.70
+## Gehoert der Eckpunkt zum Laub? FARBREGEL: Holz (Rinde, Aeste, Birke, Totholz) hat
+## Rot >= Gruen, Laub, Nadeln und Schnee haben Gruen > Rot — tools/build_baeume.py haelt
+## sich daran (auch in den Mischungen Nadel->Schnee). Die alte Regel ("gruen, oder hell in
+## der oberen Kronenhaelfte") hielt die weisse Birkenrinde ueber 40 % Hoehe fuer Laub und den
+## Schnee auf den unteren Kraenzen der Schneetanne fuer Holz. Eine Marke im Alpha ging nicht:
+## Blenders glTF-Export schreibt die Vertexfarbe ohne Alpha.
+static func _ist_laub(c: Color, _rel_h: float) -> bool:
+	return c.g > c.r
 
 
 static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
