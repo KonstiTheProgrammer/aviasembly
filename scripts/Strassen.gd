@@ -74,6 +74,7 @@ static func karten_orte() -> Array:
 static func bauen(parent: Node3D, terrain: TerrainWorld, zonen: Array) -> void:
 	var knoten := Node3D.new()
 	knoten.name = "Landstrassen"
+	knoten.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # statisch
 	parent.add_child(knoten)
 	var mat_haupt := _material(false)
 	var mat_neben := _material(true)
@@ -111,9 +112,10 @@ static func _band(parent: Node3D, pr: Array, mat: Material) -> void:
 	var i0 := 0
 	while i0 < n - 1:
 		var i1 := mini(i0 + STUECK, n - 1)
-		# DAS STUECK LIEGT UM SEINE EIGENE MITTE: Godot misst die Sichtweite (visibility_range)
-		# ab dem Ursprung des Knotens. Mit Weltkoordinaten am Ursprung verschwanden alle
-		# Baender weiter als 3,5 km vom Weltmittelpunkt — also fast das ganze Netz.
+		# Das Stueck liegt um seine eigene Mitte (lokale Koordinaten, kleine Zahlen). Die
+		# Sichtweite richtet sich nach der Huelle der Geometrie, nicht nach dem Knoten
+		# (nachgemessen) — das war also NICHT der Grund fuer die anfangs fehlenden Baender
+		# (der war das leere Strassenraster, siehe TerrainWorld._strassen_gitter_bauen).
 		var mitte := (pts[i0] + pts[i1]) * 0.5
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)

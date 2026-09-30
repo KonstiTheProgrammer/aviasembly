@@ -149,6 +149,14 @@ const FERN_GROB_WEG := 23000.0
 const FERN_FEIN_R := 11500.0
 const FERN_FEIN_WEG := 15000.0
 const FERN_PAKET := 90             # Kacheln je Auftrag (naechste zuerst)
+# IM SCHNELLFLUG KLEINE PAKETE, VORAUS ZUERST, NUR EIN TEIL DER KERNE. Gemessen mit
+# tools/_tempo_nachladen.gd (450 m/s): ein 90er-Paket fuer die Startstelle lief 25 s und
+# laenger — so lange bestellte die Schuerze nichts Neues, und vor dem Flugzeug fehlte sie.
+# Dazu belegte jedes Paket ALLE Pool-Faeden und liess die Chunk-Worker verhungern.
+const FERN_PAKET_SCHNELL := 16     # ab FERN_SCHNELL_AB m/s
+const FERN_SCHNELL_AB := 120.0
+const FERN_POOL_FAEDEN := 3        # im Flug; im Hangar/beim Start alle
+const FERN_VORAUS := 0.6           # Vorrang voraus wie bei den Chunks (TerrainWorld._vorrang)
 # Kantenlaenge einer Schuerzen-Kachel (24 Zellen). Groesser = weniger Draw-Calls, aber
 # groebere Sichtbarkeits-Auslese; 1536 m = vier Chunkbreiten hat sich als Mitte ergeben.
 # GROESSER GEWORDEN (1536), UND ZWAR ABSICHTLICH IM GLEICHEN SCHRITT WIE DIE WELT.
@@ -423,6 +431,7 @@ var _fern_stufe_knoten: Node3D          # die grobe Stufe (alle Landkacheln)
 var _fern_fein_knoten: Node3D           # die feinen Kacheln um den Spieler
 var _fern_mutex: Mutex
 var _fern_job: Array[Vector2i] = []     # die Kacheln des laufenden Laufs
+var _fern_pool := -1                    # Pool-Faeden des laufenden Laufs (-1 = alle)
 var _fern_ergebnis: Array = []          # [key, mesh, dreiecke] des laufenden Laufs
 var _fern_grob_mi: Dictionary = {}      # Vector2i -> MeshInstance3D (grob, nur Land)
 var _fern_grob_da: Dictionary = {}      # Vector2i -> true: grob gebaut (auch reines Meer)
@@ -2301,7 +2310,10 @@ func _setup_world() -> void:
 		# und die Hauptinsel waere in der Uebersicht gröber als vor der Vergroesserung.
 		# Bezahlbar, weil drei Viertel Meer sind (gemessen ~40 s im Hintergrund).
 		var hf: Array = []
-		var fein := WorldMap.generate_image(terrain, 2048, WorldMap.WORLD_R, false, 4, _map_stopp,
+		# NUR 2 POOL-FAEDEN: die feine Uebersicht ist eine stille Verbesserung der 512er-Karte
+		# und rechnet oft noch, wenn der erste Flug laeuft — dann gehoeren die Kerne den
+		# Chunks, der Schuerze und den Minimap-Kacheln (gemessen tools/_tempo_nachladen.gd).
+		var fein := WorldMap.generate_image(terrain, 2048, WorldMap.WORLD_R, false, 2, _map_stopp,
 			Vector2.ZERO, 0, hf)
 		if fein != null:
 			call_deferred("_wasser_grund_setzen", _wasser_grund_bild(hf, 2048))
@@ -2851,6 +2863,7 @@ func _wolken_aufenthalt(delta: float) -> void:
 func _fernschuerze_starten() -> void:
 	fern_root = Node3D.new()
 	fern_root.name = "Fernschuerze"
+	fern_root.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # statisch
 	fly_world.add_child(fern_root)
 
 	# DERSELBE GELAENDE-SHADER WIE DIE CHUNKS (shaders/gelaende_kern.gdshaderinc, hier mit
@@ -2870,6 +2883,12 @@ func _fernschuerze_starten() -> void:
 	_fern_mat.set_shader_parameter("senke_bias", FERN_BIAS)
 	_fern_mat.set_shader_parameter("bias_aus_a", FERN_BIAS_AUS_A)
 	_fern_mat.set_shader_parameter("bias_aus_b", FERN_BIAS_AUS_B)
+	# Rueckfallebene: abtauchen nur, wo ein Chunk steht (siehe gelaende_kern, chunk_da)
+	var tiefe_tex: Texture2D = terrain.get("_tiefe_tex")
+	if tiefe_tex != null:
+		_fern_mat.set_shader_parameter("tiefe_fein", tiefe_tex)
+		_fern_mat.set_shader_parameter("fein_n", TerrainWorld.TIEFE_N)
+		_fern_mat.set_shader_parameter("fein_da", true)
 
 	_fern_mutex = Mutex.new()
 	# Eigener Thread, damit der Start nicht haengt (wie bei der Karte). Er verteilt die
@@ -2888,8 +2907,9 @@ func _fern_auftrag(zelle: float, keys: Array[Vector2i]) -> void:
 	call_deferred("_fern_thread_ende")
 
 
-## Alle Kacheln, deren Mitte naeher als `r` an `p` liegt, naechste zuerst.
-func _fern_ring(p: Vector2, r: float) -> Array[Vector2i]:
+## Alle Kacheln, deren Mitte naeher als `r` an `p` liegt, naechste zuerst — mit einer
+## Flugrichtung `vor` (normiert) die voraus zuerst.
+func _fern_ring(p: Vector2, r: float, vor := Vector2.ZERO) -> Array[Vector2i]:
 	var half := int(ceil(FERN_WELT / FERN_KACHEL))
 	var x0 := maxi(floori((p.x - r) / FERN_KACHEL), -half)
 	var x1 := mini(floori((p.x + r) / FERN_KACHEL), half - 1)
@@ -2902,9 +2922,16 @@ func _fern_ring(p: Vector2, r: float) -> Array[Vector2i]:
 			if _fern_kachel_mitte(key).distance_to(p) < r:
 				raus.append(key)
 	raus.sort_custom(func(u: Vector2i, v: Vector2i) -> bool:
-		return _fern_kachel_mitte(u).distance_squared_to(p) \
-			< _fern_kachel_mitte(v).distance_squared_to(p))
+		return _fern_vorrang(u, p, vor) < _fern_vorrang(v, p, vor))
 	return raus
+
+
+func _fern_vorrang(key: Vector2i, p: Vector2, vor: Vector2) -> float:
+	var d := _fern_kachel_mitte(key) - p
+	var l := d.length()
+	if l < 1.0 or vor == Vector2.ZERO:
+		return l
+	return l * (1.0 - FERN_VORAUS * d.dot(vor) / l)
 
 
 func _fern_kachel_mitte(key: Vector2i) -> Vector2:
@@ -2921,8 +2948,11 @@ func _fern_lauf(keys: Array[Vector2i], zelle: float) -> Array:
 	_fern_mutex.unlock()
 	if keys.is_empty():
 		return []
-	var gid := WorkerThreadPool.add_group_task(_fern_kachel, keys.size(), -1, false,
-		"Fernschuerze")
+	# VORRANG IM FLUG: sonst stehen die Kacheln im Pool hinter der 2048er-Weltkarte, die
+	# nach dem Start eine Minute lang rechnet — gemessen kam im Schnellflug in 40 s kein
+	# einziges Paket durch.
+	var gid := WorkerThreadPool.add_group_task(_fern_kachel, keys.size(), _fern_pool,
+		_fern_pool > 0, "Fernschuerze")
 	WorkerThreadPool.wait_for_group_task_completion(gid)
 	_fern_mutex.lock()
 	var raus: Array = _fern_ergebnis
@@ -3116,12 +3146,15 @@ func _fern_auftrag_fertig(zelle: float, keys: Array, paare: Array, ms: int) -> v
 ## hoechstens FERN_PAKET, die sofort eingehaengt werden. So steht der Horizont am Start
 ## nach wenigen Sekunden, statt dass der ganze Ring auf einmal kommt. Der grobe Ring hat
 ## Vorrang: ohne ihn gaebe es gar keinen Horizont.
-func _fern_pruefen(pos: Vector3) -> void:
+func _fern_pruefen(pos: Vector3, vel := Vector3.ZERO) -> void:
 	if _fern_thread != null or _fern_mat == null:
 		return
 	var p := Vector2(pos.x, pos.z)
 	if not _fern_offen and p.distance_to(_fern_letzte) < 1000.0:
 		return
+	var v2 := Vector2(vel.x, vel.z)
+	var schnell := v2.length() > FERN_SCHNELL_AB
+	var vor := v2.normalized() if schnell else Vector2.ZERO
 	_fern_letzte = p
 	for key in _fern_grob_da.keys():
 		if _fern_kachel_mitte(key).distance_to(p) > FERN_GROB_WEG:
@@ -3136,21 +3169,23 @@ func _fern_pruefen(pos: Vector3) -> void:
 			if _fern_grob_mi.has(key):
 				(_fern_grob_mi[key] as Node3D).visible = true
 	var neu: Array[Vector2i] = []
-	for key in _fern_ring(p, FERN_GROB_R):
+	for key in _fern_ring(p, FERN_GROB_R, vor):
 		if not _fern_grob_da.has(key):
 			neu.append(key)
 	var zelle := FERN_ZELLE_GROB
 	if neu.is_empty():
 		zelle = FERN_ZELLE_FEIN
-		for key in _fern_ring(p, FERN_FEIN_R):
+		for key in _fern_ring(p, FERN_FEIN_R, vor):
 			# nur Land (die grobe Stufe weiss, wo welches ist) und noch nicht fein
 			if _fern_grob_mi.has(key) and not _fern_fein_mi.has(key):
 				neu.append(key)
 	_fern_offen = not neu.is_empty()
 	if neu.is_empty():
 		return
+	_fern_pool = FERN_POOL_FAEDEN if mode == Mode.FLY else -1
 	_fern_thread = Thread.new()
-	_fern_thread.start(_fern_auftrag.bind(zelle, neu.slice(0, FERN_PAKET)))
+	_fern_thread.start(_fern_auftrag.bind(zelle,
+		neu.slice(0, FERN_PAKET_SCHNELL if schnell else FERN_PAKET)))
 
 
 ## Fuer Werkzeuge: steht die Schuerze um `pos` (beide Ringe vollstaendig, kein Auftrag)?
@@ -7578,9 +7613,11 @@ func _process(delta: float) -> void:
 	if _fern_pruef_t > 1.0:
 		_fern_pruef_t = 0.0
 		var fp := Vector3(0.0, 0.0, -100.0)
+		var fv := Vector3.ZERO
 		if mode == Mode.FLY and flight_ctrl != null and is_instance_valid(flight_ctrl.aircraft):
 			fp = flight_ctrl.aircraft.global_position
-		_fern_pruefen(fp)
+			fv = flight_ctrl.aircraft.linear_velocity
+		_fern_pruefen(fp, fv)
 	# Windraeder drehen (billig; nur sichtbar im Flug)
 	if mode == Mode.FLY:
 		for r in _wind_rotors:

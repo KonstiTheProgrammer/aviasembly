@@ -84,6 +84,9 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 	var node := Node3D.new()
 	node.name = gruppe
 	node.position = Vector3(center.x, 0.0, center.z)   # Instanzen bleiben LOKAL -> enge AABB
+	# Statisch: ohne Physik-Interpolation (sonst wartet jedes MultiMesh-Einhaengen auf den
+	# Renderfaden, siehe TerrainWorld.setup)
+	node.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	parent.add_child(node)
 	# nach Typ buendeln -> je Typ ein MultiMesh
 	var nach_typ: Dictionary = {}

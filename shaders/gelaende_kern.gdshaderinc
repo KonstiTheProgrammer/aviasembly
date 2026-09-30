@@ -26,6 +26,31 @@ uniform float senke_tief;
 uniform float senke_bias;
 uniform float bias_aus_a;
 uniform float bias_aus_b;
+// RUECKFALLEBENE: das feine Hoehenraster der Chunks (TerrainWorld._tiefe_tex, ringfoermig
+// wie im Wasser-Shader) traegt TIEFE_LEER (20000) ueberall, wo KEIN Chunk steht. Nur wo
+// einer steht, taucht die Schuerze ab. Fehlt einer — im Schnellflug kommen die Worker
+// nicht hinterher —, bleibt die Schuerze an Ort und Stelle: grobes Gelaende statt eines
+// 480 m tiefen Lochs.
+uniform sampler2D tiefe_fein : filter_nearest, repeat_disable;
+uniform int fein_n = 1152;
+uniform bool fein_da = false;
+
+// 1 = hier steht ein Chunk. Vier Proben 6 m um den Eckpunkt: ein Eckpunkt AUF einer
+// Chunkgrenze (das 32- und das 64-m-Raster treffen sie genau) gilt nur als abgedeckt,
+// wenn beide Seiten stehen — sonst stuende am Rand eine schraege Wand ins Loch.
+float chunk_da(vec2 xz) {
+	if (!fein_da) {
+		return 1.0;
+	}
+	float n = float(fein_n);
+	float m = 0.0;
+	for (int i = 0; i < 4; i++) {
+		vec2 o = vec2((i & 1) == 0 ? -6.0 : 6.0, (i & 2) == 0 ? -6.0 : 6.0);
+		ivec2 a = ivec2(mod(floor((xz + o) / 8.0), n));
+		m = max(m, texelFetch(tiefe_fein, a, 0).r);
+	}
+	return step(m, 9000.0);
+}
 #else
 // GLUT AUS DEM ALPHAKANAL (Lavarinnen am Vulkan) — siehe TerrainWorld.setup. Die Schuerze
 // hat keinen: dort traegt COLOR.a die Grundabsenkung.
@@ -44,8 +69,9 @@ void vertex() {
 	float d = distance(w_pos.xz, CAMERA_POSITION_WORLD.xz);
 	// COLOR.a traegt, wie viel Grundabsenkung diese Stelle BRAUCHT (siehe Main._fern_kachel):
 	// im Gebirge die volle, an flachen Kuesten fast keine.
-	float s = senke_tief * (1.0 - smoothstep(senke_nah, senke_fern, d))
-		+ senke_bias * COLOR.a * (1.0 - smoothstep(bias_aus_a, bias_aus_b, d));
+	float s = (senke_tief * (1.0 - smoothstep(senke_nah, senke_fern, d))
+		+ senke_bias * COLOR.a * (1.0 - smoothstep(bias_aus_a, bias_aus_b, d)))
+		* chunk_da(w_pos.xz);
 	// COLOR.a == 0 markiert den Grundriss des Kavernenflugplatzes: dort wird die Absenkung
 	// GEDECKELT, damit keine Zelle in der Halle landet (Main._fern_kachel).
 	if (COLOR.a < 0.05 && w_pos.y > 220.0) {

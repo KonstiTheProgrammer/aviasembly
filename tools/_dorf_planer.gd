@@ -88,6 +88,7 @@ func _planen() -> void:
 		eigene[String(d[0])] = true
 	for z in m.get("_dorf_zonen"):
 		t.airfields.erase(z)
+	t.zonen_gitter_bauen()      # das Flachzonen-Raster haengt an der Liste
 	nx = int((X1 - X0) / Z)
 	nz = int((Z1 - Z0) / Z)
 	h.resize(nx * nz)

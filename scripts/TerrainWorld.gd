@@ -166,13 +166,14 @@ const KOLL_SCHRITT := 2
 #      gedeckelt.
 # Ein voller Rundgang dauert damit sechs Frames = 0,1 s = 17 m Flug. Die naechste Grenze
 # liegt 1200 m entfernt; spaeter als noetig kommt hier nichts.
+# NACHTRAG: die Flora-Sparstufe ist inzwischen GANZ aus dem Rundgang heraus (zwei
+# MultiMeshes je Art mit Sichtweiten, siehe _attach_multi) — auch ein einzelner Wechsel je
+# Frame kostete im Fenster 2,6 ms, weil er auf den Renderfaden wartete.
 const PFLEGE_SCHEIBEN := 6
 # Hoechstens so viele Physikkoerper je Frame einfuegen. Einer kostet rund 0,4 ms — der
 # Deckel haelt die Spitze bei 0,8 ms, und 2 je Frame sind 120 je Sekunde gegenueber den
 # rund 9, die beim Ueberqueren einer Chunkzelle wirklich anfallen.
 const PFLEGE_BAU_PRO_FRAME := 2
-# Hoechstens so viele Chunks duerfen je Frame ihre Flora-Sparstufe wechseln (siehe dort).
-const PFLEGE_STUFE_PRO_FRAME := 1
 # Totbaender. Ohne sie kippt ein Chunk, der genau auf der Grenze liegt, bei jedem
 # Rundgang hin und her — und jedes Kippen kostet einen Physik-Einfuegevorgang bzw. einen
 # Netzwechsel an der MultiMesh.
@@ -1680,8 +1681,39 @@ const VULKAN_APRON_STROM := 0.95
 const VULKAN_APRON_FELS_HUB := 58.0
 
 var seed_value := 1337
-var airfields: Array = []       # [{pos: Vector3, r_flat, r_blend, y?(Zielhöhe, default 0)}]
-var lakes: Array = []           # [{pos: Vector3, r: float, surf: float}] Inland-Seen
+# [{pos: Vector3, r_flat, r_blend, y?(Zielhöhe, default 0)}]. Neu zuweisen baut das
+# Flachzonen-Raster mit (siehe zonen_gitter_bauen); wer die Liste an Ort und Stelle aendert,
+# ruft zonen_gitter_bauen() selbst.
+var airfields: Array = []:
+	set(v):
+		airfields = v
+		zonen_gitter_bauen()
+var lakes: Array = []:          # [{pos: Vector3, r: float, surf: float}] Inland-Seen
+	set(v):
+		lakes = v
+		seen_vorfilter_bauen()
+# Vorfilter der Seen (height_at, _submerged): Mitte und quadrierte Reichweite.
+var _see_x := PackedFloat64Array()
+var _see_z := PackedFloat64Array()
+var _see_reich2 := PackedFloat64Array()
+
+
+## Nach jeder Aenderung an `lakes` oder ihren Umrissen (setup ruft es nach dem Bauen der
+## gelappten Umrisse noch einmal).
+func seen_vorfilter_bauen() -> void:
+	_see_x = PackedFloat64Array()
+	_see_z = PackedFloat64Array()
+	_see_reich2 = PackedFloat64Array()
+	for lk in lakes:
+		var lp: Vector3 = lk["pos"]
+		var r := float(lk["r"])
+		if lk.has("_rad"):
+			r = maxf(r, float(lk["_rmax"]) + SEE_WALL_ENDE)
+		# auch _submerged fragt bis _rmax bzw. r
+		r = maxf(r, float(lk.get("_rmax", lk["r"])))
+		_see_x.append(lp.x)
+		_see_z.append(lp.z)
+		_see_reich2.append(r * r + 1.0)
 var _flora_wasser_h := 34.0     # bis zu dieser Hoehe lohnt die Wasserpruefung der Flora
 # Dasselbe fuer die Fluesse, abgeleitet aus ihren Stuetzpunkten (siehe _prepare_rivers).
 var _flora_fluss_h := 0.0
@@ -1695,7 +1727,19 @@ var _ms_reich2 := PackedFloat64Array()
 # TALKORRIDOR des Hochtals: {start, richtung, laenge, halbbreite: PackedFloat32Array}.
 # Nur die ALMWIESE in _face_color liest ihn — das Hoehenfeld nicht. Warum es ihn gibt,
 # steht bei TAL_WIESE_HUB.
-var tal: Dictionary = {}
+var tal: Dictionary = {}:
+	set(v):
+		tal = v
+		_tal_leer = tal.is_empty()
+		if not _tal_leer:
+			_tal_st = tal["start"]
+			_tal_ri = Vector2(tal["richtung"]).normalized()
+			_tal_lg = float(tal["laenge"])
+# Aus `tal` ausgepackt (je Probe gelesen — ein geteiltes Woerterbuch bremst die Worker).
+var _tal_leer := true
+var _tal_st := Vector2.ZERO
+var _tal_ri := Vector2.ZERO
+var _tal_lg := 0.0
 
 ## FELSWAENDE: begrenzte Zonen, in denen eine steile Flanke zusaetzliches Relief bekommt.
 ##
@@ -1825,7 +1869,18 @@ func _lm_vorfilter_bauen() -> void:
 ## KUESTENANKER der Hauptinsel (Main setzt sie vor setup()): [Vector2 pos, art] mit art
 ## "fest" (Kueste bleibt, wo sie ist — Kuestenflugplaetze, Wracks) oder "meer" (Kueste darf
 ## zurueckweichen, aber nicht vorruecken — Schiffe, vorgelagerte Inseln, die Lagune).
-var kuesten_anker: Array = []
+var kuesten_anker: Array = []:
+	set(v):
+		kuesten_anker = v
+		_ka_p = PackedVector2Array()
+		_ka_fest = PackedByteArray()
+		for a in kuesten_anker:
+			_ka_p.append(a[0])
+			_ka_fest.append(1 if String(a[1]) == "fest" else 0)
+# Ausgepackt: _kueste_versatz laeuft im ganzen Kuestenstreifen je Probe ueber alle Anker
+# und erzeugte dabei je Anker einen STRING (String(a[1]) == "fest").
+var _ka_p := PackedVector2Array()
+var _ka_fest := PackedByteArray()
 const ANKER_FEST_INNEN := 2600.0
 const ANKER_FEST_AUSSEN := 6500.0
 const ANKER_MEER_INNEN := 3000.0
@@ -1847,10 +1902,9 @@ func _kueste_versatz(x: float, z: float) -> Vector2:
 		+ 1900.0 * _land.get_noise_2d(x * 1.25 - 900.0, z * 1.25 + 400.0) \
 		+ 520.0 * _land.get_noise_2d(x * 4.0 + 5100.0, z * 4.0 - 200.0) \
 		+ 260.0 * _patch.get_noise_2d(x * 0.08, z * 0.08)
-	for a in kuesten_anker:
-		var ap: Vector2 = a[0]
-		var ad := Vector2(x, z).distance_to(ap)
-		if String(a[1]) == "fest":
+	for i in _ka_p.size():
+		var ad := Vector2(x, z).distance_to(_ka_p[i])
+		if _ka_fest[i] == 1:
 			v *= smoothstep(ANKER_FEST_INNEN, ANKER_FEST_AUSSEN, ad)
 		elif v > 0.0:
 			v *= smoothstep(ANKER_MEER_INNEN, ANKER_MEER_AUSSEN, ad)
@@ -2847,10 +2901,10 @@ func _kf_gebirge(x: float, z: float, h: float) -> float:
 ## Gebirge nichts anheben: der Talboden, der Bergsee, das Felsentor und das Vorfeld von
 ## ADLERHORST sind vermessen (tools/_gebirge_check.gd, _kaverne_*, _tor_check).
 func _tal_schutz(x: float, z: float) -> float:
-	if tal.is_empty():
+	if _tal_leer:
 		return 1.0
-	var st: Vector2 = tal["start"]
-	var ri: Vector2 = Vector2(tal["richtung"]).normalized()
+	var st := _tal_st
+	var ri := _tal_ri
 	var rx := x - st.x
 	var rz := z - st.y
 	var laengs := rx * ri.x + rz * ri.y
@@ -2991,7 +3045,9 @@ const ARTEN := ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch
 # Biom-Konstanten (aus _biome-Rauschen, -1..1)
 enum Biome { WALD, WUESTE, HOCHLAND, HEIDE, TUNDRA, TAIGA, DSCHUNGEL, GRASLAND, SAVANNE, CANYON }
 var _chunks: Dictionary = {}    # Vector2i -> Node3D (eingehängt)
-var _pending: Dictionary = {}   # Vector2i -> true (im Worker unterwegs)
+var _pending: Dictionary = {}   # Vector2i -> true (bestellt, im Bau oder fertig vor dem Einhaengen)
+var _in_arbeit: Dictionary = {} # Vector2i -> true (ein Worker baut gerade; unter _mutex)
+var _flug_dir := Vector2.ZERO   # geglaettete Bewegungsrichtung (Vorrang voraus)
 var _mat: ShaderMaterial
 static var _boden_tex: ImageTexture
 var _water: MeshInstance3D
@@ -3076,8 +3132,100 @@ func _pz(abschnitt: String, t0: int) -> void:
 		profil[abschnitt] = float(profil.get(abschnitt, 0.0)) + float(Time.get_ticks_usec() - t0)
 
 
+# --- FLACHZONEN-RASTER ------------------------------------------------------------------
+# height_at und _open_ground liefen fuer JEDE Probe ueber ALLE Flugplaetze und Flachzonen
+# (46 seit den Doerfern), jede als Woerterbuch: gemessen 6 von 16,4 us je height_at. Und
+# weil jeder Zugriff auf ein geteiltes Woerterbuch atomar zaehlt, bremsten sich mehrere
+# Chunk-Worker gegenseitig aus — sechs Faeden lieferten WENIGER Chunks als zwei. Jetzt
+# listet ein 1-km-Raster je Zelle die Zonen, deren Reichweite hineinragt (CSR in Packed-
+# Arrays); die Woerterbuecher werden nur noch fuer diese paar Zonen gelesen.
+# Die Zonen selbst bleiben Woerterbuecher: Main traegt ihre Hoehen erst nach setup() nach
+# (Regionen, Doerfer) — das Raster haengt nur an Lage und Radius, die sich nicht aendern.
+const ZONEN_ZELLE := 1000.0
+var _zn_x0 := 0.0
+var _zn_z0 := 0.0
+var _zn_nx := 0
+var _zn_nz := 0
+var _zn_start := PackedInt32Array()
+var _zn_idx := PackedInt32Array()
+var _zn_anzahl := 0     # fuer wie viele Zonen das Raster gebaut ist (Schutz vor Umbau)
+
+
+## Baut das Flachzonen-Raster aus `airfields` neu. Nach jeder Aenderung der Zonenliste
+## oder ihrer Lage/Radien aufrufen (setup tut es; Werkzeuge, die Zonen entfernen, auch).
+func zonen_gitter_bauen() -> void:
+	_zn_nx = 0
+	_zn_nz = 0
+	_zn_start = PackedInt32Array()
+	_zn_idx = PackedInt32Array()
+	_zn_anzahl = airfields.size()
+	if airfields.is_empty():
+		return
+	var mitten := PackedVector2Array()
+	var reich := PackedFloat32Array()
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for af in airfields:
+		var p: Vector3 = af["pos"]
+		# Reichweite: height_at fragt bis r_blend (die Ellipse reicht nie weiter), und
+		# _open_ground bis _rmax (Rechtecke) bzw. hoechstens r_blend.
+		var r := maxf(float(af.get("r_blend", 0.0)), float(af.get("_rmax", 0.0))) + 1.0
+		mitten.append(Vector2(p.x, p.z))
+		reich.append(r)
+		lo = lo.min(Vector2(p.x, p.z) - Vector2(r, r))
+		hi = hi.max(Vector2(p.x, p.z) + Vector2(r, r))
+	_zn_x0 = lo.x
+	_zn_z0 = lo.y
+	_zn_nx = int(ceil((hi.x - lo.x) / ZONEN_ZELLE)) + 1
+	_zn_nz = int(ceil((hi.y - lo.y) / ZONEN_ZELLE)) + 1
+	var n := _zn_nx * _zn_nz
+	_zn_start.resize(n + 1)
+	var bereich := PackedInt32Array()
+	bereich.resize(mitten.size() * 4)
+	for i in mitten.size():
+		var m := mitten[i]
+		var r := reich[i]
+		bereich[i * 4] = clampi(int((m.x - r - _zn_x0) / ZONEN_ZELLE), 0, _zn_nx - 1)
+		bereich[i * 4 + 1] = clampi(int((m.x + r - _zn_x0) / ZONEN_ZELLE), 0, _zn_nx - 1)
+		bereich[i * 4 + 2] = clampi(int((m.y - r - _zn_z0) / ZONEN_ZELLE), 0, _zn_nz - 1)
+		bereich[i * 4 + 3] = clampi(int((m.y + r - _zn_z0) / ZONEN_ZELLE), 0, _zn_nz - 1)
+		for cz in range(bereich[i * 4 + 2], bereich[i * 4 + 3] + 1):
+			for cx in range(bereich[i * 4], bereich[i * 4 + 1] + 1):
+				_zn_start[cz * _zn_nx + cx + 1] += 1
+	for k in n:
+		_zn_start[k + 1] += _zn_start[k]
+	_zn_idx.resize(_zn_start[n])
+	var fuell := _zn_start.duplicate()
+	for i in mitten.size():
+		for cz in range(bereich[i * 4 + 2], bereich[i * 4 + 3] + 1):
+			for cx in range(bereich[i * 4], bereich[i * 4 + 1] + 1):
+				var k := cz * _zn_nx + cx
+				_zn_idx[fuell[k]] = i
+				fuell[k] += 1
+
+
+## Zelle des Flachzonen-Rasters, -1 ausserhalb (dort liegt keine Zone).
+func _zn_zelle(x: float, z: float) -> int:
+	if _zn_nx == 0 or x < _zn_x0 or z < _zn_z0 or airfields.size() != _zn_anzahl:
+		return -1
+	var cx := int((x - _zn_x0) / ZONEN_ZELLE)
+	var cz := int((z - _zn_z0) / ZONEN_ZELLE)
+	if cx >= _zn_nx or cz >= _zn_nz:
+		return -1
+	return cz * _zn_nx + cx
+
+
 func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array = [],
 		tlk: Dictionary = {}) -> void:
+	# KEINE PHYSIK-INTERPOLATION FUER DIE WELT (erbt an alle Chunks, Baeume, Gras, Wasser).
+	# Sie ist im Projekt an (fuer Flugzeug und Kamera), und Godot 4.6 setzt dabei beim
+	# Einhaengen einer MultiMeshInstance3D und bei jedem Netzwechsel die Interpolation der
+	# MultiMesh zurueck — ueber eine SYNCHRONE Abfrage beim Renderfaden. Gemessen
+	# (tools/_tempo_nachladen.gd, Fenster): der erste Baum-Einhaengevorgang je Frame wartete
+	# 13 ms auf den Renderfaden, im Schnellflug 9 ms je Frame fuer den Bewuchs und 3,6 ms
+	# fuer die Sparstufenwechsel. Ohne Interpolation: 0,2 ms je MultiMesh. Das Gelaende
+	# bewegt sich nie — es gibt nichts zu interpolieren.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	seed_value = seedv
 	airfields = afs
 	tal = tlk
@@ -3098,6 +3246,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 		for r in af["rects"]:
 			rmax = maxf(rmax, Vector2(absf(r[0]) + r[2], absf(r[1]) + r[3]).length())
 		af["_rmax"] = rmax + FREI_AUSSEN
+	zonen_gitter_bauen()
 	lakes = lks
 	# Seen mit "form_achse" bekommen den gelappten Umriss (siehe _see_umriss_bauen). Die
 	# Tabelle entsteht EINMAL hier — height_at und _build_lake_water lesen danach beide
@@ -3106,6 +3255,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 		if lk.has("form_achse"):
 			_see_umriss_bauen(lk)
 		_flora_wasser_h = maxf(_flora_wasser_h, float(lk["surf"]) + 1.0)
+	seen_vorfilter_bauen()      # erst jetzt kennen die Bergseen ihr _rmax
 	massifs = mss
 	_ms_vorfilter_bauen()
 	_prepare_rivers(rvs)
@@ -3374,6 +3524,10 @@ void light() {
 	for i in WORKER_FAEDEN:
 		var th := Thread.new()
 		th.start(_worker_loop)
+		_faeden.append(th)
+	for i in WORKER_ZUSATZ:
+		var th := Thread.new()
+		th.start(_zusatz_loop)
 		_faeden.append(th)
 
 
@@ -4183,7 +4337,14 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# außen weich zum Gelände überblenden. (Bergdorf nutzt y>0 -> Hochplateau.)
 	# "quer_faktor" macht aus dem Kreis eine ELLIPSE laengs der Bahn — nur ADLERHORST
 	# nutzt das. Begruendung dort (Main._build_world, siehe QUERFAKTOR).
-	for af in airfields:
+	var zk := _zn_zelle(x, z)
+	var zj0 := 0
+	var zj1 := 0
+	if zk >= 0:
+		zj0 = _zn_start[zk]
+		zj1 = _zn_start[zk + 1]
+	for zj in range(zj0, zj1):
+		var af: Dictionary = airfields[_zn_idx[zj]]
 		var ap: Vector3 = af["pos"]
 		var adx := x - ap.x
 		var adz := z - ap.z
@@ -4243,7 +4404,14 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 			+ 11.0 * _patch.get_noise_2d(x * 1.2, z * 1.2))
 	# Inland-Seen: Becken in den (bereits flachen) Grund graben, Boden bleibt über
 	# dem Meeresspiegel (-6), damit das globale Meer nicht durchscheint.
-	for lk in lakes:
+	for li in _see_x.size():
+		# Vorfilter aus Packed-Arrays (Reichweite wie unten: Bergsee bis _rmax+Wand, sonst
+		# bis r, dort ist die Mulde null) — erst dann das geteilte Woerterbuch.
+		var vx := x - _see_x[li]
+		var vz := z - _see_z[li]
+		if vx * vx + vz * vz > _see_reich2[li]:
+			continue
+		var lk: Dictionary = lakes[li]
 		var lp: Vector3 = lk["pos"]
 		var lr: float = lk["r"]
 		var ldx := x - lp.x
@@ -6501,6 +6669,10 @@ func update_center(world_pos: Vector3) -> void:
 	var t_k := Time.get_ticks_usec() if profil_an else 0
 	_chunks_pflegen(world_pos)
 	_pz("pflege", t_k)
+	# FLUGRICHTUNG fuer den Vorrang voraus (geglaettet; Spruenge wie Reset zaehlen nicht)
+	var bew := Vector2(world_pos.x - _last_pos.x, world_pos.z - _last_pos.z)
+	if bew.length() > 0.05 and bew.length() < 400.0:
+		_flug_dir = (_flug_dir * 0.92 + bew.normalized() * 0.08)
 	_last_pos = world_pos
 	# Die Meeresscheibe legt der Vertex-Shader selbst um die Kamera — hier nichts zu tun.
 	_wasser_klima(world_pos)
@@ -6515,35 +6687,59 @@ func update_center(world_pos: Vector3) -> void:
 	var t_p := Time.get_ticks_usec() if profil_an else 0
 	var r := int(ceil(VIEW_DIST / CHUNK))
 	var want := {}
-	var new_jobs: Array = []
 	for cy in range(cc.y - r, cc.y + r + 1):
 		for cx in range(cc.x - r, cc.x + r + 1):
 			var key := Vector2i(cx, cy)
 			if _chunk_center(key).distance_to(Vector2(world_pos.x, world_pos.z)) > VIEW_DIST + CHUNK:
 				continue
 			want[key] = true
-			if not _chunks.has(key) and not _pending.has(key):
-				_pending[key] = true
-				new_jobs.append(key)
 	# entfernte Chunks abbauen
 	for key in _chunks.keys():
 		if not want.has(key):
 			_chunks[key].queue_free()
 			_chunks.erase(key)
 			_tiefe_eintragen(key, _tiefe_leer, _gras_leer)
-	if new_jobs.is_empty():
-		_pz("plan", t_p)
-		return
-	# nahe zuerst bauen
+	# DIE AUFTRAGSLISTE WIRD JEDES MAL NEU AUFGESTELLT, nicht nur ergaenzt. Frueher wurden
+	# neue Auftraege hinten angehaengt und der Rest blieb liegen: im schnellen Flug bauten
+	# die Worker der Reihe nach Chunks, die laengst HINTER dem Flugzeug lagen — gemessen
+	# (tools/_tempo_nachladen.gd, 450 m/s) war die Haelfte aller gebauten Chunks beim
+	# Einhaengen schon wieder ausser Reichweite, und nach 13 s fehlte jeder Chunk im Umkreis
+	# von 2 km. Jetzt: nur was noch gebraucht wird, nicht schon steht, nicht gerade gebaut
+	# wird und nicht fertig auf das Einhaengen wartet — und VORAUS zuerst (_vorrang).
 	var pc := Vector2(world_pos.x, world_pos.z)
-	new_jobs.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return _chunk_center(a).distance_squared_to(pc) < _chunk_center(b).distance_squared_to(pc))
+	var vor := _flug_dir.normalized() if _flug_dir.length() > 0.3 else Vector2.ZERO
 	_mutex.lock()
-	_jobs.append_array(new_jobs)
+	var fertig := {}
+	for e in _done:
+		fertig[e["key"]] = true
+	var alt_n := _jobs.size()
+	_jobs.clear()
+	for key in want:
+		if not _chunks.has(key) and not _in_arbeit.has(key) and not fertig.has(key):
+			_jobs.append(key)
+	_jobs.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return _vorrang(a, pc, vor) < _vorrang(b, pc, vor))
+	_pending = _in_arbeit.duplicate()
+	for key in _jobs:
+		_pending[key] = true
+	for key in fertig:
+		_pending[key] = true
+	var neu := _jobs.size() - alt_n
 	_mutex.unlock()
-	for i in new_jobs.size():
+	for i in maxi(neu, 0):
 		_sem.post()
 	_pz("plan", t_p)
+
+
+## Reihenfolge der Auftraege: Abstand, VORAUS bis auf 40 % verkuerzt, hinten bis 160 %
+## verlaengert. Ein Chunk 3 km voraus kommt damit vor einem 1,5 km seitlich — in der Zeit,
+## die er zum Bauen braucht, ist man dort.
+func _vorrang(key: Vector2i, pc: Vector2, vor: Vector2) -> float:
+	var d := _chunk_center(key) - pc
+	var l := d.length()
+	if l < 1.0:
+		return 0.0
+	return l * (1.0 - VORAUS_GEWICHT * d.dot(vor) / l)
 
 
 func _chunk_center(key: Vector2i) -> Vector2:
@@ -6566,6 +6762,20 @@ func _chunk_center(key: Vector2i) -> Vector2:
 ## Chunks in Baumreichweite (_ruck_check): 1 Faden 1,3–1,7 ms / 91, 2 Faeden 1,7–1,9 ms / 37,
 ## 3 Faeden 1,9–2,3 ms / 30. Vor dem Umbau: 1,1–1,2 ms / 31.
 const WORKER_FAEDEN := 2
+# ZUSATZFAEDEN FUER DEN SCHNELLFLUG. Sie schlafen, solange die Auftragsliste kurz ist, und
+# helfen erst ab ZUSATZ_AB wartenden Chunks mit — im Reiseflug kosten sie also nichts (siehe
+# die Messung oben), im Schnellflug verdoppeln sie fast den Liefertakt. Ein Chunk auf der
+# Hauptinsel kostet 170 ms (gemessen tools/_tempo_nachladen.gd; die frueheren ~22 ms
+# galten vor Gebirge, Kueste und Feldflur), zwei Faeden liefern damit ~12 je Sekunde — bei
+# 450 m/s braucht die Vorderkante des Sichtkreises aber ~26.
+const WORKER_ZUSATZ := 1
+const ZUSATZ_AB := 8
+const VORAUS_GEWICHT := 0.6
+# Messwerte fuer Werkzeuge (tools/_tempo_nachladen.gd): Bauzeit der Worker (unter _mutex
+# addiert) und verworfene Chunks (fertig, aber inzwischen ausser Reichweite).
+var mess_worker_us := 0
+var mess_worker_n := 0
+var mess_verworfen := 0
 
 
 func _worker_loop() -> void:
@@ -6575,21 +6785,48 @@ func _worker_loop() -> void:
 			return
 		_mutex.lock()
 		var key_v: Variant = _jobs.pop_front() if not _jobs.is_empty() else null
+		if key_v != null:
+			_in_arbeit[key_v] = true
 		_mutex.unlock()
 		if key_v == null:
 			continue
-		var key: Vector2i = key_v
-		var data := _make_chunk_data(key)
-		if _exit:
-			return
+		_chunk_bauen(key_v)
+
+
+## Zusatzfaden: schaut alle 40 ms nach und nimmt nur Auftraege, solange mehr als ZUSATZ_AB
+## warten. (Ohne Semaphore — die Grundfaeden wachen dann einmal zu oft auf und finden
+## nichts, das ist billig.)
+func _zusatz_loop() -> void:
+	while not _exit:
 		_mutex.lock()
-		# WICHTIG: flora/rocks MUESSEN mit — sonst kommt die im Worker berechnete
-		# Bepflanzung nie am Main-Thread an und die gestreamte Welt bleibt kahl
-		# (nur build_now_around um den Spawn hatte je Baeume).
-		_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
-			"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"],
-			"gras": data["gras"]})
+		var key_v: Variant = _jobs.pop_front() if _jobs.size() > ZUSATZ_AB else null
+		if key_v != null:
+			_in_arbeit[key_v] = true
 		_mutex.unlock()
+		if key_v == null:
+			OS.delay_msec(40)
+			continue
+		_chunk_bauen(key_v)
+
+
+func _chunk_bauen(key_v: Variant) -> void:
+	var key: Vector2i = key_v
+	var t_w := Time.get_ticks_usec()
+	var data := _make_chunk_data(key)
+	if _exit:
+		return
+	_mutex.lock()
+	_in_arbeit.erase(key)
+	mess_worker_us += Time.get_ticks_usec() - t_w
+	mess_worker_n += 1
+	# WICHTIG: flora/rocks MUESSEN mit — sonst kommt die im Worker berechnete
+	# Bepflanzung nie am Main-Thread an und die gestreamte Welt bleibt kahl
+	# (nur build_now_around um den Spawn hatte je Baeume).
+	_done.append({"key": key, "mesh": data["mesh"], "shape": data["shape"],
+		"flora": data["flora"], "rocks": data["rocks"], "tiefe": data["tiefe"],
+		"gras": data["gras"]})
+	_mutex.unlock()
+
 
 func _process(_delta: float) -> void:
 	_gras_nachfuehren()
@@ -6613,6 +6850,7 @@ func _process(_delta: float) -> void:
 		_pending.erase(key)
 		# inzwischen außer Reichweite? -> verwerfen (wird bei Bedarf neu geplant)
 		if _chunks.has(key) or _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z)) > VIEW_DIST + CHUNK:
+			mess_verworfen += 1
 			continue
 		var t_a := Time.get_ticks_usec() if profil_an else 0
 		_attach_chunk(key, item["mesh"], item["shape"], item.get("flora", {}),
@@ -6649,15 +6887,11 @@ func _kollision_bauen(node: Node3D) -> void:
 	node.set_meta("koll", true)
 
 
-## DER RUNDGANG. Haelt zwei Dinge am Abstand des Chunks zum Spieler fest:
-##   * den Physikkoerper — nur der Nahbereich braucht einen (siehe KOLLISIONS_DIST),
-##   * die Flora-Sparstufe — ab _flora_grob_ab genuegt die grobe Fassung.
-## Beides hing frueher an je einer eigenen Schleife, die JEDEN Frame ueber ALLES lief.
-## Die Begruendung fuer den Umbau und die Messwerte stehen bei PFLEGE_SCHEIBEN.
-##
-## Der Abstand wird EINMAL JE CHUNK bestimmt, nicht je Pflanze: alle MultiMeshes eines
-## Chunks sitzen im selben Knoten und haben damit denselben Abstand. Das allein sind
-## 364 Rechnungen statt bis zu 4000.
+## DER RUNDGANG. Haelt den Physikkoerper am Abstand des Chunks zum Spieler fest — nur der
+## Nahbereich braucht einen (siehe KOLLISIONS_DIST). Die Flora-Sparstufe stellte er frueher
+## auch um; das macht jetzt der Renderer selbst (zwei MultiMeshes je Art mit Sichtweiten,
+## siehe _attach_multi) — das Umstellen liess den Hauptfaden auf den Renderfaden warten.
+## Die Begruendung fuer den Rundgang in Scheiben steht bei PFLEGE_SCHEIBEN.
 func _chunks_pflegen(mitte: Vector3) -> void:
 	var m := Vector2(mitte.x, mitte.z)
 	# Neue Runde? Dann die Schluesselliste einmal festhalten. Waehrend einer Runde darf
@@ -6669,12 +6903,9 @@ func _chunks_pflegen(mitte: Vector3) -> void:
 		return
 	var rest := maxi(1, int(ceil(float(_pflege_keys.size()) / float(PFLEGE_SCHEIBEN))))
 	var gebaut := 0
-	var gekippt := 0
 	# Quadrate vergleichen spart je Chunk eine Wurzel.
 	var koll_ein := KOLLISIONS_DIST * KOLLISIONS_DIST
 	var koll_aus := (KOLLISIONS_DIST + KOLL_HYSTERESE) * (KOLLISIONS_DIST + KOLL_HYSTERESE)
-	var grob_ein := (_flora_grob_ab + FLORA_HYSTERESE) * (_flora_grob_ab + FLORA_HYSTERESE)
-	var grob_aus := _flora_grob_ab * _flora_grob_ab
 	while rest > 0 and _pflege_i < _pflege_keys.size():
 		var key: Vector2i = _pflege_keys[_pflege_i]
 		_pflege_i += 1
@@ -6701,35 +6932,8 @@ func _chunks_pflegen(mitte: Vector3) -> void:
 			if kn != null:
 				kn.queue_free()
 			node.set_meta("koll", false)
-		# --- Flora-Sparstufe ---
-		var liste: Array = node.get_meta("flora_mmis", [])
-		if liste.is_empty():
-			continue
-		var fern: bool = node.get_meta("fern", false)
-		var soll := fern
-		if fern and d2 < grob_aus:
-			soll = false
-		elif not fern and d2 > grob_ein:
-			soll = true
-		if soll == fern:
-			continue
-		# DECKEL. Ein Sparstufenwechsel tauscht das Netz an rund sieben MultiMeshes und
-		# kostet mit echtem Renderer 2,6 ms je Chunk; kippten drei Chunks im selben Frame,
-		# waren es 7,7 ms. Headless kostet dasselbe 2 us — deshalb ist das lange
-		# unentdeckt geblieben.
-		if gekippt >= PFLEGE_STUFE_PRO_FRAME:
-			continue
-		gekippt += 1
-		node.set_meta("fern", soll)
-		var t_fl := Time.get_ticks_usec() if profil_an else 0
-		for e in liste:
-			var rmmi: Variant = e["mmi"]
-			if not is_instance_valid(rmmi):
-				continue
-			var mm: MultiMesh = (rmmi as MultiMeshInstance3D).multimesh
-			mm.mesh = e["grob"] if soll else e["voll"]
-			mm.visible_instance_count = int(int(e["n"]) * FLORA_GROB_ANTEIL) if soll else -1
-		_pz("p_flora_stufe", t_fl)
+		# (Die Flora-Sparstufe wechselt der Renderer selbst: zwei MultiMeshes je Art mit
+		# Sichtweiten-Grenzen, siehe _attach_multi.)
 
 
 func _flora_nachziehen() -> void:
@@ -7050,10 +7254,6 @@ func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	node.set_meta("shape", shape)
 	node.set_meta("key", key)
 	var d := _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z))
-	# Sparstufe schon hier festlegen: ein frisch eingehaengter Chunk liegt fast immer am
-	# Rand der Sichtweite, also jenseits von _flora_grob_ab. Ohne das stuende er bis zum
-	# naechsten Rundgang in voller Aufloesung — und _attach_multi richtet sich danach.
-	node.set_meta("fern", d > _flora_grob_ab)
 	if d <= KOLLISIONS_DIST:
 		var t_kb := Time.get_ticks_usec() if profil_an else 0
 		_kollision_bauen(node)
@@ -7089,7 +7289,6 @@ func setze_baumweite(stufe: int) -> void:
 			_flora_dist = FLORA_DIST
 			_flora_grob_ab = FLORA_GROB_AB
 	_flora_fade_setzen()
-	var m := Vector2(_last_pos.x, _last_pos.z)
 	for key in _chunks:
 		var roh: Variant = _chunks.get(key)
 		if roh == null or not is_instance_valid(roh):
@@ -7098,19 +7297,9 @@ func setze_baumweite(stufe: int) -> void:
 		var liste: Array = node.get_meta("flora_mmis", [])
 		if liste.is_empty():
 			continue
-		# Der Grenzabstand hat sich verschoben — Stufe hier direkt neu setzen, statt auf
-		# den naechsten Rundgang zu warten.
-		var fern := _chunk_center(key).distance_to(m) > _flora_grob_ab
-		node.set_meta("fern", fern)
 		for e in liste:
-			var rmmi: Variant = e["mmi"]
-			if not is_instance_valid(rmmi):
-				continue
-			var mmi: MultiMeshInstance3D = rmmi
-			mmi.visibility_range_end = _flora_dist
-			var mm: MultiMesh = mmi.multimesh
-			mm.mesh = e["grob"] if fern else e["voll"]
-			mm.visible_instance_count = int(int(e["n"]) * FLORA_GROB_ANTEIL) if fern else -1
+			if is_instance_valid(e["voll"]) and is_instance_valid(e["grob"]):
+				_flora_reichweiten(e["voll"], e["grob"])
 
 
 ## Wandelt eine Liste von Transformationen in den Rohpuffer einer MultiMesh um.
@@ -7140,50 +7329,63 @@ static func _xf_puffer(xfs: Array, huelle: Array = []) -> PackedFloat32Array:
 func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array) -> void:
 	if xfs.is_empty() or mesh == null:
 		return
+	# ZWEI MULTIMESHES JE ART, DER RENDERER WAEHLT PER SICHTWEITE: die volle bis
+	# _flora_grob_ab, die grobe (Stellvertreter, nur FLORA_GROB_ANTEIL der Pflanzen) ab dort.
+	# Frueher tauschte _chunks_pflegen das Netz einer einzigen MultiMesh um — und jedes
+	# Tauschen an einer eingehaengten MultiMesh liess den Hauptfaden auf den Renderfaden
+	# warten: gemessen 2,6 ms je Frame im Schnellflug, frisch gelieferte Chunks (fast immer
+	# "fern") sogar 9 ms (tools/_tempo_nachladen.gd, Profil). Jetzt wird nach dem Einhaengen
+	# nichts mehr umgestellt. Preis: der Puffer der groben Stufe (+75 %, einige MB).
+	# Die grobe Fassung wird je Quellmesh EINMAL gebaut und von allen Chunks geteilt.
+	if not _grob_cache.has(mesh):
+		_grob_cache[mesh] = _grobe_fassung(mesh)
+	var huelle := [Vector3.ZERO, Vector3.ZERO]
+	# EIN Aufruf statt einer je Pflanze (set_buffer statt set_instance_transform, siehe
+	# _xf_puffer). Die Transformationen stehen gemischt im Puffer (_make_chunk_data), ein
+	# PRAEFIX ist also eine gleichmaessige Stichprobe — daraus die grobe Stufe.
+	var puf := _xf_puffer(xfs, huelle)
+	# EIGENE HUELLBOX. Ohne sie rechnet Godot die Box beim Einhaengen ueber alle Instanzen
+	# neu — gemessen mit echtem Renderer bis zu 13,7 ms je MultiMesh. Grosszuegig um die
+	# Groesse einer Pflanze aufgeweitet.
+	var lo: Vector3 = huelle[0] - Vector3(6.0, 1.0, 6.0)
+	var hi: Vector3 = huelle[1] + Vector3(6.0, 14.0, 6.0)
+	var box := AABB(lo, hi - lo)
+	var n_grob := maxi(int(xfs.size() * FLORA_GROB_ANTEIL), 1)
+	var voll := _flora_mmi(mesh, xfs.size(), puf, box)
+	var grob := _flora_mmi(_grob_cache[mesh], n_grob, puf.slice(0, n_grob * 12), box)
+	_flora_reichweiten(voll, grob)
+	parent.add_child(voll)
+	parent.add_child(grob)
+	# AM CHUNK-KNOTEN, nicht in einer globalen Liste (mit dem Chunk geht auch seine Liste).
+	var liste: Array = parent.get_meta("flora_mmis", [])
+	liste.append({"voll": voll, "grob": grob})
+	parent.set_meta("flora_mmis", liste)
+
+
+func _flora_mmi(mesh: Mesh, n: int, puf: PackedFloat32Array, box: AABB) -> MultiMeshInstance3D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.mesh = mesh
-	mm.instance_count = xfs.size()
-	# EIN Aufruf statt einer je Pflanze. set_instance_transform() geht jedes Mal ueber die
-	# Skript-Grenze in den RenderingServer; bei rund 590 Pflanzen je Chunk waren das 590
-	# Einzelaufrufe im selben Frame, in dem der Chunk eingehaengt wird — genau der Frame,
-	# in dem ohnehin schon der Physikkoerper eingefuegt wird. set_buffer() uebergibt
-	# stattdessen den fertigen Rohpuffer am Stueck.
-	var huelle := [Vector3.ZERO, Vector3.ZERO]
-	mm.set_buffer(_xf_puffer(xfs, huelle))
-	# EIGENE HUELLBOX SETZEN. Ohne sie rechnet Godot die Box beim Einhaengen und bei
-	# JEDEM Netzwechsel ueber alle Instanzen neu — gemessen mit echtem Renderer kostete
-	# das Einhaengen einer Flora-MultiMesh bis zu 13,7 ms und ein Sparstufenwechsel je
-	# Chunk 3,8 ms. Headless faellt das nicht auf; dort ist es hundertmal billiger.
-	# Die Box hier ist gratis: die Schleife in _xf_puffer laeuft ohnehin ueber alle
-	# Transformationen. Grosszuegig aufgeweitet um die Groesse einer Pflanze.
-	var lo: Vector3 = huelle[0] - Vector3(6.0, 1.0, 6.0)
-	var hi: Vector3 = huelle[1] + Vector3(6.0, 14.0, 6.0)
-	mm.custom_aabb = AABB(lo, hi - lo)
+	mm.instance_count = n
+	mm.set_buffer(puf)
+	mm.custom_aabb = box
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	mmi.material_override = _flora_mat
-	# Harter Schnitt erst dort, wo der Shader die Instanzen laengst auf Groesse 0
-	# gefahren hat (FLORA_FADE_END + halbe Chunk-Diagonale) -> nichts poppt.
-	mmi.visibility_range_end = _flora_dist
 	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
-	parent.add_child(mmi)
-	# Fuer _chunks_pflegen merken. Die grobe Fassung wird je Quellmesh EINMAL gebaut und
-	# dann von allen Chunks geteilt.
-	if not _grob_cache.has(mesh):
-		_grob_cache[mesh] = _grobe_fassung(mesh)
-	# AM CHUNK-KNOTEN, nicht in einer globalen Liste. Damit gilt der Abstand des Chunks
-	# fuer alle seine MultiMeshes gemeinsam (siehe _chunks_pflegen), und abgeraeumte
-	# Eintraege koennen sich gar nicht erst ansammeln: mit dem Chunk geht auch seine
-	# Liste. Die frueher globale Liste musste bei 4000 Eintraegen durchgefiltert werden.
-	var liste: Array = parent.get_meta("flora_mmis", [])
-	liste.append({"mmi": mmi, "voll": mesh, "grob": _grob_cache[mesh], "n": xfs.size()})
-	parent.set_meta("flora_mmis", liste)
-	# Neu eingehaengte MultiMeshes uebernehmen die Stufe, die der Chunk schon hat —
-	# sonst stuende ein ferner Chunk kurz in voller Aufloesung da.
-	if bool(parent.get_meta("fern", false)):
-		mm.mesh = _grob_cache[mesh]
-		mm.visible_instance_count = int(xfs.size() * FLORA_GROB_ANTEIL)
+	return mmi
+
+
+## Sichtweiten der beiden Stufen (auch nach einem Wechsel der Grafikstufe). Harter Schnitt
+## am Ende erst dort, wo der Shader die Instanzen laengst auf Groesse 0 gefahren hat
+## (FLORA_FADE_END + halbe Chunk-Diagonale) — nichts poppt. Die Raender der Stufengrenze
+## wirken als Totband (FLORA_HYSTERESE), damit nichts auf der Grenze flackert.
+func _flora_reichweiten(voll: MultiMeshInstance3D, grob: MultiMeshInstance3D) -> void:
+	voll.visibility_range_end = _flora_grob_ab
+	voll.visibility_range_end_margin = FLORA_HYSTERESE * 0.5
+	grob.visibility_range_begin = _flora_grob_ab
+	grob.visibility_range_begin_margin = FLORA_HYSTERESE * 0.5
+	grob.visibility_range_end = _flora_dist
 
 
 # Mesh + Kollision für einen Chunk bauen (läuft im Worker ODER synchron beim Spawn).
@@ -7629,7 +7831,14 @@ func _open_ground(x: float, z: float) -> float:
 	var k := _halde_frei(x, z)
 	if k <= 0.0:
 		return 0.0
-	for af in airfields:
+	var zk := _zn_zelle(x, z)
+	var zj0 := 0
+	var zj1 := 0
+	if zk >= 0:
+		zj0 = _zn_start[zk]
+		zj1 = _zn_start[zk + 1]
+	for zj in range(zj0, zj1):
+		var af: Dictionary = airfields[_zn_idx[zj]]
 		var ap: Vector3 = af["pos"]
 		var dx := x - ap.x
 		var dz := z - ap.z
@@ -7675,7 +7884,12 @@ func _open_ground(x: float, z: float) -> float:
 ## bei der neuen Dichte sichtbar Wald auf dem Seegrund.
 ## Der Fluss-Teil laeuft nur, wenn ueberhaupt eine Spline-AABB den Chunk schneidet.
 func _submerged(x: float, z: float, h: float, check_rivers: bool) -> bool:
-	for lk in lakes:
+	for li in _see_x.size():
+		var vx := x - _see_x[li]
+		var vz := z - _see_z[li]
+		if vx * vx + vz * vz > _see_reich2[li]:
+			continue
+		var lk: Dictionary = lakes[li]
 		var lp: Vector3 = lk["pos"]
 		# _rmax statt r beim gelappten Bergsee: sein Arm reicht weit ueber r hinaus, und
 		# mit dem alten Kreis waere dort Wald auf dem Seegrund gewachsen.
@@ -7788,7 +8002,7 @@ func _tal_halbbreite(laengs: float) -> float:
 		return 0.0
 	if n == 1:
 		return _tal_hb[0]
-	var t := clampf(laengs / float(tal["laenge"]), 0.0, 1.0) * float(n - 1)
+	var t := clampf(laengs / _tal_lg, 0.0, 1.0) * float(n - 1)
 	var i := mini(int(t), n - 2)
 	return lerpf(_tal_hb[i], _tal_hb[i + 1], t - float(i))
 
@@ -7875,11 +8089,11 @@ func _tal_wiese(cen: Vector3, ny: float) -> float:
 	var mz := cen.z - _tal_mitte.y
 	if mx * mx + mz * mz > _tal_reich2:
 		return 0.0
-	var st: Vector2 = tal["start"]
-	var ri: Vector2 = Vector2(tal["richtung"]).normalized()
+	var st := _tal_st
+	var ri := _tal_ri
 	var ex := cen.x - st.x
 	var ez := cen.z - st.y
-	var lg: float = float(tal["laenge"])
+	var lg := _tal_lg
 	var l := ex * ri.x + ez * ri.y
 	if l < -TAL_WIESE_ENDE or l > lg + TAL_WIESE_ENDE:
 		return 0.0

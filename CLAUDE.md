@@ -494,6 +494,57 @@ gratis). Lage/Masse in `Main._sondergelaende` (feste Seeds), Gelaende in Terrain
   Schuerze jetzt vorher an (`_fern_stopp` + wait_to_finish). Befund dabei: der Bergsee-
   Abfluss meldet "ZU HOCH" (Schwelle +208 m) — so auch im alten Stand, nicht angefasst.
 
+## Nachladen im Schnellflug (2026-09)
+Nutzer: „mit einem schnellen Flugzeug laedt die Map viel zu langsam — du bist zu schnell".
+Gemessen mit `tools/_tempo_nachladen.gd` (IM FENSTER, Echtzeit; fliegt eine Gerade mit festem
+Tempo und misst alle 0,5 s den Vorlauf von Chunks, Loechern im 2-km-Umkreis, Schuerze grob/
+fein, Minimap-Kacheln und die Framezeit; `TEMPO_BILD=<s>` macht ein Bild, `TEMPO_STEHEN=1`
+Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt dafuer NICHT.
+- BEFUND alter Stand: schon bei 280 m/s nach 28 s KEIN Chunk mehr im 2-km-Umkreis (84 Loecher,
+  darunter lag die um 480 m abgesenkte Schuerze = Loch), bei 450 m/s nach 13 s. Ursachen:
+  (1) die Auftragsliste wurde nur hinten ergaenzt — die Worker bauten der Reihe nach Chunks,
+  die laengst HINTER dem Flugzeug lagen (Haelfte verworfen); (2) ein Chunk kostete auf der
+  Hauptinsel 135 ms statt der dokumentierten ~22 ms, und mehrere Faeden bremsten sich an
+  GETEILTEN Woerterbuechern aus (sechs Faeden lieferten weniger als zwei); (3) Schuerze und
+  Kartenkacheln belegten ALLE Pool-Faeden bzw. standen hinter der 2048er-Karte an.
+- AUFTRAGSLISTE (`TerrainWorld.update_center`): bei jedem Zellwechsel NEU aufgestellt —
+  nur Gewolltes, nicht Stehendes, nicht im Bau (`_in_arbeit`), nicht fertig wartend (`_done`),
+  sortiert nach `_vorrang` (Abstand, voraus bis auf 40 % verkuerzt, `VORAUS_GEWICHT`,
+  Flugrichtung `_flug_dir`). Zusatzfaden (`WORKER_ZUSATZ` = 1) nimmt nur ab `ZUSATZ_AB`
+  wartenden Auftraegen mit. Mehr Faeden bringen nichts (gemessen: Durchsatz ~flach, Hauptfaden
+  leidet).
+- CHUNK 135 → 60 ms (`_haupt_pruefsumme` bitgleich): FLACHZONEN-RASTER (`zonen_gitter_bauen`,
+  1-km-CSR; height_at/_open_ground liefen je Probe ueber alle 46 Zonen-Woerterbuecher, 6 von
+  16 us), Kuestenanker gepackt (`_ka_p/_ka_fest` — `_kueste_versatz` erzeugte je Anker und
+  Probe einen STRING), Seen-Vorfilter (`seen_vorfilter_bauen`), Hochtal-Achse ausgepackt
+  (`_tal_st/_ri/_lg`). `airfields`, `lakes`, `tal`, `kuesten_anker` haben SETTER, die das neu
+  bauen; wer an Ort und Stelle aendert, ruft `zonen_gitter_bauen()`/`seen_vorfilter_bauen()`.
+  Messwerte je Chunk jetzt: Hoehe 26, Farben 14, Bewuchs 14, Grasmaske 4 ms.
+- RUECKFALLEBENE: die Schuerze taucht nur ab, wo ein Chunk STEHT (`gelaende_kern`, `chunk_da`
+  liest das Tiefenraster `_tiefe_tex`, TIEFE_LEER = kein Chunk; vier Proben ±6 m, damit ein
+  Eckpunkt auf der Chunkgrenze nur bei beidseitig stehenden Chunks abtaucht). Fehlende Chunks
+  zeigen also grobes Gelaende ohne Baeume statt eines Lochs (Bild bei 450 m/s: lueckenlos).
+- SCHUERZE (Main): ab `FERN_SCHNELL_AB` (120 m/s) Pakete zu `FERN_PAKET_SCHNELL` (16) statt 90
+  (ein 90er-Paket fuer die alte Stelle lief >25 s, solange wurde nichts Neues bestellt),
+  voraus zuerst (`_fern_vorrang`), im Flug nur `FERN_POOL_FAEDEN` (3) mit Pool-VORRANG.
+- KARTE: Minimap-Kacheln werden auch um den Punkt in 20 s bestellt und nach dem Punkt in 8 s
+  sortiert (`WorldMap._process`, `_kacheln_planen(..., vorzug)`), mit Pool-Vorrang und 3
+  Faeden; die feine 2048er-Uebersicht im Hintergrund nur mit 2 Faeden (`n_pool` in
+  generate_image: nur die Startkarte nimmt alle).
+- HAUPTFADEN: Bewuchs-Einhaengen kostete 9,4 ms und der Sparstufenwechsel 3,6 ms JE FRAME —
+  beides Warten auf den Renderfaden (siehe Stolpersteine: Physik-Interpolation + MultiMesh).
+  Jetzt: Welt-Wurzeln ohne Physik-Interpolation, und je Art ZWEI MultiMeshes (voll bis
+  `_flora_grob_ab`, grob = Praefix `FLORA_GROB_ANTEIL` ab dort, `_flora_reichweiten`), der
+  Renderer waehlt per Sichtweite — `_chunks_pflegen` stellt keine Flora mehr um. Streaming auf
+  dem Hauptfaden jetzt ~0,5 ms je Frame (Profil).
+- ERGEBNIS 280 m/s (realistischer Schnellflug): Chunks ≥ 2,5 km voraus, zeitweise seitliche
+  Luecken im 2-km-Umkreis von der Schuerze gedeckt, Minimap ≥ 5 km, feine Schuerze ≥ 4 km,
+  Frame 16,5 ms (alter Stand 15,0 — aber dort kam ab 28 s gar nichts mehr an). 450 m/s: die
+  Chunks fallen seitlich zurueck (CPU-Grenze), die Schuerze deckt alles.
+- OFFEN/Hebel fuer mehr: Chunkbau weiter verbilligen (height_at 10 us je Probe ist der groesste
+  Posten), Kuestenformen-Woerterbuecher (`_kf_*`) und Massiv-Woerterbuecher im Vorfilterbereich
+  sind noch geteilte Variants.
+
 ## Doerfer und Landstrassen (2026-09)
 Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue
 Doerfer, 31 Strassenstuecke (~278 km), 5 Bruecken; Anschluss an alle Orte (ausser NEONBUCHT
@@ -534,9 +585,9 @@ und Bergdorf) und alle Flugplaetze der Hauptinsel (ausser ADLERHORST).
   `(listen[k] as PackedInt32Array).append(si)` haengt an eine KOPIE — das Raster war leer, es
   gab keinen Einschnitt, und die Baumpruefung ueber `strasse_abstand` meldete wegen INF
   "0 Baeume auf der Fahrbahn". Raster jetzt zweistufig (zaehlen, fuellen); `_strassen_check`
-  prueft Rasterfunde, Gelaende ueber dem Band und Baeume per Brute Force. (2) VISIBILITY_RANGE
-  misst ab dem Knoten: Baender mit Weltkoordinaten am Ursprung verschwanden jenseits 3,5 km vom
-  Weltmittelpunkt — jedes Stueck sitzt jetzt auf seiner Mitte. (3) Strassen parallel zum Fluss
+  prueft Rasterfunde, Gelaende ueber dem Band und Baeume per Brute Force. Die fehlenden
+  Baender auf den ersten Bildern kamen NUR daher (Gelaende lag ueber dem Band) — die
+  Vermutung „visibility_range misst ab dem Knoten" war falsch (nachgemessen). (3) Strassen parallel zum Fluss
   querten unter 19 Grad = 237 m Bruecke LAENGS am Ufer. (4) Schmale Meeresarme sieht das
   100-m-Raster nicht: Fahrbahn lag unter dem Meeresspiegel → `strasse_profil` behandelt
   Gelaende < SEA_Y+0,5 wie Wasser. (5) `Strassen.dorf_hoehen` erst NACH den Kuestenformen
@@ -1127,9 +1178,16 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   das Original im Array bleibt leer — ohne Fehlermeldung. Direkt in Packed-Arrays arbeiten
   (CSR: zählen, dann füllen). Und eine Prüfung, die über dieselbe kaputte Struktur fragt,
   meldet „alles gut“: gegen eine unabhängige Brute-Force-Rechnung prüfen (Landstraßen).
-- **`visibility_range` misst ab dem Ursprung des Knotens.** Ein Mesh mit Weltkoordinaten am
-  Ursprung (0,0,0) verschwindet, sobald die KAMERA weiter als die Sichtweite vom
-  Weltmittelpunkt entfernt ist. Knoten auf die Mitte seiner Geometrie setzen.
+- **Physik-Interpolation + MultiMesh = Warten auf den Renderfaden.** Im Projekt ist
+  `physics_interpolation` an. Wird eine MultiMeshInstance3D eingehaengt oder an einer
+  eingehaengten MultiMesh das Netz/`visible_instance_count` geaendert, wartet der Hauptfaden
+  synchron auf den Renderfaden — der ERSTE solche Vorgang je Frame kostete gemessen ~13 ms,
+  jeder weitere ~0,3 ms. Statische Welt-Wurzeln tragen deshalb
+  `physics_interpolation_mode = OFF` (TerrainWorld, Fernschuerze, Landstrassen, CityBuilder-
+  Viertel), und an eingehaengten MultiMeshes wird nichts mehr umgestellt (Details im
+  Abschnitt „Nachladen im Schnellflug"). Headless faellt das nicht auf.
+- **`visibility_range` misst ab der Huelle der Geometrie** (nachgemessen: Knoten am Ursprung,
+  Geometrie 5 km daneben, Kamera davor → sichtbar), nicht ab dem Knotenursprung.
 - **WorkerThreadPool-Gruppen stehen in einer Schlange.** Die Fernschürze legt beim Start 577
   Kacheln hinein; alles, was danach kommt und zeitkritisch ist (Weltkarte, Spawn-Chunks),
   braucht `high_priority=true`, sonst wird es LANGSAMER als der alte Einzelthread.

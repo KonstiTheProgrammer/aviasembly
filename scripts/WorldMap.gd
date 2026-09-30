@@ -163,6 +163,9 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 		detail := 0, hoehen_aus: Array = []) -> Image:
 	var zelle := 2.0 * world_r / float(kante - 1)
 	var sperre := Mutex.new()
+	# Pool-Faeden: die Startkarte (Vorrang, ganze Welt) nimmt alle; Detailkacheln und die
+	# feine Hintergrundkarte nur `faeden` — sie laufen, waehrend Chunks und Schuerze nachladen.
+	var n_pool := -1 if vorrang and detail == 0 else faeden
 	var t0 := Time.get_ticks_usec()
 	var zeiten: Array = []
 	var farb_m: float = FARB_RASTER if detail == 0 else STUFE_FARB[detail]
@@ -208,7 +211,7 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 		sperre.lock()
 		zeilen_h[py] = r
 		zeilen_k[py] = k
-		sperre.unlock(), kante, -1, vorrang, "Weltkarte Hoehen")
+		sperre.unlock(), kante, n_pool, vorrang, "Weltkarte Hoehen")
 	WorkerThreadPool.wait_for_group_task_completion(g1)
 	if stopp[0]:
 		return null
@@ -288,7 +291,7 @@ static func generate_image(t: TerrainWorld, kante := 1024, world_r := WORLD_R,
 		var z := _zeile(hs, hg, ks, fs, py, kante, basis, zelle)
 		sperre.lock()
 		zeilen[py] = z
-		sperre.unlock(), kante, -1, vorrang, "Weltkarte Relief")
+		sperre.unlock(), kante, n_pool, vorrang, "Weltkarte Relief")
 	WorkerThreadPool.wait_for_group_task_completion(g3)
 	if stopp[0]:
 		return null
@@ -316,7 +319,12 @@ static func erzeuge_kachel(t: TerrainWorld, key: Vector3i, stopp: Array) -> Imag
 	var k := KACHEL_PX + 2 * KACHEL_RAND
 	var halb := zelle * float(k - 1) * 0.5
 	var mitte := _kachel_mitte(key)
-	var img := generate_image(t, k, halb, false, 4, stopp, mitte, key.z)
+	# Detailkacheln nur mit 3 Pool-Faeden: sie laufen im Flug dauernd nach und haben alle
+	# Kerne belegt, waehrend die Chunk-Worker um jeden Kern kaempften.
+	# VORRANG vor der feinen Hintergrundkarte: die Kachel unter der Minimap ist sichtbar,
+	# die 2048er-Karte rechnet nach dem Start minutenlang und stand im Pool davor —
+	# gemessen blieb die Minimap im Schnellflug deshalb bis zu 30 s unscharf.
+	var img := generate_image(t, k, halb, true, 3, stopp, mitte, key.z)
 	if img == null:
 		return null
 	var aus := img.get_region(Rect2i(KACHEL_RAND, KACHEL_RAND, KACHEL_PX, KACHEL_PX))
@@ -530,9 +538,26 @@ func _process(dt: float) -> void:
 	if not visible:
 		# Minimap: die Kacheln um das Flugzeug still vorladen (nur Stufe 1), solange sie
 		# ueberhaupt gezeichnet wird.
+		# IN FLUGRICHTUNG VORAUS: bisher nur der Ausschnitt plus 1,5 km, sortiert nach der
+		# (veralteten) Mitte der grossen Karte. Im Schnellflug (450 m/s) war man damit schon
+		# ueber der naechsten Kachel, bevor sie auch nur bestellt war — gemessen mit
+		# tools/_tempo_nachladen.gd lag die Minimap dann bis zu 4 s lang unscharf. Jetzt wird
+		# auch der Ausschnitt um den Punkt bestellt, an dem man in 20 s ist, und die Reihen-
+		# folge richtet sich nach dem Punkt in 8 s.
 		_kachel_wunsch.clear()
 		if Engine.get_process_frames() - _mini_frame < 5:
-			_kacheln_planen(_mini_sicht.grow(1500.0), _mini_mpp, 1)
+			var sicht := _mini_sicht.grow(1500.0)
+			var vorzug := _mini_sicht.get_center()
+			var ac := flieger()
+			if ac is RigidBody3D:
+				var v := (ac as RigidBody3D).linear_velocity
+				var v2 := Vector2(v.x, v.z)
+				var voraus := v2 * 20.0
+				if voraus.length() > 12000.0:
+					voraus = voraus.normalized() * 12000.0
+				sicht = sicht.merge(Rect2(_mini_sicht.position + voraus, _mini_sicht.size))
+				vorzug += (v2 * 8.0).limit_length(5000.0)
+			_kacheln_planen(sicht, _mini_mpp, 1, vorzug)
 		return
 	# WEICHES ZOOMEN: _zoom laeuft dem Ziel nach; der Weltpunkt unter dem Anker (Cursor
 	# beim Mausrad) bleibt dabei stehen — so zoomt man GENAU dorthin, wo man hinzeigt.
@@ -784,7 +809,7 @@ func offen() -> bool:
 ## Kacheln fuer den Ausschnitt `sicht` anfordern. `mpp` = Meter je ECHTEM Bildpunkt
 ## (nicht je virtuellem UI-Punkt): auf einem Retina-Schirm ist derselbe Zoom doppelt so
 ## fein aufgeloest und braucht die schaerfere Stufe frueher.
-func _kacheln_planen(sicht: Rect2, mpp: float, max_stufe: int) -> void:
+func _kacheln_planen(sicht: Rect2, mpp: float, max_stufe: int, vorzug := Vector2.INF) -> void:
 	_kachel_wunsch.clear()
 	if _terrain == null or mpp >= KACHEL_AB:
 		return
@@ -803,8 +828,8 @@ func _kacheln_planen(sicht: Rect2, mpp: float, max_stufe: int) -> void:
 				_kachel_alter[key] = _kachel_zaehler
 			elif key != _kachel_laeuft:
 				_kachel_wunsch.append(key)
-	# Naechste zur Bildmitte zuerst
-	var m := _mitte
+	# Naechste zur Bildmitte zuerst (Minimap: zum Punkt voraus)
+	var m := _mitte if vorzug == Vector2.INF else vorzug
 	_kachel_wunsch.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 		return _kachel_mitte(a).distance_squared_to(m) < _kachel_mitte(b).distance_squared_to(m))
 	if not _kachel_wunsch.is_empty() and (_kachel_thread == null or not _kachel_thread.is_alive()):
