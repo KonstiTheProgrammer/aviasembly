@@ -28,6 +28,11 @@ const C_MUTED := Color(0.62, 0.68, 0.78)
 const C_PLAYER := Color(1.0, 0.36, 0.22)
 const C_FLUSS := Color(0.22, 0.50, 0.68)
 const C_STRASSE := Color(0.20, 0.19, 0.19)
+# Landstrassen: hell mit dunklem Saum, damit sie ueber Wald und Feld gleichermassen lesbar
+# sind (wie auf einer Wanderkarte). Nebenstrassen schmaler und ohne Saum.
+const C_LANDSTRASSE := Color(0.97, 0.91, 0.70)
+const C_LANDSTRASSE_SAUM := Color(0.30, 0.25, 0.20)
+const C_NEBENSTRASSE := Color(0.93, 0.88, 0.76)
 const C_HAUS := Color(0.78, 0.72, 0.64)
 const C_HAUS_RAND := Color(0.30, 0.26, 0.24)
 const C_BAHN := Color(0.20, 0.21, 0.23)
@@ -47,6 +52,7 @@ var _pois: Array = []
 var _player: Node3D = null
 var _flug: Node = null         # FlightController: liefert das aktuelle Flugzeug (.aircraft)
 var _fluesse: Array = []       # [PackedVector2Array (Welt x/z), Breite m, Rect2 Huelle]
+var _landstrassen: Array = []  # [PackedVector2Array (Welt x/z), neben?, Rect2 Huelle]
 var _spur := PackedVector2Array()
 var _orte: Array = []          # [Vector2 Mitte, Radius m] der Siedlungs-POIs
 var _gr_strassen: Array = []   # [Rect2 Huelle, Array Strassen] je Viertel (siehe _gruppen_pruefen)
@@ -475,6 +481,13 @@ func setup(map_img: Image, airfields: Array, pois: Array, player: Node3D,
 				p2.append(Vector2(q.x, q.z))
 				huelle = huelle.expand(Vector2(q.x, q.z))
 			_fluesse.append([p2, float(rv.get("w", 20.0)), huelle.grow(200.0)])
+		_landstrassen.clear()
+		for st in terrain.strassen:
+			var sp: PackedVector2Array = st["pts"]
+			var sh := Rect2(sp[0], Vector2.ZERO)
+			for q in sp:
+				sh = sh.expand(q)
+			_landstrassen.append([sp, bool(st.get("neben", false)), sh.grow(100.0)])
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
@@ -1015,6 +1028,22 @@ func zeichne_ebenen(ci: CanvasItem, rect: Rect2, win_min: Vector2, win_size: Vec
 			ci.draw_polyline(lauf, C_FLUSS.darkened(0.25), b + 1.2 * ui, true)
 		for lauf in laeufe:
 			ci.draw_polyline(lauf, C_FLUSS.lightened(0.12), b, true)
+
+	# --- Landstrassen (in jeder Zoomstufe, auch in der Minimap) ----------------------------
+	for ls in _landstrassen:
+		if not sicht.intersects(ls[2]):
+			continue
+		var lp := PackedVector2Array()
+		for q in (ls[0] as PackedVector2Array):
+			lp.append(o + q * k2)
+		var neben: bool = ls[1]
+		var bl := maxf((5.0 if neben else 7.2) / mpp, (0.9 if neben else 1.3) * ui)
+		var laeufe_s := _laeufe(lp, rect)
+		if not neben:
+			for lauf in laeufe_s:
+				ci.draw_polyline(lauf, C_LANDSTRASSE_SAUM, bl + 1.4 * ui, true)
+		for lauf in laeufe_s:
+			ci.draw_polyline(lauf, C_NEBENSTRASSE if neben else C_LANDSTRASSE, bl, true)
 
 	# --- Orte: Flaeche in der Uebersicht, echte Strassen + Haeuser beim Hineinzoomen -----
 	var nah := mpp < 32.0

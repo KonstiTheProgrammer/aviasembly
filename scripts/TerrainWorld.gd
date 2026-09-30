@@ -4303,6 +4303,10 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 	# FLÜSSE: Tal + Flussbett entlang der Spline graben (nur Chunks im River-AABB).
 	if not rivers.is_empty():
 		h = _river_carve(x, z, h)
+	# LANDSTRASSEN: ebenes Bett mit Boeschungen (siehe _strasse_carve). Nach den Fluessen,
+	# damit die Rampen vor den Bruecken auf dem gegrabenen Ufer aufsetzen.
+	if _strassen_an:
+		h = _strasse_carve(x, z, h)
 	return h
 
 
@@ -4797,6 +4801,267 @@ const FLUSS_MIN_GEFAELLE := 0.00018
 
 
 ## Nach Zuweisung der Kuestenformen (Main): Profile rechnen, Wasserbaender bauen.
+# ==========================================================================================
+# LANDSTRASSEN (Doerfer und Strassennetz der Hauptinsel, Daten: scripts/StrassenDaten.gd,
+# erzeugt von tools/_dorf_planer.gd; Aufbau der Sichtteile: scripts/Strassen.gd)
+# ==========================================================================================
+# Die Strassen liegen IM HOEHENFELD, wie die Fluesse: ebenes Bett mit Randstreifen und
+# Boeschungen. Damit stimmen Kollision (man kann auf ihnen landen), Wasser-Tiefentextur,
+# Grasmaske und Bewuchs von selbst, und das Fahrbahnband (Strassen.gd) liegt buendig auf.
+# PROFIL AUS DEM GEWACHSENEN GELAENDE (strassen_fertigstellen): alle STRASSE_SCHRITT Meter
+# abgetastet, geglaettet, Steigung auf STRASSE_MAX_STEIG begrenzt (Einschnitte und Daemme
+# ergeben sich daraus), ueber Fluessen mindestens BRUECKE_UEBER ueber dem Wasser — dort
+# wird eine BRUECKE markiert und das Gelaende bleibt unberuehrt.
+# ZELLENRASTER (CSR, Packed-Arrays wie bei den Fluessen — Variant-Listen kosteten dort den
+# Hauptfaden messbar Zeit): height_at schaut nur in EINE Zelle; fast ueberall ist sie leer.
+const STRASSE_B_HAUPT := 3.6        # halbe Fahrbahnbreite Landstrasse
+const STRASSE_B_NEBEN := 2.6        # halbe Fahrbahnbreite Nebenstrasse (nur Doerfer)
+const STRASSE_RAND := 12.0          # ebener Randstreifen jenseits der Fahrbahn (>= 8·√2, s. u.)
+const STRASSE_SCHULTER_MAX := 48.0
+const STRASSE_SCHRITT := 20.0
+const STRASSE_MAX_STEIG := 0.08
+const STRASSE_ZELLE := 100.0
+const BRUECKE_UEBER := 4.5          # Fahrbahn mindestens so hoch ueber dem Flusswasser
+# Ab so viel Fahrbahn ueber Grund wird ein VIADUKT gebaut statt aufgeschuettet: ueber ein
+# Tal hinweg entstand sonst ein Erddamm bis 67 m Hoehe (Rampe zum Bergdorf).
+const VIADUKT_AB := 10.0
+var strassen: Array = []            # [{"pts": PackedVector2Array, "neben": bool}] VOR setup()
+var strassen_profile: Array = []    # je Strasse [pts (20-m-Schritte), hoehen, bruecke]
+var _strassen_an := false
+var _st_a := PackedVector2Array()
+var _st_b := PackedVector2Array()
+var _st_ha := PackedFloat32Array()
+var _st_hb := PackedFloat32Array()
+var _st_w := PackedFloat32Array()
+var _st_br := PackedByteArray()
+var _st_start := PackedInt32Array()
+var _st_seg := PackedInt32Array()
+var _st_x0 := 0.0
+var _st_z0 := 0.0
+var _st_nx := 0
+var _st_nz := 0
+var _st_huelle := Rect2()
+
+
+## Nach fluesse_fertigstellen (Main): Profile rechnen, Raster bauen, Strassen einschalten.
+func strassen_fertigstellen() -> void:
+	_strassen_an = false
+	strassen_profile.clear()
+	for arr in [_st_a, _st_b, _st_ha, _st_hb, _st_w, _st_br]:
+		arr.clear()
+	for st in strassen:
+		var w := STRASSE_B_NEBEN if st.get("neben", false) else STRASSE_B_HAUPT
+		var pts := strasse_abtasten(st["pts"])
+		var prof := strasse_profil(pts)
+		var hh: PackedFloat32Array = prof[0]
+		var br: PackedByteArray = prof[1]
+		var n := pts.size()
+		strassen_profile.append([pts, hh, br, w])
+		for i in range(n - 1):
+			_st_a.append(pts[i])
+			_st_b.append(pts[i + 1])
+			_st_ha.append(hh[i])
+			_st_hb.append(hh[i + 1])
+			_st_w.append(w)
+			_st_br.append(1 if br[i] == 1 and br[i + 1] == 1 else 0)
+	_strassen_gitter_bauen()
+	_strassen_an = not _st_a.is_empty()
+
+
+## Gleichmaessig im Abstand STRASSE_SCHRITT neu abtasten (Endpunkt bleibt erhalten).
+static func strasse_abtasten(roh: PackedVector2Array) -> PackedVector2Array:
+	var pts := PackedVector2Array([roh[0]])
+	var rest := 0.0
+	for k in range(1, roh.size()):
+		var a := roh[k - 1]
+		var b := roh[k]
+		var l := a.distance_to(b)
+		if l < 0.001:
+			continue
+		var d := STRASSE_SCHRITT - rest
+		while d <= l:
+			pts.append(a.lerp(b, d / l))
+			d += STRASSE_SCHRITT
+		rest = l - (d - STRASSE_SCHRITT)
+	if pts[pts.size() - 1].distance_to(roh[roh.size() - 1]) > 2.0:
+		pts.append(roh[roh.size() - 1])
+	return pts
+
+
+## HOEHENPROFIL einer abgetasteten Strasse: [Fahrbahnhoehe, Bruecke (0/1), Gelaende] je Punkt.
+## Liest das Gelaende OHNE Strassen (der Aufrufer schaltet sie ab bzw. sie sind noch aus).
+## Auch der Planer (tools/_dorf_planer.gd) bewertet damit Varianten einer Flussquerung.
+func strasse_profil(pts: PackedVector2Array) -> Array:
+	var n := pts.size()
+	var gel := PackedFloat32Array()
+	gel.resize(n)
+	var fluss_min := PackedFloat32Array()     # Mindesthoehe ueber Wasser, sonst -INF
+	fluss_min.resize(n)
+	for i in n:
+		gel[i] = height_at(pts[i].x, pts[i].y)
+		fluss_min[i] = -INF
+		if not rivers.is_empty():
+			# NUR UEBER DEM WASSER (plus Rand), nicht im ganzen Tal — sonst wurde eine
+			# Strasse, die neben dem Fluss laeuft, auf voller Laenge zur Bruecke.
+			var fl := _fluss_naechst(pts[i].x, pts[i].y)
+			if fl.x < fl.z * 0.5 + 8.0:
+				fluss_min[i] = fl.y + BRUECKE_UEBER
+		# MEERESARME: das 100-m-Raster des Planers sieht schmale Priele und Seegatten nicht —
+		# bei (-23500, -15600) lief die Fahrbahn 50 cm UNTER dem Meeresspiegel durchs Wasser.
+		if gel[i] < SEA_Y + 0.5:
+			fluss_min[i] = maxf(fluss_min[i], SEA_Y + BRUECKE_UEBER)
+	# glaetten (+-100 m, dreieckig gewichtet), Enden festhalten
+	var hh := PackedFloat32Array()
+	hh.resize(n)
+	for i in n:
+		var su := 0.0
+		var gw := 0.0
+		for k in range(-5, 6):
+			var j := clampi(i + k, 0, n - 1)
+			var wk := 6.0 - absf(float(k))
+			su += gel[j] * wk
+			gw += wk
+		hh[i] = su / gw
+	hh[0] = gel[0]
+	hh[n - 1] = gel[n - 1]
+	for i in n:
+		hh[i] = maxf(hh[i], fluss_min[i])
+	# Steigung begrenzen (nach echtem Abstand — der letzte Punkt liegt naeher), vorwaerts
+	# und rueckwaerts. Danach die Brueckenhoehe durchsetzen und NUR NACH OBEN nachziehen:
+	# so steigen die Rampen zur Bruecke allmaehlich an. Die erste Fassung setzte die
+	# Brueckenhoehe nach der Begrenzung hart ein — 245 % Steigung am Brueckenkopf.
+	for runde in 3:
+		for i in range(1, n):
+			var dm := STRASSE_MAX_STEIG * pts[i].distance_to(pts[i - 1])
+			hh[i] = clampf(hh[i], hh[i - 1] - dm, hh[i - 1] + dm)
+		for i in range(n - 2, -1, -1):
+			var dm := STRASSE_MAX_STEIG * pts[i].distance_to(pts[i + 1])
+			hh[i] = clampf(hh[i], hh[i + 1] - dm, hh[i + 1] + dm)
+	for i in n:
+		hh[i] = maxf(hh[i], fluss_min[i])
+	for i in range(1, n):
+		hh[i] = maxf(hh[i], hh[i - 1] - STRASSE_MAX_STEIG * pts[i].distance_to(pts[i - 1]))
+	for i in range(n - 2, -1, -1):
+		hh[i] = maxf(hh[i], hh[i + 1] - STRASSE_MAX_STEIG * pts[i].distance_to(pts[i + 1]))
+	# Bruecke: ueber dem Fluss UND deutlich ueber dem Gelaende — dort nichts aufschuetten.
+	# Die Spanne wird um zwei Stuetzpunkte verlaengert, damit die Widerlager im Hang stehen.
+	var br := PackedByteArray()
+	br.resize(n)
+	for i in n:
+		if (fluss_min[i] > -INF and hh[i] - gel[i] > 2.0) or hh[i] - gel[i] > VIADUKT_AB:
+			for k in range(maxi(i - 2, 0), mini(i + 3, n)):
+				br[k] = 1
+	return [hh, br, gel]
+
+
+func _strassen_gitter_bauen() -> void:
+	if _st_a.is_empty():
+		return
+	var reich := STRASSE_B_HAUPT + STRASSE_RAND + STRASSE_SCHULTER_MAX + 2.0
+	var huelle := Rect2(_st_a[0], Vector2.ZERO)
+	for i in _st_a.size():
+		huelle = huelle.expand(_st_a[i]).expand(_st_b[i])
+	huelle = huelle.grow(reich)
+	_st_huelle = huelle
+	_st_x0 = huelle.position.x
+	_st_z0 = huelle.position.y
+	_st_nx = int(ceil(huelle.size.x / STRASSE_ZELLE))
+	_st_nz = int(ceil(huelle.size.y / STRASSE_ZELLE))
+	# ZWEI DURCHGAENGE (zaehlen, dann fuellen) direkt in Packed-Arrays. Die erste Fassung
+	# sammelte je Zelle ein PackedInt32Array in einem Array und haengte per
+	# (listen[k] as PackedInt32Array).append(si) an — an eine KOPIE (Packed-Arrays sind
+	# Werttypen). Das Raster blieb leer: kein Einschnitt, Baeume und Gras auf der Fahrbahn,
+	# ein Drittel des Bands lag unter dem Gelaende. Beleg: tools/_strassen_check.gd
+	# (Gelaende ueber dem Band, Rasterbelegung).
+	var nz_nx := _st_nx * _st_nz
+	_st_start = PackedInt32Array()
+	_st_start.resize(nz_nx + 1)
+	var bereich := PackedInt32Array()      # je Segment: cx0, cx1, cz0, cz1
+	bereich.resize(_st_a.size() * 4)
+	for si in _st_a.size():
+		var lo := _st_a[si].min(_st_b[si]) - Vector2(reich, reich)
+		var hi := _st_a[si].max(_st_b[si]) + Vector2(reich, reich)
+		bereich[si * 4] = maxi(int((lo.x - _st_x0) / STRASSE_ZELLE), 0)
+		bereich[si * 4 + 1] = mini(int((hi.x - _st_x0) / STRASSE_ZELLE), _st_nx - 1)
+		bereich[si * 4 + 2] = maxi(int((lo.y - _st_z0) / STRASSE_ZELLE), 0)
+		bereich[si * 4 + 3] = mini(int((hi.y - _st_z0) / STRASSE_ZELLE), _st_nz - 1)
+		for cz in range(bereich[si * 4 + 2], bereich[si * 4 + 3] + 1):
+			for cx in range(bereich[si * 4], bereich[si * 4 + 1] + 1):
+				_st_start[cz * _st_nx + cx + 1] += 1
+	for k in nz_nx:
+		_st_start[k + 1] += _st_start[k]
+	_st_seg = PackedInt32Array()
+	_st_seg.resize(_st_start[nz_nx])
+	var fuell := _st_start.duplicate()
+	for si in _st_a.size():
+		for cz in range(bereich[si * 4 + 2], bereich[si * 4 + 3] + 1):
+			for cx in range(bereich[si * 4], bereich[si * 4 + 1] + 1):
+				var k := cz * _st_nx + cx
+				_st_seg[fuell[k]] = si
+				fuell[k] += 1
+
+
+func _st_zelle(x: float, z: float) -> int:
+	var cx := int((x - _st_x0) / STRASSE_ZELLE)
+	var cz := int((z - _st_z0) / STRASSE_ZELLE)
+	if cx < 0 or cz < 0 or cx >= _st_nx or cz >= _st_nz or x < _st_x0 or z < _st_z0:
+		return -1
+	return cz * _st_nx + cx
+
+
+## Naechster Strassenabschnitt: (Abstand, Fahrbahnhoehe, halbe Breite, Bruecke 0/1), oder
+## Abstand INF.
+func _strasse_naechst(x: float, z: float) -> Vector4:
+	var k := _st_zelle(x, z)
+	if k < 0:
+		return Vector4(INF, 0.0, 0.0, 0.0)
+	var s0 := _st_start[k]
+	var s1 := _st_start[k + 1]
+	if s0 == s1:
+		return Vector4(INF, 0.0, 0.0, 0.0)
+	var best := INF
+	var bs := -1
+	var bt := 0.0
+	for j in range(s0, s1):
+		var si := _st_seg[j]
+		var a := _st_a[si]
+		var dx := _st_b[si].x - a.x
+		var dz := _st_b[si].y - a.y
+		var l2 := dx * dx + dz * dz
+		var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.y) * dz) / l2, 0.0, 1.0)
+		var px := a.x + dx * t - x
+		var pz := a.y + dz * t - z
+		var dd := px * px + pz * pz
+		if dd < best:
+			best = dd
+			bs = si
+			bt = t
+	return Vector4(sqrt(best), lerpf(_st_ha[bs], _st_hb[bs], bt), _st_w[bs], float(_st_br[bs]))
+
+
+## Abstand zur naechsten Strasse (Mitte), INF wenn keine in der Naehe. Fuer Bewuchs, Gras
+## und die Doerfer (Strassen.gd).
+func strasse_abstand(x: float, z: float) -> float:
+	if not _strassen_an:
+		return INF
+	return _strasse_naechst(x, z).x
+
+
+func _strasse_carve(x: float, z: float, h: float) -> float:
+	var sn := _strasse_naechst(x, z)
+	if sn.x == INF or sn.w > 0.5:
+		return h            # keine Strasse oder Bruecke: Gelaende unberuehrt
+	var kern := sn.z + STRASSE_RAND
+	var bett := sn.y - 0.03
+	if sn.x <= kern:
+		return bett
+	# Boeschung waechst mit dem Hoehenunterschied (Einschnitt/Damm etwa 1:1,7)
+	var schulter := clampf(absf(sn.y - h) * 1.7 + 6.0, 8.0, STRASSE_SCHULTER_MAX)
+	if sn.x >= kern + schulter:
+		return h
+	return lerpf(bett, h, smoothstep(kern, kern + schulter, sn.x))
+
+
 func fluesse_fertigstellen() -> void:
 	_fluesse_profilieren()
 	_fluss_gitter_bauen()
@@ -6632,6 +6897,7 @@ const GRAS_AUS_UEBER := 260.0
 func _gras_block(ox: float, oz: float, hs: PackedFloat32Array, cols: PackedColorArray) -> Image:
 	var nv := CELLS + 1
 	var step := CHUNK / float(CELLS)
+	var strasse_chunk := _strassen_an and _st_huelle.intersects(Rect2(ox, oz, CHUNK, CHUNK))
 	var gm := PackedByteArray()
 	gm.resize(CELLS * CELLS * 2)
 	for j in CELLS:
@@ -6652,7 +6918,12 @@ func _gras_block(ox: float, oz: float, hs: PackedFloat32Array, cols: PackedColor
 			var dichte := gruen * (1.0 - smoothstep(3.2, 5.6, hang))
 			if dichte <= 0.02:
 				continue
-			dichte *= _open_ground(ox + (float(i) + 0.5) * step, oz + (float(j) + 0.5) * step)
+			var gx := ox + (float(i) + 0.5) * step
+			var gz := oz + (float(j) + 0.5) * step
+			dichte *= _open_ground(gx, gz)
+			# Kein Gras auf der Fahrbahn (die Maske hat 8-m-Zellen, also etwas Luft).
+			if strasse_chunk and strasse_abstand(gx, gz) < STRASSE_B_HAUPT + 3.0:
+				dichte = 0.0
 			var lum := c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722
 			gm[(j * CELLS + i) * 2] = clampi(roundi(dichte * 255.0), 0, 255)
 			gm[(j * CELLS + i) * 2 + 1] = clampi(roundi(lum * 255.0), 0, 255)
@@ -7055,6 +7326,7 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 	# die Baeume stehen exakt auf der facettierten Flaeche statt auf der glatten Kurve
 	# darunter — mit height_at gesampelt schwebten sie auf Graten und steckten in Mulden.
 	var river_chunk := fluss_chunk
+	var strasse_chunk := _strassen_an and _st_huelle.intersects(Rect2(ox, oz, CHUNK, CHUNK))
 	for j in CELLS:
 		for i in CELLS:
 			var h00 := hs[j * (CELLS + 1) + i]
@@ -7080,6 +7352,9 @@ func _make_chunk_data(key: Vector2i) -> Dictionary:
 			# dieser Flanke saesse.
 			var open := _open_ground(cx, cz) * vulkan_bewuchs(cx, cz, hc)
 			if open <= 0.01:
+				continue
+			# Auf und direkt neben der Strasse waechst nichts und liegt kein Fels.
+			if strasse_chunk and strasse_abstand(cx, cz) < STRASSE_B_HAUPT + 6.0:
 				continue
 			# AUF EINER SENKRECHTEN WAND LIEGT NICHTS. `slope` ist der groesste
 			# Hoehenunterschied ueber die 8-m-Zelle, 8 m sind also genau 45 Grad.

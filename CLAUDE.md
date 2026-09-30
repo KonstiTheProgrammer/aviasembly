@@ -494,6 +494,65 @@ gratis). Lage/Masse in `Main._sondergelaende` (feste Seeds), Gelaende in Terrain
   Schuerze jetzt vorher an (`_fern_stopp` + wait_to_finish). Befund dabei: der Bergsee-
   Abfluss meldet "ZU HOCH" (Schwelle +208 m) — so auch im alten Stand, nicht angefasst.
 
+## Doerfer und Landstrassen (2026-09)
+Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue
+Doerfer, 31 Strassenstuecke (~278 km), 5 Bruecken; Anschluss an alle Orte (ausser NEONBUCHT
+und Bergdorf) und alle Flugplaetze der Hauptinsel (ausser ADLERHORST).
+- DATEN `scripts/StrassenDaten.gd` sind ERZEUGT von `tools/_dorf_planer.gd` — nicht von Hand
+  aendern, neu erzeugen: `HOME=<test-home> Godot --headless --path . --script
+  res://tools/_dorf_planer.gd` (~4 min, deterministisch). Der Planer haelt Schuerzen- und
+  Kartenfaden an, BEVOR er Gelaendelisten veraendert (sonst Signal 11 im Kartenfaden), schaltet
+  die eigenen Strassen ab und nimmt die eigenen Dorfzonen aus `airfields` (sonst plant er auf
+  dem vorigen Stand und setzt 20 neue Doerfer daneben).
+- PLANER: 100-m-Raster; Sperren (Meer, andere Regionen, Vulkan, Neonbucht, Bahnen, Seen,
+  Plateau), Flusstal = Brueckenzone (queren teuer, laengs fahren teurer), RAUHEIT = steilste
+  25-m-Steigung (auf 100 m sah eine Felsstufe harmlos aus → 282 m Einschnitt ins Hochtal).
+  Doerfer nach Abdeckung gewaehlt (Abstand ≥ 3,6 km untereinander, ≥ 2,8 km zu Orten), nicht
+  im Hochtal. Netz = Spannbaum + Abkuerzungen (< 62 % des Baumwegs), A* mit
+  Laenge·(1+(Steigung/4,5 %)²), Buendelung ×0,33 auf gebauter Strasse. Danach DP 30 m + 2×
+  Chaikin, FLUSSQUERUNGEN BEGRADIGEN (`_querungen_begradigen`: Querungen unter 65 Grad werden
+  durch Rampe unter 90/70/55 Grad + Hermite-Anschluss ersetzt, jede Variante mit dem ECHTEN
+  Profil `TerrainWorld.strasse_profil` bewertet — stur rechtwinklig trieb das S der
+  Anschlusskurven 36 m tief in den Uferhang), dann noch 1× Chaikin.
+- LAUFZEIT (TerrainWorld): `strassen` (vor setup) → `strassen_fertigstellen()` (Main, direkt
+  nach `fluesse_fertigstellen`, vor `build_now_around` und Kartenfaden): 20-m-Abtastung
+  (`strasse_abtasten`), Profil (`strasse_profil`: ±100 m geglaettet, max 8 % nach echtem
+  Abstand, ueber Fluss/Meer Mindesthoehe +4,5 m, nur-nach-oben-Durchgaenge fuer Rampen;
+  Bruecke wo ueber Wasser >2 m ueber Grund oder >10 m Damm = Viadukt) und CSR-Raster
+  (`_st_*`, 100-m-Zellen). `height_at` ruft am Ende `_strasse_carve`: Kern (halbe Breite +
+  STRASSE_RAND 12 m) exakt auf Fahrbahnhoehe − 3 cm, Boeschung 1:1,7 bis 48 m. KERN ≥ 8·√2 m:
+  jedes Dreieck des 8-m-Netzes, das das Band beruehrt, hat dann ALLE Ecken auf Fahrbahnhoehe
+  (mit 7 m ragte das Netz in Kurven/Haengen ueber das Band). Bruecken lassen das Gelaende
+  unberuehrt. Baeume/Gras halten ueber `strasse_abstand` Abstand.
+- SICHTBAR (`scripts/Strassen.gd`): Band je 50 Abschnitte (1 km) als MeshInstance3D, Shader
+  `shaders/strasse.gdshader` (Asphalt mit Rand-/Mittellinien, Schotterweg mit Spuren; Linien
+  per fwidth ausgeblendet), Bruecken mit Platte, Gelaender, Pfeilern und Kastenkollision (man
+  kann landen), Doerfer als Strassendorf (`plan_strassendorf`, Achse `dreh` laengs der
+  Strasse, Haeuser mit `frei`-Abstand zur Fahrbahn) ueber CityBuilder. Karte: WorldMap
+  zeichnet `terrain.strassen` (Landstrasse mit Saum, Nebenstrasse heller), Doerfer als Orte.
+- FALLEN (alle hier reingelaufen): (1) PACKED-ARRAYS SIND WERTTYPEN:
+  `(listen[k] as PackedInt32Array).append(si)` haengt an eine KOPIE — das Raster war leer, es
+  gab keinen Einschnitt, und die Baumpruefung ueber `strasse_abstand` meldete wegen INF
+  "0 Baeume auf der Fahrbahn". Raster jetzt zweistufig (zaehlen, fuellen); `_strassen_check`
+  prueft Rasterfunde, Gelaende ueber dem Band und Baeume per Brute Force. (2) VISIBILITY_RANGE
+  misst ab dem Knoten: Baender mit Weltkoordinaten am Ursprung verschwanden jenseits 3,5 km vom
+  Weltmittelpunkt — jedes Stueck sitzt jetzt auf seiner Mitte. (3) Strassen parallel zum Fluss
+  querten unter 19 Grad = 237 m Bruecke LAENGS am Ufer. (4) Schmale Meeresarme sieht das
+  100-m-Raster nicht: Fahrbahn lag unter dem Meeresspiegel → `strasse_profil` behandelt
+  Gelaende < SEA_Y+0,5 wie Wasser. (5) `Strassen.dorf_hoehen` erst NACH den Kuestenformen
+  (direkt vor fluesse_fertigstellen), sonst lagen Doerfer auf 4 m.
+- WERKZEUGE: `_strassen_check` (Laenge, Steigung, Bruecken, Zonen, Haeuser je Dorf,
+  Raster/Band, height_at-Kosten, Baeume), `_strassen_einschnitte` (alle Einschnitte/Daemme
+  > 8 m). Bilder: `_luftbild.gd` mit `LUFT_REL=1` (z. B. Lindenau −650 120 17350 → −950 0 17050,
+  Bruecke −5560 70 2380 → −5760 0 2225, Draufsicht −5700 900 2250 → −5700 0 2245).
+- KOSTEN: height_at nahe Strassen +7 us (~26 → ~34 us), sonst ein Rechteck-Test.
+  `_skriptzeit` alt → neu: Startbahn 1,90 → 2,25 ms, Flakzone 2,13 → 2,32, Silberfluss
+  1,99 → 1,72, uebrige ±0,3 ms (Rauschen der Messung); +~700 Knoten (Baender, Doerfer).
+- DORFSTRASSE (`_dorfstrasse`): Schotterband laengs der Dorfachse, wo keine Landstrasse
+  liegt — die Netzstrassen ENDEN meist in der Dorfmitte, die Haeuser der Gegenseite standen
+  sonst an keiner Strasse. 3 cm unter dem Landstrassenband.
+  `_haupt_pruefsumme` aendert sich (Einschnitte veraendern Hoehe/Farbe entlang der Strassen).
+
 ## Himmel und Wolkenformationen (2026-09)
 - HIMMEL (`shaders/sky_clouds.gdshader`): Zenit/Mitte dunkeln mit der KAMERAHOEHE
   (`POSITION.y`, `hoehe_bereich` 900–7000 m, `col_*_hoch`), Dunstsaum schmaler; warmes
@@ -1064,6 +1123,13 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   einstellung „Wolkenlagen" blendet das ganze CloudField aus, `CloudField.dichte_bei` prüfte
   nur `mi.visible` der einzelnen Wolke — unsichtbare Wolken machten weiter Nebel, Turbulenz
   und Flak-Deckung. Beleg: `tools/_grafik_check.gd`.
+- **Packed-Arrays sind Werttypen.** `(arr[k] as PackedInt32Array).append(x)` ändert eine Kopie;
+  das Original im Array bleibt leer — ohne Fehlermeldung. Direkt in Packed-Arrays arbeiten
+  (CSR: zählen, dann füllen). Und eine Prüfung, die über dieselbe kaputte Struktur fragt,
+  meldet „alles gut“: gegen eine unabhängige Brute-Force-Rechnung prüfen (Landstraßen).
+- **`visibility_range` misst ab dem Ursprung des Knotens.** Ein Mesh mit Weltkoordinaten am
+  Ursprung (0,0,0) verschwindet, sobald die KAMERA weiter als die Sichtweite vom
+  Weltmittelpunkt entfernt ist. Knoten auf die Mitte seiner Geometrie setzen.
 - **WorkerThreadPool-Gruppen stehen in einer Schlange.** Die Fernschürze legt beim Start 577
   Kacheln hinein; alles, was danach kommt und zeitkritisch ist (Weltkarte, Spawn-Chunks),
   braucht `high_priority=true`, sonst wird es LANGSAMER als der alte Einzelthread.

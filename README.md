@@ -135,6 +135,14 @@ am Grund. Vor der Südostflanke liegt die **Felsenstadt**, ein Feld freistehende
 zum Slalomfliegen, und vor der Westküste die **Nadelküste**: Kreidenadeln im türkisen Meer
 mit dem **Meerestor**, einem Felsbogen, durch den man hindurchfliegen kann.
 
+Über die ganze Hauptinsel verteilt liegen **20 Dörfer** — Weiler, Dörfer und Marktflecken mit
+Kirche oder Kapelle, Gasthaus, Höfen mit Scheune und Stall, an der Küste mit Lotsenhaus, am
+Fluss mit Wassermühle. Ein **Landstraßennetz** (~280 km) verbindet sie mit den Städten und
+allen Flugplätzen: asphaltierte Landstraßen mit Mittel- und Randlinien, zwischen zwei Dörfern
+Schotterwege. Die Straßen schmiegen sich ins Gelände, schneiden durch Hügel und queren Flüsse
+und Meeresarme auf **Brücken**, auf denen man auch landen kann. Dörfer und Straßen stehen auf
+der Karte (**M**) — gut zum Navigieren im Tiefflug.
+
 Der Look ist **modern-stilisiert, in Richtung Zelda/Ghibli**: weiche Hügel und Bergflanken
 in einer gemalten Palette (sattes Blaugrün im Wald, sonniges Gelbgrün auf den Wiesen, warmer
 Fels, blauweißer Schnee), weiches warmes Sonnenlicht mit kühlen Schatten und viel Luft —

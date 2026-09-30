@@ -433,6 +433,7 @@ var _fern_stopp := false                # Main geht: Kacheln sofort liegen lasse
 var _fern_pruef_t := 0.0
 var showroom: ShowroomStage       # Praesentations-Buehne des Bau-Modus
 var airfields: Array = []
+var _dorf_zonen: Array = []     # Flachzonen der Doerfer (Strassen.flachzonen), Hoehe nach setup()
 var world_env: WorldEnvironment
 var terrain: TerrainWorld           # seed-basierte Landschaft (Chunks um den Spieler)
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
@@ -2023,6 +2024,11 @@ func _setup_world() -> void:
 		if String(ms.get("type", "")) == "insel":
 			anker.append([Vector2(ms["pos"].x, ms["pos"].z), "meer"])
 	terrain.kuesten_anker = anker
+	# DOERFER UND LANDSTRASSEN (scripts/Strassen.gd, Daten aus tools/_dorf_planer.gd): die
+	# Flachzonen der Doerfer und die Strassenlinien muessen vor setup() stehen.
+	_dorf_zonen = Strassen.flachzonen()
+	flat_zones.append_array(_dorf_zonen)
+	terrain.strassen = Strassen.strassen_daten()
 	terrain.setup(game.world_seed, flat_zones, lakes, rivers, massifs,
 		{"start": TAL_START, "richtung": TAL_RICHTUNG, "laenge": TAL_LAENGE,
 			"halbbreite": tal_hb})
@@ -2191,7 +2197,14 @@ func _setup_world() -> void:
 	}]
 	# ERST JETZT kennt das Gelaende Gebirge, Kueste und Felswaende — die Fluesse mit
 	# "profil" lesen ihre Wasserhoehen daraus ab. Vor jedem Chunk und vor dem Kartenfaden.
+	# DORFHOEHEN ERST HIER: Kuestenformen, Gebirge und Felswaende haengen erst nach setup()
+	# am Gelaende. Direkt nach setup() gemessen lag Moosbach (Kuppe auf 89 m) noch auf
+	# flachem Kuestenland und sass danach in einer Grube auf 4 m.
+	Strassen.dorf_hoehen(terrain, _dorf_zonen)
 	terrain.fluesse_fertigstellen()
+	# Strassenprofile NACH den Fluessen (Bruecken ueber dem Wasser, Rampen auf dem Ufer) und
+	# vor build_now_around und dem Kartenfaden — beide lesen height_at schon mit Strassen.
+	terrain.strassen_fertigstellen()
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	# KARTE: Bild im Hintergrund-Thread generieren (~100k height_at-Samples, kein Startup-Ruckler;
@@ -2261,6 +2274,7 @@ func _setup_world() -> void:
 		{"name": "Palmdorf", "pos": Vector3(3000, 0, 55000), "color": Color(0.85, 0.95, 0.60), "art": "ort", "radius": 200.0},
 		{"name": "Minenstadt", "pos": Vector3(-55500, 0, 7000), "color": Color(0.90, 0.72, 0.55), "art": "ort", "radius": 220.0},
 	]
+	_map_pois.append_array(Strassen.karten_orte())
 	# KARTE ZWEISTUFIG, wie die Fernschuerze: erst 512 px mit Vorrang, damit M bald nach
 	# dem Start funktioniert, dann still die feine 2048-px-Fassung ohne Vorrang — die
 	# steht hinter der Schuerze an und wird ausgetauscht, sobald sie fertig ist.
@@ -2348,6 +2362,9 @@ func _setup_world() -> void:
 		Landmarks.build_ship(fly_world, sh[0], sh[1])
 	Landmarks.build_wreck(fly_world, Vector2(26983, -7477), 0.8)
 	Landmarks.build_village(fly_world, village_pos)
+	# LANDSTRASSEN, BRUECKEN UND DOERFER der Hauptinsel (die Doerfer nur mit Blender-
+	# Bibliothek, das prueft Strassen.bauen selbst).
+	Strassen.bauen(fly_world, terrain, _dorf_zonen)
 	# Blender-Gebaeude einbauen (MultiMesh je Typ; ohne Kollision wie die Landmarks)
 	if CityBuilder.has_lib():
 		CityBuilder.build(fly_world, terrain, city_pos, CityBuilder.plan_grossstadt(), "Grossstadt")
