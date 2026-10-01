@@ -680,6 +680,21 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   * NICHT GEMACHT: die neuen Arten der Regionen (Schneetanne, Urwaldbaum, Akazie, Mangrove,
     Palme, Baumfarn) sind nur in der Probe gesehen, nicht im Flug ueber Nord-/Sued-/Westland.
     Kaktus und Totholz bleiben glatte Koerper (kein Laub).
+- BAUMDICHTE UND STREUUNG (2026-10-01 nachts, Nutzer: „bisschen weniger Baeume bzw. besser
+  gespreaded“). Mit den Bueschelkronen stand der Wald als eine Masse da, in der die Baeume
+  ineinander steckten. Ursache war weniger die Zahl als die LAGE: jede Pflanze einer
+  8-m-Zelle bekam eine rein zufaellige Stelle — zwei Baeume oft einen halben Meter
+  auseinander, daneben ein Loch. JETZT `TerrainWorld._streu_uv`: mehrere Pflanzen einer Zelle
+  bekommen je ein eigenes Viertel (das zweite schraeg gegenueber dem ersten, ein Zufallszug
+  `streu` je Zelle waehlt die Folge) und bleiben vom Viertelrand weg; eine einzelne darf
+  ueberall in der Zelle stehen (sonst blieben die Viertelgrenzen als leere Linien). Dazu
+  `FLORA_PER_CELL` 2.3 -> 1.75. Gilt fuer die Hauptinsel UND `_region_flora`. Alle
+  Baumlagen aendern sich damit (andere Zufallsfolge), Dichtefelder/Waldfarbe/Karte nicht.
+  GEMESSEN: Pflanzen in den 16 Pruef-Chunks 16522 -> 12824 (−22 %); `_gelaende_zeit` 4K: Bild
+  im Mittel 16,08 -> 15,42 ms, Flora 2,73 -> 1,84 (Wald 22 m 5,92 -> 3,49). BELEGE:
+  `_bewuchs_stufen_check` OK (0 Abweichungen grob/fein), `_baum_ausfall_check` 0 Ausfaelle.
+  VORGESCHICHTE beachten: 150 Zufallsproben je Chunk waren dem Nutzer frueher „zu wenig
+  Baeume“ — nicht weiter ausduennen, ohne zu fragen.
 - GRASWIESEN (`_gras_aufbauen`, `shaders/gras_bahn.gdshader` platziert, `gras.gdshader`
   zeichnet): GPUParticles3D auf WELTFESTEM Raster um die Kamera (Hash je Zelle → nichts
   schwimmt), zwei Ringe (150² a 0,7 m bis 52 m, 112² a 1,9 m bis 105 m), Hoehe aus der

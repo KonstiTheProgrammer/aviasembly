@@ -200,7 +200,11 @@ const KOLL_HYSTERESE := 90.0
 # die GANZE Insel jenseits von FLORA_GROB_AB, also im ausgeduennten Bereich: der Wald sah
 # dadurch duenner aus als vor der Verdichtung, obwohl im Nahfeld mehr Baeume standen.
 # Gespart wird stattdessen ueber die grobe Meshfassung, die dort ohnehin greift.
-const FLORA_PER_CELL := 2.3
+# 2.3 -> 1.75 (2026-10-01, Nutzer: „bisschen weniger Baeume bzw. besser gespreaded“): mit den
+# puffigen Bueschelkronen stand der Wald als eine einzige Masse da, in der die Baeume
+# ineinander steckten. Weniger Staemme, dafuer GLEICHMAESSIG gestreut (_streu_uv) — das Dach
+# schliesst sich im Waldkern weiter (Abstand ~6 m bei 5-8 m breiten Kronen).
+const FLORA_PER_CELL := 1.75
 # Baumgrenze. 64 m war viel zu tief: die Vulkaninsel IST ein Berg, ihr Hang liegt fast
 # vollstaendig darueber — im Ueberflug stand der Wald deshalb nur als schmaler gruener Ring
 # am Strand, der ganze Kegel war kahl braun. Genau das las sich als "zu wenig Baeume".
@@ -2339,9 +2343,11 @@ func _region_flora(reg: int, rng: RandomNumberGenerator, flora: Dictionary, cx: 
 	var n := int(floor(expect))
 	if rng.randf() < expect - float(n):
 		n += 1
+	var streu := (rng.randi() & 3) if n > 1 else 0
 	for k in n:
-		var u := rng.randf()
-		var v := rng.randf()
+		var uv := _streu_uv(k, n, streu, rng)
+		var u := uv.x
+		var v := uv.y
 		var hp := (h00 + u * (h10 - h00) + v * (h11 - h10)) if u >= v \
 			else (h00 + v * (h01 - h00) + u * (h11 - h01))
 		var art := "Busch"
@@ -8399,6 +8405,25 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN, vorlage: Array = [
 ## Entscheidungsflaeche (8-m-Raster aus dem groben 16-m-Raster, _bewuchs_raster — in beiden
 ## Stufen bitgleich), hp_src die Standflaeche (grob: hd, fein: das feine Raster). Laeuft im
 ## Worker: im feinen Bau direkt, fuer grobe Chunks als eigener Auftrag (AUFTRAG_BEWUCHS).
+## GLEICHMAESSIG STREUEN statt wuerfeln. Bis hierher bekam jede Pflanze einer 8-m-Zelle eine
+## rein zufaellige Lage: zwei Baeume standen oft einen halben Meter auseinander (Kronen
+## ineinander), daneben blieb ein Loch — der Wald wirkte klumpig und voller, als er war.
+## Jetzt teilt sich die Zelle in vier Viertel (4 m); stehen mehrere Pflanzen in einer Zelle,
+## bekommt jede ihr eigenes Viertel (das zweite liegt dem ersten schraeg gegenueber) und
+## bleibt vom Viertelrand weg. Eine einzelne Pflanze darf ueberall in der Zelle stehen
+## (sonst blieben die Viertelgrenzen als leere Linien im Raster).
+## start = 0..3 (ein Zufallszug je Zelle), k = laufende Nummer der Pflanze in der Zelle.
+const STREU_FOLGE: Array[int] = [0, 3, 1, 2, 3, 0, 2, 1, 1, 2, 0, 3, 2, 1, 3, 0]
+static func _streu_uv(k: int, n: int, start: int, rng: RandomNumberGenerator) -> Vector2:
+	if n <= 1:
+		return Vector2(0.08 + 0.84 * rng.randf(), 0.08 + 0.84 * rng.randf())
+	if k >= 4:
+		return Vector2(rng.randf(), rng.randf())
+	var q: int = STREU_FOLGE[start * 4 + k]
+	return Vector2((float(q & 1) + 0.14 + 0.72 * rng.randf()) * 0.5,
+		(float(q >> 1) + 0.14 + 0.72 * rng.randf()) * 0.5)
+
+
 func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat32Array) -> Array:
 	var ox := float(key.x) * CHUNK
 	var oz := float(key.y) * CHUNK
@@ -8568,9 +8593,11 @@ func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat
 			var n := int(floor(expect))
 			if rng.randf() < expect - float(n):
 				n += 1
+			var streu := (rng.randi() & 3) if n > 1 else 0
 			for k in n:
-				var u := rng.randf()
-				var v := rng.randf()
+				var uv := _streu_uv(k, n, streu, rng)
+				var u := uv.x
+				var v := uv.y
 				# Hoehe auf der TATSAECHLICHEN Dreiecksflaeche (Diagonale v00-v11 wie
 				# oben trianguliert), damit kein Stamm in der Facette haengt.
 				var hp := (h00 + u * (h10 - h00) + v * (h11 - h10)) if u >= v \
