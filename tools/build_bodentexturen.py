@@ -1,5 +1,6 @@
-"""BODENTEXTUREN des Gelaende-Shaders — selbst erzeugt, kachelbar (Nutzerwunsch 2026-10-01:
-"echte Texturen", Quelle "selbst erzeugen", kein Download).
+"""BODENTEXTUREN des Gelaende-Shaders — selbst erzeugt, kachelbar, GEMALT im Stil von Zelda
+Breath of the Wild (Nutzer 2026-10-01: die erste, realistische Fassung mit Halmen, Kieseln
+und Gesteinsschichten war "nicht passend", gewuenscht ist "zelda-maessig").
 
     python3 tools/build_bodentexturen.py [--vorschau <png>]
 
@@ -7,17 +8,16 @@ Schreibt je Material zwei PNG nach tools/bodentexturen/ (der Ordner traegt .gdig
     <name>_farbe.png    RGB = Farbfaktor / 2 (0.5 = Faktor 1, Mittel je Kanal genau 1),
                         A   = Hoehe (fuer das Ueberblenden nach Hoehe)
     <name>_normale.png  RG  = Normale in Texturrichtung (u, v) * 0.5 + 0.5, B = Hohlkehle (AO)
-tools/_bodentexturen.gd packt sie danach in shaders/boden_material_*.res (Texture2DArray).
+tools/_bodentexturen.gd packt sie danach nach shaders/boden/.
 
-DER GRUNDSATZ, gelernt an der ersten "glatten" Fassung mit Rauschkorn ("billig und alt"):
-Rauschen allein ist keine Oberflaeche. Jedes Material hier wird aus STRUKTUR gebaut —
-Halme, Bueschel, Kiesel, Klumpen, Platten, Schichten, Risse, Rippel —, und das Relief
-(Normale) kommt aus derselben Hoehe wie die Farbe: was hell ist, steht vor, was dunkel ist,
-liegt in der Kehle. Die Farbe ist ein FAKTOR um 1: die Palette des Spiels (palette.gdshaderinc)
-und die Grossvariation aus den Vertexfarben bleiben die Grundfarbe, die Textur legt nur die
-Oberflaeche darauf. Damit stimmen Karte, Fernschuerze und Nahbereich weiter ueberein.
+STIL: keine einzelnen Halme, Kiesel oder Risse — die Flaechen bestehen aus PINSELTUPFEN in drei
+bis vier Toenen (dunkel zuerst, hell zuletzt und sparsamer), laengs eines weichen
+Stroemungsfelds ausgerichtet, so wie ein Maler eine Wiese anlegt. Fels sind FACETTEN: grosse
+ebene Flaechen mit eigenem Ton, an der Oberkante eine helle Lichtkante, wenige dunkle Fugen.
+Relief nur schwach (die Form erzaehlt das Licht, nicht die Normale). Die Farbe ist ein FAKTOR
+um 1: die Palette des Spiels bleibt die Grundfarbe.
 
-Alles ist periodisch gerechnet (FFT-Rauschen, Abstaende mit Umlauf, np.roll), also nahtlos.
+Alles periodisch gerechnet (FFT-Rauschen, Zellen mit Umlauf, Tupfen mit Umlauf) -> nahtlos.
 """
 
 import os
@@ -163,182 +163,184 @@ def mische(a, b, t):
     return a + (b - a) * t[..., None]
 
 
+# --- Pinsel --------------------------------------------------------------------------------
+
+def tupfen(feld_c, feld_h, rng, anzahl, laenge, breite, ton, hoehe, winkel_feld=None,
+           streu=0.35, ton_streu=0.05, weich_rand=0.45):
+    """Pinseltupfen mit Umlauf aufmalen: Ellipse laenge x breite (Pixel), Richtung aus
+    winkel_feld (Bogenmass je Pixel) plus Streuung, Farbe ton (Faktor) +- ton_streu, Hoehe
+    hoehe. Weicher Rand, deckend (spaeter gemalt = oben)."""
+    r = int(laenge) + 3
+    oy, ox = np.mgrid[-r:r + 1, -r:r + 1].astype(np.float64)
+    ton = np.asarray(ton, dtype=np.float64)
+    for _ in range(anzahl):
+        cx, cy = rng.random(2) * N
+        w = (winkel_feld[int(cy) % N, int(cx) % N] if winkel_feld is not None else 0.0) \
+            + rng.normal(0.0, streu)
+        L = laenge * (0.7 + 0.6 * rng.random())
+        B = breite * (0.75 + 0.5 * rng.random())
+        px = ox - (cx - np.floor(cx))
+        py = oy - (cy - np.floor(cy))
+        u = px * np.cos(w) + py * np.sin(w)
+        v = -px * np.sin(w) + py * np.cos(w)
+        d = np.sqrt((u / (L * 0.5)) ** 2 + (v / (B * 0.5)) ** 2)
+        m = np.clip((1.0 - d) / weich_rand, 0.0, 1.0)
+        ix = (np.arange(-r, r + 1) + int(np.floor(cx))) % N
+        iy = (np.arange(-r, r + 1) + int(np.floor(cy))) % N
+        sub = np.ix_(iy, ix)
+        # Helligkeit je Tupfen, nicht je Kanal: mit Streuung je Kanal lagen auf Sand und
+        # Schnee bunte Pastellflecken (Regenbogen).
+        t = ton * (1.0 + rng.normal(0.0, ton_streu))
+        feld_c[sub] = feld_c[sub] * (1.0 - m[..., None]) + t[None, None, :] * m[..., None]
+        feld_h[sub] = feld_h[sub] * (1.0 - m) + hoehe * m
+
+
+def stroemung(seed, skala=2.6, staerke=1.4, grund=0.0):
+    """Weiches Richtungsfeld (Bogenmass) fuer die Pinselrichtung."""
+    return grund + rausch(seed, skala, 1, 6) * staerke
+
+
+def grund(ton):
+    c = np.empty((N, N, 3))
+    c[...] = np.asarray(ton)[None, None, :]
+    return c
+
+
 def ton(r, g, b):
-    return np.array([r, g, b])[None, None, :]
+    return np.array([r, g, b])
 
 
 # --- Materialien ------------------------------------------------------------------------
 # Kachelgroessen (Weltmeter je Kachel) stehen im Shader (gelaende_kern: KACHEL_*).
 
 def gras():
-    """Wiese von oben, Kachel ~2,6 m: Bueschel, dazwischen dunklere Kehlen mit etwas Erde,
-    darauf Halme in allen Richtungen, Spitzen heller und trockener."""
-    f1, f2, idx, _, rng = zellen(11, 90, 0.9)
-    buschel = norm01(1.0 - f1 / (f1.max() + 1e-9)) ** 0.8
-    buschel = norm01(buschel + 0.25 * rausch(12, 2.0, 2, 40))
-    halme, spitze, zufall = striche(13, 14000, 13.0, 1.25, gewicht=0.35 + 0.65 * buschel)
-    fein, fspitze, fzufall = striche(14, 9000, 7.0, 0.9)
-    halme = np.maximum(halme, fein * 0.8)
-    spitze = np.maximum(spitze, fspitze * 0.8)
-    zufall = np.where(fein > halme * 0.99, fzufall, zufall)
-    hoehe = norm01(buschel * 0.55 + halme * 0.30 + spitze * 0.25)
-    # Farbe: Kehle dunkel und kuehl, Halm satt, Spitze heller und gelblich; je Halm streut
-    # der Ton (manche trocken, manche tiefgruen); kleine Erdflecken in den tiefsten Kehlen.
-    kehle = ton(0.55, 0.62, 0.72)
-    halm = ton(1.00, 1.00, 1.00)
-    tip = ton(1.30, 1.22, 0.92)
-    c = mische(np.broadcast_to(kehle, (N, N, 3)).copy(), np.broadcast_to(halm, (N, N, 3)),
-               np.clip(halme * 0.85 + buschel * 0.35, 0, 1))
-    c = mische(c, np.broadcast_to(tip, (N, N, 3)), np.clip(spitze, 0, 1) * 0.8)
-    trocken = (zufall > 0.82) & (halme > 0.3)
-    c[trocken] *= np.array([1.22, 1.08, 0.80])
-    tief = (zufall < 0.15) & (halme > 0.3)
-    c[tief] *= np.array([0.80, 0.92, 0.95])
-    erde = np.clip((0.18 - hoehe) / 0.18, 0, 1) * np.clip(0.5 + 0.5 * rausch(15, 2.0, 4, 60), 0, 1)
-    c = mische(c, np.broadcast_to(ton(0.95, 0.70, 0.45), (N, N, 3)), erde * 0.7)
-    return speichern("gras", c, hoehe, 6.0, 2.5, 2.5)
+    """Wiese, gemalt: viele laengliche Tupfen in vier Toenen (tiefes Gruen in den Kehlen,
+    Mittelgruen, helles Gelbgruen, wenige sonnige Spitzlichter), schraeg ausgerichtet wie
+    Pinselstriche, die der Wind gekaemmt hat."""
+    rng = np.random.default_rng(101)
+    w = stroemung(102, grund=-0.9)
+    c = grund(ton(0.80, 0.84, 0.86))
+    h = np.full((N, N), 0.2)
+    tupfen(c, h, rng, 1400, 30, 11, ton(0.80, 0.86, 0.90), 0.25, w)
+    tupfen(c, h, rng, 2200, 26, 9, ton(1.00, 1.00, 1.00), 0.55, w)
+    tupfen(c, h, rng, 1300, 22, 7, ton(1.16, 1.12, 0.92), 0.8, w)
+    tupfen(c, h, rng, 260, 16, 5, ton(1.30, 1.24, 0.86), 1.0, w)
+    c = weich(c, (0.7, 0.7, 0))
+    h = norm01(weich(h, 1.2))
+    return speichern("gras", c, h, 1.6, 4.0, 1.0)
 
 
 def waldboden():
-    """Nadel- und Laubstreu mit Moospolstern, Kachel ~3 m."""
-    moos = norm01(rausch(21, 2.6, 2, 30))
-    moos = np.clip((moos - 0.45) * 3.0, 0, 1)
-    nadel, nspitze, nzuf = striche(22, 9000, 9.0, 0.8)
-    # Blaetter: kleine Zellen mit Ellipsenform
-    f1, f2, idx, _, rng = zellen(23, 900, 1.0)
-    blatt = np.clip(1.0 - f1 / 6.5, 0, 1)
-    blatt = blatt * (rng.random(idx.max() + 1)[idx] > 0.55)
-    zweige, _, _ = striche(24, 160, 30.0, 1.1)
-    hoehe = norm01(moos * 0.35 + nadel * 0.25 + blatt * 0.35 + zweige * 0.35
-                   + 0.15 * rausch(25, 2.0, 2, 50))
-    braun = ton(1.25, 0.95, 0.70)
-    c = np.broadcast_to(ton(0.85, 0.85, 0.85), (N, N, 3)).copy()
-    c = mische(c, np.broadcast_to(braun, (N, N, 3)), np.clip(nadel * 0.9, 0, 1))
-    laub = rng.random(idx.max() + 1)[idx]
-    c = mische(c, np.broadcast_to(ton(1.45, 1.05, 0.60), (N, N, 3)), blatt * (0.5 + 0.5 * laub))
-    c = mische(c, np.broadcast_to(ton(0.90, 1.25, 0.70), (N, N, 3)), moos * 0.9)
-    c = mische(c, np.broadcast_to(ton(0.80, 0.62, 0.45), (N, N, 3)), np.clip(zweige, 0, 1))
-    c *= (0.65 + 0.35 * hoehe)[..., None]
-    return speichern("waldboden", c, hoehe, 5.0, 3.0, 3.0)
+    """Waldboden, gemalt: dunkles Gruen mit Moospolstern (runde helle Tupfen) und warmem
+    Laub (wenige braune Tupfen)."""
+    rng = np.random.default_rng(111)
+    w = stroemung(112)
+    c = grund(ton(0.86, 0.88, 0.92))
+    h = np.full((N, N), 0.2)
+    tupfen(c, h, rng, 900, 34, 18, ton(0.80, 0.86, 0.92), 0.2, w, streu=1.0)
+    tupfen(c, h, rng, 700, 26, 20, ton(1.02, 1.10, 0.96), 0.6, w, streu=1.5)
+    tupfen(c, h, rng, 240, 20, 14, ton(1.30, 1.05, 0.72), 0.5, w, streu=2.0)
+    tupfen(c, h, rng, 260, 16, 12, ton(1.18, 1.28, 0.90), 0.9, w, streu=1.5)
+    c = weich(c, (0.8, 0.8, 0))
+    h = norm01(weich(h, 1.5))
+    return speichern("waldboden", c, h, 1.6, 4.0, 1.0)
 
 
 def erde():
-    """Ackerkrume und Feldweg, Kachel ~3 m: weiche Klumpen (verbogene Zellen, OHNE dunkle
-    Fugen — die erste Fassung war ein Rissmuster wie getrockneter Schlamm bzw. Pflaster),
-    feine Kruemel, wenige Kiesel, feuchte und trockene Stellen."""
-    wx = rausch(36, 2.6, 2, 16) * 10.0
-    wy = rausch(37, 2.6, 2, 16) * 10.0
-    f1, f2, idx, _, rng = zellen(31, 260, 1.0)
-    klumpen = norm01(verbiegen(1.0 - f1 / f1.max(), wx, wy)) ** 1.3
-    k1, k2, kidx, _, krng = zellen(32, 1600, 1.0)
-    kiesel = np.clip(1.0 - k1 / 2.6, 0, 1) ** 0.7 * (krng.random(kidx.max() + 1)[kidx] > 0.88)
-    kruemel = norm01(rausch(33, 1.2, 40, 220))
-    gross = norm01(rausch(34, 2.4, 1, 20))
-    hoehe = norm01(klumpen * 0.45 + kiesel * 0.35 + kruemel * 0.15 + gross * 0.35)
-    c = np.broadcast_to(ton(1.0, 1.0, 1.0), (N, N, 3)).copy()
-    c *= (0.78 + 0.32 * hoehe)[..., None]
-    c *= (0.92 + 0.16 * kruemel)[..., None]
-    stein = krng.random(kidx.max() + 1)[kidx]
-    kfarbe = mische(np.broadcast_to(ton(1.30, 1.28, 1.25), (N, N, 3)),
-                    np.broadcast_to(ton(0.95, 0.92, 0.90), (N, N, 3)), stein)
-    c = mische(c, kfarbe, np.clip(kiesel * 1.4, 0, 1))
-    feucht = norm01(rausch(35, 2.4, 1, 12))
-    c *= (0.82 + 0.30 * feucht)[..., None]
-    c *= np.array([1.0, 0.98, 0.96])[None, None, :] + (gross[..., None] - 0.5) * np.array([0.06, 0.02, -0.04])
-    return speichern("erde", c, hoehe, 4.0, 2.0, 3.0)
+    """Erde/Acker/Weg, gemalt: runde, weiche Tupfen in warmen Toenen ohne Vorzugsrichtung
+    (laengliche Striche lasen sich als Fell), vereinzelt helle Steinchen."""
+    rng = np.random.default_rng(121)
+    c = grund(ton(0.92, 0.92, 0.94))
+    h = np.full((N, N), 0.3)
+    tupfen(c, h, rng, 700, 34, 22, ton(0.86, 0.85, 0.88), 0.2, None, streu=3.0)
+    tupfen(c, h, rng, 900, 28, 18, ton(1.02, 1.0, 0.98), 0.55, None, streu=3.0)
+    tupfen(c, h, rng, 420, 22, 14, ton(1.12, 1.07, 1.0), 0.8, None, streu=3.0)
+    tupfen(c, h, rng, 110, 9, 8, ton(1.28, 1.26, 1.22), 1.0, None, streu=3.0)
+    c = weich(c, (1.2, 1.2, 0))
+    h = norm01(weich(h, 1.8))
+    return speichern("erde", c, h, 1.2, 4.0, 1.0)
 
 
 def sand():
-    """Strand- und Wuestensand, Kachel ~6 m: Windrippel, feines Korn, vereinzelt Muscheln."""
+    """Sand, gemalt: glatte Flaeche mit weichen, verbogenen Rippelbaendern und sehr wenig
+    Kontrast (Striche lasen sich auf Sand als Fell)."""
     yy, xx = np.mgrid[0:N, 0:N].astype(np.float64)
-    wx = rausch(41, 2.8, 1, 8) * 9.0
-    wy = rausch(42, 2.8, 1, 8) * 9.0
-    phase = (xx * 0.6 + yy) / N * 2 * np.pi * 14 + wx * 0.35 + wy * 0.15
-    # asymmetrisches Rippelprofil: flache Luvseite, steile Lee
-    s = (phase / (2 * np.pi)) % 1.0
-    rippel = np.where(s < 0.75, s / 0.75, (1.0 - s) / 0.25)
-    rippel = weich(rippel, 1.2)
-    staerke = np.clip(0.55 + 0.45 * rausch(43, 2.5, 1, 6), 0.1, 1.0)
-    korn = rausch(44, 0.4, 60, 256)
-    hoehe = norm01(rippel * staerke * 0.8 + korn * 0.05 + 0.3 * rausch(45, 3.0, 1, 10) * 0.2)
-    c = np.broadcast_to(ton(1.0, 1.0, 1.0), (N, N, 3)).copy()
-    c *= (0.88 + 0.24 * hoehe)[..., None]
-    c *= (0.94 + 0.12 * norm01(korn))[..., None]
-    dunkel = np.clip(rausch(46, 0.2, 80, 256) - 2.1, 0, 1)
-    c *= (1.0 - 0.35 * dunkel)[..., None]
-    return speichern("sand", c, hoehe, 3.0, 4.0, 2.0)
+    wx = rausch(133, 2.8, 1, 6) * 10.0
+    phase = (xx * 0.35 + yy) / N * 2 * np.pi * 9 + wx * 0.45
+    rip = 0.5 + 0.5 * np.sin(phase)
+    rip = rip ** 1.6
+    staerke = np.clip(0.5 + 0.5 * rausch(134, 2.5, 1, 6), 0.0, 1.0)
+    h = norm01(rip * staerke * 0.6 + 0.4 * norm01(rausch(135, 3.0, 1, 8)))
+    c = grund(ton(1.0, 1.0, 1.0))
+    c *= (0.94 + 0.10 * h)[..., None]
+    c = weich(c, (1.0, 1.0, 0))
+    return speichern("sand", c, h, 0.8, 6.0, 0.5)
 
 
 def fels():
-    """Gestein fuer Waende UND Gipfelflaechen (triplanar), Kachel ~10 m. Zeilen = Hoehe: die
-    Schichten laufen waagerecht. Erste Fassung (Zellen mit dunklen Fugen) sah aus wie
-    Kopfsteinpflaster — jetzt: GESTUFTE SCHICHTEN (Simse und Absaetze, verbogen und
-    unterbrochen), grosse KLUFTKOERPER aus verbogenen Zellen mit schraegen Flaechen,
-    OFFENE Risse aus Graten eines Rauschfelds (keine geschlossenen Polygone),
-    Verwitterung und vereinzelt Flechten."""
+    """Fels im Zelda-Stil, Zeilen = Hoehe (triplanar): grosse FACETTEN (Zellen, jede eine
+    schraege Ebene mit eigenem Ton und weichem Verlauf), an der OBERKANTE jeder Facette eine
+    helle Lichtkante, an der Unterkante ein Schatten, wenige dunkle Fugen. Dazu sehr weiche
+    waagerechte Baender. Kein Korn, keine feinen Risse."""
+    # FLACHE BLOECKE: Zellen in einem Raum, dessen Hoehe doppelt zaehlt -> die Facetten sind
+    # breiter als hoch und liegen wie Baenke (rund = Pflastersteine, erste Fassung).
+    rng = np.random.default_rng(141)
+    anzahl = 28
+    pts = rng.random((anzahl, 2)) * np.array([N, 2 * N])
+    baum = cKDTree(pts, boxsize=[N, 2 * N])
     yy, xx = np.mgrid[0:N, 0:N].astype(np.float64)
-    wx = rausch(59, 2.8, 1, 10) * 18.0
-    wy = rausch(60, 2.8, 1, 10) * 6.0
-    # Kluftkoerper: grosse verbogene Zellen, jede eine schraege Ebene
-    f1, f2, idx, pts, rng = zellen(51, 30, 1.0)
+    q = np.stack([xx.ravel() + 0.5, (yy.ravel() + 0.5) * 2.0], 1)
+    dd, ii = baum.query(q, k=2)
+    f1 = dd[:, 0].reshape(N, N)
+    f2 = dd[:, 1].reshape(N, N)
+    idx = ii[:, 0].reshape(N, N)
+    pts = pts / np.array([1.0, 2.0])
+    wx = rausch(142, 2.8, 1, 8) * 14.0
+    wy = rausch(143, 2.8, 1, 8) * 6.0
     idx = np.rint(verbiegen(idx.astype(np.float64), wx, wy, 0)).astype(int) % (idx.max() + 1)
-    neig = rng.normal(0, 1, (idx.max() + 1, 2)) * 0.006
-    basis = rng.random(idx.max() + 1)
+    f1w = verbiegen(f1, wx, wy)
+    f2w = verbiegen(f2, wx, wy)
+    n_z = idx.max() + 1
+    neig = rng.normal(0, 1, (n_z, 2)) * 0.010
+    neig[:, 1] -= 0.006                      # Facetten neigen sich eher nach oben (Licht)
+    basis = rng.random(n_z)
     p = pts[idx]
     ddx = (xx - p[..., 0] + N / 2) % N - N / 2
     ddy = (yy - p[..., 1] + N / 2) % N - N / 2
-    platte = weich(basis[idx] * 0.6 + neig[idx, 0] * ddx + neig[idx, 1] * ddy, 1.0)
-    # Gestufte Schichten: Treppenfunktion der (verbogenen) Hoehe
-    lagen = 11.0
-    z = (yy + wy * 2.0 + rausch(53, 3.0, 1, 5) * 14.0) / N * lagen
-    stufe = np.floor(z) + np.clip((z - np.floor(z) - 0.82) / 0.18, 0, 1)   # steile Kante
-    lage_id = np.floor(z).astype(int) % int(lagen)
-    lage_ton = np.random.default_rng(54).random(int(lagen))[lage_id]
-    stufe = stufe / lagen
-    # Risse auf den KANTEN der Kluftkoerper, nur teilweise offen (ein Rauschen schaltet sie
-    # ab). Erste Fassung: Nulllinien eines Rauschfelds — die sind zwangslaeufig geschlossene
-    # Schleifen und lagen als Wuermer auf dem Stein.
-    f1w = verbiegen(f1, wx, wy)
-    f2w = verbiegen(f2, wx, wy)
-    offen = np.clip(rausch(55, 2.4, 2, 24) * 1.2 + 0.3, 0, 1)
-    riss = np.clip(1.0 - (f2w - f1w) / 2.2, 0, 1) ** 1.5 * offen
-    # Feine Kluefte SENKRECHT (gestrecktes Rauschen) — richtungslos gaben sie Wurmlinien
-    kl = weich(rausch(56, 1.8, 6, 90), (5.0, 0.6))
-    kl = kl / (kl.std() + 1e-9)
-    feinriss = np.clip(1.0 - np.abs(kl) / 0.07, 0, 1) ** 2 * np.clip(rausch(61, 2.0, 2, 20), 0, 1)
-    rauh = rausch(57, 1.3, 6, 200) + 0.6 * np.clip(rausch(62, 0.8, 40, 256) - 1.2, 0, None)
-    hoehe = norm01(platte * 0.45 + stufe * 0.55 - riss * 0.25 - feinriss * 0.08
-                   + rauh * 0.025)
-    c = np.broadcast_to(ton(1.0, 1.0, 1.0), (N, N, 3)).copy()
-    c *= (0.84 + 0.26 * lage_ton)[..., None]               # Lagen unterschiedlich hell
-    c *= (0.90 + 0.16 * basis[idx])[..., None]             # Kluftkoerper
-    c = mische(c, np.broadcast_to(ton(1.06, 1.0, 0.92), (N, N, 3)),
-               np.clip(lage_ton - 0.6, 0, 1) * 1.5)       # warme Baender
-    c *= (1.0 - 0.45 * riss)[..., None]
-    c *= (1.0 - 0.18 * feinriss)[..., None]
-    c *= (0.93 + 0.10 * norm01(rauh))[..., None]
-    # Unter jeder Stufe eine dunkle Spur (Wasser, Schatten der Kante)
-    unter = np.clip(1.0 - (z - np.floor(z)) / 0.35, 0, 1) ** 2
-    c *= (1.0 - 0.12 * unter)[..., None]
-    # Flechten: wenige kleine Flecken
-    fl = np.clip(rausch(58, 1.4, 20, 160) - 2.0, 0, 1)
-    c = mische(c, np.broadcast_to(ton(1.20, 1.18, 0.90), (N, N, 3)), np.clip(fl * 2.0, 0, 1))
-    return speichern("fels", c, hoehe, 7.0, 5.0, 3.0)
+    ebene = basis[idx] * 0.4 + neig[idx, 0] * ddx + neig[idx, 1] * ddy
+    kante = np.clip(1.0 - (f2w - f1w) / 9.0, 0.0, 1.0)   # 1 an der Fuge
+    # Oben/unten an der Fuge: Richtung zur Zellmitte (dy < 0 = Zelle liegt oberhalb)
+    oben = np.clip(-ddy / 30.0, -1.0, 1.0)
+    hoehe = norm01(ebene - kante ** 2 * 0.25)
+    c = grund(ton(1.0, 1.0, 1.0))
+    c *= (0.86 + 0.26 * basis[idx])[..., None]
+    # weicher Verlauf je Facette (oben heller)
+    c *= (1.0 + 0.10 * np.clip(-ddy / 40.0, -1.0, 1.0))[..., None]
+    # Lichtkante an der Oberkante, Schatten an der Unterkante
+    licht = kante ** 1.5 * np.clip(-oben, 0, 1)
+    schatten = kante ** 1.5 * np.clip(oben, 0, 1)
+    c = c * (1.0 + 0.30 * licht)[..., None]
+    c = c * (1.0 - 0.32 * schatten)[..., None]
+    fuge = np.clip(1.0 - (f2w - f1w) / 2.0, 0.0, 1.0) * np.clip(rausch(144, 2.0, 2, 12) - 0.1, 0, 1)
+    c *= (1.0 - 0.25 * fuge)[..., None]
+    band = np.sin((yy + wy * 2.0) / N * 2 * np.pi * 5 + rausch(145, 3.0, 1, 4))
+    c *= (0.97 + 0.05 * band)[..., None]
+    c = mische(c, grund(ton(1.04, 1.0, 0.94)), np.clip(basis[idx] - 0.65, 0, 1))
+    c = weich(c, (0.8, 0.8, 0))
+    return speichern("fels", c, hoehe, 5.0, 6.0, 1.2)
 
 
 def schnee():
-    """Schnee, Kachel ~8 m: weiche Verwehungen, Windgangeln, feines Korn; in den Mulden
-    kuehler."""
-    yy, xx = np.mgrid[0:N, 0:N].astype(np.float64)
-    weh = rausch(61, 3.2, 1, 12)
-    gangeln = weich(rausch(62, 1.6, 6, 80), (0.6, 3.5))
-    korn = rausch(63, 0.5, 80, 256)
-    hoehe = norm01(weh * 0.7 + gangeln * 0.25 + korn * 0.02)
-    c = np.broadcast_to(ton(1.0, 1.0, 1.0), (N, N, 3)).copy()
-    kalt = 1.0 - hoehe
-    c = mische(c, np.broadcast_to(ton(0.86, 0.92, 1.04), (N, N, 3)), np.clip(kalt * 0.8, 0, 1))
-    c *= (0.96 + 0.06 * norm01(korn))[..., None]
-    return speichern("schnee", c, hoehe, 2.5, 6.0, 1.5)
+    """Schnee, gemalt: weiche, breite Verwehungen, kuehle blaue Kehlen, wenig Kontrast."""
+    rng = np.random.default_rng(151)
+    w = stroemung(152, staerke=0.8, grund=0.3)
+    c = grund(ton(0.94, 0.96, 1.02))
+    h = np.full((N, N), 0.3)
+    tupfen(c, h, rng, 260, 110, 40, ton(0.88, 0.92, 1.04), 0.2, w, streu=0.3, ton_streu=0.02)
+    tupfen(c, h, rng, 380, 90, 34, ton(1.03, 1.03, 1.0), 0.75, w, streu=0.3, ton_streu=0.02)
+    c = weich(c, (3.0, 3.0, 0))
+    h = norm01(weich(h, 4.0))
+    return speichern("schnee", c, h, 1.2, 8.0, 0.8)
 
 
 MATERIALIEN = [gras, waldboden, erde, sand, fels, schnee]   # Reihenfolge = Ebene im Array

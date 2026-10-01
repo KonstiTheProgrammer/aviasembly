@@ -9,9 +9,11 @@
 // Gruentoene (Farbton 150 -> 110 -> 88 Grad, Saettigung 0.6) — die Helligkeit kommt aus
 // dem Licht (klares_licht), nicht aus der Farbe. Erster Anlauf mit Saettigung 0.7 stand
 // ohne Dunst als Neonrasen da (im Bild 0.78-0.85).
+// ZELDA (BotW): das Gruen eine Spur gelber und frischer als "satt & klar" (dort 110 Grad),
+// die Tiefe bleibt (sonst wird es pastellig = "milchig").
 const vec3 GRAS_TIEF = vec3(0.08, 0.23, 0.15);
-const vec3 GRAS_MITTE = vec3(0.20, 0.39, 0.16);
-const vec3 GRAS_HELL = vec3(0.40, 0.53, 0.22);
+const vec3 GRAS_MITTE = vec3(0.22, 0.41, 0.15);
+const vec3 GRAS_HELL = vec3(0.42, 0.54, 0.20);
 // Fels: kuehles Granitgrau -> helles warmes Grau. Nur der Farbton; die Helligkeit legt
 // gelaende_kern fest (siehe dort). Erster Anlauf mit Graubraun (0.62/0.55/0.46)
 // gab Schokoladenberge.
@@ -65,14 +67,16 @@ vec3 weiches_licht(vec3 n, vec3 l, vec3 farbe, float att) {
 	return farbe * att * w * (0.92 / PI);
 }
 
-// KLARES LICHT fuer alles, was den Boden bildet (Gelaende, Gras, Strassen — dieselbe
-// Funktion, sonst laege eine Strasse am Hang anders im Licht als die Wiese daneben).
-// Nahe an Lambert mit kurzem Uebergang: flacher Boden bekommt bei 26 Grad Sonnenhoehe
-// 0.57, der Sonne zugewandte Haenge 1.08, abgewandte nichts. Das weiche Licht gab 0.71
-// gegen 0.92 — Verhaeltnis 1.3, also kaum Relief; jetzt 1.9: jeder Hang hat eine Licht-
-// und eine Schattenseite. l_welt = mat3(INV_VIEW_MATRIX) * LIGHT.
+// CEL-LICHT IM STIL ZELDA BotW fuer alles, was den Boden bildet (Gelaende, Gras, Strassen —
+// dieselbe Funktion, sonst laege eine Strasse am Hang anders im Licht als die Wiese daneben).
+// Eine weiche, aber klar erkennbare Licht-/Schattenkante (Terminator ueber ~10 Grad), danach
+// eine fast FLACHE Lichtseite mit leichtem Anstieg zur Sonne: flacher Boden 0.80, Sonnenhang
+// 1.05, abgewandte Seite 0 + Himmelsfuellung. Vorher (klares_licht, nahe Lambert) lief das
+// Licht ueber die ganze Flanke als Verlauf — das ist der realistische, nicht der gemalte Look.
+// l_welt = mat3(INV_VIEW_MATRIX) * LIGHT.
 vec3 klares_licht(vec3 n, vec3 l, vec3 farbe, float att, vec3 l_welt) {
-	float w = smoothstep(-0.06, 0.90, dot(n, l)) * 1.08;
+	float ndl = dot(n, l);
+	float w = smoothstep(-0.02, 0.16, ndl) * (0.74 + 0.31 * smoothstep(0.15, 0.95, ndl));
 	vec3 licht = farbe * att * w * (1.0 / PI);
 	float sonne = step(0.995, dot(normalize(l_welt), sonne_dir));
 	return licht + sonne * HIMMEL_FUELL * (1.0 - smoothstep(0.0, 0.45, att * w));

@@ -1,5 +1,9 @@
-"""LAUB-ATLAS fuer die Baumkronen — Blattbueschel-Karten mit Alpha, selbst erzeugt
+"""LAUB-ATLAS fuer die Baumkronen — gemalte Laubkarten mit Alpha, selbst erzeugt
 (Nutzerwunsch 2026-10-01: "billig, rueste es auf", Baeume mit aufruesten, Quelle selbst).
+ZWEITE FASSUNG (selber Tag): einzelne Blaetter mit Mittelrippe und Nadeln waren zu
+realistisch — gewuenscht ist "zelda-maessig" (BotW): PUFFIGE, GEMALTE Laubwolken mit
+gewelltem Rand und weichem Licht von oben links, Nadelzweige als weiche, ueberlappende
+Lappen.
 
     python3 tools/build_laubtextur.py [--vorschau <png>]
 
@@ -85,6 +89,67 @@ class Feld:
         f *= (0.88 + 0.12 * np.clip(1.0 - np.abs(v) / (w + 1e-6), 0, 1))[..., None]
         self._setzen(x0, x1, y0, y1, m, f)
 
+    def puff(self, mitte, radius, farbe, wellen=9, welle=0.07, licht=(-0.55, -0.83),
+             kontrast=0.30, spitz=0.0):
+        """Gemalte Laubwolke: Kreis mit gewelltem Rand (wellen Lappen), Licht von oben links
+        (hell oben, dunkel unten, Rand etwas dunkler). spitz > 0: gezackter Rand (Kiefer)."""
+        cx, cy = mitte
+        r = radius * (1.0 + welle + spitz) + 3
+        pt = self._patch(cx - r, cx + r, cy - r, cy + r)
+        if pt is None:
+            return
+        x0, x1, y0, y1, xx, yy = pt
+        dx, dy = xx - cx, yy - cy
+        d = np.sqrt(dx * dx + dy * dy) + 1e-6
+        a = np.arctan2(dy, dx)
+        ph = self.rng.random() * 6.28
+        rand = radius * (1.0 + welle * np.sin(wellen * a + ph)
+                         + welle * 0.2 * np.sin(wellen * 2.1 * a + ph * 1.7)
+                         + spitz * np.abs(np.sin(wellen * 2.5 * a + ph)) ** 0.5 - spitz * 0.5)
+        m = np.clip((rand - d) * 0.8 + 0.5, 0, 1)
+        lx, ly = licht
+        hell = np.clip((dx * lx + dy * ly) / radius, -1, 1)          # +1 zur Lichtseite
+        rnd = np.clip(1.0 - d / rand, 0, 1)
+        f = np.ones(xx.shape + (3,)) * np.asarray(farbe)[None, None, :]
+        f *= (1.0 + kontrast * hell)[..., None]
+        f *= (0.86 + 0.14 * rnd ** 0.5)[..., None]
+        self._setzen(x0, x1, y0, y1, m, f)
+
+    def lappen(self, ansatz, winkel, laenge, breite, farbe, haengen=0.25, kontrast=0.28):
+        """Weicher, spitz zulaufender Lappen (Nadelzweig-Masse), leicht haengend gebogen,
+        oben hell, unten dunkel."""
+        cx, cy = ansatz
+        r = laenge + breite + 3
+        pt = self._patch(cx - r, cx + r, cy - r, cy + r)
+        if pt is None:
+            return
+        x0, x1, y0, y1, xx, yy = pt
+        ca, sa = np.cos(winkel), np.sin(winkel)
+        u = (xx - cx) * ca + (yy - cy) * sa
+        v = -(xx - cx) * sa + (yy - cy) * ca
+        t = u / laenge
+        v = v - haengen * laenge * np.clip(t, 0, 1) ** 2      # Biegung nach unten (Bild-v)
+        prof = np.clip(np.sin(np.pi * np.clip(t, 0, 1) ** 0.8), 0, 1) ** 0.7
+        w = breite * prof
+        m = np.clip((w - np.abs(v)) * 0.9 + 0.5, 0, 1) * ((t > 0) & (t < 1))
+        f = np.ones(xx.shape + (3,)) * np.asarray(farbe)[None, None, :]
+        f *= (1.0 - kontrast * np.clip(v / (w + 1e-6), -1, 1))[..., None]
+        f *= (0.9 + 0.1 * np.clip(1 - t, 0, 1))[..., None]
+        self._setzen(x0, x1, y0, y1, m, f)
+
+    def tupfer(self, mitte, radius, farbe):
+        """Kleiner weicher Farbtupfer NUR auf schon gedeckten Pixeln (Pinselstruktur)."""
+        cx, cy = mitte
+        r = radius + 3
+        pt = self._patch(cx - r, cx + r, cy - r, cy + r)
+        if pt is None:
+            return
+        x0, x1, y0, y1, xx, yy = pt
+        d = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+        m = np.clip((radius - d) / (radius * 0.5), 0, 1) * (self.a[y0:y1, x0:x1] > 0.5)
+        sub_c = self.c[y0:y1, x0:x1]
+        sub_c[...] = sub_c * (1.0 - m[..., None]) + sub_c * np.asarray(farbe)[None, None, :] * m[..., None]
+
     def _setzen(self, x0, x1, y0, y1, m, farbe):
         sub_a = self.a[y0:y1, x0:x1]
         sub_c = self.c[y0:y1, x0:x1]
@@ -108,117 +173,113 @@ class Feld:
         return c, self.a
 
 
+def _pinsel(f, rng, n, oben_hell=1.10, unten_dunkel=0.90):
+    """Pinselstruktur: kleine helle Tupfer eher oben, dunkle eher unten."""
+    for k in range(n):
+        x, y = rng.random() * 512, rng.random() * 512
+        r = 6 + rng.random() * 9
+        oben = 1.0 - y / 512.0
+        if rng.random() < 0.35 + 0.4 * oben:
+            f.tupfer((x, y), r, (oben_hell, oben_hell, oben_hell * 0.95))
+        else:
+            f.tupfer((x, y), r, (unten_dunkel, unten_dunkel, unten_dunkel * 1.02))
+
+
 def laub(seed=1):
-    """Laubbueschel: rund, in der Mitte dicht, am Rand locker; Blaetter zeigen nach aussen.
-    Erste Fassung (ein Zweig mit grossen Blaettern oben im Feld) sah aus wie ein Busch-
-    Symbol und fuellte die Karte schlecht."""
+    """Laubwolke (Eiche, Busch, Urwald ...): 10-14 puffige, gemalte Ballen mit gewelltem Rand,
+    grosse hinten, kleinere vorn; Licht von oben links; darauf Pinseltupfer."""
     f = Feld(seed)
     rng = f.rng
-    holz = (0.42, 0.36, 0.30)
-    for k in range(9):
-        w = rng.random() * 2 * np.pi
-        f.strich((256, 256), (256 + np.cos(w) * 190, 256 + np.sin(w) * 190), 3.0, 1.0, holz)
-    blaetter = []
-    for k in range(190):
-        r = np.sqrt(rng.random()) * 205
+    ballen = []
+    for k in range(13):
         a = rng.random() * 2 * np.pi
-        blaetter.append((r, a))
-    blaetter.sort(key=lambda b: -b[0])          # aussen zuerst, die Mitte liegt vorne
-    for (r, a) in blaetter:
-        p = (256 + np.cos(a) * r, 256 + np.sin(a) * r)
-        w = a + rng.normal(0, 0.55)
-        L = 38 + rng.random() * 22
-        ton = 0.80 + rng.random() * 0.40 - 0.10 * (r / 205)
-        farbe = (ton * (0.92 + rng.random() * 0.16), ton, ton * (0.85 + rng.random() * 0.2))
-        f.blatt(p, w, L, L * 0.32, farbe)
+        rr = np.sqrt(rng.random()) * 150
+        ballen.append(((256 + np.cos(a) * rr, 262 + np.sin(a) * rr * 0.85), 62 + rng.random() * 48))
+    ballen.sort(key=lambda b: -b[1])
+    for (m, r) in ballen:
+        ton = 0.90 + rng.random() * 0.22
+        f.puff(m, r, (ton, ton, ton * 0.96), wellen=5 + int(rng.random() * 3), welle=0.06)
+    _pinsel(f, rng, 420)
     return f.fertig()
 
 
 def feinlaub(seed=2):
-    """Birke: haengende, gebogene Zweiglein mit kleinen Blaettern, UNREGELMAESSIG verteilt
-    (erste Fassung: neun gerade Zweige in gleichem Abstand — in der Krone lag das als
-    Vorhang in Reihen)."""
+    """Birke: kleine Laubwoelkchen an haengenden, gebogenen Straengen (lockerer, heller)."""
     f = Feld(seed)
     rng = f.rng
     holz = (0.40, 0.36, 0.34)
-    for k in range(16):
-        x = 20 + rng.random() * 472
-        y = 10 + rng.random() * 140
+    for k in range(11):
+        x = 30 + rng.random() * 452
+        y = 20 + rng.random() * 120
         pts = [(x, y)]
-        drift = rng.normal(0, 4)
-        schritte = 4 + int(rng.random() * 6)
-        for s_ in range(schritte):
+        drift = rng.normal(0, 5)
+        for s_ in range(4 + int(rng.random() * 5)):
             px, py = pts[-1]
-            pts.append((px + drift + rng.normal(0, 5), py + 34 + rng.random() * 14))
+            pts.append((px + drift + rng.normal(0, 5), py + 40 + rng.random() * 14))
         for a, b in zip(pts[:-1], pts[1:]):
             f.strich(a, b, 1.5, 1.1, holz)
         for (px, py) in pts[1:]:
-            for seite in (-1, 1):
-                if py > 500 or rng.random() < 0.15:
-                    continue
-                w = np.pi / 2 + seite * (0.8 + rng.normal(0, 0.35))
-                L = 22 + rng.random() * 12
-                ton = 0.85 + rng.random() * 0.32
-                farbe = (ton * (0.95 + rng.random() * 0.15), ton, ton * 0.85)
-                f.blatt((px, py), w, L, L * 0.45, farbe, spitz=0.6)
+            if py > 490:
+                continue
+            ton = 0.92 + rng.random() * 0.22
+            f.puff((px + rng.normal(0, 6), py), 20 + rng.random() * 14,
+                   (ton, ton, ton * 0.94), wellen=5, welle=0.08)
+    _pinsel(f, rng, 260)
     return f.fertig()
 
 
 def nadelzweig(seed=3):
-    """Fichte: flacher Zweig, Ansatz links (u = 0), Spitze rechts. Die Karte wird im Modell
-    vom Stamm nach aussen gelegt. Dicht (erste Fassung 18 % Deckung = aus der Ferne Gitter)."""
+    """Fichte: weicher Nadelzweig wie gemalt — Ansatz links, Spitze rechts, symmetrisch um
+    den Zweig: ueberlappende spitze Lappen schraeg nach vorn, ein Mittellappen, am Umriss
+    kleine Fransen (keine einzelnen Nadeln)."""
     f = Feld(seed)
     rng = f.rng
     holz = (0.42, 0.36, 0.30)
-    mitte = 256
-    haupt = [(8, mitte), (504, mitte + rng.normal(0, 4))]
-    f.strich(haupt[0], haupt[1], 3.5, 1.2, holz)
-    zweige = [(haupt[0], haupt[1], 0.0, 1.0)]
-    for s in np.linspace(0.05, 0.94, 17):
-        x = 8 + s * 496
+    y0 = 256
+
+    def breite(x):
+        return (1.0 - x / 512.0) * 120 + 26
+
+    f.strich((6, y0), (500, y0), 4.0, 1.5, holz)
+    n = 13
+    for k in range(n):
+        x = 14 + k / (n - 1) * 440
+        L = breite(x) * 1.25 + 30
         for seite in (-1, 1):
-            w = seite * (0.70 + rng.normal(0, 0.12))
-            L = (1.0 - s) * 175 + 45
-            a = (x, mitte)
-            e = (x + np.cos(w) * L, mitte + np.sin(w) * L)
-            f.strich(a, e, 1.8, 0.9, holz)
-            zweige.append((a, e, w, L / 220))
-    for (a, e, w, gr) in zweige:
-        L = np.hypot(e[0] - a[0], e[1] - a[1])
-        n = int(L / 2.0)
-        for k in range(n):
-            s = k / max(n - 1, 1)
-            p = (a[0] + (e[0] - a[0]) * s, a[1] + (e[1] - a[1]) * s)
-            for seite in (-1, 1):
-                ww = w + seite * (0.95 + rng.normal(0, 0.18))
-                ln = (16 + rng.random() * 7) * (0.75 + 0.25 * gr) * (1.0 - 0.35 * s)
-                ton = 0.78 + rng.random() * 0.44
-                farbe = (ton, ton, ton * (0.9 + rng.random() * 0.2))
-                q = (p[0] + np.cos(ww) * ln, p[1] + np.sin(ww) * ln)
-                f.strich(p, q, 1.6, 0.7, farbe)
+            w = seite * (0.62 + rng.normal(0, 0.06))
+            ton = 0.90 + rng.random() * 0.16 + (0.08 if seite < 0 else -0.06)
+            f.lappen((x, y0), w, L, breite(x) * 0.28 + 8, (ton, ton, ton * 0.96), haengen=0.06)
+    f.lappen((8, y0), 0.0, 500, 26, (1.06, 1.06, 1.0), haengen=0.0)
+    # Fransen am Umriss, nach aussen-vorn
+    for k in range(90):
+        x = 20 + rng.random() * 460
+        seite = -1 if rng.random() < 0.5 else 1
+        # innerhalb des Umrisses der grossen Lappen anfangen (sonst schweben Fransen frei)
+        y = y0 + seite * breite(x) * 0.62 * (0.8 + 0.2 * rng.random())
+        f.lappen((x - 10, y - seite * 8), seite * (0.75 + rng.normal(0, 0.15)),
+                 18 + rng.random() * 16, 5.5, (0.98, 0.98, 0.95), haengen=0.0)
+    _pinsel(f, rng, 300, oben_hell=1.12, unten_dunkel=0.88)
     return f.fertig()
 
 
 def kiefer(seed=4):
-    """Kiefer: Nadelbueschel (Strahlen langer Nadeln um ein Zweigende)."""
+    """Kiefer: puffige, gezackte Nadelbueschel (Sterne mit weichem Kern) an kurzen Zweigen."""
     f = Feld(seed)
     rng = f.rng
     holz = (0.45, 0.33, 0.25)
-    mitten = []
-    for k in range(7):
+    mitten = [(256, 256)]
+    for k in range(8):
         a = rng.random() * 2 * np.pi
-        r = 80 + rng.random() * 120
-        mitten.append((256 + np.cos(a) * r, 256 + np.sin(a) * r))
-    mitten.append((256, 256))
+        r = 70 + rng.random() * 120
+        mitten.append((256 + np.cos(a) * r, 256 + np.sin(a) * r * 0.85))
+    # Keine Zweigstriche: sie lagen als dunkle Linien quer ueber den Bueschelkarten (die
+    # echten Aeste stehen ohnehin im Modell).
+    mitten.sort(key=lambda m: m[1])
     for (cx, cy) in mitten:
-        f.strich((256, 400), (cx, cy), 3.0, 1.5, holz)
-    for (cx, cy) in mitten:
-        for k in range(190):
-            w = rng.random() * 2 * np.pi
-            ln = 45 + rng.random() * 50
-            ton = 0.80 + rng.random() * 0.4
-            q = (cx + np.cos(w) * ln, cy + np.sin(w) * ln * 0.85)
-            f.strich((cx, cy), q, 1.7, 0.8, (ton, ton, ton * (0.9 + rng.random() * 0.2)))
+        ton = 0.90 + rng.random() * 0.2
+        f.puff((cx, cy), 58 + rng.random() * 26, (ton, ton, ton * 0.96), wellen=13,
+               welle=0.03, spitz=0.09)
+    _pinsel(f, rng, 260)
     return f.fertig()
 
 

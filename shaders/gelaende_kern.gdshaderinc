@@ -72,7 +72,9 @@ const float MORPH_S = 1.4;   // = TerrainWorld.MORPH_S
 
 #ifndef FERN
 // --- BODENMATERIALIEN (2026-10-01, Nutzer: "schaut alles so billig aus, rueste es auf";
-// gewaehlt: echte Texturen, selbst erzeugt) ------------------------------------------------
+// gewaehlt: echte Texturen, selbst erzeugt). ZWEITE FASSUNG am selben Tag: die realistischen
+// Texturen (Halme, Kiesel, Gesteinsschichten) passten nicht — gewuenscht ist "zelda-maessig"
+// (BotW): GEMALTE Pinseltupfen, facettierter Fels, schwaches Relief, groessere Kacheln. ---
 // Sechs kachelbare Materialien (tools/build_bodentexturen.py): Farbe als FAKTOR mit Mittel 1
 // (die Palette und die Vertexfarben bleiben die Grundfarbe — Karte, Fernschuerze und Nahbereich
 // passen weiter zusammen), Hoehe fuer das Ueberblenden, Normale und Hohlkehle fuer das Relief.
@@ -90,15 +92,18 @@ const float MAT_FELS = 4.0;
 const float MAT_SCHNEE = 5.0;
 // Weltmeter je Kachel (feiner Massstab). Der zweite Massstab ist KACHEL_GROSS-mal so gross
 // und gedreht — zwei Kacheln mit irrationalem Verhaeltnis wiederholen sich nicht sichtbar.
-const float KACHEL_GRAS = 2.6;
-const float KACHEL_WALD = 3.0;
-const float KACHEL_ERDE = 3.2;
-const float KACHEL_SAND = 6.0;
-const float KACHEL_FELS = 9.0;
-const float KACHEL_SCHNEE = 8.0;
+const float KACHEL_GRAS = 4.5;
+const float KACHEL_WALD = 5.0;
+const float KACHEL_ERDE = 5.0;
+const float KACHEL_SAND = 10.0;
+// Fels 34 m: mit 14 m lagen die Facetten (~2,5 m) an 100-m-Waenden wie Schuppenhaut.
+const float KACHEL_FELS = 34.0;
+const float KACHEL_SCHNEE = 12.0;
 const float KACHEL_GROSS = 4.7;
 const mat2 DREH = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
-const float RELIEF = 0.9;       // Staerke der Normalenstoerung
+// Staerke der Normalenstoerung. Im gemalten Zelda-Stil schwach (realistische Fassung: 0.9) —
+// die Form erzaehlt das Licht, die Textur nur die Pinselstruktur.
+const float RELIEF = 0.40;
 
 // Von oben projiziert, zwei Massstaebe. rgb = Farbfaktor, a = Hoehe; stoer = Welt-
 // Stoerung der Normale (x, z), ao = Hohlkehle.
@@ -319,7 +324,7 @@ void fragment() {
 				+ a_fels * b_fels + a_schnee * b_schnee) / bsum;
 			c *= mix(vec3(1.0), f, abdeckung);
 			n = normalize(n + st * RELIEF * abdeckung);
-			hohl = mix(1.0, ao, 0.75 * abdeckung);
+			hohl = mix(1.0, ao, 0.45 * abdeckung);
 		}
 	}
 #endif

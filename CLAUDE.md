@@ -531,6 +531,30 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   noch schlimmer (gar nichts sichtbar: 16-bit-Lagen des Hauptnetzes ≠ Float-Lagen). Jetzt
   `_schattennetz` aus denselben Dreiecken mit DEMSELBEN Kompressionsflag. Beleg: Einzelbaum-
   Render roh vs. aufbereitet (Werkzeug im Verlauf, `TerrainWorld._weiche_krone` direkt).
+- ZELDA-FASSUNG DER TEXTUREN (2026-10-01 abends). Die realistischen Boden- und Laubtexturen
+  (Halme, Kiesel, Gesteinsschichten, Blaetter mit Mittelrippe, Einzelnadeln) fand der Nutzer
+  „nicht passend“ — gewuenscht ist „zelda-maessig“ (BotW/TotK), ausdruecklich KEIN Comic
+  (Memory `stil-zelda-ghibli`). Dieselbe Pipeline, neue Inhalte:
+  * BODEN (`build_bodentexturen.py`): `tupfen` = Pinseltupfen mit Umlauf, Richtung aus einem
+    weichen Stroemungsfeld, drei bis vier Toene (dunkel zuerst, hell zuletzt). Gras =
+    gekaemmte Striche, Waldboden = Moostupfen, Erde = runde Tupfen (laengliche lasen sich als
+    Fell), Sand = glatte Rippelbaender (Striche ebenfalls Fell), Fels = FLACHE BLOECKE
+    (Zellen in einem Raum, dessen Hoehe doppelt zaehlt; runde Zellen = Pflaster) mit
+    Lichtkante oben, Schatten unten, wenigen Fugen, Schnee = breite Verwehungen. FALLE:
+    Tonstreuung je Farbkanal gab bunte Pastellflecken — Streuung nur in der Helligkeit.
+    Shader: Kacheln groesser (Gras 4,5 m, Fels 34 m — mit 14 m lagen die Facetten als
+    Schuppenhaut an den Waenden), RELIEF 0.9 -> 0.40, Hohlkehle 0.75 -> 0.45.
+  * LICHT (`palette.gdshaderinc`, `klares_licht`): CEL-Rampe smoothstep(-0.02, 0.16, N·L) ·
+    (0.74 + 0.31 · smoothstep(0.15, 0.95, N·L)) — weiche, aber klare Kante, flache helle
+    Lichtseite (flacher Boden 0.80 statt 0.57), Himmelsfuellung im Schatten wie gehabt.
+    Gruen etwas frischer (GRAS_MITTE 0.22/0.41/0.15, GRAS_HELL 0.42/0.54/0.20).
+  * LAUB (`build_laubtextur.py`): `puff` = gemalte Laubwolke (gewellter Rand mit 5-7
+    Lappen — mehr und ein zweiter Oberton gaben Zahnraeder), Licht von oben links, darauf
+    `tupfer` (Pinselstruktur nur auf gedeckten Pixeln). Laubwolke, Birkenstraenge aus
+    Woelkchen, Fichtenzweig aus ueberlappenden spitzen `lappen` mit Fransen (Fransen
+    innerhalb des Umrisses anfangen, sonst schweben sie), Kiefer = leicht gezackte
+    Bueschel OHNE Zweigstriche (die lagen als dunkle Linien ueber den Karten).
+  Kosten unveraendert (4K Mittel 15,97 ms, Flora 2,63).
 - BAEUME, VIERTE FASSUNG: BLATTKARTEN (2026-10-01, Nutzer: „billig, rueste es auf“, Baeume
   mit, Quelle SELBST ERZEUGT). Laub-Atlas `tools/build_laubtextur.py` (1024², vier Felder:
   Laubbueschel, Birkenzweiglein, Fichtenzweig mit Ansatz links, Kiefernbueschel; RGB =
