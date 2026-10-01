@@ -698,6 +698,64 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   Detailstufen ein kleiner Teil der Arbeit, Ersparnis ~3 % der Worker-Zeit, dafuer eigener
   Auftragstyp und Raster im Speicher).
 
+## Hafenstadt FREIHAFEN mit Freiheitsstatue (2026-10)
+Nutzerwunsch: „baue eine hafenstadt mit freiheitstatue". Alles in `scripts/Hafenstadt.gd`
+(statisch, feste RNG-Seeds), eingehaengt in Main an vier Stellen: `flat_zones`
+(`flachzonen()`), `kuestenformen` (`wasserformen()`), `_setup_world` (`bauen()` nach
+Skyline), Kartenpunkte (`pois()`).
+- LAGE: Westufer des Ostgolfs, `MITTE` (14300, 9900) — gerade Kueste, flaches Land, tiefes
+  Wasser; der Silberfluss laeuft 900 m suedwestlich vorbei (Zone bleibt mit r_blend 800
+  davon frei). Ausgesucht mit `tools/_hafen_platz.gd -- x0 z0 x1 z1 schritt` (Hoehenraster
+  als Zeichenbild: `~` tief, `-` flach, `.` Land bis 6 m, `F` Fluss).
+- KAIKANTE (neu in TerrainWorld.height_at): Flachzonen kennen den Schluessel
+  `"kai": Vector3(nx, nz, abstand)` — die Zone gilt nur diesseits einer Geraden, jenseits
+  faellt das Gelaende ueber `KAI_RAMPE` (10 m) auf den gewachsenen Grund. Eine Kreiszone
+  allein gibt einen runden Strand; ein Hafen braucht eine gerade Kante. Die Kaimauer aus
+  Hafenstadt._kai steht `KAI_VOR` (12 m) davor und verdeckt die Boeschung (auch im
+  16-m-Raster der groben Chunks). Flachzonen laufen NACH den Wasserformen — eine Zone mit
+  y ueber dem Meer im Wasser ist deshalb eine INSEL (Statueninsel, y −2,5).
+- HAFENBECKEN als eigene Wasserform (`nur_senken`, ohne `breit_rausch`): der Rand des
+  Ostgolfs haengt am Welt-Seed, das Becken vor dem Kai nicht.
+- STADTPLAN (`plan()`): Strassenraster 120 m (`NS`/`OW`) plus GASSEN, die in Altstadt,
+  Speicherstadt und Fischerviertel die Bloecke halbieren (erste Fassung ohne Gassen: je
+  Block eine duenne Zeile um einen leeren Hof = Vorort-Raster). Blockrand entlang JEDES
+  Strassenstuecks, Front zur Strasse, Typen je Viertel (`VIERTEL`: alt / speicher / fisch /
+  wohn), Dichte faellt landeinwaerts; von Hand gesetzt: Rathaus, Kirche, Hotel, Kaufhaus,
+  Bahnhof, Krankenhaus, Kraene, Silo, Tanks, Fabrik, Lotsenhaeuser; Villen und Hoefe am
+  Hang. 1124 Bauten. `strassen()` ist die EINE Liste fuer Plan, Pflaster, Baeume und
+  Pruefung.
+- KAI/PIERS/MOLEN/SCHIFFE: je EIN SurfaceTool-Netz mit `shaders/haus.gdshader` (Farbe je
+  Eckpunkt, vorher per `srgb_to_linear` gewandelt — der Shader multipliziert die Vertexfarbe
+  roh), Flaechen ueber `_viereck(..., aussen)` gewickelt (nie von Hand). Kastenkollision auf
+  Kai, Piers, Molen, Containern (man kann landen). Schiffe ohne Kollision.
+- BAEUME: eigene MultiMeshes mit `terrain._flora`-Netzen und `_flora_mat` (die Flachzone
+  haelt den Bewuchs des Gelaendes frei): Allee an Kai und Hauptstrasse, Stadtpark, Hoefe
+  (900 Zufallspunkte, verworfen auf Haus, Strasse, Platz).
+- FREIHEITSSTATUE: `Haus_Freiheitsstatue` in `tools/build_haeuser_blend.py` (64. Typ, LOD
+  691 / HD 2479 Dreiecke): Sternfort mit 11 Bastionen, Unterbau, Sockel mit Loggia, Figur
+  aus `schlauch` (Gewand, Kopf), `rohr` (Arme, Ueberwurf), `strahl` (Krone) — neue Bausteine
+  `stumpf`, `stern`, `schlauch`, `rohr`, `strahl`. Palette `dach_patina` (Schluessel mit
+  "dach" → Verlauf Fuss–Kopf) und `gold`. Im Spiel `STATUE_MASS` 1,6 (150 m; in
+  Originalgroesse war sie vom Kai aus eine kleine Figur), Fernstufe bis `STATUE_SICHT` 9 km,
+  eigene Kollision (`_statue_kollision`). Insel mit gepflastertem Uferweg auf einer
+  Ringmauer — ohne sie stand die Boeschung der Flachzone als Saegezahn aus Strandfarbe im
+  Wasser.
+- GEMESSEN (`tools/_hafen_zeit.gd`, 4K, mit/ohne Knoten "Hafenstadt"): Kai 40 m 0,42 ms,
+  ueber der Stadt 150 m 1,46 ms, Anflug 400 m 0,22 ms, 3 km entfernt 0,65 ms.
+- BELEG: `tools/_hafenstadt_check.gd` (headless, Urteilszeile): Stadtflaeche eben, Becken
+  tief, Insel, Bauplan gegen die ECHTEN Netzgrundrisse (0 Ueberschneidungen, 0 Haeuser auf
+  Strassen), Kollision per Strahl (Kai, Pier, Mole, Uferweg, Statuenkopf, Fackelarm).
+  Bilder: `_luftbild.gd -- hafen_blick 14180 120 9980 15340 60 9960` (Stadt → Statue),
+  `hafen_statue 15540 70 10160 15340 100 9960`, `hafen_oben 14350 950 10950 14400 0 9900`.
+- FALLEN: (1) Laeuft das Spiel im Vollbild, sind alle Fenster-Werkzeuge SCHWARZ (verdeckt)
+  — vor Bildwerkzeugen das Spiel beenden. (2) `for seite in [-1, 1]` gibt eine
+  Variant-Schleifenvariable; jede `:=`-Ableitung daraus bricht den Compile von Main mit —
+  `for seite: int in ...`. (3) Direkt nach `--import` kam einmal ein Schwall Fehler aus
+  CloudField (leere Netze); beim zweiten Lauf weg — nicht vom Hafen.
+- OFFEN: kein Anschluss ans Landstrassennetz (`StrassenDaten` ist vom Planer erzeugt; neu
+  erzeugen wuerde das ganze Netz aendern). `_haupt_pruefsumme` aendert sich im Umkreis der
+  Stadt (neue Zonen und Wasserform).
+
 ## Doerfer und Landstrassen (2026-09)
 Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue
 Doerfer, 31 Strassenstuecke (~278 km), 5 Bruecken; Anschluss an alle Orte (ausser NEONBUCHT
@@ -1550,7 +1608,7 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   MultiMeshInstance3D** (ein Draw-Call pro Typ, wie die Baeume) — und zwar ZWEIMAL: die
   Nahstufe aus `world_buildings_hd.glb` mit `visibility_range_end = LOD_DIST (900 m)`, die
   Fernstufe mit `visibility_range_begin = LOD_DIST`. Beide teilen dieselben Transforms. Keine Kollision — genau
-  wie die Landmarks-Bauten. 12 Viertel / 180 Gebaeude: Grossstadt (Skyline + Blockrand,
+  wie die Landmarks-Bauten. (Dazu seit 2026-10 die Hafenstadt FREIHAFEN, eigener Abschnitt.) 12 Viertel / 180 Gebaeude: Grossstadt (Skyline + Blockrand,
   70), Industriehafen, Landdorf, Burgberg (eigenes Massiv + Flachzone y=78), Militaerposten
   an der FLAK-ZONE und Hangar/Tower/Radar an ALLEN 7 Flugplaetzen. Layouts sind
   deterministisch (feste RNG-Seeds), Positionen/Flachzonen stehen in `Main._setup_world`.

@@ -86,6 +86,10 @@ PAL = {
     "hecke":        (0.22, 0.38, 0.21),
     "erde":         (0.38, 0.28, 0.19),
     "beet":         (0.36, 0.52, 0.24),
+    # Freiheitsstatue: Kupferpatina (Schluessel mit "dach": bekommt den Verlauf Fuss -> Kopf)
+    # und die vergoldete Flamme
+    "dach_patina":  (0.42, 0.66, 0.58),
+    "gold":         (0.96, 0.76, 0.26),
 }
 
 
@@ -115,7 +119,8 @@ def get_mat(key):
         spiegel = key.startswith("glas") or key == "fenster"
         # (Metall nur 0.25: mit 0.45 schluckte die Spiegelung die Glasfarbe, die Tuerme
         # standen fast schwarz in der Stadt.)
-        b.inputs["Roughness"].default_value = 0.2 if spiegel else 0.9
+        # (Gold glaenzt ebenfalls: der Haus-Shader setzt ab Rauheit < 0.5 ein Sonnen-Glanzlicht.)
+        b.inputs["Roughness"].default_value = 0.2 if spiegel else 0.3 if key == "gold" else 0.9
         b.inputs["Metallic"].default_value = (0.6 if key.startswith("metall")
                                               else 0.25 if spiegel else 0.0)
     m.diffuse_color = (*lin, 1.0)   # Workbench/Viewport
@@ -503,6 +508,98 @@ class Bau:
             V.append((x + math.cos(a) * r, y + math.sin(a) * r, z))
         V.append((x, y, z + h))
         self.add(V, [(i, (i + 1) % sides, sides) for i in range(sides)], key)
+
+    # --- FREIE FORMEN (Freiheitsstatue): Stumpf, Stern, Schlauch, Rohr, Strahl -----------------
+    def stumpf(self, x, y, z, sx0, sy0, sx1, sy1, h, key, cap_top=True):
+        """Pyramidenstumpf mit rechteckigem Grundriss (unten sx0 x sy0, oben sx1 x sy1). `zyl`
+        mit vier Seiten taugt dafuer nicht: in der Nahstufe verdoppelt es die Seitenzahl."""
+        V = [(x - sx0 * 0.5, y - sy0 * 0.5, z), (x + sx0 * 0.5, y - sy0 * 0.5, z),
+             (x + sx0 * 0.5, y + sy0 * 0.5, z), (x - sx0 * 0.5, y + sy0 * 0.5, z),
+             (x - sx1 * 0.5, y - sy1 * 0.5, z + h), (x + sx1 * 0.5, y - sy1 * 0.5, z + h),
+             (x + sx1 * 0.5, y + sy1 * 0.5, z + h), (x - sx1 * 0.5, y + sy1 * 0.5, z + h)]
+        F = [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+        if cap_top:
+            F.append((4, 5, 6, 7))
+        self.add(V, F, key)
+
+    def stern(self, x, y, z, ra, ri, zacken, h, key, key_top=None, anlauf=0.0, dreh=0.0):
+        """Sternfoermiger Mauerkoerper (Bastionen): Zacken auf Radius ra, Kehlen auf ri, die
+        Mauer unten um `anlauf` breiter. Deckflaeche als Faecher (ein Stern ist nicht konvex)."""
+        n = zacken * 2
+        unten, oben = [], []
+        for i in range(n):
+            a = dreh + math.pi * i / zacken
+            r = ra if i % 2 == 0 else ri
+            unten.append((x + math.cos(a) * (r + anlauf), y + math.sin(a) * (r + anlauf), z))
+            oben.append((x + math.cos(a) * r, y + math.sin(a) * r, z + h))
+        self.add(unten + oben, [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)], key)
+        self.add(oben + [(x, y, z + h)], [(i, (i + 1) % n, n) for i in range(n)], key_top or key)
+        return oben
+
+    def schlauch(self, stationen, sides, key, cap_top=True, falten=0.0, falten_bis=None):
+        """Koerper durch Stationen (cx, cy, z, rx, ry): elliptischer Querschnitt, dessen Mitte
+        wandern darf (Gewand, Kopf, Flamme). falten > 0 zieht in der Nahstufe jeden zweiten
+        Punkt nach innen (Faltenwurf), nach oben bis `falten_bis` auslaufend."""
+        sides = self.rund(sides)
+        z0 = stationen[0][2]
+        zb = falten_bis if falten_bis is not None else stationen[-1][2]
+        V = []
+        for cx, cy, cz, rx, ry in stationen:
+            fade = min(max((zb - cz) / max(zb - z0, 0.01), 0.0), 1.0)
+            for i in range(sides):
+                a = 2.0 * math.pi * i / sides
+                k = 1.0 - falten * fade if (self.hd and falten > 0.0 and i % 2 == 1) else 1.0
+                V.append((cx + math.cos(a) * rx * k, cy + math.sin(a) * ry * k, cz))
+        F = []
+        for st in range(len(stationen) - 1):
+            for i in range(sides):
+                j = (i + 1) % sides
+                F.append((st * sides + i, st * sides + j, (st + 1) * sides + j, (st + 1) * sides + i))
+        if cap_top:
+            F.append(tuple(range((len(stationen) - 1) * sides, len(stationen) * sides)))
+        self.add(V, F, key)
+
+    def rohr(self, punkte, radien, sides, key, cap_end=True):
+        """Rohr durch Punkte mit Radius je Punkt (Arme): Rahmen per Paralleltransport, damit
+        es sich in der Biegung nicht verdreht."""
+        sides = self.rund(sides)
+        pts = [Vector(p) for p in punkte]
+        n = len(pts)
+        V = []
+        t_alt = None
+        nrm = None
+        for i in range(n):
+            t = (pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]).normalized()
+            if nrm is None:
+                hilf = Vector((1, 0, 0)) if abs(t.x) < 0.9 else Vector((0, 1, 0))
+                nrm = t.cross(hilf).normalized()
+            else:
+                nrm = (t_alt.rotation_difference(t) @ nrm).normalized()
+            t_alt = t
+            bi = t.cross(nrm).normalized()
+            for k in range(sides):
+                a = 2.0 * math.pi * k / sides
+                V.append(tuple(pts[i] + (nrm * math.cos(a) + bi * math.sin(a)) * radien[i]))
+        F = []
+        for i in range(n - 1):
+            for k in range(sides):
+                j = (k + 1) % sides
+                F.append((i * sides + k, i * sides + j, (i + 1) * sides + j, (i + 1) * sides + k))
+        if cap_end:
+            F.append(tuple(range((n - 1) * sides, n * sides)))
+        self.add(V, F, key)
+
+    def strahl(self, p0, p1, r, sides, key):
+        """Spitzer Kegel von p0 (Fuss, Radius r) nach p1 (Spitze) in beliebiger Richtung."""
+        a, e = Vector(p0), Vector(p1)
+        t = (e - a).normalized()
+        hilf = Vector((0, 1, 0)) if abs(t.y) < 0.9 else Vector((1, 0, 0))
+        nrm = t.cross(hilf).normalized()
+        bi = t.cross(nrm).normalized()
+        V = [tuple(a + (nrm * math.cos(2.0 * math.pi * k / sides)
+                        + bi * math.sin(2.0 * math.pi * k / sides)) * r) for k in range(sides)]
+        V.append(tuple(e))
+        self.add(V, [(k, (k + 1) % sides, sides) for k in range(sides)], key)
 
     # GEMALTER VERLAUF (Stil Zelda/Ghibli) als Vertexfarbe, die der Haus-Shader mit der
     # Materialfarbe multipliziert: Waende unten dunkler (Erdnaehe, Schmutz) und nach oben
@@ -2255,6 +2352,98 @@ def bunker(b):
         b.feld((0, 1.0, 6.2), 0.9, 0.22, "-y", "fenster", eps=0.02)        # Sehschlitz der Kuppel
 
 
+def freiheitsstatue(b):
+    """FREIHEITSSTATUE in Originalgroesse (93 m): Sternfort mit elf Bastionen, gestufter
+    Unterbau, Granitsockel mit Loggia und Balkon, darauf die Figur in Kupferpatina — Gewand,
+    erhobener rechter Arm mit Fackel und goldener Flamme, die Tafel im linken Arm, Krone mit
+    sieben Strahlen. Blick nach -Y (im Spiel +Z bei yaw 0)."""
+    P = "dach_patina"
+    # --- Sternfort (Fort Wood) und Unterbau --------------------------------------------------
+    stern = b.stern(0, 0, 0, 33.0, 23.0, 11, 8.0, "stein", key_top="kies", anlauf=1.6,
+                    dreh=-math.pi * 0.5)                      # eine Bastion zeigt nach vorn
+    b.box(0, 0, 8.0, 30.0, 30.0, 5.0, "wand_taupe")
+    b.box(0, 0, 13.0, 24.0, 24.0, 7.0, "wand_taupe")
+    # --- Sockel: Plinthe, Schaft mit Loggia, Balkon, Aufsatz ------------------------------------
+    b.stumpf(0, 0, 20.0, 20.5, 20.5, 19.0, 19.0, 4.0, "wand_sand")
+    b.box(0, 0, 24.0, 16.0, 16.0, 17.0, "wand_sand")
+    b.box(0, 0, 41.0, 18.6, 18.6, 1.3, "wand_creme")                      # Balkonplatte
+    b.stumpf(0, 0, 42.3, 15.2, 15.2, 14.2, 14.2, 4.7, "wand_sand")
+    for fc, sx, sy in (("-y", 0, -1), ("+y", 0, 1), ("-x", -1, 0), ("+x", 1, 0)):
+        mitte = (sx * 8.0, sy * 8.0, 33.2)
+        b.feld(mitte, 10.0, 8.4, fc, "fenster", eps=0.06)                 # Loggia (dunkel)
+    # --- Figur -------------------------------------------------------------------------------------
+    b.zyl(0, 0, 47.0, 6.8, 6.5, 1.2, 10, P)                               # Standplatte
+    # (Breit wie das Original: das Gewand misst an der Huefte gut 10 m. Mit 7,6 m stand die
+    # Figur als duenner Stab auf ihrem Sockel.)
+    gewand = [(0.0, 0.0, 48.2, 6.3, 5.7), (0.0, 0.0, 52.0, 5.9, 5.3), (0.1, 0.0, 58.0, 5.3, 4.7),
+              (0.2, 0.0, 64.0, 4.8, 4.0), (0.2, 0.0, 69.0, 4.9, 3.8), (0.1, 0.0, 73.0, 5.2, 3.6),
+              (0.0, 0.0, 75.6, 5.2, 3.2), (0.0, -0.05, 76.8, 3.4, 2.4), (0.0, -0.1, 77.5, 1.5, 1.4)]
+    b.schlauch(gewand, 12, P, cap_top=False, falten=0.20, falten_bis=74.0)
+    kopf = [(0.0, -0.15, 77.4, 1.30, 1.30), (0.0, -0.30, 78.6, 1.75, 1.90),
+            (0.0, -0.30, 80.2, 1.90, 2.10), (0.0, -0.25, 81.6, 1.75, 1.95),
+            (0.0, -0.20, 82.7, 1.05, 1.20)]
+    b.schlauch(kopf, 8, P)
+    b.zyl(0, -0.25, 81.0, 2.2, 2.2, 0.9, 10, P, cap_top=False)            # Diadem
+    for grad in (-78, -52, -26, 0, 26, 52, 78):                           # sieben Strahlen
+        th = math.radians(grad)
+        fuss = (math.sin(th) * 1.9, -0.25, 81.5 + math.cos(th) * 0.9)
+        spitze = (fuss[0] + math.sin(th) * 3.7, fuss[1] + 0.55, fuss[2] + math.cos(th) * 3.7)
+        b.strahl(fuss, spitze, 0.42, 4 if b.hd else 3, P)
+    # rechter Arm (bei -x) mit der Fackel
+    b.rohr([(-3.6, -0.1, 74.4), (-5.0, -0.3, 79.0), (-5.2, -0.5, 83.0), (-4.7, -0.6, 87.4)],
+           [1.75, 1.40, 1.12, 0.88], 6, P)
+    b.zyl(-4.7, -0.6, 87.2, 1.0, 0.95, 1.3, 6, P)                         # Hand
+    b.zyl(-4.7, -0.6, 88.5, 0.48, 0.60, 1.6, 6, P, cap_top=False)         # Griff
+    b.zyl(-4.7, -0.6, 90.1, 0.60, 1.75, 0.5, 8, P, cap_top=False)         # Fackelschale
+    b.zyl(-4.7, -0.6, 90.6, 1.75, 1.75, 0.45, 8, P)                       # Umgang
+    b.schlauch([(-4.7, -0.6, 91.05, 1.05, 1.05), (-4.7, -0.6, 91.9, 1.20, 1.20),
+                (-4.6, -0.6, 92.8, 0.78, 0.78), (-4.45, -0.6, 93.6, 0.22, 0.22)], 6, "gold")
+    # linker Arm (bei +x) haelt die Tafel
+    b.rohr([(3.9, -0.1, 74.4), (5.4, -1.2, 69.4), (4.0, -3.4, 68.2)], [1.60, 1.30, 0.95], 6, P)
+    b.balken((4.0, -3.9, 66.4), (4.0, -3.15, 73.8), 4.0, 0.7, P)          # Tafel
+    # Ueberwurf: Wulst von der linken Schulter schraeg ueber die Brust zur rechten Huefte —
+    # ohne ihn war die Figur ein glatter Kegel mit Kopf.
+    b.rohr([(3.7, -2.3, 75.0), (0.6, -3.75, 71.4), (-3.6, -2.9, 66.4), (-4.9, -0.7, 63.2)],
+           [0.95, 0.90, 0.80, 0.55], 6, P)
+    if not b.hd:
+        return
+    # --- NAHDETAILS ------------------------------------------------------------------------------
+    # Brustwehr auf den Bastionen, Tor, Fahnenmast
+    for i in range(len(stern)):
+        p0, p1 = stern[i], stern[(i + 1) % len(stern)]
+        b.balken((p0[0], p0[1], 8.5), (p1[0], p1[1], 8.5), 0.9, 1.0, "stein")
+    b.balken((9.5, -14.0, 8.0), (9.5, -14.0, 26.0), 0.28, 0.28, "metall")
+    b.feld((11.2, -14.0, 24.2), 3.2, 2.0, "-y", "dach_rot", zweiseitig=True)
+    # Unterbau: Gesimse und Tor
+    b.box(0, 0, 12.6, 31.0, 31.0, 0.5, "wand_creme")
+    b.box(0, 0, 19.5, 25.0, 25.0, 0.6, "wand_creme")
+    b.bogen((0, -15.0, 10.2), 3.0, 4.4, "-y", "holz_dunkel", eps=0.06)
+    # Sockel: Schildband an der Plinthe, Saeulen in der Loggia, Balkonbruestung, Gesims
+    for fc, sx, sy in (("-y", 0, -1), ("+y", 0, 1), ("-x", -1, 0), ("+x", 1, 0)):
+        for u in (-6.0, -3.0, 0.0, 3.0, 6.0):
+            ctr = (sx * 9.9 + (u if sx == 0 else 0.0), sy * 9.9 + (u if sy == 0 else 0.0), 22.0)
+            b.rundfeld(ctr, 0.95, fc, "wand_taupe", eps=0.25, seiten=8)
+        for u in (-3.75, -1.25, 1.25, 3.75):                               # Loggia-Saeulen
+            px = sx * 8.25 + (u if sx == 0 else 0.0)
+            py = sy * 8.25 + (u if sy == 0 else 0.0)
+            b.balken((px, py, 29.0), (px, py, 37.4), 1.0, 1.0, "wand_sand")
+        b.feld((sx * 8.0, sy * 8.0, 27.2), 12.5, 0.8, fc, "wand_taupe", eps=0.12)   # Baender
+        b.feld((sx * 8.0, sy * 8.0, 38.6), 12.5, 0.9, fc, "wand_taupe", eps=0.12)
+    b.gelaender(0, 0, 42.3, 18.2, 18.2, "wand_creme", hoehe=1.1, n=10)
+    b.box(0, 0, 46.4, 15.0, 15.0, 0.6, "wand_creme")
+    # Figur: Faltensaum, Haarknoten, Kronenfenster, Fackelgelaender, Schrift auf der Tafel
+    b.zyl(0, 0, 48.2, 6.6, 6.45, 0.5, 12, P, cap_top=False)
+    b.schlauch([(0.0, 1.5, 79.2, 1.0, 0.9), (0.0, 1.9, 80.0, 1.15, 1.0),
+                (0.0, 1.6, 80.9, 0.8, 0.7)], 6, P)
+    for k in range(-3, 4):
+        a = math.radians(-90.0 + k * 17.0)
+        b.feld((math.cos(a) * 2.24, -0.25 + math.sin(a) * 2.24, 81.45), 0.34, 0.42, "-y",
+               "fenster", eps=0.0)
+    b.zyl(-4.7, -0.6, 91.05, 1.72, 1.72, 0.5, 8, "metall_dunkel", cap_top=False)
+    for dz in (0.0, 1.1, 2.2):
+        b.feld((4.0, -3.616 + dz * 0.1014, 69.2 + dz), 2.6, 0.32, "-y", "fenster", eps=0.42)
+
+
 HAEUSER = [
     # Reihe 1-2: Dorf & Kleinstadt
     ("Haus_Bauernhaus", bauernhaus), ("Haus_Fachwerk", fachwerkhaus), ("Haus_Kate", kate),
@@ -2280,6 +2469,8 @@ HAEUSER = [
     ("Haus_Hangar", hangar), ("Haus_Tower", tower), ("Haus_Radarstation", radarstation),
     ("Haus_Bunker", bunker), ("Haus_Stadion", stadion), ("Haus_Burg", burg),
     ("Haus_Lotsenhaus", leuchtfeuer_haus),
+    # Wahrzeichen
+    ("Haus_Freiheitsstatue", freiheitsstatue),
 ]
 
 # FARBVARIANTEN der haeufigen Wohnhaeuser: dieselbe Form, andere Wand-/Dach-/Ladenfarben.

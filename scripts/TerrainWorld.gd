@@ -99,6 +99,9 @@ const FLORA_FADE_RAND := 300.0
 # von 921 600 Bildpunkten, alle im Mitteldistanzband, und die beiden Ausschnitte sind
 # nebeneinander nicht zu unterscheiden.
 const FLORA_GROB_AB := 1200.0
+# Breite der Boeschung hinter einer Kaikante (Flachzone mit "kai", siehe height_at). Die
+# Kaimauer aus Hafen.gd steht davor und verdeckt sie.
+const KAI_RAMPE := 10.0
 # Ab dieser Hoehe ist der Bergwald reiner Fichtenwald (darunter gemischt, siehe
 # _bewuchs_rechnen).
 const BERGWALD_REIN_AB := 360.0
@@ -4499,7 +4502,17 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 			var qu := (adx * c - adz * s) / qf   # quer dazu, gestaucht -> reicht kuerzer
 			ad = sqrt(al * al + qu * qu)
 		var ty: float = af.get("y", 0.0)
-		h = lerpf(ty, h, smoothstep(float(af["r_flat"]), float(af["r_blend"]), ad))
+		var zt := smoothstep(float(af["r_flat"]), float(af["r_blend"]), ad)
+		# KAIKANTE ("kai": Vector3(nx, nz, abstand)): die Zone gilt nur DIESSEITS einer
+		# Geraden — jenseits (in Richtung n, ab `abstand` von der Zonenmitte) faellt das
+		# Gelaende ueber KAI_RAMPE Meter auf den gewachsenen Grund zurueck, also ins
+		# Hafenbecken. Eine Kreiszone allein gibt einen runden Strand; ein Hafen braucht
+		# eine gerade Kante mit tiefem Wasser davor (Main: Hafenstadt FREIHAFEN).
+		var kai: Variant = af.get("kai")
+		if kai != null:
+			var kv3: Vector3 = kai
+			zt = maxf(zt, smoothstep(0.0, KAI_RAMPE, adx * kv3.x + adz * kv3.y - kv3.z))
+		h = lerpf(ty, h, zt)
 	# HIER UND NICHT FRUEHER — die Reihenfolge ist der ganze Trick. Der Block stand
 	# zuerst direkt hinter den Massiven, also VOR der Einebnung des Flugplatzes. Die
 	# blendet aber genau ueber der sichtbaren Wand von der Zielhoehe zum Gelaende: bei

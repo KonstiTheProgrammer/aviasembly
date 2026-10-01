@@ -1545,6 +1545,9 @@ func _setup_world() -> void:
 	flat_zones.append({"pos": dorf_pos, "r_flat": 260.0, "r_blend": 620.0})
 	flat_zones.append({"pos": burg_pos, "r_flat": 160.0, "r_blend": 420.0, "y": 78.0})
 	flat_zones.append({"pos": mil_pos, "r_flat": 200.0, "r_blend": 480.0})
+	# HAFENSTADT FREIHAFEN am Ostgolf und die Insel der Freiheitsstatue (scripts/Hafenstadt.gd):
+	# die Stadtzone ist nach Osten an der Kaikante gerade abgeschnitten.
+	flat_zones.append_array(Hafenstadt.flachzonen())
 	# ORTE DER NEUEN REGIONEN (Hoehe wie bei deren Flugplaetzen erst nach setup(), siehe
 	# _region_hoehen). Sie stehen in den Ruhezonen der Landmassen.
 	for ort in REGION_ORTE:
@@ -2175,7 +2178,7 @@ func _setup_world() -> void:
 			"r_kern": 300.0, "r_aus": 1100.0, "unruhe": 0.25,
 			"breit_rausch": 0.55, "luecken": 0.9,
 		},
-	] + _region_formen()
+	] + _region_formen() + Hafenstadt.wasserformen()
 	terrain.felswaende = [{
 		# 900 STATT 620: mit 620 lief die Radialblende schon bei 340 m aus, und im weiten
 		# Blick auf den Talschluss standen die beiden Flanken links und rechts wieder
@@ -2247,6 +2250,7 @@ func _setup_world() -> void:
 		{"name": "GROSSSTADT", "pos": city_pos, "color": Color(0.95, 0.90, 0.55), "art": "ort", "radius": 340.0},
 		{"name": "NEONBUCHT", "pos": sky_pos, "color": Color(0.55, 0.80, 1.0), "art": "ort", "radius": 300.0},
 		{"name": "Industriehafen", "pos": indu_pos, "color": Color(0.80, 0.70, 0.62), "art": "ort", "radius": 260.0},
+		Hafenstadt.pois()[0], Hafenstadt.pois()[1],
 		{"name": "Landdorf", "pos": dorf_pos, "color": Color(0.72, 0.86, 0.60), "art": "ort", "radius": 200.0},
 		{"name": "Burg", "pos": burg_pos, "color": Color(0.85, 0.75, 0.90), "art": "ort", "radius": 110.0},
 		# --- Die Landschaft der Hauptinsel (Main._region_formen) -----------------------
@@ -2429,6 +2433,9 @@ func _setup_world() -> void:
 	# Huegels, den es an dieser Stelle gar nicht mehr gibt, und die Tuerme staenden in
 	# der Luft oder im Boden.
 	Skyline.bauen(fly_world, terrain, sky_pos)
+	# HAFENSTADT mit Kai, Piers, Molen, Schiffen und der Freiheitsstatue auf ihrer Insel.
+	# Die Haeuser brauchen die Blender-Bibliothek (prueft Hafenstadt.bauen selbst).
+	Hafenstadt.bauen(fly_world, terrain)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
 	# FELSENTOR am Eingang des Hochtals. Der Bogen steht QUER zur Talachse, man fliegt also
 	# beim Einflug hindurch. Die Fusslinie liegt auf der Gelaendehoehe an der Stelle —

@@ -124,6 +124,12 @@ Klima, durch Meeresstraßen getrennt (mit kleinen Trittstein-Inseln dazwischen):
 
 Alle Regionen stehen auf der Karte (**M**); ein Klick auf einen Flugplatz setzt dort einen Wegpunkt.
 
+Am Westufer des Ostgolfs (rund 17 km südöstlich von HEIMAT, auf der Karte **FREIHAFEN**) liegt
+die **Hafenstadt**: Altstadt mit Markt, Rathaus und Kirche, Speicherstadt aus rotem Backstein,
+Frachtkai mit Kränen, Containern und Frachtern, Fischerstege, zwei Molen mit Leuchtfeuern —
+und vor der Einfahrt auf einer eigenen Insel die **Freiheitsstatue** (150 m, mit Sternfort
+und Sockel). Kai, Piers und Molen sind fest: man kann darauf landen.
+
 Quer durch die Hauptinsel fließt der **Silberfluss**: 41 km von einer Gletscherquelle an der
 Nordkette als Wildbach hinunter, durch einen Durchbruch im Hügelland und in weiten Bögen durch
 das Tiefland bis zur Südostküste — mit Kiesufern, Auwald und Strömung zum Tiefflug entlang.
