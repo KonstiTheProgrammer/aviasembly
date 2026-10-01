@@ -28,7 +28,8 @@ void vertex() {
 	float t = gras_lage(INSTANCE_CUSTOM.x, VERLAUF(boden_tex, wo.xz), wo.y);
 	vec3 fuss = rampe(GRAS_TIEF, GRAS_MITTE, GRAS_HELL, t);
 	vec3 spitze = mix(fuss, GRAS_HELL * vec3(1.08, 1.08, 0.94), 0.30 + 0.25 * INSTANCE_CUSTOM.y);
-	farbe = srgb_linear(mix(fuss, spitze, h)) * (0.92 + 0.16 * INSTANCE_CUSTOM.z);
+	farbe = srgb_linear(mix(fuss, spitze, h) * WIESEN_FLECKEN(boden_tex, wo.xz))
+		* (0.92 + 0.16 * INSTANCE_CUSTOM.z);
 }
 
 void fragment() {

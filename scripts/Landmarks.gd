@@ -1850,6 +1850,7 @@ static func build_felsbogen(parent: Node3D, fuss_a: Vector3, fuss_b: Vector3, hu
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/gelaende.gdshader")
 	m.set_shader_parameter("boden_tex", TerrainWorld.boden_textur())
+	TerrainWorld.boden_material_setzen(m)
 	mi.material_override = m
 	node.add_child(mi)
 	var body := StaticBody3D.new()

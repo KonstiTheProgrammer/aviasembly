@@ -419,6 +419,34 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   -> 90/87/79, P10 26. `_boden_look` Saettigung nah/mitte: berge 0.41/0.32 -> 0.78/0.68,
   ebene 0.55/0.44 -> 0.86/0.81, wiese 0.48/0.40 -> 0.76/0.79, reise 0.43/0.36 -> 0.72/0.68.
   Bildprobe: `_gefuehl_bilder.gd -- berge mittel reise heimat_ost wald_sonne kueste hoch`.
+- BODENMATERIALIEN / ECHTE TEXTUREN (2026-10-01, Nutzer: „schaut alles so billig aus,
+  rueste es auf“; gewaehlt: echte Texturen, SELBST ERZEUGT, kein Download). Sechs kachelbare
+  Materialien aus `tools/build_bodentexturen.py` (numpy/scipy, periodisch: FFT-Rauschen,
+  Zellen mit `cKDTree(boxsize)`, `np.roll`): Gras (Halme + Bueschel), Waldboden (Nadeln, Laub,
+  Moos), Erde (Klumpen, Kiesel), Sand (Windrippel), Fels (Kluftkoerper mit schraegen
+  Flaechen, GESTUFTE waagerechte Schichten, Risse auf den Blockkanten), Schnee. Je Material
+  Farbe als FAKTOR mit Kanalmittel 1 (RGB/2) + Hoehe (A) und Normale (RG) + Hohlkehle (B).
+  `--vorschau <png>` zeigt alle sechs beleuchtet. `tools/_bodentexturen.gd` speichert sie als
+  Image-Ressourcen nach `shaders/boden/` (FALLE: ein Texture2DArray speichert seine Bilddaten
+  NICHT mit — 185 Bytes), `TerrainWorld.boden_material()` baut daraus zwei Texture2DArrays
+  (`boden_material_setzen` fuer Chunks und Felsboegen; die Schuerze FERN tastet nicht ab).
+  SHADER (`gelaende_kern`): Material aus der Rohfarbe erkannt (dunkles Gruen = Waldboden,
+  Gruen/Stroh = Gras, warm-hell = Sand, warm-dunkel = Erde, steil oder grau = Fels, Weiss =
+  Schnee; Sonderfarben bleiben glatt), je Material zwei Massstaebe (zweiter x4,7 und
+  gedreht, Normale zurueckgedreht), Fels TRIPLANAR (Zeilen = Hoehe, Schichten waagerecht —
+  die alte Felszeichnung hing nur an (x, z) und lief an jeder Wand als senkrechte Streifen),
+  UEBERBLENDEN NACH HOEHE (Steine ragen aus der Wiese), Farbe = Palette x Faktor, Normale
+  gestoert (RELIEF), Hohlkehle in die Albedo, ROUGHNESS 1 / SPECULAR 0.2 (die Standard-
+  Rauheit 0.5 legte bei flachem Blick eine Himmelsspiegelung als Schleier aufs Gelaende).
+  Felshelligkeit ueber 0.2 zur Haelfte auf 0.42 gezogen (Streifen und weisse Kalkwaende
+  weg). Dazu WIESEN_FLECKEN (palette: 240 m + 70 m, Gelaende UND Grashalme) und flache
+  BODENBUCKEL (B/A-Kanal von boden_detail, 34 m) — die Grastextur sieht man erst unter
+  ~30 m, aus Flughoehe lag die Wiese sonst als Golfplatz da. Werkzeug-Fehler beim Bauen
+  (fuer spaeter): Zellnummern beim Verbiegen interpolieren gibt Schnoerkel an den
+  Zellgrenzen (ordnung=0), Nulllinien eines Rauschfelds als Risse sind geschlossene
+  Schleifen (Wuermer).
+  KOSTEN (`_gelaende_zeit`, 4K MSAA 4x, alle fuenf Stellungen): Bild im Mittel 14,26 ->
+  15,38 ms (Wald 16,48 -> 17,24, Schlucht 12,43 -> 13,67, Mittel 700 m 16,90 -> 18,68).
 - BAEUME: Modelle (`tools/build_baeume.py`, zweite Fassung 2026-10; Datei zum Ansehen
   `blender_lib/baeume.blend`). BEFUND der ersten Fassung: in JEDER Laubkrone zeigten 144
   Flaechen nach innen (die ganze untere Kronenhaelfte, gemessen per Volumenvorzeichen) —

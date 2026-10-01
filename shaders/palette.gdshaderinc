@@ -42,6 +42,13 @@ vec3 rampe(vec3 a, vec3 b, vec3 c, float t) {
 // Sehr grosse, weiche Verlaeufe (5 km / 1,3 km) aus dem G-Kanal der Bodentextur.
 #define VERLAUF(tex, xz) ((texture(tex, (xz) * (1.0 / 5200.0)).g - 0.5) * 0.8 + (texture(tex, (xz) * (1.0 / 1300.0) + vec2(0.37, 0.61)).g - 0.5) * 0.4)
 
+// WIESENFLECKEN (2026-10-01, "billig"): aus Flughoehe lag jede Wiese als gleichmaessige
+// Flaeche da (Golfplatz) — die Grastextur (2,6-m-Kachel) sieht man erst unter ~30 m. Echte
+// Wiesen sind im Bereich 20-250 m fleckig: trockene, hellere und satte, dunklere Stellen.
+// Zwei Massstaebe des weichen G-Kanals (Kachel 240 m und 70 m). Gelaende UND Grashalme
+// nutzen dasselbe Makro, sonst stuenden die Halme farblich neben ihrem Boden.
+#define WIESEN_FLECKEN(tex, xz) mix(vec3(0.86, 0.90, 0.95), vec3(1.10, 1.07, 0.90), clamp((texture(tex, (xz) * (1.0 / 240.0) + vec2(0.13, 0.57)).g - 0.5) * 2.6 + (texture(tex, (xz) * (1.0 / 70.0) + vec2(0.71, 0.29)).g - 0.5) * 1.5 + 0.5, 0.0, 1.0))
+
 // Lage auf der Gruen-Rampe: Helligkeit der Rohfarbe (Waldboden dunkel, trockene Wiese
 // hell), grosser Verlauf, und Almen etwas heller und trockener als das Tiefland.
 float gras_lage(float lum, float verlauf, float hoehe) {

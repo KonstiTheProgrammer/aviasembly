@@ -3535,6 +3535,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mat = ShaderMaterial.new()
 	_mat.shader = load("res://shaders/gelaende.gdshader")
 	_mat.set_shader_parameter("boden_tex", boden_textur())
+	boden_material_setzen(_mat)
 	# FLORA-MATERIAL: gleiche Farbbehandlung, aber jede Instanz faehrt zur Sichtgrenze
 	# hin ihre GROESSE gegen null. Godots VISIBILITY_RANGE_FADE_SELF verlangt ein
 	# transparentes Material und tat an diesem Opaque-Shader nichts — die Baeume waeren
@@ -7684,6 +7685,36 @@ static func boden_textur() -> ImageTexture:
 	if _boden_tex == null:
 		_boden_tex = ImageTexture.create_from_image(load("res://shaders/boden_detail.res"))
 	return _boden_tex
+
+
+## BODENMATERIALIEN (tools/build_bodentexturen.py -> tools/_bodentexturen.gd): Reihenfolge =
+## Ebene im Array = MAT_* in gelaende_kern.
+const BODEN_MATERIALIEN := ["gras", "waldboden", "erde", "sand", "fels", "schnee"]
+static var _boden_mat: Array = []
+
+
+## [Farbe+Hoehe, Normale+Hohlkehle] als Texture2DArray, einmal gebaut und geteilt.
+static func boden_material() -> Array:
+	if _boden_mat.is_empty():
+		var farben: Array[Image] = []
+		var normalen: Array[Image] = []
+		for m in BODEN_MATERIALIEN:
+			farben.append(load("res://shaders/boden/%s_farbe.res" % m) as Image)
+			normalen.append(load("res://shaders/boden/%s_normale.res" % m) as Image)
+		var tf := Texture2DArray.new()
+		tf.create_from_images(farben)
+		var tn := Texture2DArray.new()
+		tn.create_from_images(normalen)
+		_boden_mat = [tf, tn]
+	return _boden_mat
+
+
+## Gibt einem Material des Gelaende-Shaders die Bodenmaterialien (Chunks, Felsboegen).
+static func boden_material_setzen(m: ShaderMaterial) -> void:
+	var bm := boden_material()
+	m.set_shader_parameter("mat_farbe", bm[0])
+	m.set_shader_parameter("mat_normale", bm[1])
+	m.set_shader_parameter("mat_da", true)
 
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,

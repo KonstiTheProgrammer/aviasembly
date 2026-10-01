@@ -1,0 +1,2 @@
+# Zwischenstufe: tools/build_bodentexturen.py erzeugt sie, tools/_bodentexturen.gd packt sie nach shaders/boden/
+*.png
