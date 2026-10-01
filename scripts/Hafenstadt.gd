@@ -936,7 +936,9 @@ static func _baeume(wurzel: Node3D, terrain, frei: Array) -> void:
 		var mmi := MultiMeshInstance3D.new()
 		mmi.name = "Stadtbaum_" + String(art)
 		mmi.multimesh = mm
-		mmi.material_override = mat
+		# Netze mit Blattkarten tragen ihre Materialien je Flaeche (TerrainWorld.hat_karten)
+		if not TerrainWorld.hat_karten(mm.mesh):
+			mmi.material_override = mat
 		wurzel.add_child(mmi)
 
 

@@ -302,6 +302,11 @@ const WACHSEN_S := 1.6
 # Nutzer fand das verwirrend ("diese Animation ... verwirrt"), ebenso das Wegschrumpfen der
 # Pflanzen beim Abloesen grob -> fein.
 const FLORA_HYSTERESE := 50.0
+# KARTENBAEUME NUR NAH (2026-10-01): bis hierhin die Baeume mit Blattkarten, dahinter bis
+# _flora_grob_ab die geschlossenen Kronen (<Art>_massiv), ganz fern die Stellvertreter. Die
+# Karten bis 1,2 km kosteten in 4K Flora 2,0 -> 7,1 ms; aus 420 m ist ein Baum ~25 px hoch,
+# die Blaetter sieht man dort nicht mehr. Gemessen ab der Huelle der Chunk-MultiMesh.
+const KARTEN_BIS := 420.0
 # DETAILSTUFEN. Chunks, deren Mitte weiter als FEIN_DIST vom Spieler liegt, entstehen GROB
 # (16-m-Raster: ein Viertel der Hoehen- und Farbproben, keine Grasmaske; der Bewuchs ist
 # derselbe wie fein). Kommt man naeher, wird der grobe Chunk durch einen feinen
@@ -3141,8 +3146,13 @@ var _flora_warteschlange: Array = []   # Flora, die noch eingehaengt werden muss
 # Laufende Werte der Baumweite — von Main.grafik_anwenden ueber setze_baumweite gesetzt.
 var _flora_dist := FLORA_DIST
 var _flora_grob_ab := FLORA_GROB_AB
+var _karten_bis := KARTEN_BIS
+## Geschlossene Kronen je Art (mittlere Stufe) und Kartennetz -> geschlossene Krone.
+var _flora_massiv: Dictionary = {}
+var _massiv_von: Dictionary = {}
 var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
 var _flora_mat: ShaderMaterial  # wie _mat, zusätzlich Entfernungs-Schrumpfen
+var _flora_karten_mat: ShaderMaterial  # Blattkarten: Alpha-Schnitt, zweiseitig (#define KARTE)
 
 const ARTEN := ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch",
 	"Schneetanne", "Urwaldbaum", "Baumfarn", "Akazie", "Mangrove", "Kaktus"]
@@ -3524,8 +3534,12 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	# (Stellvertreter/LOD + weiche Krone) bis zu ~8 ms, und die fielen sonst als 13 einzelne
 	# Ruckler in die ersten Flugminuten (tools/_ruck_check.gd, "p_flora_stufe"/"flora_nachzug").
 	for art in _flora:
+		if _flora_massiv.has(art) and hat_karten(_flora[art]):
+			_massiv_von[_flora[art]] = _flora_massiv[art]
 		if not _grob_cache.has(_flora[art]):
-			_grob_cache[_flora[art]] = _grobe_fassung(_flora[art])
+			# Die Fernstufe aus der GESCHLOSSENEN Krone (wie die mittlere Stufe davor) — aus dem
+			# Kartennetz gerechnet passte sie nicht zur Stufe, die vor ihr steht.
+			_grob_cache[_flora[art]] = _grobe_fassung(_flora_massiv.get(art, _flora[art]))
 	if not _grob_cache.has(_mesh_rock):
 		_grob_cache[_mesh_rock] = _grobe_fassung(_mesh_rock)
 	# GELAENDE-SHADER (shaders/gelaende_kern.gdshaderinc): Vertexfarbe als Albedo, von sRGB
@@ -3543,9 +3557,20 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	# ist geometrisch und kostet nichts: bei 2.9 km ist ein 10-m-Baum bei 64 Grad
 	# vertikalem Sichtfeld auf 720 Zeilen noch rund zwei Pixel hoch.
 	var fsh := Shader.new()
-	fsh.code = """
+	var flora_code := """
 shader_type spatial;
+// ZWEI MATERIALIEN AUS EINER VORLAGE: _flora_mat (feste Teile, Fernstufe — undurchsichtig,
+// Rueckseiten weg) und _flora_karten_mat (#define KARTE: Blattkarten, Alpha-Schnitt,
+// zweiseitig). Erste Fassung mit EINEM Material fuer alles: Flora in 4K im Mittel 2,0 ->
+// 9,4 ms — Alpha-Schnitt und Zweiseitigkeit kosteten auch jeden Stamm und jede Fernform.
+#ifdef KARTE
+render_mode cull_disabled;
+#endif
 uniform float fade_start;
+#ifdef KARTE
+// LAUB-ATLAS (tools/build_laubtextur.py): RGB = Helligkeitsfaktor/2, A = Kontur.
+uniform sampler2D laub_atlas : filter_linear_mipmap, repeat_disable;
+#endif
 uniform float fade_end;
 // WEICHES ERSCHEINEN (TerrainWorld.WACHSEN_S): gestreamte Pflanzen wachsen aus dem Boden,
 // jede leicht versetzt. Ohne gesetzten Zeitpunkt (Startbereich) sofort voll.
@@ -3595,6 +3620,20 @@ void vertex() {
 const vec3 FUELL_TON = vec3(0.50, 0.68, 0.90);
 void fragment() {
 	vec3 c = COLOR.rgb;
+#ifdef KARTE
+	vec4 t = texture(laub_atlas, UV);
+	// DIE MIPMAPS MITTELN DIE KONTUR WEG: ohne Ausgleich wurde jede Krone mit der
+	// Entfernung durchsichtiger. Die Deckung waechst deshalb mit der Mipstufe.
+	float lod = textureQueryLod(laub_atlas, UV).x;
+	ALPHA = t.a * (1.0 + max(lod, 0.0) * 0.45);
+	ALPHA_SCISSOR_THRESHOLD = 0.5;
+	c *= t.rgb * 2.0;
+	// Karten werden von beiden Seiten gleich beleuchtet (Kronennormale, siehe
+	// _karten_aufbereiten) — Godot dreht die Normale der Rueckseite sonst um.
+	if (!FRONT_FACING) {
+		NORMAL = -NORMAL;
+	}
+#endif
 	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 	float laub_f = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
 	float auf = 0.5 + 0.5 * (INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).y;
@@ -3621,9 +3660,19 @@ void light() {
 	DIFFUSE_LIGHT += l * w * 0.95 + durch * gegen * 0.6 * vec3(1.15, 1.0, 0.50);
 }
 """
+	fsh.code = flora_code
 	_flora_mat = ShaderMaterial.new()
 	_flora_mat.shader = fsh
+	var ksh := Shader.new()
+	ksh.code = flora_code.replace("shader_type spatial;", "shader_type spatial;\n#define KARTE")
+	_flora_karten_mat = ShaderMaterial.new()
+	_flora_karten_mat.shader = ksh
+	_flora_karten_mat.set_shader_parameter("laub_atlas", laub_atlas())
 	_flora_fade_setzen()
+	# Die Kartenflaechen der Modelle (_weiche_krone: Name "karten") tragen ihr Material
+	# selbst; MultiMeshes mit solchen Netzen bekommen KEIN material_override (_flora_mmi).
+	for art in _flora:
+		flora_materialien_setzen(_flora[art])
 	# Wasserfläche (rein optisch; Kollision = WorldBoundary bei SEA_Y in Main)
 	_tiefe_vorbereiten()
 	_gras_aufbauen()
@@ -4954,8 +5003,10 @@ func _flora_fade_setzen() -> void:
 	if _flora_mat == null:
 		return
 	var ende := maxf(_flora_dist - FLORA_FADE_RAND, 200.0)
-	_flora_mat.set_shader_parameter("fade_end", ende)
-	_flora_mat.set_shader_parameter("fade_start", maxf(ende - FLORA_FADE, 100.0))
+	for m in [_flora_mat, _flora_karten_mat]:
+		if m != null:
+			m.set_shader_parameter("fade_end", ende)
+			m.set_shader_parameter("fade_start", maxf(ende - FLORA_FADE, 100.0))
 
 
 func _prepare_rivers(rvs: Array) -> void:
@@ -7154,6 +7205,9 @@ func _flora_stufe_setzen(liste: Array, fern: bool) -> void:
 			(e["voll"] as GeometryInstance3D).visible = not fern
 		if is_instance_valid(e["grob"]):
 			(e["grob"] as GeometryInstance3D).visible = fern
+		var mi: Variant = e.get("mittel")
+		if mi != null and is_instance_valid(mi):
+			(mi as GeometryInstance3D).visible = not fern
 
 
 ## Uhr des weichen Erscheinens (globale Shader-Variable welt_zeit, Sekunden).
@@ -7687,6 +7741,16 @@ static func boden_textur() -> ImageTexture:
 	return _boden_tex
 
 
+static var _laub_tex: ImageTexture
+
+
+## Laub-Atlas der Blattkarten (tools/build_laubtextur.py -> tools/_laubtextur.gd).
+static func laub_atlas() -> ImageTexture:
+	if _laub_tex == null:
+		_laub_tex = ImageTexture.create_from_image(load("res://shaders/flora_laub.res"))
+	return _laub_tex
+
+
 ## BODENMATERIALIEN (tools/build_bodentexturen.py -> tools/_bodentexturen.gd): Reihenfolge =
 ## Ebene im Array = MAT_* in gelaende_kern.
 const BODEN_MATERIALIEN := ["gras", "waldboden", "erde", "sand", "fels", "schnee"]
@@ -7773,12 +7837,15 @@ func setze_baumweite(stufe: int) -> void:
 		0:
 			_flora_dist = FLORA_DIST * 0.55
 			_flora_grob_ab = FLORA_GROB_AB * 0.55
+			_karten_bis = KARTEN_BIS * 0.55
 		2:
 			_flora_dist = FLORA_DIST * 1.35
 			_flora_grob_ab = FLORA_GROB_AB * 1.35
+			_karten_bis = KARTEN_BIS * 1.35
 		_:
 			_flora_dist = FLORA_DIST
 			_flora_grob_ab = FLORA_GROB_AB
+			_karten_bis = KARTEN_BIS
 	_flora_fade_setzen()
 	for key in _chunks:
 		var roh: Variant = _chunks.get(key)
@@ -7790,7 +7857,9 @@ func setze_baumweite(stufe: int) -> void:
 			continue
 		for e in liste:
 			if is_instance_valid(e["voll"]) and is_instance_valid(e["grob"]):
-				_flora_reichweiten(e["voll"], e["grob"])
+				var mi: Variant = e.get("mittel")
+				_flora_reichweiten(e["voll"], e["grob"],
+					mi if mi != null and is_instance_valid(mi) else null)
 		var dxz := _chunk_center(key).distance_to(Vector2(_last_pos.x, _last_pos.z))
 		var dyh := _last_pos.y - float(node.get_meta("mitte_h", 0.0))
 		var fern := dxz * dxz + dyh * dyh > _flora_grob_ab * _flora_grob_ab
@@ -7850,21 +7919,33 @@ func _attach_multi(parent: Node3D, mesh: Mesh, xfs: Array, weich := false) -> vo
 	var voll := _flora_mmi(mesh, xfs.size(), puf, box)
 	var grob := _flora_mmi(_grob_cache[mesh], n_grob,
 		puf if n_grob == xfs.size() else puf.slice(0, n_grob * 12), box)
-	_flora_reichweiten(voll, grob)
+	# MITTLERE STUFE fuer Kartenbaeume (KARTEN_BIS): dieselben Pflanzen als geschlossene
+	# Kronen. Sie steht und faellt mit der vollen Stufe (sichtbar = nicht fern); welche der
+	# beiden gezeichnet wird, entscheidet die Sichtweite (_flora_reichweiten).
+	var mittel: MultiMeshInstance3D = null
+	if _massiv_von.has(mesh):
+		mittel = _flora_mmi(_massiv_von[mesh], xfs.size(), puf, box)
+	_flora_reichweiten(voll, grob, mittel)
 	# Stufe des Chunks (fern = grobe Form); ein Ersatz-Chunk bleibt verdeckt, bis alles steht
 	var fern: bool = parent.get_meta("fern", false)
 	var verdeckt := parent.has_meta("ersatz")
 	voll.visible = not fern and not verdeckt
 	grob.visible = fern and not verdeckt
+	if mittel != null:
+		mittel.visible = voll.visible
 	if weich:
 		var jetzt := welt_zeit()
 		voll.set_instance_shader_parameter("erschienen", jetzt)
 		grob.set_instance_shader_parameter("erschienen", jetzt)
+		if mittel != null:
+			mittel.set_instance_shader_parameter("erschienen", jetzt)
 	parent.add_child(voll)
 	parent.add_child(grob)
+	if mittel != null:
+		parent.add_child(mittel)
 	# AM CHUNK-KNOTEN, nicht in einer globalen Liste (mit dem Chunk geht auch seine Liste).
 	var liste: Array = parent.get_meta("flora_mmis", [])
-	liste.append({"voll": voll, "grob": grob})
+	liste.append({"voll": voll, "grob": grob, "mittel": mittel})
 	parent.set_meta("flora_mmis", liste)
 
 
@@ -7877,18 +7958,44 @@ func _flora_mmi(mesh: Mesh, n: int, puf: PackedFloat32Array, box: AABB) -> Multi
 	mm.custom_aabb = box
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
-	mmi.material_override = _flora_mat
+	if not hat_karten(mesh):
+		mmi.material_override = _flora_mat
 	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 	return mmi
+
+
+## Traegt das Netz Blattkarten (eine Flaeche "karten", siehe _weiche_krone)?
+static func hat_karten(mesh: Mesh) -> bool:
+	if mesh is ArrayMesh:
+		for i in mesh.get_surface_count():
+			if (mesh as ArrayMesh).surface_get_name(i) == "karten":
+				return true
+	return false
+
+
+## Setzt die Materialien je Flaeche: Karten -> _flora_karten_mat, alles andere ->
+## _flora_mat. Fuer Netze mit Karten (die bekommen kein material_override).
+func flora_materialien_setzen(mesh: Mesh) -> void:
+	if not mesh is ArrayMesh or not hat_karten(mesh):
+		return
+	var am := mesh as ArrayMesh
+	for i in am.get_surface_count():
+		am.surface_set_material(i, _flora_karten_mat if am.surface_get_name(i) == "karten"
+			else _flora_mat)
 
 
 ## Sichtweiten der beiden Stufen (auch nach einem Wechsel der Grafikstufe). Harter Schnitt
 ## am Ende erst dort, wo der Shader die Instanzen laengst auf Groesse 0 gefahren hat
 ## (FLORA_FADE_END + halbe Chunk-Diagonale) — nichts poppt. Welche der beiden Stufen steht,
 ## entscheidet nicht die Sichtweite, sondern der Rundgang (_flora_stufe_setzen).
-func _flora_reichweiten(voll: MultiMeshInstance3D, grob: MultiMeshInstance3D) -> void:
+func _flora_reichweiten(voll: MultiMeshInstance3D, grob: MultiMeshInstance3D,
+		mittel: MultiMeshInstance3D = null) -> void:
 	voll.visibility_range_end = _flora_dist
 	grob.visibility_range_end = _flora_dist
+	if mittel != null:
+		voll.visibility_range_end = _karten_bis
+		mittel.visibility_range_begin = _karten_bis
+		mittel.visibility_range_end = _flora_dist
 
 
 # Mesh + Kollision für einen Chunk bauen (läuft im Worker ODER synchron beim Spawn).
@@ -10635,6 +10742,13 @@ func _load_flora() -> Dictionary:
 	# Fels: ohne weiche Krone (hart), mit Modell-Farben wie die Baeume.
 	if d.has("Fels") and not d["Fels"] is ArrayMesh:
 		d.erase("Fels")
+	# MITTLERE STUFE: <Art>_massiv (geschlossene Kronen) aus der Liste nehmen und getrennt
+	# halten — sie ist keine eigene Art.
+	for k in d.keys():
+		if String(k).ends_with("_massiv"):
+			var art := String(k).trim_suffix("_massiv")
+			_flora_massiv[art] = _weiche_krone(d[k])
+			d.erase(k)
 	for art in ARTEN:
 		if not d.has(art):
 			if art in ["Palme", "Baumfarn"]:
@@ -10693,8 +10807,20 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 	var hoehe := maxf(ab.size.y, 0.01)
 	var raus := ArrayMesh.new()
 	var schatten_arr: Array = []
+	var mit_karten := false
 	for si in quelle.get_surface_count():
 		var arr := quelle.surface_get_arrays(si)
+		# BLATTKARTEN ABTRENNEN (u > 0, siehe tools/build_baeume.py) und eigens aufbereiten:
+		# Kronennormale, gemalter Verlauf, KEIN Verschweissen (die UVs gehoeren zur Ecke).
+		var karten := _karten_abtrennen(arr)
+		if not karten.is_empty():
+			_karten_aufbereiten(karten)
+			raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, karten, [], {},
+				quelle.surface_get_format(si) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
+			raus.surface_set_name(raus.get_surface_count() - 1, "karten")
+			mit_karten = true
+			if (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).is_empty():
+				continue
 		var vs_v: Variant = arr[Mesh.ARRAY_VERTEX]
 		var cs_v: Variant = arr[Mesh.ARRAY_COLOR]
 		var ns_v: Variant = arr[Mesh.ARRAY_NORMAL]
@@ -10844,9 +10970,126 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 	# passte nach dem Neuaufbau nicht mehr exakt (andere Kodierung/Reihenfolge), der
 	# Farbdurchgang verwarf danach Teile jeder Krone: Loecher, fehlende Staemme, Kronen als
 	# zerrissene Platten. Und die Messung sah dabei "billiger" aus, weil weniger gezeichnet wurde.
-	raus.shadow_mesh = _schattennetz(schatten_arr,
-		quelle.surface_get_format(0) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
+	# MIT BLATTKARTEN KEIN SCHATTENNETZ: es traegt nur Lagen, keine UVs — Schatten und
+	# Tiefen-Vorpass saehen die Karten als volle Vierecke (der Alpha-Schnitt braucht den Atlas).
+	if not mit_karten:
+		raus.shadow_mesh = _schattennetz(schatten_arr,
+			quelle.surface_get_format(0) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
 	return raus
+
+
+## Trennt die Dreiecke der Blattkarten (u > 0; feste Teile liegen auf u = 0 — v ist nach
+## dem glTF-Export 1, nicht 0) aus `arr` heraus: `arr` behaelt die festen Teile (neu
+## indiziert), zurueck kommen die Karten als eigene Arrays. Leer, wenn es keine gibt.
+static func _karten_abtrennen(arr: Array) -> Array:
+	var uv_v: Variant = arr[Mesh.ARRAY_TEX_UV]
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	if uv_v == null or (uv_v as PackedVector2Array).size() != vs.size():
+		return []
+	var uvs: PackedVector2Array = uv_v
+	var ix_v: Variant = arr[Mesh.ARRAY_INDEX]
+	var ix := PackedInt32Array()
+	if ix_v != null:
+		ix = ix_v
+	else:
+		ix.resize(vs.size())
+		for i in vs.size():
+			ix[i] = i
+	var hat := false
+	for u in uvs:
+		if u.x > 0.002:
+			hat = true
+			break
+	if not hat:
+		return []
+	var teile: Array = [[], []]      # [feste Dreiecke, Kartendreiecke] als Indexlisten
+	for t in range(0, ix.size() - 2, 3):
+		var k := 1 if uvs[ix[t]].x > 0.002 else 0
+		(teile[k] as Array).append_array([ix[t], ix[t + 1], ix[t + 2]])
+	var ergebnis: Array = []
+	for k in 2:
+		var neu := []
+		neu.resize(Mesh.ARRAY_MAX)
+		var abbild: Dictionary = {}
+		var nix := PackedInt32Array()
+		for alt: int in (teile[k] as Array):
+			if not abbild.has(alt):
+				abbild[alt] = abbild.size()
+			nix.append(abbild[alt])
+		var reihe := PackedInt32Array()
+		reihe.resize(abbild.size())
+		for alt: int in abbild:
+			reihe[abbild[alt]] = alt
+		for a in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_COLOR, Mesh.ARRAY_TEX_UV]:
+			var quelle_a: Variant = arr[a]
+			if quelle_a == null:
+				continue
+			match a:
+				Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL:
+					var q: PackedVector3Array = quelle_a
+					var z := PackedVector3Array()
+					z.resize(reihe.size())
+					for i in reihe.size():
+						z[i] = q[reihe[i]]
+					neu[a] = z
+				Mesh.ARRAY_COLOR:
+					var q: PackedColorArray = quelle_a
+					var z := PackedColorArray()
+					z.resize(reihe.size())
+					for i in reihe.size():
+						z[i] = q[reihe[i]]
+					neu[a] = z
+				Mesh.ARRAY_TEX_UV:
+					var q: PackedVector2Array = quelle_a
+					var z := PackedVector2Array()
+					z.resize(reihe.size())
+					for i in reihe.size():
+						z[i] = q[reihe[i]]
+					neu[a] = z
+		neu[Mesh.ARRAY_INDEX] = nix
+		ergebnis.append(neu)
+	# feste Teile zurueck in arr
+	for a in Mesh.ARRAY_MAX:
+		arr[a] = (ergebnis[0] as Array)[a]
+	return ergebnis[1]
+
+
+## BLATTKARTEN: Normale = Huelle der ganzen Krone (75 %) plus Kartennormale — die Krone
+## liest sich als EIN Koerper mit Sonnen- und Schattenseite, statt dass jede Karte als
+## flaches Plaettchen aufblitzt. Dazu derselbe gemalte Verlauf wie bei den festen Kronen
+## (oben warm, unten kuehl, innen dunkel). Kein Verschweissen (die UVs gehoeren zur Ecke).
+static func _karten_aufbereiten(arr: Array) -> void:
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+	if vs.is_empty() or ns.size() != vs.size() or cs.size() != vs.size():
+		return
+	var lo := vs[0]
+	var hi := vs[0]
+	for v in vs:
+		lo = lo.min(v)
+		hi = hi.max(v)
+	var mitte := (lo + hi) * 0.5
+	var r := ((hi - lo) * 0.5).max(Vector3(0.15, 0.15, 0.15))
+	for i in vs.size():
+		var dk := vs[i] - mitte
+		var n_krone := Vector3(dk.x / (r.x * r.x), dk.y / (r.y * r.y), dk.z / (r.z * r.z))
+		var nk := ns[i]
+		if nk.dot(n_krone) < 0.0:
+			nk = -nk
+		var n_neu := nk.normalized() * 0.25 + n_krone.normalized() * 0.75
+		if n_neu.length_squared() > 1e-8:
+			ns[i] = n_neu.normalized()
+		var tief := clampf(Vector3(dk.x / r.x, dk.y / r.y, dk.z / r.z).length(), 0.0, 1.0)
+		var oben := clampf((vs[i].y - lo.y) / maxf(hi.y - lo.y, 0.01), 0.0, 1.0)
+		oben = lerpf(oben, 0.5 + 0.5 * ns[i].y, KRONE_OBEN_NORMAL)
+		var f := lerpf(KRONE_INNEN, 1.0, tief)
+		var ton := KRONE_UNTEN_TON.lerp(KRONE_OBEN_TON, oben)
+		var c := cs[i]
+		cs[i] = Color(c.r * f * ton.x, c.g * f * ton.y, c.b * f * ton.z, c.a)
+	arr[Mesh.ARRAY_NORMAL] = ns
+	arr[Mesh.ARRAY_COLOR] = cs
+	arr[Mesh.ARRAY_TANGENT] = null
 
 
 ## Nur-Lage-Netz fuer Schatten und Tiefen-Vorpass: gleiche Lagen zusammengelegt, dieselben

@@ -531,6 +531,33 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   noch schlimmer (gar nichts sichtbar: 16-bit-Lagen des Hauptnetzes ≠ Float-Lagen). Jetzt
   `_schattennetz` aus denselben Dreiecken mit DEMSELBEN Kompressionsflag. Beleg: Einzelbaum-
   Render roh vs. aufbereitet (Werkzeug im Verlauf, `TerrainWorld._weiche_krone` direkt).
+- BAEUME, VIERTE FASSUNG: BLATTKARTEN (2026-10-01, Nutzer: „billig, rueste es auf“, Baeume
+  mit, Quelle SELBST ERZEUGT). Laub-Atlas `tools/build_laubtextur.py` (1024², vier Felder:
+  Laubbueschel, Birkenzweiglein, Fichtenzweig mit Ansatz links, Kiefernbueschel; RGB =
+  Helligkeitsfaktor/2 mit Mittel 1, A = Kontur, Farbe unter transparenten Pixeln ausgedehnt)
+  -> `tools/_laubtextur.gd` -> `shaders/flora_laub.res`. `tools/build_baeume.py`: `Baum.karte`,
+  `karten_krone` (je Ballen ein kleiner dunkler KERN gegen Durchblick + Karten auf der Huelle,
+  nach aussen gedreht), `nadel_etage` (je Zweig zwei gekreuzte Nadelzweigkarten). Neu gebaut:
+  Fichte, Kiefer, Birke, Eiche, Busch; die uebrigen Arten unveraendert. Karten erkennt man am
+  UV (u > 0; feste Teile liegen auf u = 0, v ist nach dem Export 1). Beim Laden trennt
+  `_karten_abtrennen` sie in eine eigene Flaeche "karten" (`_karten_aufbereiten`: Normale
+  75 % Kronenhuelle, gemalter Verlauf, nicht verschweisst, KEIN Schattennetz — es traegt
+  keine UVs). ZWEI MATERIALIEN aus einer Shader-Vorlage: `_flora_mat` (fest) und
+  `_flora_karten_mat` (`#define KARTE`: Alpha-Schnitt, cull_disabled, Rueckseiten-Normale
+  gedreht, Deckung waechst mit der Mipstufe — sonst wurden Kronen in der Ferne durchsichtig);
+  Netze mit Karten bekommen KEIN material_override (`hat_karten`, `flora_materialien_setzen`,
+  auch Hafenstadt und die Probe-Werkzeuge). DREI STUFEN: Karten bis `KARTEN_BIS` (420 m,
+  skaliert mit der Baumweite), dahinter die geschlossenen Kronen der dritten Fassung
+  (`<Art>_massiv` im selben glb, `_flora_massiv`/`_massiv_von`, eigene MultiMesh „mittel“ je
+  Chunk ueber visibility_range), ganz fern die Stellvertreter (jetzt aus der massiven Krone).
+  KOSTEN (`_gelaende_zeit`, 4K): ein Material fuer alles und Karten bis 1,2 km: Flora
+  2,0 -> 9,4 ms; getrennte Materialien 7,1 ms; mit Mittelstufe 2,66 ms (Bild 15,38 -> 16,02).
+  FALLEN: (1) eine eigene Materialflaeche fuer die Karten verlor im glTF-Export die
+  Vertexfarben (Karten weiss, auch mit gesetztem aktivem Farbattribut) — dasselbe Material,
+  Trennung erst in Godot. (2) Ein Texture2DArray speichert seine Bilder nicht (siehe Boden).
+  (3) Nach dem Blender-Lauf `--editor --import`, sonst laedt Godot das alte glb.
+  Belege: `_baum_probe` (Sichtprobe), `_baum_ausfall_check` 0 Ausfaelle,
+  `_bewuchs_stufen_check` OK, `_hafenstadt_check` OK.
 - GRASWIESEN (`_gras_aufbauen`, `shaders/gras_bahn.gdshader` platziert, `gras.gdshader`
   zeichnet): GPUParticles3D auf WELTFESTEM Raster um die Kamera (Hash je Zelle → nichts
   schwimmt), zwei Ringe (150² a 0,7 m bis 52 m, 112² a 1,9 m bis 105 m), Hoehe aus der

@@ -146,8 +146,12 @@ class Baum:
         self.name = name
         self.bm = bmesh.new()
         self.col = self.bm.loops.layers.float_color.new("Color")
+        # UV nur fuer die Blattkarten (Laub-Atlas); alle festen Teile behalten (0, 0) —
+        # daran erkennt der Flora-Shader "keine Textur".
+        self.uv = self.bm.loops.layers.uv.new("UVMap")
         self.rng = random.Random(seed)
         self.teile = 0
+        self.karten = 0
 
     # --- Einhaengen eines fertigen, GESCHLOSSENEN Teils -----------------------------------
     def _uebernehmen(self, tb, farbe, geschlossen=True, je_flaeche=False, weg=None):
@@ -425,6 +429,99 @@ class Baum:
         tb.faces.new([v[2], v[1], v[4], v[5]])
         self._uebernehmen(tb, self.einfarbig(farbe, ALPHA_HOLZ, 0.06))
 
+    # --- BLATTKARTEN (vierte Fassung, 2026-10-01: "billig, rueste es auf") -------------------
+    # Eine Karte ist ein Viereck mit einem Feld des Laub-Atlas (tools/build_laubtextur.py,
+    # Alpha-Kontur). Erkennungszeichen ist ihr UV (u > 0; alle festen Teile liegen auf u = 0).
+    # TerrainWorld._weiche_krone trennt sie beim Laden in eine eigene Flaeche (Kronennormale,
+    # kein Verschweissen). FALLE: eine eigene Materialflaeche ("flora_karte") verlor im
+    # glTF-Export die Vertexfarben (Karten kamen weiss an, auch mit gesetztem aktivem
+    # Farbattribut) — deshalb dasselbe Material. Die Farbe bleibt Vertexfarbe (Gruen > Rot:
+    # Laub-Erkennung, Instanztoenung und Fernstufe arbeiten unveraendert); der Atlas liefert
+    # Form und Helligkeitsfaktor.
+    FELDER = {"laub": (0, 0), "fein": (1, 0), "nadel": (0, 1), "kiefer": (1, 1)}
+
+    def karte(self, mitte, achse_u, achse_v, breite, hoehe, feld, farbe, u0=0.5):
+        """u0: wo auf der Karte `mitte` liegt (0.5 Mitte, 0 Ansatz = Nadelzweig am Stamm)."""
+        m = Vector(mitte)
+        au = Vector(achse_u).normalized()
+        av = Vector(achse_v).normalized()
+        fx, fy = self.FELDER[feld]
+        rand = 0.006
+        ecken = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+        vs = [self.bm.verts.new(m + au * ((u - u0) * breite) + av * ((v - 0.5) * hoehe))
+              for (u, v) in ecken]
+        f = self.bm.faces.new(vs)
+        c = (farbe[0], farbe[1], farbe[2], ALPHA_LAUB)
+        for l, (u, v) in zip(f.loops, ecken):
+            l[self.col] = c
+            # Atlas: Feld (fx, fy), Bildzeile 0 oben. glTF dreht v um (v_gltf = 1 - v).
+            gu = fx * 0.5 + rand + u * (0.5 - 2 * rand)
+            gv = fy * 0.5 + rand + (1.0 - v) * (0.5 - 2 * rand)
+            l[self.uv].uv = (gu, 1.0 - gv)
+        self.karten += 1
+        return f
+
+    def karten_krone(self, ballen, feld, farbe, hell=None, groesse=1.8, dichte=1.0,
+                     kern=0.62, kern_dunkel=0.72, haengend=0.0, beulen=0.10, unten=0.78):
+        """Laubkrone aus Karten: je Ballen ein kleinerer, dunklerer KERN (deckt die Luecken,
+        damit man nicht durch die Krone in den Himmel schaut) und Karten auf der Huelle,
+        nach aussen gedreht. haengend > 0 kippt die Karten Richtung senkrecht (Birke)."""
+        for i, (m, r, art) in enumerate(ballen):
+            c = hell if (hell is not None and i % 2 == 1) else farbe
+            m = Vector(m)
+            rk = (r[0] * kern, r[1] * kern, r[2] * kern)
+            self.ballen(m, rk, laub(_mul(c, kern_dunkel)), fein="mittel", beulen=beulen,
+                        unten=unten)
+            flaeche = 4.0 * math.pi * ((r[0] * r[1] + r[0] * r[2] + r[1] * r[2]) / 3.0)
+            n = max(6, int(flaeche / (groesse * groesse) * 1.9 * dichte))
+            for k in range(n):
+                # Richtung gleichverteilt auf der Kugel, unten etwas seltener
+                z = self.rng.uniform(-0.75, 1.0)
+                a = self.rng.uniform(0.0, 2.0 * math.pi)
+                q = math.sqrt(max(1.0 - z * z, 0.0))
+                d = Vector((q * math.cos(a), q * math.sin(a), z))
+                tief = self.rng.uniform(0.78, 1.02)
+                p = m + Vector((d.x * r[0], d.y * r[1], d.z * r[2] * (unten if z < 0 else 1.0))) * tief
+                nrm = (d + Vector((self.rng.uniform(-0.5, 0.5), self.rng.uniform(-0.5, 0.5),
+                                   self.rng.uniform(-0.3, 0.5)))).normalized()
+                if haengend > 0.0:
+                    nrm = nrm.lerp(Vector((d.x, d.y, 0.0)).normalized()
+                                   if abs(d.z) < 0.99 else nrm, haengend).normalized()
+                hilf = Vector((0, 0, 1)) if abs(nrm.z) < 0.9 else Vector((1, 0, 0))
+                au = nrm.cross(hilf).normalized()
+                au = (Matrix.Rotation(self.rng.uniform(0.0, 2.0 * math.pi), 3, nrm) @ au)
+                if haengend > 0.0:
+                    # Zweiglein haengen: die v-Achse der Karte (Bildzeilen) nach unten
+                    au = nrm.cross(Vector((0, 0, 1))).normalized()
+                av = nrm.cross(au).normalized()
+                g = groesse * self.rng.uniform(0.80, 1.20)
+                ton = 0.92 + 0.16 * self.rng.random()
+                cc = _mul(c, ton * (0.88 + 0.18 * max(d.z, 0.0)))
+                self.karte(p, au, av, g, g, feld, cc)
+
+    def nadel_etage(self, z, r, farbe, zweige=8, neigung=-0.35, breite=None, z_kern=None):
+        """Astlage einer Fichte aus Nadelzweig-Karten: je Zweig zwei gekreuzte Karten (eine
+        flach, eine hochkant), Ansatz am Stamm, nach aussen geneigt."""
+        phase = self.rng.uniform(0.0, 2.0 * math.pi)
+        for i in range(zweige):
+            a = phase + 2.0 * math.pi * (i + self.rng.uniform(-0.2, 0.2)) / zweige
+            la = r * self.rng.uniform(0.85, 1.12)
+            nb = neigung + self.rng.uniform(-0.08, 0.08)
+            aus = Vector((math.cos(a) * math.cos(nb), math.sin(a) * math.cos(nb), math.sin(nb)))
+            quer = Vector((-math.sin(a), math.cos(a), 0.0))
+            hoch = aus.cross(quer).normalized()
+            if hoch.z < 0.0:
+                hoch = -hoch
+            br = breite if breite is not None else la * 0.62
+            fuss = Vector((math.cos(a) * 0.12, math.sin(a) * 0.12, z))
+            ton = 0.92 + 0.16 * self.rng.random()
+            c = _mul(farbe, ton)
+            # flach (von oben: der Stern), etwas um die Achse gedreht
+            dreh = Matrix.Rotation(self.rng.uniform(-0.25, 0.25), 3, aus)
+            self.karte(fuss, aus, dreh @ quer, la, br, "nadel", c, u0=0.0)
+            # hochkant (von der Seite), schmaler
+            self.karte(fuss, aus, dreh @ hoch, la, br * 0.62, "nadel", _mul(c, 0.92), u0=0.0)
+
     def objekt(self, kante_grad=95.0):
         """kante_grad: Flaechen, die flacher als dieser Winkel aneinanderstossen, werden weich
         schattiert — 95 Grad, damit auch sechs- und vierseitige Staemme und Aeste rund wirken
@@ -478,19 +575,26 @@ def nadel_farbe(tief, flaeche, spitze):
 
 
 def fichte():
-    """Fichte: sechs GLOCKIGE Astetagen aus haengenden Zweigen (Baum.etage), nach oben
-    schmaler, Wipfel als schlanke Spitze. Die Etagen sind flach (2,3 m hoch bei 2,7 m
-    Radius) und liegen 1,5 m auseinander: unter jeder bleibt ein Schattenspalt, der Baum
-    liest sich als geschichtet. Vorher sechs gerade Zackenkegel = ein Stapel Papierhuetchen."""
+    """Fichte: VIERTE FASSUNG — jede Astlage = ein dunklerer, schmaler Glockenkern
+    (Baum.etage, deckt die Luecken) und darum Nadelzweig-Karten (Baum.nadel_etage, gekreuzt)
+    mit echter Nadelkontur. Die glatten Glocken allein (dritte Fassung) waren der
+    "billige" Look: Papierhuetchen ohne Nadeln."""
     b = Baum("Fichte", 11)
-    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.35), (0, 0, 3.2)],
-           [0.44, 0.33, 0.20], holz(RINDE), segs=5, offen="uo")
+    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.35), (0, 0, 4.5), (0, 0, 9.8)],
+           [0.44, 0.33, 0.22, 0.07], holz(RINDE), segs=5, offen="uo")
     # (Fuss, Kopf, Radius, Haengen, Zweige)
     etagen = [(1.50, 3.9, 2.75, 0.42, 7), (3.10, 5.5, 2.36, 0.38, 7), (4.65, 6.95, 1.96, 0.33, 6),
               (6.10, 8.3, 1.56, 0.28, 6), (7.45, 9.55, 1.16, 0.22, 5), (8.70, 10.8, 0.76, 0.16, 5)]
-    f = nadel_farbe(NADEL_TIEF, NADEL, NADEL_SPITZE)
-    for z0, z1, r, haeng, n in etagen:
-        b.etage(z0, z1, r, f, zweige=n, haengen=haeng)
+    kern = nadel_farbe(_mul(NADEL_TIEF, 0.80), _mul(NADEL, 0.72), _mul(NADEL_SPITZE, 0.72))
+    for k, (z0, z1, r, haeng, n) in enumerate(etagen):
+        # Kern klein und dunkel (Luecken decken), die Zweigkarten tragen die Silhouette
+        b.etage(z0, z1, r * 0.50, kern, zweige=5, haengen=haeng * 0.5)
+        neig = -0.36 + 0.05 * k
+        b.nadel_etage(z0 + (z1 - z0) * 0.40, r * 1.22, _mix(NADEL, NADEL_SPITZE, 0.25),
+                      zweige=n + 2, neigung=neig, breite=r * 0.95)
+    # Wipfeltrieb: zwei gekreuzte, aufrechte Zweigkarten
+    for quer in (Vector((1, 0, 0)), Vector((0, 1, 0))):
+        b.karte((0, 0, 9.9), (0, 0, 1), quer, 1.5, 0.75, "nadel", NADEL_SPITZE, u0=0.0)
     return b.objekt()
 
 
@@ -543,7 +647,8 @@ def kiefer():
         z = Vector(ziel) - Vector((0, 0, 0.25))
         mid = kopf.lerp(z, 0.5) + Vector((0, 0, 0.35))
         b.rohr([kopf, mid, z], [0.13, 0.09, 0.06], rinde, segs=4, offen="uo")
-    b.krone(polster, KIEFERGRUEN, unten=0.62, beulen=0.16, hell=KIEFER_HELL)
+    b.karten_krone(polster, "kiefer", KIEFERGRUEN, hell=KIEFER_HELL, groesse=1.7, kern=0.62,
+                   unten=0.62, beulen=0.16)
     return b.objekt()
 
 
@@ -566,12 +671,13 @@ def birke():
     b.rohr(pts, rad, rinde, segs=5, offen="uo")
     for ziel in ((0.9, 0.35, 5.5), (-0.8, 0.45, 5.4), (0.15, -0.85, 5.7)):
         b.rohr([(0.06, 0.02, 3.9), ziel], [0.08, 0.05], rinde, segs=4, offen="uo")
-    b.krone([((0.08, 0.02, 6.45), (1.50, 1.42, 2.00), "g"),
-             ((0.92, 0.34, 5.45), (1.08, 1.00, 1.22), "m"),
-             ((-0.84, 0.48, 5.65), (1.02, 0.98, 1.18), "m"),
-             ((0.16, -0.90, 6.05), (1.00, 0.94, 1.28), "m"),
-             ((-0.30, -0.20, 7.85), (0.92, 0.88, 0.98), "m")],
-            BIRKENLAUB, unten=0.85, beulen=0.12, hell=BIRKE_HELL)
+    b.karten_krone([((0.08, 0.02, 6.45), (1.50, 1.42, 2.00), "g"),
+                    ((0.92, 0.34, 5.45), (1.08, 1.00, 1.22), "m"),
+                    ((-0.84, 0.48, 5.65), (1.02, 0.98, 1.18), "m"),
+                    ((0.16, -0.90, 6.05), (1.00, 0.94, 1.28), "m"),
+                    ((-0.30, -0.20, 7.85), (0.92, 0.88, 0.98), "m")],
+                   "fein", BIRKENLAUB, hell=BIRKE_HELL, groesse=1.6, kern=0.52, haengend=0.3,
+                   unten=0.85, beulen=0.12)
     return b.objekt()
 
 
@@ -593,7 +699,7 @@ def eiche():
         z = Vector(m) - Vector((0, 0, 0.6))
         mid = kopf.lerp(z, 0.45) + Vector((0, 0, 0.25))
         b.rohr([kopf, mid, z], [0.30, 0.20, 0.12], holz(RINDE_HELL), segs=4, offen="uo")
-    b.krone(wolken, EICHE, hell=EICHE_HELL)
+    b.karten_krone(wolken, "laub", EICHE, hell=EICHE_HELL, groesse=2.1, kern=0.64)
     return b.objekt()
 
 
@@ -646,10 +752,10 @@ def busch():
     """Busch: ein runder Kern und zwei Buckel (200 statt 224 Dreiecke — Buesche sind
     die haeufigste Pflanze der Heide und nur 2 m gross)."""
     b = Baum("Busch", 77)
-    b.krone([((0.0, 0.0, 0.62), (0.98, 0.92, 0.82), "g"),
-             ((0.62, 0.34, 0.44), (0.68, 0.64, 0.58), "m"),
-             ((-0.50, -0.42, 0.40), (0.64, 0.60, 0.55), "m")],
-            BUSCH, unten=0.6, beulen=0.10, hell=_mul(BUSCH, 1.10))
+    b.karten_krone([((0.0, 0.0, 0.62), (0.98, 0.92, 0.82), "g"),
+                    ((0.62, 0.34, 0.44), (0.68, 0.64, 0.58), "m"),
+                    ((-0.50, -0.42, 0.40), (0.64, 0.60, 0.55), "m")],
+                   "laub", BUSCH, hell=_mul(BUSCH, 1.10), groesse=0.95, kern=0.66, unten=0.6)
     return b.objekt()
 
 
@@ -780,8 +886,121 @@ def fels():
     return b.objekt(kante_grad=66.0)
 
 
+# --- MASSIVE FASSUNGEN (dritte Fassung) als MITTLERE DETAILSTUFE ------------------------------
+# Die Kartenbaeume kosten viel (Alpha-Schnitt, Ueberzeichnen, Schatten je Karte): bis 1,2 km
+# gemessen Flora 2,0 -> 7,1 ms in 4K. Sie stehen deshalb nur nah (TerrainWorld.KARTEN_BIS);
+# dahinter zeichnet TerrainWorld diese geschlossenen Kronen (dieselbe Form wie bisher), ganz
+# fern die Stellvertreter. Name "<Art>_massiv" im selben glb.
+
+def fichte_massiv():
+    """Fichte: sechs GLOCKIGE Astetagen aus haengenden Zweigen (Baum.etage), nach oben
+    schmaler, Wipfel als schlanke Spitze. Die Etagen sind flach (2,3 m hoch bei 2,7 m
+    Radius) und liegen 1,5 m auseinander: unter jeder bleibt ein Schattenspalt, der Baum
+    liest sich als geschichtet. Vorher sechs gerade Zackenkegel = ein Stapel Papierhuetchen."""
+    b = Baum("Fichte_massiv", 11)
+    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.35), (0, 0, 3.2)],
+           [0.44, 0.33, 0.20], holz(RINDE), segs=5, offen="uo")
+    # (Fuss, Kopf, Radius, Haengen, Zweige)
+    etagen = [(1.50, 3.9, 2.75, 0.42, 7), (3.10, 5.5, 2.36, 0.38, 7), (4.65, 6.95, 1.96, 0.33, 6),
+              (6.10, 8.3, 1.56, 0.28, 6), (7.45, 9.55, 1.16, 0.22, 5), (8.70, 10.8, 0.76, 0.16, 5)]
+    f = nadel_farbe(NADEL_TIEF, NADEL, NADEL_SPITZE)
+    for z0, z1, r, haeng, n in etagen:
+        b.etage(z0, z1, r, f, zweige=n, haengen=haeng)
+    return b.objekt()
+
+
+def kiefer_massiv():
+    """Waldkiefer: hoher, leicht gebogener Stamm (unten grau, oben fuchsrot), die Krone als
+    flache Wolkenschichten ganz oben — ein Schirm aus drei breiten Polstern mit Buckeln."""
+    b = Baum("Kiefer_massiv", 22)
+    p = [(0, 0, UNTER_BODEN), (0.02, 0.0, 0.4), (0.14, 0.05, 3.0), (0.36, 0.02, 5.6),
+         (0.38, -0.09, 8.2)]
+    r = [0.40, 0.31, 0.25, 0.20, 0.13]
+
+    def rinde(pos, _n, rnd):
+        c = _mix(RINDE, RINDE_KIEFER, min(max((pos.z - 2.0) / 3.0, 0.0), 1.0))
+        c = _mul(c, 0.92 + 0.16 * rnd)
+        return (c[0], c[1], c[2], ALPHA_HOLZ)
+
+    b.rohr(p, r, rinde, segs=5, offen="uo")
+    kopf = Vector((0.38, -0.08, 7.3))
+    polster = [((0.50, -0.30, 9.60), (1.95, 1.80, 1.22), "g"),
+               ((1.80, 0.75, 8.55), (1.62, 1.45, 1.02), "m"),
+               ((-1.40, -0.75, 8.25), (1.55, 1.40, 0.96), "m"),
+               ((0.00, 1.60, 8.95), (1.40, 1.30, 0.92), "m"),
+               ((-0.85, 0.50, 10.15), (1.10, 1.02, 0.78), "m")]
+    for ziel, _rad, _art in polster[1:4]:
+        z = Vector(ziel) - Vector((0, 0, 0.25))
+        mid = kopf.lerp(z, 0.5) + Vector((0, 0, 0.35))
+        b.rohr([kopf, mid, z], [0.13, 0.09, 0.06], rinde, segs=4, offen="uo")
+    b.krone(polster, KIEFERGRUEN, unten=0.62, beulen=0.16, hell=KIEFER_HELL)
+    return b.objekt()
+
+
+def birke_massiv():
+    """Birke: schlanker weisser Stamm mit dunklen Querflecken (Farbe je Flaeche), hohe,
+    lockere Krone — ein Kern, drei seitliche Wolken, zwei kleine Buckel."""
+    b = Baum("Birke_massiv", 33)
+    pts = [(0, 0, UNTER_BODEN)]
+    rad = [0.24]
+    for k in range(5):
+        z = 0.2 + k * 1.15
+        pts.append((0.07 * math.sin(z * 0.9), 0.05 * math.sin(z * 0.6 + 1.0), z))
+        rad.append(0.21 - z * 0.016)
+
+    def rinde(pos, _n, rnd):
+        # dunkle Flecken aus dem Eckpunkt-Zufall, unten (Borke) dunkel
+        c = BIRKE_FLECK if (rnd < 0.30 or pos.z < 0.35) else _mul(BIRKE, 0.96 + 0.06 * rnd)
+        return (c[0], c[1], c[2], ALPHA_HOLZ)
+
+    b.rohr(pts, rad, rinde, segs=5, offen="uo")
+    for ziel in ((0.9, 0.35, 5.5), (-0.8, 0.45, 5.4), (0.15, -0.85, 5.7)):
+        b.rohr([(0.06, 0.02, 3.9), ziel], [0.08, 0.05], rinde, segs=4, offen="uo")
+    b.krone([((0.08, 0.02, 6.45), (1.50, 1.42, 2.00), "g"),
+             ((0.92, 0.34, 5.45), (1.08, 1.00, 1.22), "m"),
+             ((-0.84, 0.48, 5.65), (1.02, 0.98, 1.18), "m"),
+             ((0.16, -0.90, 6.05), (1.00, 0.94, 1.28), "m"),
+             ((-0.30, -0.20, 7.85), (0.92, 0.88, 0.98), "m")],
+            BIRKENLAUB, unten=0.85, beulen=0.12, hell=BIRKE_HELL)
+    return b.objekt()
+
+
+def eiche_massiv():
+    """Eiche: kurzer, dicker Stamm mit Wurzelanlauf, kraeftige Aeste, breite Kuppel: ein
+    grosser Kern, vier Laubwolken rundum, dazu Buckel, die den Umriss brechen."""
+    b = Baum("Eiche_massiv", 44)
+    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.3), (0.05, 0.0, 1.5), (0.1, 0.05, 2.9)],
+           [0.84, 0.58, 0.46, 0.40], holz(RINDE, 0.10), segs=6, offen="uo")
+    kopf = Vector((0.1, 0.05, 2.6))
+    wolken = [((0.15, 0.10, 6.05), (2.45, 2.30, 1.85), "g"),
+              ((2.05, 0.60, 5.00), (1.80, 1.65, 1.38), "m"),
+              ((-1.90, 0.90, 5.05), (1.75, 1.68, 1.34), "m"),
+              ((0.35, -2.00, 5.15), (1.70, 1.60, 1.32), "m"),
+              ((-0.70, -1.05, 6.85), (1.40, 1.34, 1.12), "m"),
+              ((1.05, 1.30, 7.10), (1.25, 1.18, 1.00), "m"),
+              ((2.20, -1.60, 5.55), (1.10, 1.05, 0.90), "m")]
+    for m, _r, _a in wolken[1:4]:
+        z = Vector(m) - Vector((0, 0, 0.6))
+        mid = kopf.lerp(z, 0.45) + Vector((0, 0, 0.25))
+        b.rohr([kopf, mid, z], [0.30, 0.20, 0.12], holz(RINDE_HELL), segs=4, offen="uo")
+    b.krone(wolken, EICHE, hell=EICHE_HELL)
+    return b.objekt()
+
+
+def busch_massiv():
+    """Busch: ein runder Kern und zwei Buckel (200 statt 224 Dreiecke — Buesche sind
+    die haeufigste Pflanze der Heide und nur 2 m gross)."""
+    b = Baum("Busch_massiv", 77)
+    b.krone([((0.0, 0.0, 0.62), (0.98, 0.92, 0.82), "g"),
+             ((0.62, 0.34, 0.44), (0.68, 0.64, 0.58), "m"),
+             ((-0.50, -0.42, 0.40), (0.64, 0.60, 0.55), "m")],
+            BUSCH, unten=0.6, beulen=0.10, hell=_mul(BUSCH, 1.10))
+    return b.objekt()
+
+
 ARTEN = [fichte, kiefer, birke, eiche, palme, totholz, busch, schneetanne, urwaldbaum, baumfarn,
-         akazie, mangrove, kaktus, fels]
+         akazie, mangrove, kaktus, fels,
+         fichte_massiv, kiefer_massiv, birke_massiv, eiche_massiv, busch_massiv]
 
 
 def pruefen(obs):
@@ -823,8 +1042,11 @@ def pruefen(obs):
         tris = sum(len(p.vertices) - 2 for p in ob.data.polygons)
         hoch = max(v.co.z for v in ob.data.vertices)
         breit = max(max(abs(v.co.x), abs(v.co.y)) for v in ob.data.vertices)
-        print("  %-12s %4d Tris  Hoehe %5.2f  Breite %4.2f  verkehrt %d  offene Inseln %d"
-              % (ob.name, tris, hoch, breit * 2, innen, offen_inseln))
+        uvl = ob.data.uv_layers[0].data if ob.data.uv_layers else None
+        karten = sum(1 for p in ob.data.polygons
+                     if uvl is not None and uvl[p.loop_indices[0]].uv[0] > 0.002)
+        print("  %-12s %4d Tris  Hoehe %5.2f  Breite %4.2f  verkehrt %d  offene Inseln %d  Karten %d"
+              % (ob.name, tris, hoch, breit * 2, innen, offen_inseln, karten))
         fehler += innen
         bm.free()
     # Offene Inseln sind erwartet: Wedel (zweiseitig) und Rohre ohne verdeckte Deckel. Ihre

@@ -114,7 +114,8 @@ func _wald(wurzel: Node3D, grob: bool, mitte: Vector3, halb: float, anzahl: int,
 			mm.set_instance_transform(i, l[i])
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
-		mmi.material_override = tw._flora_mat
+		if not TerrainWorld.hat_karten(mm.mesh):   # Karten tragen ihre Materialien selbst
+			mmi.material_override = tw._flora_mat
 		wurzel.add_child(mmi)
 
 
@@ -136,8 +137,9 @@ func _process(_d: float) -> bool:
 		cam.current = true
 		tw = TerrainWorld.new()
 		tw.setup(12345, [], [], [], [])
-		tw._flora_mat.set_shader_parameter("fade_start", 9000.0)
-		tw._flora_mat.set_shader_parameter("fade_end", 10000.0)
+		for fm in [tw._flora_mat, tw._flora_karten_mat]:
+			fm.set_shader_parameter("fade_start", 9000.0)
+			fm.set_shader_parameter("fade_end", 10000.0)
 		_boden(6000.0, Color(0.30, 0.44, 0.20))
 		nah_root = Node3D.new()
 		wald_root = Node3D.new()
@@ -161,7 +163,8 @@ func _process(_d: float) -> bool:
 						mi.position = Vector3((k - 1) * 9.5, 0.0, 2000.0 + g * 200.0)
 					else:
 						continue
-					mi.material_override = tw._flora_mat
+					if not TerrainWorld.hat_karten(mi.mesh):
+						mi.material_override = tw._flora_mat
 					nah_root.add_child(mi)
 				var m := Vector3(0, 6.5, 2000.0 + g * 200.0)
 				ansichten.append(["nah%d_sonne" % g, nah_root, m + Vector3(9, 5.0, 31), m, 34.0])
