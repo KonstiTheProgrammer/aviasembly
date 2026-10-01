@@ -3601,7 +3601,8 @@ void vertex() {
 		0.78 + 0.10 * z1 + 0.30 * (1.0 - z2)), laub_v);
 	float wachsen = smoothstep(0.0, 1.0,
 		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0));
-	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
+	float gross = (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
+	VERTEX *= gross;
 	if (d_kam < 900.0 && wind_staerke > 0.0) {
 		mat3 m = mat3(MODEL_MATRIX);
 		float h_w = max((m * VERTEX).y, 0.0);
@@ -3614,6 +3615,36 @@ void vertex() {
 		// transpose(m) / Skalierung^2.
 		VERTEX += transpose(m) * vec3(aus.x, 0.0, aus.y) / max(dot(m[0], m[0]), 1e-4);
 	}
+#ifdef KARTE
+	// LAUBBUESCHEL DREHEN SICH ZUR KAMERA (Stil Zelda/Ghibli: Kronen aus weichen Laubwolken).
+	// Alle vier Ecken einer Bueschelkarte liegen auf ihrer Mitte, die Ecke selbst steht als
+	// Versatz in Metern in UV2 (TerrainWorld._karten_aufbereiten; 0 = feste Flaeche, z. B.
+	// die Nadelschuerzen). Aufgespannt wird im Blickraum; VERTEX bleibt die Mitte — Licht,
+	// Schatten und Dunst rechnet Godot damit je Bueschel EINMAL, das ganze Bueschel liegt
+	// in der Sonne oder im Schatten (gemalte Flaechen statt gesprenkelter Schatten).
+	vec2 ecke = (UV2 - 0.5) * 8.0;
+	float buesch = step(1e-5, dot(ecke, ecke));
+	float mass = length(MODEL_MATRIX[0].xyz) * gross;
+	vec4 vp = MODELVIEW_MATRIX * vec4(VERTEX, 1.0);
+	vp.xy += ecke * mass;
+	// Im Hauptbild rueckt das Bueschel ein Stueck auf die Kamera zu: es liegt dann sicher
+	// VOR dem dunklen Kern seines Ballens (sonst schnitt der Kern durch die Karten am Rand
+	// der Krone). Im Schattenwurf (rechtwinklige Projektion der Sonne) rueckt es dagegen
+	// VON der Sonne WEG: das Licht wird an der Kartenmitte gerechnet, und die zur Sonne
+	// gedrehte Schattenfassung darf die eigene Mitte nicht beschatten.
+	float perspektive = step(0.5, -PROJECTION_MATRIX[2][3]);
+	float halb = max(abs(ecke.x), abs(ecke.y)) * mass;
+	vp.xyz += mix(vec3(0.0, 0.0, -0.9 * halb), normalize(-vp.xyz) * (0.45 * halb), perspektive);
+	// FALLE: POSITION muss IMMER geschrieben werden. Steht die Zuweisung in einem Zweig,
+	// nimmt Godot fuer alle anderen Eckpunkte einen leeren Wert — die festen Flaechen
+	// (Nadelschuerzen) waren unsichtbar.
+	POSITION = PROJECTION_MATRIX * vp;
+	// Woelbung: die Normale kippt zur Ecke hin, das Bueschel hat eine Licht- und eine
+	// Schattenkante statt einer flachen Scheibe. Dazu oben eine Spur heller.
+	vec2 en = sign(ecke) * buesch;
+	NORMAL = normalize(NORMAL + normalize(transpose(mat3(MODELVIEW_MATRIX)) * vec3(en, 0.0001)) * (0.55 * buesch));
+	COLOR.rgb *= 1.0 + 0.09 * en.y;
+#endif
 }
 // KUEHLE HIMMELSFUELLUNG auf dem Laub (wie shaders/haus.gdshader): die Schattenseite einer
 // Krone ist tiefes Blaugruen, nicht Schwarz. Noetig, seit die Fugen zwischen den Laubballen
@@ -3640,8 +3671,10 @@ void fragment() {
 	c *= t.rgb * 2.0;
 	// Karten werden von beiden Seiten gleich beleuchtet (Kronennormale, siehe
 	// _karten_aufbereiten) — Godot dreht die Normale der Rueckseite sonst um.
+	// Die Rueckseite ist das INNERE einer Nadelschuerze (von unten gesehen): dunkler.
 	if (!FRONT_FACING) {
 		NORMAL = -NORMAL;
+		c *= 0.62;
 	}
 #endif
 	float laub_f = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
@@ -10811,6 +10844,11 @@ const HART_BLEIBEN := ["Totholz", "Kaktus"]
 const KRONE_N_NETZ := 0.45       # Anteil geglaettete Netznormale
 const KRONE_N_BALLEN := 0.20     # Anteil Huelle des Ballens
 const KRONE_N_KRONE := 0.35      # Anteil Huelle der ganzen Krone
+const KARTE_N_BUESCHEL := 0.42   # Bueschel: Anteil Ballenrichtung an der Normale (Rest Krone)
+const KARTE_N_SCHUERZE := 0.55   # Schuerze: Anteil Flaechennormale (Rest Krone)
+# Bueschel zeigen vor allem ihre helle Mitte (die dunklen Raender liegen hinter den Nachbarn):
+# ohne Ausgleich stand der nahe Wald heller da als die geschlossenen Kronen der Ferne.
+const KARTE_BUESCHEL_TON := 0.87
 const KRONE_INNEN := 0.70        # Helligkeit ganz innen in der Krone
 const KRONE_FUGE := 0.64         # Helligkeit in der Fuge zwischen zwei Ballen
 const KRONE_FUGE_AB := 0.90      # Abstand (in Ballenradien), bis zu dem die Fuge voll dunkel ist
@@ -10838,13 +10876,14 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 	var raus := ArrayMesh.new()
 	var schatten_arr: Array = []
 	var mit_karten := false
+	var ueberstand := 0.0
 	for si in quelle.get_surface_count():
 		var arr := quelle.surface_get_arrays(si)
 		# BLATTKARTEN ABTRENNEN (u > 0, siehe tools/build_baeume.py) und eigens aufbereiten:
 		# Kronennormale, gemalter Verlauf, KEIN Verschweissen (die UVs gehoeren zur Ecke).
 		var karten := _karten_abtrennen(arr)
 		if not karten.is_empty():
-			_karten_aufbereiten(karten)
+			ueberstand = maxf(ueberstand, _karten_aufbereiten(karten))
 			raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, karten, [], {},
 				quelle.surface_get_format(si) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
 			raus.surface_set_name(raus.get_surface_count() - 1, "karten")
@@ -11005,6 +11044,10 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 	if not mit_karten:
 		raus.shadow_mesh = _schattennetz(schatten_arr,
 			quelle.surface_get_format(0) & Mesh.ARRAY_FLAG_COMPRESS_ATTRIBUTES)
+	elif ueberstand > 0.0:
+		# Die Bueschel liegen als Punkte (Kartenmitte) im Netz, gezeichnet werden sie um
+		# ihre halbe Kante groesser: die Sichtbarkeitshuelle entsprechend weiten.
+		raus.custom_aabb = raus.get_aabb().grow(ueberstand * 1.5)
 	return raus
 
 
@@ -11084,30 +11127,82 @@ static func _karten_abtrennen(arr: Array) -> Array:
 	return ergebnis[1]
 
 
-## BLATTKARTEN: Normale = Huelle der ganzen Krone (75 %) plus Kartennormale — die Krone
-## liest sich als EIN Koerper mit Sonnen- und Schattenseite, statt dass jede Karte als
-## flaches Plaettchen aufblitzt. Dazu derselbe gemalte Verlauf wie bei den festen Kronen
-## (oben warm, unten kuehl, innen dunkel). Kein Verschweissen (die UVs gehoeren zur Ecke).
-static func _karten_aufbereiten(arr: Array) -> void:
+## KARTEN AUFBEREITEN. Zwei Sorten (tools/build_baeume.py), unterschieden am Atlasfeld:
+##   * BUESCHEL (Felder Laub, Feinlaub, Kiefer): Karten, die der Flora-Shader immer zur
+##     Kamera dreht. Alle vier Ecken wandern hier auf die MITTE der Karte, die Ecke selbst
+##     steht als Versatz in Metern in UV2 ((UV2 - 0.5) * BUESCHEL_MASS; 0.5 = kein Versatz).
+##     Fest stehende Karten sah man von der Seite als Striche und von vorn als Plaettchen.
+##   * SCHUERZEN (Feld Nadel): feste Flaechen, bleiben wie gebaut (UV2 = 0.5).
+## NORMALE = Huelle der ganzen Krone plus Kartennormale (beim Bueschel die Auswaerts-
+## richtung seines Ballens): die Krone liest sich als EIN Koerper mit Sonnen- und Schatten-
+## seite. Dazu derselbe gemalte Verlauf wie bei den festen Kronen (oben warm, unten kuehl,
+## innen dunkel). Kein Verschweissen (die UVs gehoeren zur Ecke).
+## Rueckgabe: groesste halbe Kantenlaenge eines Bueschels (um so viel ragt das gezeichnete
+## Laub ueber die Huelle der Eckpunkte hinaus — fuer die Sichtbarkeitshuelle des Netzes).
+const BUESCHEL_MASS := 8.0
+static func _karten_aufbereiten(arr: Array) -> float:
 	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
 	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
 	var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+	var uvs: PackedVector2Array = arr[Mesh.ARRAY_TEX_UV]
+	var ix: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
 	if vs.is_empty() or ns.size() != vs.size() or cs.size() != vs.size():
-		return
+		return 0.0
+	var n := vs.size()
+	# KARTEN FINDEN: Eckpunkte, die ueber Dreiecke zusammenhaengen (Union-Find)
+	var eltern := PackedInt32Array()
+	eltern.resize(n)
+	for i in n:
+		eltern[i] = i
+	for t in range(0, ix.size() - 2, 3):
+		var a := _uf_wurzel(eltern, ix[t])
+		eltern[_uf_wurzel(eltern, ix[t + 1])] = a
+		eltern[_uf_wurzel(eltern, ix[t + 2])] = a
+	var gruppen: Dictionary = {}
+	for i in n:
+		var w := _uf_wurzel(eltern, i)
+		if not gruppen.has(w):
+			gruppen[w] = PackedInt32Array()
+		var g: PackedInt32Array = gruppen[w]
+		g.append(i)
+		gruppen[w] = g
+	var uv2 := PackedVector2Array()
+	uv2.resize(n)
+	uv2.fill(Vector2(0.5, 0.5))
+	var halb_max := 0.0
+	for w: int in gruppen:
+		var g: PackedInt32Array = gruppen[w]
+		var u0 := uvs[g[0]]
+		# Feld Nadel = links unten im Atlas (u < 0.5, v >= 0.5): feste Flaeche
+		if g.size() != 4 or (u0.x < 0.5 and u0.y >= 0.5):
+			continue
+		var feld_m := Vector2(0.25 if u0.x < 0.5 else 0.75, 0.25 if u0.y < 0.5 else 0.75)
+		var mitte := (vs[g[0]] + vs[g[1]] + vs[g[2]] + vs[g[3]]) * 0.25
+		var halb := (vs[g[0]] - mitte).length() / sqrt(2.0)
+		halb_max = maxf(halb_max, halb)
+		var nk := (ns[g[0]] + ns[g[1]] + ns[g[2]] + ns[g[3]]).normalized()
+		for i in g:
+			var su := 1.0 if uvs[i].x > feld_m.x else -1.0
+			var sv := 1.0 if uvs[i].y < feld_m.y else -1.0      # Bildzeile 0 = oben
+			uv2[i] = Vector2(0.5 + su * halb / BUESCHEL_MASS, 0.5 + sv * halb / BUESCHEL_MASS)
+			vs[i] = mitte
+			ns[i] = nk
 	var lo := vs[0]
 	var hi := vs[0]
 	for v in vs:
 		lo = lo.min(v)
 		hi = hi.max(v)
-	var mitte := (lo + hi) * 0.5
+	var mitte_k := (lo + hi) * 0.5
 	var r := ((hi - lo) * 0.5).max(Vector3(0.15, 0.15, 0.15))
-	for i in vs.size():
-		var dk := vs[i] - mitte
+	for i in n:
+		var buesch := uv2[i] != Vector2(0.5, 0.5)
+		var dk := vs[i] - mitte_k
 		var n_krone := Vector3(dk.x / (r.x * r.x), dk.y / (r.y * r.y), dk.z / (r.z * r.z))
-		var nk := ns[i]
-		if nk.dot(n_krone) < 0.0:
-			nk = -nk
-		var n_neu := nk.normalized() * 0.25 + n_krone.normalized() * 0.75
+		var nk2 := ns[i]
+		if nk2.dot(n_krone) < 0.0 and buesch:
+			nk2 = -nk2
+		var anteil := KARTE_N_BUESCHEL if buesch else KARTE_N_SCHUERZE
+		var n_neu := nk2.normalized() * anteil + n_krone.normalized() * (1.0 - anteil)
 		if n_neu.length_squared() > 1e-8:
 			ns[i] = n_neu.normalized()
 		var tief := clampf(Vector3(dk.x / r.x, dk.y / r.y, dk.z / r.z).length(), 0.0, 1.0)
@@ -11116,10 +11211,24 @@ static func _karten_aufbereiten(arr: Array) -> void:
 		var f := lerpf(KRONE_INNEN, 1.0, tief)
 		var ton := KRONE_UNTEN_TON.lerp(KRONE_OBEN_TON, oben)
 		var c := cs[i]
+		if minf(c.r, minf(c.g, c.b)) > 0.55:
+			ton = Vector3(0.90, 0.95, 1.0).lerp(Vector3.ONE, oben)   # Schnee bleibt weiss
+			f = lerpf(f, 1.0, 0.6)
+		if buesch:
+			f *= KARTE_BUESCHEL_TON
 		cs[i] = Color(c.r * f * ton.x, c.g * f * ton.y, c.b * f * ton.z, c.a)
+	arr[Mesh.ARRAY_VERTEX] = vs
 	arr[Mesh.ARRAY_NORMAL] = ns
 	arr[Mesh.ARRAY_COLOR] = cs
+	arr[Mesh.ARRAY_TEX_UV2] = uv2
 	arr[Mesh.ARRAY_TANGENT] = null
+	return halb_max
+
+
+static func _uf_wurzel(eltern: PackedInt32Array, i: int) -> int:
+	while eltern[i] != i:
+		i = eltern[i]
+	return i
 
 
 ## Nur-Lage-Netz fuer Schatten und Tiefen-Vorpass: gleiche Lagen zusammengelegt, dieselben

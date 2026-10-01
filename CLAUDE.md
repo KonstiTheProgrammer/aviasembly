@@ -592,7 +592,7 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
     Karte und `_haupt_pruefsumme` oberhalb ~540 m.
   KOSTEN (`_gelaende_zeit`, 4K): Bild im Mittel 15,97 -> 16,12 ms, Flora 2,63 -> 2,70.
   Belege: `_loadcheck` 7x OK, `_grafik_check` 0 Beanstandungen, keine Warnungen.
-  NICHT GEMACHT: Schneetanne/Palme/Dschungelarten haben weiter die alten glatten Kronen;
+  NICHT GEMACHT (Kronen inzwischen erledigt, siehe „BAEUME, FUENFTE FASSUNG“);
   aus 5 km Hoehe sieht man vom Land fast nichts (Fernebene 9 km, schon vorher so).
 - BAEUME, VIERTE FASSUNG: BLATTKARTEN (2026-10-01, Nutzer: „billig, rueste es auf“, Baeume
   mit, Quelle SELBST ERZEUGT). Laub-Atlas `tools/build_laubtextur.py` (1024², vier Felder:
@@ -621,6 +621,53 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   (3) Nach dem Blender-Lauf `--editor --import`, sonst laedt Godot das alte glb.
   Belege: `_baum_probe` (Sichtprobe), `_baum_ausfall_check` 0 Ausfaelle,
   `_bewuchs_stufen_check` OK, `_hafenstadt_check` OK.
+- BAEUME, FUENFTE FASSUNG: BUESCHEL UND SCHUERZEN (2026-10-01 nachts, Nutzer: „baue die
+  Baeume auch auf den Zelda-Look um“). BEFUND aus der Nahprobe: die Blattkarten der vierten
+  Fassung standen FEST im Raum — von der Seite sah man sie als Striche, von vorn als
+  getupfte Plaettchen, die Fichte war ein Stapel Federn, durch den man den Stamm sah, und
+  sieben Arten (Schneetanne, Urwaldbaum, Akazie, Mangrove ...) hatten noch die glatten
+  Kronen der dritten Fassung. Zwei Stilarten in einem Wald.
+  * BUESCHEL (Kronen wie in BotW/Ghibli): `Baum.bueschel_krone` setzt runde Laubkarten
+    gleichmaessig (Fibonacci-Spirale, nicht Zufall) auf eine Schale um jeden Ballen, innen
+    ein KLEINER DUNKLER KERN (0.52 der Halbachsen, immer die dunklere Laubfarbe — mit 0.66
+    und der hellen Farbe stand er als beleuchtetes Vieleck zwischen den Bueschel).
+    `TerrainWorld._karten_aufbereiten` legt alle vier Ecken einer Bueschelkarte auf ihre
+    MITTE und schreibt die Ecke als Versatz in Metern nach UV2 ((UV2 − 0.5) · 8); der
+    Flora-Shader spannt sie im BLICKRAUM auf (`POSITION`), immer zur Kamera. VERTEX bleibt
+    die Mitte: Licht, Schatten und Dunst rechnet Godot je Bueschel EINMAL — ganze Bueschel
+    liegen in der Sonne oder im Schatten (gemalte Flaechen statt Sprenkel). Die Normale
+    kippt zur Ecke hin (Woelbung), oben eine Spur heller. Im Hauptbild rueckt das Bueschel
+    0.45 Halbkanten auf die Kamera zu (liegt sicher vor dem Kern), im Schattenwurf (erkannt
+    an der rechtwinkligen Projektion, `PROJECTION_MATRIX[2][3]`) 0.9 Halbkanten von der
+    Sonne weg (die zur Sonne gedrehte Fassung darf die eigene Mitte nicht beschatten).
+    Arten: Eiche, Birke, Kiefer, Busch, Urwaldbaum, Akazie, Mangrove.
+  * SCHUERZEN (Nadelbaeume): `Baum.schuerze` = ausgestellter Kegelmantel je Astetage (Kopf am
+    Stamm, Knick, Rand; der Rand springt abwechselnd vor und zurueck = von oben ein Stern),
+    darauf laeuft das kachelbare Atlasfeld „nadel“ um (oben deckend, unten haengende
+    Zweigspitzen). Feste Flaechen (UV2 = 0.5), Rueckseite = Inneres der Schuerze, im Shader
+    abgedunkelt. Farbe je Etage von DUNKEL am Stamm nach HELL an den Spitzen — mit fast
+    gleichen Toenen stand die Fichte als einfarbiger mintgruener Kegel da. Fichte und
+    Schneetanne (Schnee als Farbe: Kopf und Knick weiss, Spitzen dunkel).
+  * ATLAS (`build_laubtextur.py`): Felder 0/1/3 sind jetzt RUNDE Bueschel aus Blaettern in
+    Ringen um einen dichten Kern (aussen dunkel, innen hell), OHNE gemaltes Licht aus einer
+    Richtung (die Karte dreht sich mit der Kamera); Feld 2 das Nadelband.
+  * MITTELSTUFE fuer alle Kartenarten: neu `Schneetanne_massiv`, `Urwaldbaum_massiv`,
+    `Akazie_massiv`, `Mangrove_massiv` (die bisherigen glatten Fassungen). Helligkeit von
+    Nah- und Fernwald abgeglichen (`KARTE_BUESCHEL_TON` 0.87: Bueschel zeigen vor allem
+    ihre helle Mitte); Probe „hoch“ 0.56 gegen Fernstufe 0.54.
+  * FALLEN: (1) `POSITION` in einem ZWEIG zu schreiben macht alle anderen Eckpunkte
+    unsichtbar (Godot nimmt dort einen leeren Wert) — die Schuerzen fehlten komplett; immer
+    schreiben. (2) Das Probewerkzeug speicherte 21-mal denselben Frame, weil macOS das
+    verdeckte Fenster nicht zeichnet — `_baum_probe` erzwingt das Bild jetzt mit
+    `RenderingServer.force_draw`.
+  * GEMESSEN (`_gelaende_zeit`, 4K): Bild im Mittel 16,12 -> 16,08 ms, Flora 2,70 -> 2,73
+    (Wald 22 m 5,54 -> 5,92, Schlucht 3,25 -> 2,85). Dreiecke/Eckpunkte aller Arten
+    (`_flora_zahlen`): 5229/4427 -> 5137/4360 (Fichte 406/574 -> 246/254).
+  * BELEGE: `_baum_probe` (neu: Gruppen mit den drei Stufen nebeneinander, `mittel:<Art>`,
+    `fern:<Art>`), `_baum_ausfall_check` 0 Ausfaelle, `_bewuchs_stufen_check` OK,
+    `_hafenstadt_check` OK, `_grafik_check` 0 Beanstandungen, `_loadcheck` OK.
+  * NICHT GEMACHT: Palme und Baumfarn haben weiter Wedel aus Geometrie; die neuen Arten der
+    Regionen sind nur in der Probe gesehen, nicht im Flug ueber Nord-/Sued-/Westland.
 - GRASWIESEN (`_gras_aufbauen`, `shaders/gras_bahn.gdshader` platziert, `gras.gdshader`
   zeichnet): GPUParticles3D auf WELTFESTEM Raster um die Kamera (Hash je Zelle → nichts
   schwimmt), zwei Ringe (150² a 0,7 m bis 52 m, 112² a 1,9 m bis 105 m), Hoehe aus der

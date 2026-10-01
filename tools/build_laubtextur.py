@@ -8,12 +8,14 @@ Lappen.
     python3 tools/build_laubtextur.py [--vorschau <png>]
 
 Schreibt tools/bodentexturen/laub_atlas.png (1024 x 1024, vier Felder 512 x 512):
-    Feld 0 (links oben)   LAUB       Laubzweig: ~50 Blaetter um einen Zweig (Eiche, Busch,
-                                     Urwald, Akazie, Mangrove)
-    Feld 1 (rechts oben)  FEINLAUB   Birke: kleine Blaetter an haengenden Zweiglein
-    Feld 2 (links unten)  NADELZWEIG Fichte/Tanne: flacher Zweig von links (Ansatz) nach
-                                     rechts (Spitze), Nadeln beidseitig, Seitenzweiglein
-    Feld 3 (rechts unten) KIEFER     Kiefer: Nadelbueschel
+    Feld 0 (links oben)   LAUB       rundes Laubbueschel aus spitzen Blaettern (Eiche, Busch,
+                                     Urwald, Mangrove)
+    Feld 1 (rechts oben)  FEINLAUB   luftiges Bueschel aus kleinen Blaettern (Birke, Akazie)
+    Feld 2 (links unten)  NADEL      Band einer Astetage fuer Fichte/Tanne, in x kachelbar:
+                                     oben deckend, unten haengende Zweigspitzen
+    Feld 3 (rechts unten) KIEFER     stachliges Nadelbueschel
+Die Felder 0, 1 und 3 sitzen auf Karten, die sich im Spiel zur Kamera drehen (Bueschel),
+Feld 2 auf den festen Schuerzen der Nadelbaeume (tools/build_baeume.py).
 RGB = Farbfaktor (Mittel 1 ueber die deckenden Pixel, also /2 gespeichert wie die Boden-
 texturen), A = Deckung. Die GRUNDFARBE kommt weiter aus der Vertexfarbe des Modells
 (tools/build_baeume.py) — so bleiben Artfarben, Instanztoenung, Fernstufe und die
@@ -174,117 +176,135 @@ class Feld:
 
 
 def _pinsel(f, rng, n, oben_hell=1.10, unten_dunkel=0.90):
-    """Pinselstruktur: kleine helle Tupfer eher oben, dunkle eher unten."""
+    """Pinselstruktur: kleine helle und dunkle Tupfer (nur auf gedeckten Pixeln)."""
     for k in range(n):
         x, y = rng.random() * 512, rng.random() * 512
         r = 6 + rng.random() * 9
-        oben = 1.0 - y / 512.0
-        if rng.random() < 0.35 + 0.4 * oben:
+        if rng.random() < 0.5:
             f.tupfer((x, y), r, (oben_hell, oben_hell, oben_hell * 0.95))
         else:
             f.tupfer((x, y), r, (unten_dunkel, unten_dunkel, unten_dunkel * 1.02))
 
 
+# DRITTE FASSUNG (2026-10-01 nachts, "baue die Baeume auch auf den Zelda-Look um"): die
+# Felder 0, 1 und 3 sind jetzt BUESCHEL fuer Karten, die sich IMMER ZUR KAMERA drehen
+# (TerrainWorld: Flora-Shader, `ecke`). Ein Bueschel ist deshalb rund und hat KEIN
+# gemaltes Licht aus einer Richtung (das Licht kommt aus der Kronennormale): ein dichter
+# Kern, nach aussen Blaetter, die den Umriss als Laubkante zeichnen — innen hell, aussen
+# dunkler, so liest sich jedes Bueschel als kleine Kuppel. Die zweite Fassung (Laubwolke
+# aus Kreisen mit Licht von oben links, auf fest stehenden Karten) stand im Spiel als
+# Haufen getupfter Plaettchen da, von der Seite sah man die Karten als Striche.
+def _bueschel(f, rng, mitte, r_kern, ringe, blatt_l, blatt_b, spitz, streu=0.45, kern_ton=0.80):
+    """ringe: Liste (Radius des Blattansatzes, Anzahl, Ton). Aussen zuerst (liegt hinten)."""
+    cx, cy = mitte
+    f.puff((cx, cy), r_kern, (kern_ton, kern_ton, kern_ton * 0.98), wellen=7, welle=0.05,
+           kontrast=0.0)
+    for (rr, n, ton) in ringe:
+        ph = rng.random() * 6.28
+        for k in range(n):
+            a = ph + 2 * np.pi * (k + rng.normal(0, 0.18)) / n
+            r0 = rr * (0.88 + 0.24 * rng.random())
+            w = a + rng.normal(0, streu)
+            L = blatt_l * (0.80 + 0.40 * rng.random())
+            t = ton * (0.92 + 0.16 * rng.random())
+            f.blatt((cx + np.cos(a) * r0, cy + np.sin(a) * r0), w, L,
+                    blatt_b * (0.85 + 0.3 * rng.random()), (t, t, t * 0.97), rippe=0.0,
+                    spitz=spitz, licht=0.07)
+
+
 def laub(seed=1):
-    """Laubwolke (Eiche, Busch, Urwald ...): 10-14 puffige, gemalte Ballen mit gewelltem Rand,
-    grosse hinten, kleinere vorn; Licht von oben links; darauf Pinseltupfer."""
+    """Laubbueschel (Eiche, Busch, Urwald, Akazie, Mangrove): spitze Blaetter in fuenf
+    Ringen um einen dichten Kern, die aeusseren ragen als Laubkante ueber den Umriss."""
     f = Feld(seed)
     rng = f.rng
-    ballen = []
-    for k in range(13):
-        a = rng.random() * 2 * np.pi
-        rr = np.sqrt(rng.random()) * 150
-        ballen.append(((256 + np.cos(a) * rr, 262 + np.sin(a) * rr * 0.85), 62 + rng.random() * 48))
-    ballen.sort(key=lambda b: -b[1])
-    for (m, r) in ballen:
-        ton = 0.90 + rng.random() * 0.22
-        f.puff(m, r, (ton, ton, ton * 0.96), wellen=5 + int(rng.random() * 3), welle=0.06)
-    _pinsel(f, rng, 420)
+    _bueschel(f, rng, (256, 256), 172,
+              [(150, 22, 0.80), (118, 19, 0.90), (84, 15, 1.00), (48, 10, 1.10), (8, 6, 1.20)],
+              blatt_l=92, blatt_b=27, spitz=0.75)
+    _pinsel(f, rng, 120, oben_hell=1.06, unten_dunkel=0.94)
     return f.fertig()
 
 
 def feinlaub(seed=2):
-    """Birke: kleine Laubwoelkchen an haengenden, gebogenen Straengen (lockerer, heller)."""
+    """Birke: kleine rundliche Blaetter, lockerer Rand (einzelne Blaetter stehen frei ab),
+    kleinerer Kern — das Bueschel wirkt luftig."""
     f = Feld(seed)
     rng = f.rng
-    holz = (0.40, 0.36, 0.34)
-    for k in range(11):
-        x = 30 + rng.random() * 452
-        y = 20 + rng.random() * 120
-        pts = [(x, y)]
-        drift = rng.normal(0, 5)
-        for s_ in range(4 + int(rng.random() * 5)):
-            px, py = pts[-1]
-            pts.append((px + drift + rng.normal(0, 5), py + 40 + rng.random() * 14))
-        for a, b in zip(pts[:-1], pts[1:]):
-            f.strich(a, b, 1.5, 1.1, holz)
-        for (px, py) in pts[1:]:
-            if py > 490:
-                continue
-            ton = 0.92 + rng.random() * 0.22
-            f.puff((px + rng.normal(0, 6), py), 20 + rng.random() * 14,
-                   (ton, ton, ton * 0.94), wellen=5, welle=0.08)
-    _pinsel(f, rng, 260)
+    _bueschel(f, rng, (256, 256), 128,
+              [(178, 28, 0.82), (150, 28, 0.86), (116, 25, 0.94), (82, 20, 1.02),
+               (46, 13, 1.10), (8, 7, 1.18)],
+              blatt_l=50, blatt_b=21, spitz=0.55, streu=0.7, kern_ton=0.84)
+    _pinsel(f, rng, 90, oben_hell=1.06, unten_dunkel=0.94)
     return f.fertig()
 
 
-def nadelzweig(seed=3):
-    """Fichte: weicher Nadelzweig wie gemalt — Ansatz links, Spitze rechts, symmetrisch um
-    den Zweig: ueberlappende spitze Lappen schraeg nach vorn, ein Mittellappen, am Umriss
-    kleine Fransen (keine einzelnen Nadeln)."""
+def nadelschuerze(seed=3):
+    """Fichte/Tanne: das Band einer ASTETAGE, in x kachelbar (laeuft um den Kegel der Etage).
+    Oben (am Stamm) deckend und dunkel, nach unten haengende Zweigspitzen verschiedener
+    Laenge, zur Spitze hin heller. Vier grosse Zweige je Feld, dazwischen kurze.
+    Jedes Element wird dreimal gemalt (x - 512, x, x + 512) — die Zufallswerte dafuer VOR
+    der Schleife ziehen, sonst passt der linke Rand nicht an den rechten."""
     f = Feld(seed)
     rng = f.rng
-    holz = (0.42, 0.36, 0.30)
-    y0 = 256
 
-    def breite(x):
-        return (1.0 - x / 512.0) * 120 + 26
+    def strich3(p0, p1, b0, b1, farbe):
+        for dx in (-512, 0, 512):
+            f.strich((p0[0] + dx, p0[1]), (p1[0] + dx, p1[1]), b0, b1, farbe)
 
-    f.strich((6, y0), (500, y0), 4.0, 1.5, holz)
-    n = 13
-    for k in range(n):
-        x = 14 + k / (n - 1) * 440
-        L = breite(x) * 1.25 + 30
-        for seite in (-1, 1):
-            w = seite * (0.62 + rng.normal(0, 0.06))
-            ton = 0.90 + rng.random() * 0.16 + (0.08 if seite < 0 else -0.06)
-            f.lappen((x, y0), w, L, breite(x) * 0.28 + 8, (ton, ton, ton * 0.96), haengen=0.06)
-    f.lappen((8, y0), 0.0, 500, 26, (1.06, 1.06, 1.0), haengen=0.0)
-    # Fransen am Umriss, nach aussen-vorn
-    for k in range(90):
-        x = 20 + rng.random() * 460
-        seite = -1 if rng.random() < 0.5 else 1
-        # innerhalb des Umrisses der grossen Lappen anfangen (sonst schweben Fransen frei)
-        y = y0 + seite * breite(x) * 0.62 * (0.8 + 0.2 * rng.random())
-        f.lappen((x - 10, y - seite * 8), seite * (0.75 + rng.normal(0, 0.15)),
-                 18 + rng.random() * 16, 5.5, (0.98, 0.98, 0.95), haengen=0.0)
-    _pinsel(f, rng, 300, oben_hell=1.12, unten_dunkel=0.88)
+    def lappen3(ansatz, winkel, laenge, breite, farbe):
+        for dx in (-512, 0, 512):
+            f.lappen((ansatz[0] + dx, ansatz[1]), winkel, laenge, breite, farbe, haengen=0.0,
+                     kontrast=0.10)
+
+    # deckender Grund: senkrechte Bahnen, oben dunkel
+    for k in range(40):
+        x = rng.random() * 512
+        ton = 0.70 + 0.12 * rng.random()
+        strich3((x, -20), (x + rng.normal(0, 8), 240 + rng.random() * 70), 26, 20,
+                (ton, ton, ton * 0.98))
+    # haengende Zweige: lange (vier je Feld) und kurze dazwischen, jeder aus vier
+    # uebereinanderliegenden Lappen (der unterste der hellste) mit Seitenfransen
+    zweige = []
+    for k in range(4):
+        zweige.append((64 + k * 128 + rng.normal(0, 12), 452 + rng.random() * 44, 44))
+    for k in range(4):
+        zweige.append((128 + k * 128 + rng.normal(0, 16), 372 + rng.random() * 40, 34))
+    for k in range(10):
+        zweige.append((rng.random() * 512, 318 + rng.random() * 46, 24))
+    zweige.sort(key=lambda z: z[1])
+    for (x, y_spitze, b) in zweige:
+        stufen = 4
+        for st in range(stufen):
+            t = (st + 1) / stufen
+            ya = 150 + (y_spitze - 150) * (t - 0.42)
+            L = max(150 + (y_spitze - 150) * t - ya, 30)
+            ton = 0.82 + 0.36 * t + rng.normal(0, 0.03)
+            bb = b * (1.20 - 0.50 * t)
+            xs = x + rng.normal(0, 3)
+            # Seitenfransen zuerst (liegen hinter dem Lappen): schmal, schraeg nach unten
+            for seite in (-1, 1):
+                for q in range(3):
+                    yy = ya + L * (0.15 + 0.24 * q)
+                    lappen3((xs + seite * bb * 0.30, yy),
+                            np.pi * 0.5 - seite * (0.42 + rng.normal(0, 0.08)),
+                            bb * 1.9, bb * 0.30, (ton * 0.95, ton * 0.95, ton * 0.93))
+            lappen3((xs, ya), np.pi * 0.5 + rng.normal(0, 0.05), L, bb, (ton, ton, ton * 0.97))
     return f.fertig()
 
 
 def kiefer(seed=4):
-    """Kiefer: puffige, gezackte Nadelbueschel (Sterne mit weichem Kern) an kurzen Zweigen."""
+    """Kiefer: Nadelbueschel — lange, schmale Nadelfaecher um einen dichten Kern, stachliger
+    Umriss."""
     f = Feld(seed)
     rng = f.rng
-    holz = (0.45, 0.33, 0.25)
-    mitten = [(256, 256)]
-    for k in range(8):
-        a = rng.random() * 2 * np.pi
-        r = 70 + rng.random() * 120
-        mitten.append((256 + np.cos(a) * r, 256 + np.sin(a) * r * 0.85))
-    # Keine Zweigstriche: sie lagen als dunkle Linien quer ueber den Bueschelkarten (die
-    # echten Aeste stehen ohnehin im Modell).
-    mitten.sort(key=lambda m: m[1])
-    for (cx, cy) in mitten:
-        ton = 0.90 + rng.random() * 0.2
-        f.puff((cx, cy), 58 + rng.random() * 26, (ton, ton, ton * 0.96), wellen=13,
-               welle=0.03, spitz=0.09)
-    _pinsel(f, rng, 260)
+    _bueschel(f, rng, (256, 256), 150,
+              [(150, 46, 0.80), (124, 40, 0.88), (92, 32, 0.98), (58, 22, 1.08), (22, 12, 1.18)],
+              blatt_l=70, blatt_b=9.5, spitz=0.45, streu=0.55, kern_ton=0.80)
+    _pinsel(f, rng, 90, oben_hell=1.06, unten_dunkel=0.94)
     return f.fertig()
 
 
 def main():
-    felder = [laub(), feinlaub(), nadelzweig(), kiefer()]
+    felder = [laub(), feinlaub(), nadelschuerze(), kiefer()]
     atlas = np.zeros((2 * N, 2 * N, 4))
     for k, (c, a) in enumerate(felder):
         x, y = (k % 2) * N, (k // 2) * N

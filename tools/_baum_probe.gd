@@ -11,7 +11,10 @@ const MAIN := preload("res://scripts/Main.gd")
 
 const NAH := [["Fichte", "Kiefer", "Birke"], ["Eiche", "Busch", "Schneetanne"],
 	["Urwaldbaum", "Akazie", "Mangrove"], ["Palme", "Baumfarn", "Kaktus"],
-	["Fels", "Totholz", "Busch"]]
+	["Fels", "Totholz", "Busch"],
+	# die drei Stufen nebeneinander: Karten (nah), geschlossene Krone (mittel), Stellvertreter
+	["Fichte", "mittel:Fichte", "fern:Fichte"], ["Eiche", "mittel:Eiche", "fern:Eiche"],
+	["Kiefer", "mittel:Kiefer", "fern:Kiefer"], ["Birke", "mittel:Birke", "fern:Birke"]]
 # Mischung des Probewalds (Anteile wie im Bergwald der Hauptinsel, dazu ein Laubhain)
 const WALD := [["Fichte", 0.62], ["Kiefer", 0.16], ["Birke", 0.10], ["Eiche", 0.07], ["Busch", 0.05]]
 
@@ -174,6 +177,16 @@ func _process(_d: float) -> bool:
 						mi.mesh = tw._mesh_rock
 						mi.scale = Vector3(2.4, 1.5, 1.9)
 						mi.position = Vector3((k - 1) * 9.5, -0.3, 2000.0 + g * 200.0 + 6.0)
+					elif String(gruppe[k]).begins_with("mittel:"):
+						# MITTLERE STUFE (geschlossene Krone jenseits von KARTEN_BIS)
+						mi.mesh = tw._flora_massiv[String(gruppe[k]).trim_prefix("mittel:")]
+						mi.scale = Vector3.ONE * 1.4
+						mi.position = Vector3((k - 1) * 9.5, 0.0, 2000.0 + g * 200.0)
+					elif String(gruppe[k]).begins_with("fern:"):
+						var voll: Mesh = tw._flora[String(gruppe[k]).trim_prefix("fern:")]
+						mi.mesh = tw._grob_cache.get(voll, voll)
+						mi.scale = Vector3.ONE * 1.4
+						mi.position = Vector3((k - 1) * 9.5, 0.0, 2000.0 + g * 200.0)
 					elif tw._flora.has(gruppe[k]):
 						mi.mesh = tw._flora[gruppe[k]]
 						mi.scale = Vector3.ONE * 1.4
@@ -199,6 +212,10 @@ func _process(_d: float) -> bool:
 		_ansicht()
 		return false
 	if f == 14 + schuss * 8:
+		# Verdeckt macOS das Fenster, zeichnet Godot gar nicht mehr und jede Aufnahme zeigt
+		# denselben alten Frame — deshalb das Bild hier erzwingen.
+		RenderingServer.force_draw(false)
+		RenderingServer.force_draw(false)
 		var img := get_root().get_viewport().get_texture().get_image()
 		var p: String = ziel.path_join("probe_%s.png" % ansichten[schuss][0])
 		img.save_png(p)
