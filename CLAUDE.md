@@ -666,8 +666,20 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   * BELEGE: `_baum_probe` (neu: Gruppen mit den drei Stufen nebeneinander, `mittel:<Art>`,
     `fern:<Art>`), `_baum_ausfall_check` 0 Ausfaelle, `_bewuchs_stufen_check` OK,
     `_hafenstadt_check` OK, `_grafik_check` 0 Beanstandungen, `_loadcheck` OK.
-  * NICHT GEMACHT: Palme und Baumfarn haben weiter Wedel aus Geometrie; die neuen Arten der
-    Regionen sind nur in der Probe gesehen, nicht im Flug ueber Nord-/Sued-/Westland.
+  * PALME UND BAUMFARN (Nachtrag, Nutzer: „mach Palme und Baumfarn auch im Zelda-Look“):
+    `Baum.wedel_karte` = gebogenes Band mit Mittelrippe, links und rechts abgedacht
+    (`falz`, sonst saehe man es von der Seite als Kante), darauf ein GEMALTER, gefiederter
+    Wedel aus dem Atlas. Palme: drei Lagen (steil, ausladend, haengend), 15 Wedel; Baumfarn
+    zwei Lagen, 12 Wedel. Feste Flaechen wie die Schuerzen (Unterseite dunkler), werfen
+    Schatten mit Fiederkontur. Mittelstufe `Palme_massiv`/`Baumfarn_massiv` = die alten
+    Wedel aus Geometrie.
+    ATLAS JETZT 2048 x 1024: links die vier Felder 512² (Laub, Feinlaub / Nadel, Kiefer),
+    rechts zwei Felder 1024 x 512 (Palmwedel, Farnwedel). `Baum.FELDER` haelt die Rechtecke,
+    `Baum._atlas` rechnet die UV; `_karten_aufbereiten` erkennt Bueschel an u < 0.5 (ausser
+    Nadel: u < 0.25 und v >= 0.5). Wer das Layout aendert, muss BEIDE Stellen anfassen.
+  * NICHT GEMACHT: die neuen Arten der Regionen (Schneetanne, Urwaldbaum, Akazie, Mangrove,
+    Palme, Baumfarn) sind nur in der Probe gesehen, nicht im Flug ueber Nord-/Sued-/Westland.
+    Kaktus und Totholz bleiben glatte Koerper (kein Laub).
 - GRASWIESEN (`_gras_aufbauen`, `shaders/gras_bahn.gdshader` platziert, `gras.gdshader`
   zeichnet): GPUParticles3D auf WELTFESTEM Raster um die Kamera (Hash je Zelle → nichts
   schwimmt), zwei Ringe (150² a 0,7 m bis 52 m, 112² a 1,9 m bis 105 m), Hoehe aus der

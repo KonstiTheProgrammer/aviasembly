@@ -11070,14 +11070,14 @@ static func _karten_abtrennen(arr: Array) -> Array:
 			ix[i] = i
 	var hat := false
 	for u in uvs:
-		if u.x > 0.002:
+		if u.x > 0.001:
 			hat = true
 			break
 	if not hat:
 		return []
 	var teile: Array = [[], []]      # [feste Dreiecke, Kartendreiecke] als Indexlisten
 	for t in range(0, ix.size() - 2, 3):
-		var k := 1 if uvs[ix[t]].x > 0.002 else 0
+		var k := 1 if uvs[ix[t]].x > 0.001 else 0
 		(teile[k] as Array).append_array([ix[t], ix[t + 1], ix[t + 2]])
 	var ergebnis: Array = []
 	for k in 2:
@@ -11132,7 +11132,8 @@ static func _karten_abtrennen(arr: Array) -> Array:
 ##     Kamera dreht. Alle vier Ecken wandern hier auf die MITTE der Karte, die Ecke selbst
 ##     steht als Versatz in Metern in UV2 ((UV2 - 0.5) * BUESCHEL_MASS; 0.5 = kein Versatz).
 ##     Fest stehende Karten sah man von der Seite als Striche und von vorn als Plaettchen.
-##   * SCHUERZEN (Feld Nadel): feste Flaechen, bleiben wie gebaut (UV2 = 0.5).
+##   * SCHUERZEN (Feld Nadel) und WEDEL (Palme, Farn): feste Flaechen, bleiben wie gebaut
+##     (UV2 = 0.5).
 ## NORMALE = Huelle der ganzen Krone plus Kartennormale (beim Bueschel die Auswaerts-
 ## richtung seines Ballens): die Krone liest sich als EIN Koerper mit Sonnen- und Schatten-
 ## seite. Dazu derselbe gemalte Verlauf wie bei den festen Kronen (oben warm, unten kuehl,
@@ -11173,10 +11174,11 @@ static func _karten_aufbereiten(arr: Array) -> float:
 	for w: int in gruppen:
 		var g: PackedInt32Array = gruppen[w]
 		var u0 := uvs[g[0]]
-		# Feld Nadel = links unten im Atlas (u < 0.5, v >= 0.5): feste Flaeche
-		if g.size() != 4 or (u0.x < 0.5 and u0.y >= 0.5):
+		# ATLAS 2048 x 1024: links vier Felder (Viertelbreite), rechts die beiden Wedel.
+		# Feste Flaechen: Nadel (links unten) und die Wedel (rechte Haelfte).
+		if g.size() != 4 or u0.x >= 0.5 or (u0.x < 0.25 and u0.y >= 0.5):
 			continue
-		var feld_m := Vector2(0.25 if u0.x < 0.5 else 0.75, 0.25 if u0.y < 0.5 else 0.75)
+		var feld_m := Vector2(0.125 if u0.x < 0.25 else 0.375, 0.25 if u0.y < 0.5 else 0.75)
 		var mitte := (vs[g[0]] + vs[g[1]] + vs[g[2]] + vs[g[3]]) * 0.25
 		var halb := (vs[g[0]] - mitte).length() / sqrt(2.0)
 		halb_max = maxf(halb_max, halb)

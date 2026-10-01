@@ -7,15 +7,20 @@ Lappen.
 
     python3 tools/build_laubtextur.py [--vorschau <png>]
 
-Schreibt tools/bodentexturen/laub_atlas.png (1024 x 1024, vier Felder 512 x 512):
-    Feld 0 (links oben)   LAUB       rundes Laubbueschel aus spitzen Blaettern (Eiche, Busch,
-                                     Urwald, Mangrove)
-    Feld 1 (rechts oben)  FEINLAUB   luftiges Bueschel aus kleinen Blaettern (Birke, Akazie)
-    Feld 2 (links unten)  NADEL      Band einer Astetage fuer Fichte/Tanne, in x kachelbar:
-                                     oben deckend, unten haengende Zweigspitzen
-    Feld 3 (rechts unten) KIEFER     stachliges Nadelbueschel
-Die Felder 0, 1 und 3 sitzen auf Karten, die sich im Spiel zur Kamera drehen (Bueschel),
-Feld 2 auf den festen Schuerzen der Nadelbaeume (tools/build_baeume.py).
+Schreibt tools/bodentexturen/laub_atlas.png (2048 x 1024):
+    links vier Felder 512 x 512
+      LAUB      (0, 0)     rundes Laubbueschel aus spitzen Blaettern (Eiche, Busch, Urwald,
+                           Mangrove)
+      FEINLAUB  (512, 0)   luftiges Bueschel aus kleinen Blaettern (Birke, Akazie)
+      NADEL     (0, 512)   Band einer Astetage fuer Fichte/Tanne, in x kachelbar: oben
+                           deckend, unten haengende Zweigspitzen
+      KIEFER    (512, 512) stachliges Nadelbueschel
+    rechts zwei Felder 1024 x 512
+      WEDEL     (1024, 0)   Palmwedel: Ansatz links, Spitze rechts, einzelne lange Fiedern
+      FARN      (1024, 512) Farnwedel: viele kurze Fiedern, Lanzettform
+Laub, Feinlaub und Kiefer sitzen auf Karten, die sich im Spiel zur Kamera drehen (Bueschel),
+Nadel auf den festen Schuerzen der Nadelbaeume, Wedel und Farn auf gebogenen, gefalteten
+Wedelflaechen (tools/build_baeume.py).
 RGB = Farbfaktor (Mittel 1 ueber die deckenden Pixel, also /2 gespeichert wie die Boden-
 texturen), A = Deckung. Die GRUNDFARBE kommt weiter aus der Vertexfarbe des Modells
 (tools/build_baeume.py) — so bleiben Artfarben, Instanztoenung, Fernstufe und die
@@ -34,15 +39,16 @@ ORDNER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bodentexturen
 
 
 class Feld:
-    def __init__(self, seed):
-        self.a = np.zeros((N, N))
-        self.c = np.ones((N, N, 3))
+    def __init__(self, seed, breite=N):
+        self.w = breite
+        self.a = np.zeros((N, breite))
+        self.c = np.ones((N, breite, 3))
         self.rng = np.random.default_rng(seed)
 
     def _patch(self, x0, x1, y0, y1):
         x0 = max(int(np.floor(x0)), 0)
         y0 = max(int(np.floor(y0)), 0)
-        x1 = min(int(np.ceil(x1)) + 1, N)
+        x1 = min(int(np.ceil(x1)) + 1, self.w)
         y1 = min(int(np.ceil(y1)) + 1, N)
         if x1 <= x0 or y1 <= y0:
             return None
@@ -303,13 +309,57 @@ def kiefer(seed=4):
     return f.fertig()
 
 
+def _wedel(seed, n_je_seite, l_max, breite, winkel_fuss, winkel_spitze, form, spitz,
+           rippe_ton=(1.16, 1.14, 0.92)):
+    """Gemalter Wedel, 1024 x 512: Ansatz links, Spitze rechts, Mittelrippe waagerecht.
+    Fiedern beidseitig schraeg zur Spitze, an der Rippe dicht (deckend), aussen einzeln
+    (gefiederter Umriss). form(t) = Fiederlaenge laengs des Wedels (0..1)."""
+    f = Feld(seed, 1024)
+    rng = f.rng
+    y0 = 256
+    x_a, x_e = 26, 930
+    # von der Spitze zum Ansatz malen: die Fiedern weiter innen liegen obenauf
+    for k in range(n_je_seite - 1, -1, -1):
+        t = (k + 0.5) / n_je_seite
+        x = x_a + (x_e - x_a) * t
+        for seite in (-1, 1):
+            w = seite * (winkel_fuss + (winkel_spitze - winkel_fuss) * t + rng.normal(0, 0.05))
+            L = l_max * form(t) * (0.90 + 0.20 * rng.random())
+            ton = 0.90 + 0.22 * rng.random() + (0.05 if seite < 0 else -0.05)
+            f.blatt((x + rng.normal(0, 3), y0 + seite * 2), w, L, breite * (0.85 + 0.3 * rng.random()),
+                    (ton, ton, ton * 0.96), rippe=0.0, spitz=spitz, licht=0.10)
+    # Endfieder und Mittelrippe
+    f.blatt((x_e - 30, y0), 0.0, min(l_max * form(1.0) * 1.1 + 40, 1010 - x_e + 30), breite, (1.08, 1.08, 1.0),
+            rippe=0.0, spitz=spitz, licht=0.08)
+    f.strich((4, y0), (x_e, y0), 8.0, 2.0, rippe_ton)
+    return f.fertig()
+
+
+def palmwedel(seed=5):
+    """Palme: lange, schmale Fiedern, in der Mitte am laengsten, deutlich einzeln."""
+    return _wedel(seed, 38, 290, 15.0, 1.02, 0.55,
+                  lambda t: (np.sin(np.pi * min(0.10 + 0.86 * t, 1.0)) ** 0.6) * (1.0 - 0.30 * t),
+                  spitz=0.55)
+
+
+def farnwedel(seed=6):
+    """Baumfarn: viele kurze, breitere Fiedern fast quer zur Rippe, zur Spitze gleichmaessig
+    kuerzer (Lanzettform), dichter Umriss."""
+    return _wedel(seed, 54, 212, 13.0, 1.18, 0.85,
+                  lambda t: min(t / 0.10, 1.0) ** 0.7 * (1.0 - t) ** 0.62 + 0.10,
+                  spitz=0.80, rippe_ton=(1.05, 1.02, 0.86))
+
+
 def main():
-    felder = [laub(), feinlaub(), nadelschuerze(), kiefer()]
-    atlas = np.zeros((2 * N, 2 * N, 4))
-    for k, (c, a) in enumerate(felder):
-        x, y = (k % 2) * N, (k // 2) * N
-        atlas[y:y + N, x:x + N, :3] = np.clip(c * 0.5, 0, 1)
-        atlas[y:y + N, x:x + N, 3] = a
+    # ATLAS 2048 x 1024: vier Felder 512 x 512 links (Laub, Feinlaub / Nadel, Kiefer), rechts
+    # zwei Felder 1024 x 512 fuer die Wedel (Palme oben, Farn unten).
+    felder = [(laub(), 0, 0), (feinlaub(), N, 0), (nadelschuerze(), 0, N), (kiefer(), N, N),
+              (palmwedel(), 2 * N, 0), (farnwedel(), 2 * N, N)]
+    atlas = np.zeros((2 * N, 4 * N, 4))
+    for k, ((c, a), x, y) in enumerate(felder):
+        h, w = a.shape
+        atlas[y:y + h, x:x + w, :3] = np.clip(c * 0.5, 0, 1)
+        atlas[y:y + h, x:x + w, 3] = a
         print("Feld %d Deckung %.0f %%, Faktor %.2f..%.2f" % (
             k, (a > 0.5).mean() * 100, c[a > 0.5].min(), c[a > 0.5].max()))
     os.makedirs(ORDNER, exist_ok=True)

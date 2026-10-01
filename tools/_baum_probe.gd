@@ -14,7 +14,8 @@ const NAH := [["Fichte", "Kiefer", "Birke"], ["Eiche", "Busch", "Schneetanne"],
 	["Fels", "Totholz", "Busch"],
 	# die drei Stufen nebeneinander: Karten (nah), geschlossene Krone (mittel), Stellvertreter
 	["Fichte", "mittel:Fichte", "fern:Fichte"], ["Eiche", "mittel:Eiche", "fern:Eiche"],
-	["Kiefer", "mittel:Kiefer", "fern:Kiefer"], ["Birke", "mittel:Birke", "fern:Birke"]]
+	["Kiefer", "mittel:Kiefer", "fern:Kiefer"], ["Birke", "mittel:Birke", "fern:Birke"],
+	["Palme", "mittel:Palme", "fern:Palme"], ["Baumfarn", "mittel:Baumfarn", "fern:Baumfarn"]]
 # Mischung des Probewalds (Anteile wie im Bergwald der Hauptinsel, dazu ein Laubhain)
 const WALD := [["Fichte", 0.62], ["Kiefer", 0.16], ["Birke", 0.10], ["Eiche", 0.07], ["Busch", 0.05]]
 

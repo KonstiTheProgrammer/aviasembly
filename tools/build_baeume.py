@@ -39,7 +39,9 @@
 #     mit dem gemalten Nadelband, am Stamm dunkel, die haengenden Spitzen hell. Fichte und
 #     Schneetanne (Schnee als Farbe: oben weiss, Spitzen dunkel).
 #   * Jede Art mit Karten hat eine geschlossene Fassung `<Art>_massiv` fuer die Mittelstufe.
-#   * Palme, Baumfarn, Kaktus, Totholz, Fels unveraendert.
+#   * PALME und BAUMFARN: gemalte, gefiederte Wedel (`Baum.wedel_karte`) statt Wedeln aus
+#     Geometrie.
+#   * Kaktus, Totholz, Fels unveraendert.
 #
 # REGELN (seit der zweiten Fassung):
 #   * Jedes Teil ist ein GESCHLOSSENER Koerper in einem eigenen bmesh (Ballen = Ikosaeder-
@@ -425,6 +427,48 @@ class Baum:
                     l[self.col] = c
         self.teile += 1
 
+    def wedel_karte(self, wurzel, richtung, laenge, breite, farbe, feld="wedel", knick=0.5,
+                    stationen=5, falz=0.24, drall=0.0):
+        """Wedel als GEMALTE FLAECHE (Atlasfeld "wedel" bzw. "farn"): ein gebogenes Band mit
+        Mittelrippe, links und rechts daechert es ab (`falz`: die Rippe liegt hoeher als die
+        Raender — von der Seite sieht man so die Flaeche statt einer Kante). Der gefiederte
+        Umriss kommt aus der Textur, das Band selbst ist ueberall gleich breit. Einfach
+        gebaut: das Kartenmaterial zeichnet beide Seiten, die Unterseite dunkler.
+        `drall` dreht das Band um seine Rippe (Wedel haengen selten genau waagrecht)."""
+        w = Vector(wurzel)
+        d = Vector(richtung).normalized()
+        seit = d.cross(Vector((0, 0, 1)))
+        if seit.length < 0.01:
+            seit = Vector((1, 0, 0))
+        seit.normalize()
+        auf = seit.cross(d).normalized()
+        if auf.z < 0.0:
+            auf = -auf
+        if drall != 0.0:
+            rot = Matrix.Rotation(drall, 3, d)
+            seit = rot @ seit
+            auf = rot @ auf
+        vm, vl, vr = [], [], []
+        b = breite * 0.5
+        for k in range(stationen + 1):
+            t = k / float(stationen)
+            p = w + d * (laenge * t)
+            p.z -= knick * laenge * t * t
+            f = falz * b * (1.0 - 0.3 * t)
+            vm.append(self.bm.verts.new(p + auf * f))
+            vl.append(self.bm.verts.new(p - seit * b - auf * f))
+            vr.append(self.bm.verts.new(p + seit * b - auf * f))
+        for k in range(stationen):
+            t0, t1 = k / float(stationen), (k + 1) / float(stationen)
+            for ecken in ([(vl[k], t0, 0.0), (vm[k], t0, 0.5), (vm[k + 1], t1, 0.5), (vl[k + 1], t1, 0.0)],
+                          [(vm[k], t0, 0.5), (vr[k], t0, 1.0), (vr[k + 1], t1, 1.0), (vm[k + 1], t1, 0.5)]):
+                fa = self.bm.faces.new([e[0] for e in ecken])
+                for l, (_vv, u, v) in zip(fa.loops, ecken):
+                    ton = 0.90 + 0.16 * u
+                    l[self.col] = (farbe[0] * ton, farbe[1] * ton, farbe[2] * ton, ALPHA_LAUB)
+                    l[self.uv].uv = self._atlas(feld, u, v)
+                self.karten += 1
+
     # --- Brettwurzel: duenne, geschlossene Rippe am Stammfuss --------------------------------
     def brett(self, winkel, weit, hoch, dick, farbe):
         ca, sa = math.cos(winkel), math.sin(winkel)
@@ -450,15 +494,24 @@ class Baum:
     # Farbattribut) — deshalb dasselbe Material. Die Farbe bleibt Vertexfarbe (Gruen > Rot:
     # Laub-Erkennung, Instanztoenung und Fernstufe arbeiten unveraendert); der Atlas liefert
     # Form und Helligkeitsfaktor.
-    FELDER = {"laub": (0, 0), "fein": (1, 0), "nadel": (0, 1), "kiefer": (1, 1)}
+    # Atlas 2048 x 1024 (tools/build_laubtextur.py): (u0, v0, Breite, Hoehe) in Atlasanteilen,
+    # Bildzeile 0 oben. Links vier Felder 512 x 512, rechts zwei Wedelfelder 1024 x 512.
+    FELDER = {"laub": (0.0, 0.0, 0.25, 0.5), "fein": (0.25, 0.0, 0.25, 0.5),
+              "nadel": (0.0, 0.5, 0.25, 0.5), "kiefer": (0.25, 0.5, 0.25, 0.5),
+              "wedel": (0.5, 0.0, 0.5, 0.5), "farn": (0.5, 0.5, 0.5, 0.5)}
+    RAND_PX = 6.0     # so viele Bildpunkte bleibt die Karte vom Feldrand weg (Mipmaps)
+
+    def _atlas(self, feld, u, v):
+        """(u, v) im Feld (v = 0 oben) -> Blender-UV im Atlas. glTF dreht v um."""
+        x0, y0, fw, fh = self.FELDER[feld]
+        ru, rv = self.RAND_PX / 2048.0, self.RAND_PX / 1024.0
+        return (x0 + ru + u * (fw - 2 * ru), 1.0 - (y0 + rv + v * (fh - 2 * rv)))
 
     def karte(self, mitte, achse_u, achse_v, breite, hoehe, feld, farbe, u0=0.5):
         """u0: wo auf der Karte `mitte` liegt (0.5 Mitte, 0 Ansatz = Nadelzweig am Stamm)."""
         m = Vector(mitte)
         au = Vector(achse_u).normalized()
         av = Vector(achse_v).normalized()
-        fx, fy = self.FELDER[feld]
-        rand = 0.006
         ecken = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
         vs = [self.bm.verts.new(m + au * ((u - u0) * breite) + av * ((v - 0.5) * hoehe))
               for (u, v) in ecken]
@@ -466,10 +519,7 @@ class Baum:
         c = (farbe[0], farbe[1], farbe[2], ALPHA_LAUB)
         for l, (u, v) in zip(f.loops, ecken):
             l[self.col] = c
-            # Atlas: Feld (fx, fy), Bildzeile 0 oben. glTF dreht v um (v_gltf = 1 - v).
-            gu = fx * 0.5 + rand + u * (0.5 - 2 * rand)
-            gv = fy * 0.5 + rand + (1.0 - v) * (0.5 - 2 * rand)
-            l[self.uv].uv = (gu, 1.0 - gv)
+            l[self.uv].uv = self._atlas(feld, u, 1.0 - v)
         self.karten += 1
         return f
 
@@ -585,8 +635,6 @@ class Baum:
         springt abwechselnd vor und zurueck (`stern`): von oben ein Stern, kein Kreis.
         Die vierte Fassung (gekreuzte Zweigkarten) stand als Stapel Federn da, durch den man
         den Stamm sah; BotW-Nadelbaeume sind genau solche geschichteten Maentel."""
-        fx, fy = self.FELDER["nadel"]
-        rand_uv = 0.006
         mx = self.rng.uniform(-versatz, versatz)
         my = self.rng.uniform(-versatz, versatz)
         phase = self.rng.uniform(0.0, 2.0 * math.pi)
@@ -620,9 +668,7 @@ class Baum:
                 f = self.bm.faces.new([e[0] for e in ecken])
                 for l, (_vv, u, v, c) in zip(f.loops, ecken):
                     l[self.col] = (c[0], c[1], c[2], ALPHA_LAUB)
-                    gu = fx * 0.5 + rand_uv + u * (0.5 - 2 * rand_uv)
-                    gv = fy * 0.5 + rand_uv + v * (0.5 - 2 * rand_uv)
-                    l[self.uv].uv = (gu, 1.0 - gv)
+                    l[self.uv].uv = self._atlas("nadel", u, v)
                 self.karten += 1
 
     def nadel_etage(self, z, r, farbe, zweige=8, neigung=-0.35, breite=None, z_kern=None):
@@ -818,10 +864,12 @@ def eiche():
     return b.objekt()
 
 
-def palme():
-    """Kokospalme: geschwungener Stamm mit Ringen, Kokosnuesse, gefaltete Wedel (zweiseitig)
-    in zwei Lagen — die obere steht, die untere haengt tief herab."""
-    b = Baum("Palme", 55)
+def palme(massiv=False):
+    """Kokospalme: geschwungener Stamm mit Ringen, Kokosnuesse, darauf ein Schopf aus
+    gemalten WEDELN (Baum.wedel_karte) in drei Lagen — die oberste steht steil, die mittlere
+    biegt sich aus, die unterste haengt tief herab. massiv = die alte Fassung mit Wedeln aus
+    Geometrie (Mittelstufe jenseits der Kartenweite)."""
+    b = Baum("Palme_massiv" if massiv else "Palme", 55)
     pts = [(0, 0, UNTER_BODEN)]
     rad = [0.36]
     for k in range(7):
@@ -840,13 +888,25 @@ def palme():
     for a in (0.3, 2.4, 4.4):
         b.ballen(kopf + Vector((math.cos(a) * 0.30, math.sin(a) * 0.30, -0.25)),
                  (0.22, 0.22, 0.24), holz(KOKOS, 0.1), fein="winzig")
-    for i in range(10):
-        a = 2.0 * math.pi * i / 10 + 0.2 + b.rng.uniform(-0.12, 0.12)
-        oben = i % 2 == 0
-        d = Vector((math.cos(a), math.sin(a), 0.62 if oben else 0.10))
-        f = PALME if oben else _mul(PALME, 0.84)
-        b.wedel(kopf + Vector((0, 0, 0.15)), d, 3.3 if oben else 3.0, 0.60, f,
-                knick=0.50 if oben else 0.72, stationen=4, falz=0.35)
+    if massiv:
+        for i in range(10):
+            a = 2.0 * math.pi * i / 10 + 0.2 + b.rng.uniform(-0.12, 0.12)
+            oben = i % 2 == 0
+            d = Vector((math.cos(a), math.sin(a), 0.62 if oben else 0.10))
+            f = PALME if oben else _mul(PALME, 0.84)
+            b.wedel(kopf + Vector((0, 0, 0.15)), d, 3.3 if oben else 3.0, 0.60, f,
+                    knick=0.50 if oben else 0.72, stationen=4, falz=0.35)
+        return b.objekt()
+    # (Anzahl, Steigung der Richtung, Laenge, Biegung, Farbton)
+    lagen = [(4, 1.15, 3.0, 0.42, 1.08), (6, 0.48, 3.7, 0.52, 1.0), (5, 0.02, 3.4, 0.62, 0.84)]
+    for li, (n, steig, lang, knick, ton) in enumerate(lagen):
+        phase = 0.2 + li * 0.55
+        for i in range(n):
+            a = phase + 2.0 * math.pi * i / n + b.rng.uniform(-0.14, 0.14)
+            d = Vector((math.cos(a), math.sin(a), steig + b.rng.uniform(-0.08, 0.08)))
+            b.wedel_karte(kopf + Vector((0, 0, 0.12)), d, lang * b.rng.uniform(0.92, 1.08),
+                          lang * 0.50, _mul(PALME, ton), feld="wedel", knick=knick,
+                          stationen=5, falz=0.30, drall=b.rng.uniform(-0.25, 0.25))
     return b.objekt()
 
 
@@ -899,18 +959,30 @@ def urwaldbaum(massiv=False):
     return b.objekt()
 
 
-def baumfarn():
-    """Suedland: schlanker Stamm, ein Stern aus gebogenen Wedeln (zweiseitig)."""
-    b = Baum("Baumfarn", 111)
+def baumfarn(massiv=False):
+    """Suedland: schlanker Stamm, darauf ein Schirm aus gemalten Farnwedeln in zwei Lagen
+    (massiv = die alte Fassung mit Wedeln aus Geometrie)."""
+    b = Baum("Baumfarn_massiv" if massiv else "Baumfarn", 111)
     b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.0), (0.15, 0.05, 2.4), (0.25, 0.0, 4.6)],
            [0.24, 0.23, 0.19, 0.16], holz(FARN_STAMM, 0.12), segs=5, offen="uo")
     kopf = Vector((0.25, 0.0, 4.6))
     b.ballen(kopf + Vector((0, 0, 0.1)), (0.34, 0.34, 0.30), laub(_mul(FARN, 0.8)), fein="winzig")
-    for i in range(10):
-        a = 2.0 * math.pi * i / 10 + 0.15 + b.rng.uniform(-0.1, 0.1)
-        d = Vector((math.cos(a), math.sin(a), 0.80 if i % 2 else 0.45))
-        b.wedel(kopf, d, 2.5, 0.55, FARN if i % 2 else _mul(FARN, 0.86), knick=0.72,
-                stationen=3, falz=0.12)
+    if massiv:
+        for i in range(10):
+            a = 2.0 * math.pi * i / 10 + 0.15 + b.rng.uniform(-0.1, 0.1)
+            d = Vector((math.cos(a), math.sin(a), 0.80 if i % 2 else 0.45))
+            b.wedel(kopf, d, 2.5, 0.55, FARN if i % 2 else _mul(FARN, 0.86), knick=0.72,
+                    stationen=3, falz=0.12)
+        return b.objekt()
+    for li, (n, steig, lang, knick, ton) in enumerate([(5, 0.95, 2.5, 0.62, 1.06),
+                                                        (7, 0.38, 2.9, 0.70, 0.90)]):
+        phase = 0.15 + li * 0.45
+        for i in range(n):
+            a = phase + 2.0 * math.pi * i / n + b.rng.uniform(-0.12, 0.12)
+            d = Vector((math.cos(a), math.sin(a), steig + b.rng.uniform(-0.06, 0.06)))
+            b.wedel_karte(kopf, d, lang * b.rng.uniform(0.92, 1.08), lang * 0.46,
+                          _mul(FARN, ton), feld="farn", knick=knick, stationen=4, falz=0.22,
+                          drall=b.rng.uniform(-0.2, 0.2))
     return b.objekt()
 
 
@@ -1151,7 +1223,7 @@ ARTEN = [fichte, kiefer, birke, eiche, palme, totholz, busch, schneetanne, urwal
          akazie, mangrove, kaktus, fels,
          fichte_massiv, kiefer_massiv, birke_massiv, eiche_massiv, busch_massiv,
          schneetanne_massiv, lambda: urwaldbaum(True), lambda: akazie(True),
-         lambda: mangrove(True)]
+         lambda: mangrove(True), lambda: palme(True), lambda: baumfarn(True)]
 
 
 def pruefen(obs):
@@ -1195,7 +1267,7 @@ def pruefen(obs):
         breit = max(max(abs(v.co.x), abs(v.co.y)) for v in ob.data.vertices)
         uvl = ob.data.uv_layers[0].data if ob.data.uv_layers else None
         karten = sum(1 for p in ob.data.polygons
-                     if uvl is not None and uvl[p.loop_indices[0]].uv[0] > 0.002)
+                     if uvl is not None and uvl[p.loop_indices[0]].uv[0] > 0.001)
         print("  %-12s %4d Tris  Hoehe %5.2f  Breite %4.2f  verkehrt %d  offene Inseln %d  Karten %d"
               % (ob.name, tris, hoch, breit * 2, innen, offen_inseln, karten))
         fehler += innen
