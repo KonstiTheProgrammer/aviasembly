@@ -698,6 +698,72 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   Detailstufen ein kleiner Teil der Arbeit, Ersparnis ~3 % der Worker-Zeit, dafuer eigener
   Auftragstyp und Raster im Speicher).
 
+## Stadtstrassen (2026-10): echtes Strassennetz, Gehwege, Kreuzungen, Haeuser an der Strasse
+Nutzerwunsch: „mach die strassen besser". BEFUND aus Nahbildern: die Ortsstrassen
+(CityBuilder.strassennetz, Hafenstadt._pflaster) waren einfarbige Rechtecke auf dem Gelaende —
+an jeder Kreuzung zwei Baender uebereinander, der Ring der Grossstadt klaffte an jedem Knick
+als Saegezahn, kein Gehweg, keine Linie; die Diagonalen liefen mitten durch Haeuser, und im
+Landdorf standen die (zufaellig gestreuten) Haeuser AUF den Strassen. Die Landstrassen
+(Strassen.gd) liefen als markiertes Band quer durch das Ortsnetz bis in die Ortsmitte.
+- `scripts/Stadtstrassen.gd` (statisch) + `shaders/stadtstrasse.gdshader`:
+  * NETZ: `strecke`/`zug` sammeln Rohstrecken, `schliessen(netz, sperr)` zerlegt sie an allen
+    Schnitt- und Beruehrpunkten in Knoten und Kanten (O(n²), ~150 Strecken) und laesst
+    Kanten unter grossen Bauten weg (`sperr`: OBBs, z. B. der Bahnhof ueber zwei Bloecke).
+  * KNOTEN, fuer JEDEN Winkel: Arme nach Winkel ordnen; jeder Arm wird um
+    (w_j/2 + w_i/2·cos φ)/sin φ zurueckgeschnitten (dort treffen sich die Aussenkanten der
+    Nachbarbaender), die Luecke fuellt ein Asphalt-Faecher um den Knoten und je Armpaar eine
+    Gehwegecke (vier Dreiecke: Bordsteinpunkte, Aussenpunkte, deren Schnittpunkte). Dasselbe
+    Verfahren macht Kreuzung, Einmuendung, Knick (Gehrung am Ring) und Breitenwechsel
+    (`UEBERGANG`). Nie mehr als 48 % der Kante (spitze Winkel).
+  * BAND je Kante: drei Punkte quer (links, Achse, rechts), alle 24 m dem Gelaende
+    nachgefuehrt, `HUB` 0,35 m. UV.x = Abstand von der Achse in METERN, UV.y = Laufmeter,
+    UV2 = Abstand zur Einmuendung an Anfang/Ende, CUSTOM0 = (halbe Fahrbahn, Gehweg, Art,
+    Markierung). Der Shader malt daraus Fahrbahn, Rinnstein, Bordstein, Gehweg, Mittel-/
+    Spurlinien, Haltelinie und ZEBRASTREIFEN vor jeder Einmuendung (Grad >= 3); Linien
+    blenden ueber fwidth aus, der Zebrastreifen wird in der Ferne zur halbhellen Flaeche.
+    Arten: GASSE (Pflaster 5 m), STRASSE (6,5 m + 2×2,25 m Gehweg), BOULEVARD (12 m, vier
+    Spuren, 2×3 m), WEG (Schotter), DORF (heller Asphalt 5,5 m), LAND (wie das
+    Landstrassenband; `strasse.gdshader` hat jetzt denselben Asphaltton).
+  * `bebauen(netz, rng, waehle, belegt, arten, abstand, luecke)`: Haeuser entlang der
+    Kanten, Front (+z des Modells) zur Strasse, `abstand` hinter dem Gehweg; verworfen, was
+    ein anderes Band oder Haus schneidet (OBB gegen OBB, `obb_schnitt`). `waehle(probe, rng)`
+    liefert den Typ je Stelle ("" = Luecke) — darueber laufen Dichte und Viertel.
+- `CityBuilder.netz_ort(r_kern, r_ring, r_aus, sperr, zufahrt)`: STADT = Raster 46 m bis an
+  die Ringstrasse (Linien, deren Stummel zum Ring kuerzer als ein halber Block waere, enden
+  an der letzten Kreuzung), zwei BOULEVARDS als Achsenkreuz (laufen als Landstrasse, zuletzt
+  als Feldweg hinaus), acht Vorstadtstrassen; die Diagonalen sind weg. DORF = Strassenkreuz
+  um den Anger, Dorfstrasse als Ring, vier Feldwege. `plan_grossstadt`/`plan_dorf` bauen
+  ihre Haeuser mit `bebauen` an GENAU dieses Netz (Zwischenspeicher `_netz_cache`, geleert
+  in `karte_leeren`); feste Bauten stehen in Blockmitte (`GROSSSTADT_FEST`, `DORF_FEST`).
+  Grossstadt: 811 Bauten (vorher rund 250 lose), Landdorf 61.
+- ZUFAHRTEN: `CityBuilder.zufahrten(terrain, mitte, r)` findet, wo Landstrassen den Kreis
+  um den Ort kreuzen; das Netz schliesst sie an (an das naechste Strassenende, wenn es
+  innerhalb 110 m und in Richtung liegt — sonst liefe die Landstrasse 30 m neben einer
+  eigenen Ausfallstrasse her —, sonst ueber einen eigenen Ringpunkt mit >= 36 m Abstand zu
+  den anderen). `Strassen.stadt_kreise` (von Main gesetzt, gleiche Radien 360/180) blendet
+  das Landstrassenband innerhalb aus.
+- HAFENSTADT: `Hafenstadt.netz()` aus `strassen()` + Kaistrasse + Landstrasse nach Westen;
+  Breiten jetzt 11 / 18 / 5 m (= `Stadtstrassen.breite`), Haeuser 1 m hinter dem Gehweg,
+  Plaetze (Markt, Kaipflaster westlich der Kaistrasse, Bahnhofsplatz) liegen als Platten
+  UNTER der Strassenhoehe, die Strassen laufen darueber.
+- GEMESSEN (`tools/_hafen_zeit.gd`, 4K; `HZ_ORT=grossstadt`): Grossstadt samt Netz 0,58 ms
+  im Kern, 1,13 ms aus 150 m, 0,14 ms im Anflug, 0,65 ms aus 3 km. Hafenstadt unveraendert
+  (hoechstens 1,46 ms).
+- BELEG: `tools/_stadtstrassen_check.gd` (headless, Urteilszeile): je Ort kein Haus auf
+  einer Strasse und keine zwei ineinander (gegen die echten Netzgrundrisse), und 500
+  Stichpunkte um die Knoten: nirgends zwei Dreiecke uebereinander, im Kern jedes Knotens
+  kein Loch. `_hafenstadt_check` weiter OK.
+- FALLEN: (1) Die Lochpruefung meldete zuerst 4 "Loecher": Punkte genau auf einer Speiche
+  des Faechers liegen in KEINEM Dreieck strikt innen — fuer Loecher nicht-strikt zaehlen.
+  (2) `parent.add_child` vergibt einem zweiten Knoten gleichen Namens einen @-Namen; die
+  Netze heissen deshalb `Strassen_<x>_<z>`. (3) Kreuzungsflaechen brauchen UV.x WEIT weg
+  von Achse und Rand (500 bei halber Breite 1000), sonst malt der Shader die Gassenrinne
+  bzw. den Rinnstein ueber die ganze Flaeche. (4) Ein Turm mit yaw 0,35 ragte aus seinem
+  Block in den Boulevard — feste Bauten in Blockmitte, ungedreht.
+- OFFEN: `CityBuilder._band` ist unbenutzt (die Kommentare in Strassen.gd/Skyline.gd
+  verweisen auf seine Wicklungs-Lektion). Die 20 Strassendoerfer (Strassen._dorf) haben
+  weiter ihr Schotterband. Die Hafenstadt haengt noch nicht am Landstrassennetz.
+
 ## Hafenstadt FREIHAFEN mit Freiheitsstatue (2026-10)
 Nutzerwunsch: „baue eine hafenstadt mit freiheitstatue". Alles in `scripts/Hafenstadt.gd`
 (statisch, feste RNG-Seeds), eingehaengt in Main an vier Stellen: `flat_zones`

@@ -2380,18 +2380,26 @@ func _setup_world() -> void:
 	Landmarks.build_village(fly_world, village_pos)
 	# LANDSTRASSEN, BRUECKEN UND DOERFER der Hauptinsel (die Doerfer nur mit Blender-
 	# Bibliothek, das prueft Strassen.bauen selbst).
+	# In GROSSSTADT und Landdorf uebernimmt das Stadtnetz: die Landstrassenbaender enden an
+	# der Zufahrt (siehe CityBuilder.zufahrten weiter unten — dieselben Radien).
+	Strassen.stadt_kreise = [[Vector2(city_pos.x, city_pos.z), 360.0],
+		[Vector2(dorf_pos.x, dorf_pos.z), 180.0]]
 	Strassen.bauen(fly_world, terrain, _dorf_zonen)
 	# Blender-Gebaeude einbauen (MultiMesh je Typ; ohne Kollision wie die Landmarks)
 	if CityBuilder.has_lib():
-		CityBuilder.build(fly_world, terrain, city_pos, CityBuilder.plan_grossstadt(), "Grossstadt")
+		# Wo Landstrassen ankommen, bekommt der Ring eine Einmuendung (Zufahrt); das Band der
+		# Landstrasse endet dort (Strassen.stadt_kreise, VOR Strassen.bauen gesetzt).
+		var zu_stadt := CityBuilder.zufahrten(terrain, city_pos, 360.0)
+		var zu_dorf := CityBuilder.zufahrten(terrain, dorf_pos, 180.0)
+		CityBuilder.build(fly_world, terrain, city_pos, CityBuilder.plan_grossstadt(zu_stadt), "Grossstadt")
 		# STRASSEN ZUR STADT. Sie sind aus der Luft die eigentliche Stadtform — die
 		# Haeuser sind aus 1500 m nur noch Koernung (Begruendung bei
 		# CityBuilder.strassennetz). Das Dorf bekommt ein kleines Netz mit derselben
 		# Funktion, damit es nicht als zweite lose Haeuserhaufen danebenliegt.
-		CityBuilder.strassennetz(fly_world, terrain, city_pos)
-		CityBuilder.strassennetz(fly_world, terrain, dorf_pos, 90.0, 120.0, 420.0)
+		CityBuilder.strassennetz(fly_world, terrain, city_pos, 250.0, 300.0, 900.0, zu_stadt)
+		CityBuilder.strassennetz(fly_world, terrain, dorf_pos, 90.0, 120.0, 420.0, zu_dorf)
 		CityBuilder.build(fly_world, terrain, indu_pos, CityBuilder.plan_industrie(), "Industriehafen")
-		CityBuilder.build(fly_world, terrain, dorf_pos, CityBuilder.plan_dorf(), "Landdorf")
+		CityBuilder.build(fly_world, terrain, dorf_pos, CityBuilder.plan_dorf(zu_dorf), "Landdorf")
 		CityBuilder.build(fly_world, terrain, burg_pos, CityBuilder.plan_burg(), "Burgberg")
 		CityBuilder.build(fly_world, terrain, mil_pos, CityBuilder.plan_militaer(), "Militaerposten")
 		for e in _region_ort_zonen:
@@ -2401,7 +2409,9 @@ func _setup_world() -> void:
 			var plan: Array = CityBuilder.plan_industrie() if ort["plan"] == "industrie" \
 				else CityBuilder.plan_dorf()
 			if ort.get("strassen", false):
-				CityBuilder.strassennetz(fly_world, terrain, op, 90.0, 120.0, 420.0)
+				# Industrieorte haben einen festen Plan: Strassenstuecke unter den Bauten entfallen
+				CityBuilder.strassennetz(fly_world, terrain, op, 90.0, 120.0, 420.0, [],
+					plan if ort["plan"] == "industrie" else [])
 			CityBuilder.build(fly_world, terrain, op, plan, String(ort["name"]))
 		for af in airfields:   # Hangars/Tower an die AUSSENfelder
 			# HEIMAT bekommt diesen Bausatz NICHT MEHR. Er setzt seine sieben Blender-Haeuser

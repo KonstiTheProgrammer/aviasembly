@@ -10,7 +10,9 @@ shader_type spatial;
 
 uniform bool neben = false;
 
-const vec3 ASPHALT = vec3(0.27, 0.27, 0.28);
+// Derselbe Asphalt wie die Landstrassen-Art in shaders/stadtstrasse.gdshader: an der Zufahrt
+// eines Orts geht das eine Band ins andere ueber.
+const vec3 ASPHALT = vec3(0.35, 0.35, 0.37);
 const vec3 LINIE = vec3(0.90, 0.89, 0.84);
 const vec3 SCHOTTER = vec3(0.58, 0.53, 0.43);   // dunkler als reife Felder (0.66 verschwand darauf)
 const vec3 SPUR = vec3(0.47, 0.42, 0.34);

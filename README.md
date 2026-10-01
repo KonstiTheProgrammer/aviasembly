@@ -124,6 +124,11 @@ Klima, durch Meeresstraßen getrennt (mit kleinen Trittstein-Inseln dazwischen):
 
 Alle Regionen stehen auf der Karte (**M**); ein Klick auf einen Flugplatz setzt dort einen Wegpunkt.
 
+Die Orte haben ein richtiges **Straßennetz**: Fahrbahnen mit Bordstein und Gehweg, Mittellinien,
+Zebrastreifen an den Kreuzungen, in der GROSSSTADT ein Raster mit Ringstraße und zwei
+vierspurigen Boulevards — und die Häuser stehen mit der Front zur Straße. Landstraßen münden
+an der Ringstraße ein.
+
 Am Westufer des Ostgolfs (rund 17 km südöstlich von HEIMAT, auf der Karte **FREIHAFEN**) liegt
 die **Hafenstadt**: Altstadt mit Markt, Rathaus und Kirche, Speicherstadt aus rotem Backstein,
 Frachtkai mit Kränen, Containern und Frachtern, Fischerstege, zwei Molen mit Leuchtfeuern —

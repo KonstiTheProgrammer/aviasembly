@@ -49,6 +49,7 @@ static var karte_strassen: Array = []
 static func karte_leeren() -> void:
 	karte_haeuser.clear()
 	karte_strassen.clear()
+	_netz_cache.clear()
 
 
 static func _sammeln(pfad: String, ziel: Dictionary) -> void:
@@ -233,83 +234,222 @@ static func build(parent: Node3D, terrain, center: Vector3, plan: Array,
 # Jeder liefert einen Plan; Layouts sind deterministisch (fester RNG-Seed) — dieselbe
 # Stadt bei jedem Start, unabhaengig vom Welt-Seed.
 
+## STRASSENNETZ EINES ORTS (scripts/Stadtstrassen.gd) — die gemeinsame Grundlage fuer Bauplan
+## UND Strassenbild: plan_grossstadt/plan_dorf setzen ihre Haeuser an genau die Strassen, die
+## strassennetz() danach baut. Vorher standen die Haeuser auf einem eigenen Raster mit
+## Zufallsversatz, die Strassen daneben — oder mitten hindurch.
+##
+##   STADT (r_kern >= 150): Raster alle RASTER m bis an die Ringstrasse, zwei Boulevards
+##       (vier Spuren) als Achsenkreuz, die als Landstrassen und zuletzt als Feldwege in die
+##       Landschaft auslaufen, dazu vier Vorstadtstrassen.
+##   DORF: Strassenkreuz um den Anger, Dorfstrasse als Ring, vier Feldwege hinaus.
+## `sperr`: OBBs grosser Bauten (Bahnhof ...) — Strassenstuecke darunter entfallen.
+## `zufahrt`: Punkte (lokal), an denen eine Landstrasse ankommt; sie bekommt eine Einmuendung
+## in den Ring.
+const RASTER := 46.0
+static var _netz_cache: Dictionary = {}
+
+
+static func netz_ort(r_kern: float, r_ring: float, r_aus: float, sperr: Array = [],
+		zufahrt: Array = [], schluessel := "") -> Dictionary:
+	if schluessel != "" and _netz_cache.has(schluessel):
+		return _netz_cache[schluessel]
+	var netz := Stadtstrassen.netz_neu()
+	var stadt := r_kern >= 150.0
+	var ringpunkte: Array = []
+	var linien: Array[float] = []
+	var i_max := int(floor(r_kern / RASTER - 0.5)) if stadt else 0
+	for i in range(-i_max - 1, i_max + 1):
+		linien.append((float(i) + 0.5) * RASTER)
+	var aussen: float = linien[linien.size() - 1]
+	var hinaus := r_aus - r_ring
+	var benutzt: Dictionary = {}
+	for o in linien:
+		var art := Stadtstrassen.STRASSE if stadt else Stadtstrassen.DORF
+		if stadt and is_equal_approx(o, 0.5 * RASTER):
+			art = Stadtstrassen.BOULEVARD
+		# bis an den Ring — ausser der Stummel dorthin waere kuerzer als ein guter halber Block
+		var reich := sqrt(maxf(r_ring * r_ring - o * o, 0.0))
+		var am_ring := reich - aussen > RASTER * 0.6
+		var bis := reich if am_ring else aussen
+		for laengs_z: bool in [true, false]:
+			var enden: Array[Vector2] = [Vector2(o, -bis), Vector2(o, bis)]
+			if not laengs_z:
+				enden = [Vector2(-bis, o), Vector2(bis, o)]
+			Stadtstrassen.strecke(netz, enden[0], enden[1], art)
+			if not am_ring:
+				continue
+			for ende in enden:
+				ringpunkte.append(ende)
+				var dir := Vector2(0.0, signf(ende.y)) if laengs_z else Vector2(signf(ende.x), 0.0)
+				# Kommt hier in der Naehe eine Landstrasse an, schliesst SIE an dieses Ende an
+				# (statt 30 m neben einer eigenen Ausfallstrasse herzulaufen).
+				var zi := -1
+				for k in zufahrt.size():
+					var zz: Vector2 = zufahrt[k]
+					if not benutzt.has(k) and zz.distance_to(ende) < 110.0 \
+							and (zz - ende).normalized().dot(dir) > 0.77:
+						zi = k
+						break
+				if zi >= 0:
+					benutzt[zi] = true
+					Stadtstrassen.strecke(netz, ende, zufahrt[zi], Stadtstrassen.LAND)
+					continue
+				if stadt and art == Stadtstrassen.BOULEVARD:
+					# Achsen laufen als Landstrasse hinaus und zuletzt als Feldweg aus
+					Stadtstrassen.strecke(netz, ende, ende + dir * hinaus * 0.72, Stadtstrassen.LAND)
+					Stadtstrassen.strecke(netz, ende + dir * hinaus * 0.72, ende + dir * hinaus,
+						Stadtstrassen.WEG)
+				elif stadt and is_equal_approx(absf(o), 2.5 * RASTER):
+					Stadtstrassen.strecke(netz, ende, ende + dir * 170.0, Stadtstrassen.DORF)   # Vorstadt
+				elif not stadt and (o > 0.0) == ((ende.y if laengs_z else ende.x) > 0.0):
+					# im Dorf laeuft je Linie EIN Ende als Feldweg hinaus (Windrad aus vier Wegen)
+					Stadtstrassen.strecke(netz, ende, ende + dir * hinaus * 0.6, Stadtstrassen.WEG)
+	# Zufahrten der Landstrassen: Stummel vom Ring zum Ankunftspunkt. Der Ringpunkt haelt
+	# Abstand zu den anderen Anschluessen (sonst entstuende ein spitzer Fuenfarm-Knoten).
+	for zk in zufahrt.size():
+		if benutzt.has(zk):
+			continue
+		var z: Vector2 = zufahrt[zk]
+		var w0 := z.angle()
+		var gefunden := false
+		var pr := Vector2.ZERO
+		for versuch in 12:
+			var dw := deg_to_rad(4.0) * floorf(float(versuch + 1) * 0.5) * (1.0 if versuch % 2 == 0 else -1.0)
+			pr = Vector2(cos(w0 + dw), sin(w0 + dw)) * r_ring
+			gefunden = true
+			for q: Vector2 in ringpunkte:
+				if q.distance_to(pr) < 36.0:
+					gefunden = false
+					break
+			if gefunden:
+				break
+		if not gefunden:
+			continue
+		ringpunkte.append(pr)
+		Stadtstrassen.strecke(netz, pr, z, Stadtstrassen.LAND)
+	# RINGSTRASSE durch alle Anschlusspunkte; dazwischen Stuetzpunkte, damit kein Bogen
+	# laenger als 12 Grad ist (die Knicke werden als Gehrung geschlossen).
+	ringpunkte.sort_custom(func(x: Vector2, y: Vector2) -> bool: return x.angle() < y.angle())
+	var ring: Array = []
+	for i in ringpunkte.size():
+		var q0: Vector2 = ringpunkte[i]
+		var q1: Vector2 = ringpunkte[(i + 1) % ringpunkte.size()]
+		ring.append(q0)
+		var bogen := fposmod(q1.angle() - q0.angle(), TAU)
+		var n := int(floor(bogen / deg_to_rad(12.0)))
+		for j in range(1, n + 1):
+			var w := q0.angle() + bogen * float(j) / float(n + 1)
+			ring.append(Vector2(cos(w), sin(w)) * r_ring)
+	Stadtstrassen.zug(netz, ring, Stadtstrassen.STRASSE if stadt else Stadtstrassen.DORF, true)
+	Stadtstrassen.schliessen(netz, sperr)
+	if schluessel != "":
+		_netz_cache[schluessel] = netz
+	return netz
+
+
+## Wo Landstrassen den Kreis um einen Ort kreuzen: Punkte (lokal) auf dem Radius r.
+static func zufahrten(terrain, center: Vector3, r: float) -> Array:
+	var raus: Array = []
+	if terrain == null:
+		return raus
+	var c := Vector2(center.x, center.z)
+	for pr in terrain.strassen_profile:
+		var pts: PackedVector2Array = pr[0]
+		for i in range(pts.size() - 1):
+			var a := pts[i] - c
+			var b := pts[i + 1] - c
+			if (a.length() < r) == (b.length() < r):
+				continue
+			var q := a.lerp(b, clampf((r - a.length()) / (b.length() - a.length()), 0.0, 1.0))
+			var neu := true
+			for z: Vector2 in raus:
+				if z.distance_to(q) < 40.0:
+					neu = false
+			if neu:
+				raus.append(q)
+	return raus
+
+
+## Feste Bauten als Planeintraege und als OBBs fuer Netz und Bebauung.
+static func _fest(liste: Array, plan: Array, belegt: Array, rand := 1.5) -> void:
+	for f in liste:
+		var typ := String(f[0])
+		if not _meshes.has(typ):
+			continue
+		plan.append({"typ": typ, "pos": f[1], "yaw": float(f[2])})
+		belegt.append(Stadtstrassen.obb(typ, f[1], float(f[2]), rand))
+
+
+## Die festen Bauten der Grossstadt: Tuerme und oeffentliche Bauten stehen in der MITTE ihres
+## Blocks (Vielfache von RASTER), der Bahnhof ueber zwei Bloecke (die Strasse dazwischen
+## entfaellt), Stadion und Funkturm ausserhalb des Rings.
+const GROSSSTADT_FEST := [
+	["Haus_Wolkenkratzer", Vector2(0, 0), 0.0],
+	["Haus_Bueroturm", Vector2(-92, 46), 0.0],
+	["Haus_Bueroturm", Vector2(92, -46), 1.5708],
+	["Haus_Wohnturm", Vector2(-46, -92), 0.0],
+	["Haus_Wohnturm", Vector2(46, 92), 3.1416],
+	["Haus_Wohnturm", Vector2(92, 46), 0.0],
+	["Haus_Hotel", Vector2(-92, -46), 0.0],
+	["Haus_Kaufhaus", Vector2(-139.5, 46), 0.0],
+	["Haus_Parkhaus", Vector2(-46, 92), 0.0],
+	["Haus_Krankenhaus", Vector2(138, -92), 0.0],
+	["Haus_Bahnhof", Vector2(-161, 92), 3.1416],
+	["Haus_Rathaus", Vector2(92, 138), 3.1416],
+	["Haus_Kirche", Vector2(-138, -138), 0.0],
+	["Haus_Stadion", Vector2(330, 280), 0.4],
+	["Haus_Funkturm", Vector2(-330, -260), 0.0],
+	["Haus_Plattenbau", Vector2(-292, 268), 1.5708],
+	["Haus_Plattenbau", Vector2(-350, 268), 1.5708],
+	["Haus_Speicher", Vector2(262, -250), 0.0],
+	["Haus_Wasserturm", Vector2(-420, 240), 0.0],
+	["Haus_Kapelle", Vector2(375, -330), 0.6],
+	["Haus_Windmuehle", Vector2(-560, -150), 1.1],
+	["Haus_Wasserturm", Vector2(285, 500), 0.0],
+]
+
+
+static func netz_grossstadt(zufahrt: Array = []) -> Dictionary:
+	if _netz_cache.has("grossstadt"):
+		return _netz_cache["grossstadt"]
+	_load_lib()
+	var sperr: Array = []
+	for f in GROSSSTADT_FEST:
+		if String(f[0]) == "Haus_Bahnhof" and _meshes.has(f[0]):
+			sperr.append(Stadtstrassen.obb(f[0], f[1], float(f[2]), 0.0))
+	return netz_ort(250.0, 300.0, 900.0, sperr, zufahrt, "grossstadt")
+
+
 ## GROSSSTADT: Hochhaus-Kern, drumherum Blockrand, aussen Vorstadt. Plus Stadion + Funkturm.
-static func plan_grossstadt() -> Array:
+## Alle Haeuser stehen AN einer Strasse des Netzes (Front zum Gehweg). Die Dichte faellt mit
+## dem Abstand von der Mitte: geschlossene Blockraender im Kern, lockere Zeilen an den
+## Vorstadtstrassen, Hoefe an den Landstrassen und Feldwegen.
+static func plan_grossstadt(zufahrt: Array = []) -> Array:
+	_load_lib()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 0x0C17
 	var plan: Array = []
-	# Kern: die Tuerme (von Hand gesetzt, damit die Skyline sitzt)
-	var kern := [
-		["Haus_Wolkenkratzer", Vector2(0, 0), 0.35],
-		["Haus_Bueroturm", Vector2(-78, 40), 0.0],
-		["Haus_Bueroturm", Vector2(66, -52), 1.57],
-		["Haus_Wohnturm", Vector2(-52, -70), 0.0],
-		["Haus_Wohnturm", Vector2(30, 78), 3.14],
-		["Haus_Wohnturm", Vector2(96, 62), 0.0],
-		["Haus_Hotel", Vector2(-104, -34), 0.2],
-		["Haus_Kaufhaus", Vector2(72, 12), 3.14],
-		["Haus_Parkhaus", Vector2(-30, 96), 0.0],
-		["Haus_Krankenhaus", Vector2(150, -96), 0.0],
-		["Haus_Bahnhof", Vector2(-166, 108), 3.14],
-		["Haus_Rathaus", Vector2(112, 128), 3.14],
-		["Haus_Kirche", Vector2(-146, -128), 0.0],
-		["Haus_Stadion", Vector2(300, 250), 0.4],
-		["Haus_Funkturm", Vector2(-300, -230), 0.0],
-		["Haus_Plattenbau", Vector2(-250, 210), 1.57],
-		["Haus_Plattenbau", Vector2(-250, 300), 1.57],
-		["Haus_Speicher", Vector2(230, -220), 0.0],
-	]
-	for k in kern:
-		plan.append({"typ": k[0], "pos": k[1], "yaw": k[2]})
-	# Blockrand-Bebauung: Stadthaeuser auf einem Raster mit Luecken
-	var typen := ["Haus_Stadthaus2", "Haus_Stadthaus3", "Haus_Reihenhaus", "Haus_Eckhaus",
-		"Haus_Gasthaus", "Haus_Villa"]
-	for gx in range(-5, 6):
-		for gz in range(-5, 6):
-			var p := Vector2(float(gx) * 46.0, float(gz) * 46.0)
-			if p.length() < 130.0 or p.length() > 250.0:
-				continue                       # Kern freihalten, aussen ausduennen
-			if rng.randf() < 0.30:
-				continue
-			plan.append({"typ": typen[rng.randi() % typen.size()],
-				"pos": p + Vector2(rng.randf_range(-7, 7), rng.randf_range(-7, 7)),
-				"yaw": float(rng.randi() % 4) * 1.5708})
-	# VORSTADT. Die Stadt hoerte bei 250 m auf und war damit 600 m breit — im Anflug aus
-	# 1,6 km eine Handvoll Tuermchen in leerer Heide, nicht die GROSSSTADT, als die sie auf
-	# der Karte steht. Eine Stadt endet aber nicht an einer Linie, sie franst aus.
-	#
-	# DIE DICHTE FAELLT MIT DEM RADIUS, statt in Ringen zu springen: von 0.72 bei 250 m auf
-	# 0.12 bei 620 m. Damit entsteht der Verlauf, den man aus der Luft kennt — geschlossene
-	# Blockrandbebauung, dann Einzelhaeuser mit Gaerten, dann Hoefe im Feld.
-	# Die Haustypen wechseln bei 450 m mit: aussen stehen Bauernhaus, Scheune und Kate, und
-	# der Uebergang in die Landschaft ist damit auch inhaltlich einer und nicht nur eine
-	# Ausduennung derselben Reihenhaeuser.
-	#
-	# DAS KOSTET FAST NICHTS: build() buendelt je Typ in ein MultiMesh, die zusaetzlichen
-	# Haeuser sind also weitere Instanzen und keine weiteren Draw Calls. Und sie duerfen
-	# ueber die Flachzone der Stadt (r_flat 480) hinausreichen, weil jedes Haus seine Hoehe
-	# mit terrain.height_at selbst abtastet.
+	var belegt: Array = []
+	_fest(GROSSSTADT_FEST, plan, belegt)
+	var netz := netz_grossstadt(zufahrt)
+	var kern := ["Haus_Stadthaus3", "Haus_Stadthaus2", "Haus_Eckhaus", "Haus_Stadthaus3",
+		"Haus_Gasthaus", "Haus_Reihenhaus"]
 	var vorstadt := ["Haus_Reihenhaus", "Haus_Stadthaus2", "Haus_Villa", "Haus_Eckhaus",
-		"Haus_Gasthaus", "Haus_Werkstatt"]
+		"Haus_Villa", "Haus_Werkstatt"]
 	var feldrand := ["Haus_Bauernhaus", "Haus_Scheune", "Haus_Kate", "Haus_Villa"]
-	for gx in range(-14, 15):
-		for gz in range(-14, 15):
-			var q := Vector2(float(gx) * 46.0, float(gz) * 46.0)
-			var d := q.length()
-			if d <= 250.0 or d > 620.0:
-				continue
-			if rng.randf() > lerpf(0.72, 0.12, clampf((d - 250.0) / 370.0, 0.0, 1.0)):
-				continue
-			var liste: Array = vorstadt if d < 450.0 else feldrand
-			plan.append({"typ": liste[rng.randi() % liste.size()],
-				"pos": q + Vector2(rng.randf_range(-9, 9), rng.randf_range(-9, 9)),
-				"yaw": float(rng.randi() % 4) * 1.5708})
-	# Ein paar Marken in der Vorstadt, damit die Silhouette dort nicht nur aus Daechern
-	# besteht — von Hand gesetzt, weil ein Wasserturm neben dem naechsten albern aussaehe.
-	for m in [["Haus_Wasserturm", Vector2(-390, 210)], ["Haus_Kapelle", Vector2(345, -300)],
-			["Haus_Werkstatt", Vector2(-300, -395)], ["Haus_Speicher", Vector2(430, 165)],
-			["Haus_Windmuehle", Vector2(-520, -120)], ["Haus_Wasserturm", Vector2(255, 470)]]:
-		plan.append({"typ": m[0], "pos": m[1], "yaw": rng.randf() * TAU})
+	var waehle := func(q: Vector2, r: RandomNumberGenerator) -> String:
+		var d := q.length()
+		var wurf := r.randf()
+		var wahl := r.randi()
+		if d < 285.0:
+			return String(kern[wahl % kern.size()]) if wurf < 0.93 else ""
+		if d < 470.0:
+			return String(vorstadt[wahl % vorstadt.size()]) \
+				if wurf < lerpf(0.72, 0.42, (d - 285.0) / 185.0) else ""
+		return String(feldrand[wahl % feldrand.size()]) \
+			if wurf < lerpf(0.30, 0.10, clampf((d - 470.0) / 300.0, 0.0, 1.0)) else ""
+	plan.append_array(Stadtstrassen.bebauen(netz, rng, waehle, belegt))
 	return plan
 
 
@@ -336,29 +476,44 @@ static func plan_industrie() -> Array:
 	return plan
 
 
-## LANDDORF: Bauernhoefe um einen Anger, Muehlen am Rand.
-static func plan_dorf() -> Array:
+## LANDDORF: Bauernhoefe um einen Anger, Muehlen am Rand. Die Haeuser stehen an den
+## Dorfstrassen des Netzes (netz_ort im Dorfmassstab); auf dem Anger steht die Kapelle.
+const DORF_FEST := [
+	["Haus_Kapelle", Vector2(0, 0), 3.1416],
+	["Haus_Windmuehle", Vector2(-150, -90), 0.0],
+	["Haus_Wassermuehle", Vector2(140, 110), 0.6],
+	["Haus_Gasthaus", Vector2(-46, 40), 3.1416],
+	["Haus_Scheune", Vector2(138, -78), 1.2],
+	["Haus_Scheune", Vector2(-138, 70), 0.3],
+	["Haus_Stall", Vector2(74, -128), 1.5708],
+	["Haus_Silo", Vector2(142, -44), 0.0],
+]
+
+
+static func netz_dorf(zufahrt: Array = []) -> Dictionary:
+	return netz_ort(90.0, 120.0, 420.0, [], zufahrt)
+
+
+static func plan_dorf(zufahrt: Array = []) -> Array:
+	_load_lib()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 0x0D0F
 	var plan: Array = []
-	var fest := [
-		["Haus_Kapelle", Vector2(0, 0), 3.14],
-		["Haus_Windmuehle", Vector2(-150, -90), 0.0],
-		["Haus_Wassermuehle", Vector2(140, 110), 0.6],
-		["Haus_Gasthaus", Vector2(-60, 60), 3.14],
-		["Haus_Scheune", Vector2(90, -70), 1.2],
-		["Haus_Scheune", Vector2(-120, 70), 0.3],
-		["Haus_Stall", Vector2(60, -110), 1.57],
-		["Haus_Silo", Vector2(120, -40), 0.0],
-	]
-	for f in fest:
-		plan.append({"typ": f[0], "pos": f[1], "yaw": f[2]})
-	var typen := ["Haus_Bauernhaus", "Haus_Fachwerk", "Haus_Kate", "Haus_Stadthaus2"]
-	for i in 22:
-		var a := rng.randf() * TAU
-		var r := rng.randf_range(45.0, 175.0)
-		plan.append({"typ": typen[rng.randi() % typen.size()],
-			"pos": Vector2(cos(a) * r, sin(a) * r), "yaw": rng.randf() * TAU})
+	var belegt: Array = []
+	_fest(DORF_FEST, plan, belegt)
+	var netz := netz_dorf(zufahrt)
+	var typen := ["Haus_Bauernhaus", "Haus_Fachwerk", "Haus_Kate", "Haus_Stadthaus2",
+		"Haus_Fachwerk", "Haus_Bauernhaus"]
+	var waehle := func(q: Vector2, r: RandomNumberGenerator) -> String:
+		var wurf := r.randf()
+		var wahl := r.randi()
+		# Anger freihalten, nach aussen ausduennen
+		if absf(q.x) < 21.0 and absf(q.y) < 21.0:
+			return ""
+		return String(typen[wahl % typen.size()]) \
+			if wurf < lerpf(0.42, 0.08, clampf(q.length() / 170.0, 0.0, 1.0)) else ""
+	plan.append_array(Stadtstrassen.bebauen(netz, rng, waehle, belegt,
+		[Stadtstrassen.DORF], 1.6, 6.0))
 	return plan
 
 
@@ -404,97 +559,37 @@ static func plan_flugplatz() -> Array:
 
 ## STRASSENNETZ — das, woran man eine Stadt aus der Luft ZUERST erkennt.
 ##
-## WARUM ES DAS BRAUCHT. Der Stadtplan oben setzt Tuerme von Hand, baut Blockrand auf
-## einem 46-m-Raster und laesst die Vorstadt nach aussen ausduennen. Aus 1500 m Hoehe kam
-## davon trotzdem nichts an: die Abnahme las die Grossstadt als "rund 60 lose Kaesten auf
-## einer nackten Sandscheibe, ohne Strassenraster, ohne Blockstruktur, ohne Zufahrt — ein
-## Partikelstreuer mit dem Etikett Stadt". Und das stimmt: aus der Luft liest man eine
-## Stadt an ihren LINIEN, nicht an ihren Haeusern. Die Haeuser sind aus der Hoehe nur
-## Koernung, das Raster ist die Form.
+## Aus der Luft liest man eine Stadt an ihren LINIEN, nicht an ihren Haeusern: die Haeuser
+## sind aus der Hoehe nur Koernung, das Raster ist die Form. Die erste Fassung legte dafuer
+## einfarbige Baender aufs Gelaende (Raster, zwei Diagonalen, Ring aus 32 Rechtecken, drei
+## Ausfallstrassen). Aus der Naehe trug das nicht: die Baender ueberlappten an jeder
+## Kreuzung, der Ring klaffte an den Knicken, es gab weder Gehweg noch Markierung, und die
+## Diagonalen liefen mitten durch die Haeuser.
 ##
-## Vier Lagen, und jede beantwortet eine andere Entfernung:
-##   RASTER    Wohnstrassen alle 46 m im Kern — die Koernung, die aus 800 m traegt.
-##   ACHSEN    zwei Diagonalen durch die Mitte — die Form, die aus 3 km noch da ist.
-##   RING      eine geschlossene Ringstrasse als KANTE. Vorher franste die Stadt ins
-##             Gelaende aus und hatte gar keinen Rand; ein Ring gibt ihr eine Grenze.
-##   AUSFALL   drei Strassen, die den Ring verlassen und in die Landschaft laufen. Sie
-##             sind der Grund, warum die Stadt dort liegt, wo sie liegt.
-##
-## KOSTEN: ein einziges Mesh mit rund 90 Vierecken, ein Zeichenaufruf. Die Baender liegen
-## flach auf dem Gelaende und tasten ihre Hoehe stueckweise ab (terrain.height_at), damit
-## sie einer Mulde folgen statt darueber zu schweben.
+## Jetzt baut Stadtstrassen (scripts/Stadtstrassen.gd) das Netz aus netz_ort(): Fahrbahn,
+## Bordstein, Gehweg, Mittellinien, Zebrastreifen, geschlossene Kreuzungen — und die
+## Bauplaene setzen ihre Haeuser an genau diese Strassen. `plan`: Bauten, unter denen
+## Strassenstuecke entfallen sollen (Orte, deren Plan nicht aus dem Netz entsteht).
 static func strassennetz(parent: Node3D, terrain, center: Vector3, r_kern := 250.0,
-		r_ring := 300.0, r_aus := 900.0) -> Node3D:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(-1)
-	# DUNKLER ALS ZUERST (0.24 / 0.20). Der Boden der Stadt liegt bei rund 0.62; ein
-	# Grau bei 0.24 hebt sich davon zwar rechnerisch ab, aber durch die Luftperspektive
-	# auf 1,6 km blieben davon gemessen nur rund 10 Prozent Wertunterschied uebrig — die
-	# Strassen waren da, ohne im Bild zu erscheinen. Ein Belag darf ruhig fast schwarz
-	# sein; genau so sieht frischer Asphalt aus der Luft aus.
-	var asphalt := Color(0.13, 0.128, 0.135)
-	var haupt := Color(0.10, 0.098, 0.107)
-
-	# --- Raster im Kern -------------------------------------------------------------
-	# Halbe Rasterweite versetzt, damit die Strassen ZWISCHEN den Hausreihen liegen und
-	# nicht durch sie hindurch: der Bauplan setzt die Haeuser auf Vielfache von 46.
-	var schritt := 46.0
-	var n := int(r_kern / schritt)
-	for i in range(-n, n + 1):
-		var o := (float(i) + 0.5) * schritt
-		if absf(o) > r_kern:
-			continue
-		# Laenge der Strasse in der Kreisscheibe (Sehne).
-		var halb := sqrt(maxf(r_kern * r_kern - o * o, 0.0))
-		_band(st, terrain, center, Vector2(-halb, o), Vector2(halb, o), 7.0, asphalt)
-		_band(st, terrain, center, Vector2(o, -halb), Vector2(o, halb), 7.0, asphalt)
-
-	# --- Diagonalachsen -------------------------------------------------------------
-	var dk := r_kern * 0.92
-	_band(st, terrain, center, Vector2(-dk, -dk), Vector2(dk, dk), 13.0, haupt)
-	_band(st, terrain, center, Vector2(-dk, dk), Vector2(dk, -dk), 13.0, haupt)
-
-	# --- Ringstrasse ----------------------------------------------------------------
-	var seiten := 32
-	for i in seiten:
-		var a0 := TAU * float(i) / float(seiten)
-		var a1 := TAU * float(i + 1) / float(seiten)
-		_band(st, terrain, center,
-			Vector2(cos(a0), sin(a0)) * r_ring, Vector2(cos(a1), sin(a1)) * r_ring,
-			12.0, haupt)
-
-	# --- Ausfallstrassen ------------------------------------------------------------
-	# Drei Richtungen, unterschiedlich lang. Sie enden nicht abrupt, sondern verjuengen
-	# sich (das letzte Stueck ist schmaler) — eine Strasse, die im Feld aufhoert, faellt
-	# sonst als abgeschnittenes Band auf.
-	for gr in [18.0, 142.0, 255.0]:
-		var r := deg_to_rad(gr)
-		var d := Vector2(cos(r), sin(r))
-		_band(st, terrain, center, d * r_ring, d * (r_aus * 0.75), 11.0, haupt)
-		_band(st, terrain, center, d * (r_aus * 0.75), d * r_aus, 7.0, asphalt)
-
-	# OHNE DAS BLEIBT DAS NETZ UNSICHTBAR. Ein SurfaceTool-Netz ohne Normalen bekommt vom
-	# Shader keine Beleuchtung — im ersten Anlauf war von den Strassen im Bild nichts zu
-	# sehen, obwohl sie gebaut wurden.
-	st.generate_normals()
-	var mi := MeshInstance3D.new()
-	mi.name = "Strassen"
-	mi.mesh = st.commit()
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 0.92
-	mi.material_override = mat
-	# cast_shadow gehoert an die MeshInstance, NICHT an das Material — Godot meldet dort
-	# nur eine Warnung und ignoriert es. Eine flach aufliegende Strasse soll ohnehin
-	# keinen Schatten werfen.
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(mi)
-	mi.global_position = Vector3.ZERO
-	return mi
+		r_ring := 300.0, r_aus := 900.0, zufahrt: Array = [], plan: Array = []) -> Node3D:
+	var netz: Dictionary
+	if r_kern >= 150.0:
+		netz = netz_grossstadt(zufahrt)
+	elif plan.is_empty():
+		netz = netz_dorf(zufahrt)
+	else:
+		_load_lib()
+		var sperr: Array = []
+		for e in plan:
+			sperr.append(Stadtstrassen.obb(String(e["typ"]), e["pos"], float(e.get("yaw", 0.0)), 1.0))
+		netz = netz_ort(r_kern, r_ring, r_aus, sperr, zufahrt)
+	return Stadtstrassen.bauen(parent, terrain, center, netz,
+		"Strassen_%d_%d" % [int(center.x), int(center.z)])
 
 
 ## Ein Straßenband von a nach b (lokale Meter um "center"), auf das Gelände gelegt.
+## (Seit den Stadtstrassen ohne Aufrufer; bleibt wegen der Wicklungs-Lektion unten stehen,
+## auf die Strassen.gd und Skyline.gd verweisen.)
 ##
 ## Es wird in Stuecke von rund 24 m zerlegt und jedes Stueck tastet seine Ecken einzeln
 ## ab. Ohne das liegt ein 500 m langes Band als Ebene ueber einer gewellten Wiese und

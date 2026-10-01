@@ -17,6 +17,9 @@ const ZONE := [[75.0, 180.0], [125.0, 290.0], [175.0, 390.0]]
 const LAENGE := [55.0, 110.0, 165.0]
 const BAND_Y := 0.08                 # Fahrbahnband ueber dem Bett
 const STUECK := 50                   # Abschnitte je Band-Netz (ca. 1 km, fuers Kulling)
+## Kreise [Mitte, Radius] um Orte mit eigenem Strassennetz (Stadtstrassen): innerhalb wird
+## kein Landstrassenband gezeichnet — das Stadtnetz uebernimmt an der Zufahrt. Main setzt sie.
+static var stadt_kreise: Array = []
 
 
 ## Strassen fuer TerrainWorld (vor setup()).
@@ -120,6 +123,15 @@ static func _band(parent: Node3D, pr: Array, mat: Material) -> void:
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		for i in range(i0, i1):
+			var im_ort := false
+			for kr in stadt_kreise:
+				var km: Vector2 = kr[0]
+				var r2: float = float(kr[1]) * float(kr[1])
+				if pts[i].distance_squared_to(km) < r2 and pts[i + 1].distance_squared_to(km) < r2:
+					im_ort = true
+					break
+			if im_ort:
+				continue
 			var q := [_rand(pts, i, w), _rand(pts, i + 1, w)]
 			var y0 := hh[i] + BAND_Y
 			var y1 := hh[i + 1] + BAND_Y

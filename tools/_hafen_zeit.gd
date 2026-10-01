@@ -2,6 +2,7 @@
 ## Wandzeit, weil Metal keine GPU-Zeitstempel liefert) an vier Stellungen, jeweils mit und
 ## ohne den Knoten "Hafenstadt" (Haeuser, Statue, Kai, Schiffe, Stadtbaeume).
 ##   HOME=<test-home> Godot --path . --script res://tools/_hafen_zeit.gd
+## HZ_ORT=grossstadt misst stattdessen die GROSSSTADT (Knoten "Grossstadt" + ihr Strassennetz).
 extends SceneTree
 const BREITE := 3840
 const HOCH := 2160
@@ -53,13 +54,25 @@ func _lauf() -> void:
 	for c in main.find_children("*", "CanvasLayer", true, false):
 		c.visible = false
 	var mi := Hafenstadt.MITTE
+	var gross := OS.get_environment("HZ_ORT") == "grossstadt"
+	if gross:
+		mi = Vector3(4300, 0, 2500)
 	var stellungen := [
 		["Kai 40 m", mi + Vector3(480, 40, 330), mi + Vector3(260, 6, -80)],
 		["Stadt 150 m", mi + Vector3(-700, 150, -160), mi + Vector3(300, 0, 20)],
 		["Anflug 400 m", mi + Vector3(1900, 400, 700), mi + Vector3(300, 0, 0)],
 		["Fern 900 m", mi + Vector3(-3200, 900, -900), mi + Vector3(0, 0, 0)],
 	]
-	var hs: Node3D = (main.get("fly_world") as Node).get_node_or_null("Hafenstadt")
+	var fw: Node = main.get("fly_world")
+	var teile: Array = [fw.get_node_or_null("Hafenstadt")]
+	if gross:
+		teile = [fw.get_node_or_null("Grossstadt"), fw.get_node_or_null("Strassen_4300_2500")]
+		stellungen = [
+			["Kern 45 m", mi + Vector3(-50, 45, 140), mi + Vector3(30, 20, 0)],
+			["Stadt 150 m", mi + Vector3(-560, 150, -200), mi + Vector3(100, 0, 20)],
+			["Anflug 400 m", mi + Vector3(1500, 400, 700), mi + Vector3(0, 0, 0)],
+			["Fern 900 m", mi + Vector3(-3200, 900, -900), mi + Vector3(0, 0, 0)],
+		]
 	for st in stellungen:
 		var p: Vector3 = st[1]
 		var z: Vector3 = st[2]
@@ -77,11 +90,15 @@ func _lauf() -> void:
 				break
 		var alles := await _median()
 		var ohne := alles
-		if hs != null:
-			hs.visible = false
+		if teile[0] != null:
+			for t in teile:
+				if t != null:
+					(t as Node3D).visible = false
 			ohne = await _median()
-			hs.visible = true
-		print("HAFENZEIT %-14s alles %6.2f | ohne Hafenstadt %6.2f | Hafenstadt %5.2f ms"
+			for t in teile:
+				if t != null:
+					(t as Node3D).visible = true
+		print("HAFENZEIT %-14s alles %6.2f | ohne den Ort %6.2f | Ort %5.2f ms"
 			% [st[0], alles.x, ohne.x, alles.x - ohne.x])
 	_fertig = true
 	quit()

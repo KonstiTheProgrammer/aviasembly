@@ -40,9 +40,12 @@ const STATUE_SICHT := 9000.0
 const RASTER := 120.0
 const NS := [190.0, 70.0, -50.0, -170.0, -290.0, -410.0]            # Strassen laengs z
 const OW := [-360.0, -240.0, -120.0, 0.0, 120.0, 240.0, 360.0]      # Strassen laengs x
-const STRASSE_B := 8.0
-const HAUPT_B := 12.0
+# Gesamtbreiten (Fahrbahn + Gehwege) wie Stadtstrassen.breite(): Strasse, Boulevard, Gasse
+const STRASSE_B := 11.0
+const HAUPT_B := 18.0
 const GASSE_B := 5.0
+const KAISTR_X := 262.5          # Kaistrasse laengs der Promenade (Altstadt- und Fischerkai)
+const VORGARTEN := 1.0           # Abstand der Hausfront vom Gehweg
 ## GASSEN in Altstadt, Speicherstadt und Fischerviertel: sie halbieren die 120-m-Bloecke.
 ## Ohne sie stand je Block nur eine duenne Haeuserzeile um einen leeren Hof — aus der Luft
 ## ein Vorort-Raster, keine Hafenstadt. [Achse, von, bis, laengs z?]
@@ -73,9 +76,6 @@ const VIERTEL := {
 		["Haus_Eckhaus", 0.10], ["Haus_Villa", 0.10]],
 }
 
-const C_STRASSE := Color(0.33, 0.32, 0.31)
-const C_HAUPT := Color(0.27, 0.265, 0.27)
-const C_GASSE := Color(0.44, 0.41, 0.37)
 const C_APRON := Color(0.58, 0.57, 0.54)
 const C_MARKT := Color(0.64, 0.58, 0.48)
 const C_KAI := Color(0.55, 0.54, 0.52)
@@ -118,6 +118,38 @@ static func pois() -> Array:
 
 
 # --- Stadtplan -------------------------------------------------------------------------------
+static var _netz: Dictionary = {}
+
+
+## Das Strassennetz fuer Stadtstrassen (Fahrbahn, Gehweg, Kreuzungen): alle Strassen aus
+## strassen(), dazu die Kaistrasse und die Landstrasse nach Westen. Die Ost-West-Strassen
+## suedlich des Frachtkais laufen ueber das Kaipflaster bis zur Kaistrasse durch.
+static func netz() -> Dictionary:
+	if not _netz.is_empty():
+		return _netz
+	var n := Stadtstrassen.netz_neu()
+	for sg in strassen():
+		var br: float = sg[4]
+		var art := Stadtstrassen.BOULEVARD if br > 14.0 else Stadtstrassen.GASSE if br < 6.0 \
+			else Stadtstrassen.STRASSE
+		var a: float = sg[0]
+		var bis: float = sg[2]
+		if sg[3]:
+			Stadtstrassen.strecke(n, Vector2(a, float(sg[1])), Vector2(a, bis), art)
+		else:
+			if is_equal_approx(bis, APRON_X) and a > -130.0:
+				bis = KAISTR_X
+			Stadtstrassen.strecke(n, Vector2(float(sg[1]), a), Vector2(bis, a), art)
+	Stadtstrassen.strecke(n, Vector2(KAISTR_X, -120.0), Vector2(KAISTR_X, 440.0), Stadtstrassen.LAND)
+	# Landstrasse nach Westen hinaus (laeuft als Feldweg im Gelaende aus)
+	var west := Vector2(-sqrt(540.0 * 540.0 - 120.0 * 120.0), -120.0)
+	Stadtstrassen.strecke(n, west, Vector2(-760, -150), Stadtstrassen.LAND)
+	Stadtstrassen.strecke(n, Vector2(-760, -150), Vector2(-900, -240), Stadtstrassen.WEG)
+	Stadtstrassen.schliessen(n)
+	_netz = n
+	return n
+
+
 ## Alle Strassenstuecke: [Achse, von, bis, laengs z?, Breite]
 static func strassen() -> Array:
 	var liste: Array = []
@@ -197,8 +229,8 @@ static func plan(frei: Array = []) -> Array:
 		["Haus_Fabrik", Vector2(-92, -430), 0.0],
 		["Haus_Werkstatt", Vector2(214, -396), PI * 0.5],
 		# Fischerhafen
-		["Haus_Werkstatt", Vector2(262, 300), PI * 0.5],
-		["Haus_Werkstatt", Vector2(262, 344), PI * 0.5],
+		["Haus_Werkstatt", Vector2(291, 300), PI * 0.5],
+		["Haus_Werkstatt", Vector2(291, 388), PI * 0.5],
 		["Haus_Lotsenhaus", Vector2(284, 424), PI * 0.5],
 		["Haus_Lotsenhaus", Vector2(290, -120), PI * 0.5],
 		# Rand
@@ -220,8 +252,8 @@ static func plan(frei: Array = []) -> Array:
 		belegt.append(Rect2(pos - halb - Vector2(2, 2), halb * 2.0 + Vector2(4, 4)))
 	# --- Blockrand entlang aller Strassen ----------------------------------------------------
 	# Strassenstuecke: [fest, von, bis, laengs_z?, Breite]
-	var netz := strassen()
-	var stuecke: Array = netz.duplicate()
+	var liste_str := strassen()
+	var stuecke: Array = liste_str.duplicate()
 	# Uferzeile: Haeuser mit Front zum Kai (wie an einer Strasse bei x = APRON_X + 4)
 	stuecke.append([APRON_X + 4.0, -128.0, 440.0, true, 8.0, -1])
 	stuecke.append([APRON_X + 4.0, -360.0, -132.0, true, 8.0, -1])
@@ -242,7 +274,7 @@ static func plan(frei: Array = []) -> Array:
 				var w: float = m[0]
 				var vorn: float = m[1]
 				var hinten: float = m[2]
-				var quer := halb_b + 2.6 + vorn
+				var quer := halb_b + VORGARTEN + vorn
 				var mitte_t := t + w * 0.5
 				var pos := Vector2(achse + seite * quer, mitte_t) if laengs_z \
 					else Vector2(mitte_t, achse + seite * quer)
@@ -250,7 +282,7 @@ static func plan(frei: Array = []) -> Array:
 				var yaw := (-PI * 0.5 if seite > 0 else PI * 0.5) if laengs_z \
 					else (PI if seite > 0 else 0.0)
 				var tief := (vorn + hinten) * 0.5
-				var mitte_q := achse + seite * (halb_b + 2.6 + tief)
+				var mitte_q := achse + seite * (halb_b + VORGARTEN + tief)
 				var rect := Rect2(Vector2(mitte_q - tief, t), Vector2(tief * 2.0, w)) if laengs_z \
 					else Rect2(Vector2(t, mitte_q - tief), Vector2(w, tief * 2.0))
 				t += w + 0.7
@@ -258,7 +290,7 @@ static func plan(frei: Array = []) -> Array:
 					continue
 				if pos.length() > 546.0 or rect.end.x > APRON_X - 1.0:
 					continue
-				if _kreuzt_strasse(netz, rect, achse, laengs_z):
+				if _kreuzt_strasse(liste_str, rect, achse, laengs_z):
 					continue
 				var frei_hier := true
 				for r in tabu:
@@ -290,8 +322,8 @@ static func plan(frei: Array = []) -> Array:
 
 
 ## Liegt das Rechteck auf einer ANDEREN Strasse (oder zu nah an ihr)? Die eigene zaehlt nicht.
-static func _kreuzt_strasse(netz: Array, rect: Rect2, achse: float, laengs_z: bool) -> bool:
-	for st in netz:
+static func _kreuzt_strasse(liste_str: Array, rect: Rect2, achse: float, laengs_z: bool) -> bool:
+	for st in liste_str:
 		var a: float = st[0]
 		var lz: bool = st[3]
 		if lz == laengs_z and is_equal_approx(a, achse):
@@ -336,29 +368,23 @@ static func _w(l: Vector2, y: float) -> Vector3:
 
 # --- Strassen, Kai-Pflaster, Markt (flach auf dem Gelaende) -----------------------------------
 static func _pflaster(wurzel: Node3D, terrain) -> void:
+	# STRASSEN: Fahrbahn, Bordstein, Gehweg, Kreuzungen (scripts/Stadtstrassen.gd)
+	Stadtstrassen.bauen(wurzel, terrain, MITTE, netz(), "Strassen")
+	# PLAETZE: ebene Platten UNTER der Strassenhoehe (Stadtstrassen.HUB = 0,35) — die
+	# Strassen laufen darueber hinweg (Hauptstrasse ueber den Bahnhofsplatz, die Ost-West-
+	# Strassen ueber das Kaipflaster bis zur Kaistrasse).
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_smooth_group(-1)
-	for sg in strassen():
-		var a: float = sg[0]
-		var br: float = sg[4]
-		var col := C_HAUPT if br > 10.0 else C_GASSE if br < 6.0 else C_STRASSE
-		var v0 := float(sg[1])
-		var v1 := float(sg[2])
-		if sg[3]:
-			CityBuilder._band(st, terrain, MITTE, Vector2(a, v0), Vector2(a, v1), br, col)
-		else:
-			CityBuilder._band(st, terrain, MITTE, Vector2(v0, a), Vector2(v1, a), br, col)
-	# Landstrasse nach Westen hinaus (laeuft im Gelaende aus)
-	CityBuilder._band(st, terrain, MITTE, Vector2(-534, -120), Vector2(-760, -150), 8.0, C_HAUPT)
-	CityBuilder._band(st, terrain, MITTE, Vector2(-760, -150), Vector2(-900, -240), 6.0, C_STRASSE)
-	# Kai-Pflaster und Markt: ebene Platten knapp ueber den Strassen
-	_platte(st, Rect2(APRON_X, -KAI_HALB + 6.0, KAI_X - APRON_X + 0.5, KAI_HALB * 2.0 - 12.0),
-		STADT_Y + 0.38, C_APRON)
-	_platte(st, Rect2(258, -KAI_HALB + 6.0, 9.0, KAI_HALB * 2.0 - 12.0), STADT_Y + 0.41, C_STRASSE)
-	_platte(st, Rect2(76, -114, 108, 108), STADT_Y + 0.38, C_MARKT)
-	_platte(st, Rect2(-462, -34, 20, 68), STADT_Y + 0.38, C_MARKT)        # Bahnhofsplatz
-	_platte(st, Rect2(-140, -470, 372, 96), STADT_Y + 0.33, Color(0.47, 0.46, 0.45))   # Werkhof
+	var tief := STADT_Y + 0.24
+	_platte(st, Rect2(APRON_X, -KAI_HALB + 6.0, KAISTR_X + 3.6 - APRON_X, KAI_HALB * 2.0 - 12.0),
+		tief, C_APRON)
+	# oestlich der Kaistrasse wie bisher knapp unter der Kaimauerkrone
+	_platte(st, Rect2(KAISTR_X + 3.6, -KAI_HALB + 6.0, KAI_X + 0.5 - KAISTR_X - 3.6,
+		KAI_HALB * 2.0 - 12.0), STADT_Y + 0.38, C_APRON)
+	_platte(st, Rect2(76, -114, 108, 105), tief, C_MARKT)
+	_platte(st, Rect2(-470, -34, 28, 68), tief, C_MARKT)        # Bahnhofsplatz
+	_platte(st, Rect2(-140, -470, 372, 96), STADT_Y + 0.20, Color(0.47, 0.46, 0.45))   # Werkhof
 	CityBuilder.karte_strassen.append([Vector2(MITTE.x + 272.0, MITTE.z - KAI_HALB),
 		Vector2(MITTE.x + 272.0, MITTE.z + KAI_HALB), 80.0])
 	st.generate_normals()
@@ -809,11 +835,13 @@ static func _baeume(wurzel: Node3D, terrain, frei: Array) -> void:
 	while x < 60.0:
 		var kreuzung := false
 		for sx in NS:
-			if absf(x - float(sx)) < 9.0:
+			if absf(x - float(sx)) < 12.0:
 				kreuzung = true
 		if not kreuzung:
 			for s in [-1.0, 1.0]:
-				(orte["Birke"] as Array).append(Vector2(x, s * (HAUPT_B * 0.5 + 1.2)))
+				# Strassenbaeume auf dem Gehweg des Boulevards
+				(orte["Birke"] as Array).append(Vector2(x,
+					s * (float(Stadtstrassen.FAHRBAHN[Stadtstrassen.BOULEVARD]) * 0.5 + 1.5)))
 		x += 26.0
 	# Markt: Baeume an den Ecken und vor der Kirche
 	for p in [Vector2(84, -8), Vector2(110, -8), Vector2(84, -106), Vector2(176, -8),
@@ -827,7 +855,7 @@ static func _baeume(wurzel: Node3D, terrain, frei: Array) -> void:
 		var art: String = ["Eiche", "Eiche", "Birke", "Busch", "Kiefer"][rng.randi() % 5]
 		(orte[art] as Array).append(p)
 	# Hoefe und Gaerten: ueberall in der Stadt, wo weder Haus noch Strasse noch Platz ist
-	var netz := strassen()
+	var liste_str := strassen()
 	for i in 900:
 		var a := rng.randf() * TAU
 		var p := Vector2(cos(a), sin(a)) * (sqrt(rng.randf()) * 540.0)
@@ -839,7 +867,7 @@ static func _baeume(wurzel: Node3D, terrain, frei: Array) -> void:
 				ok = false
 				break
 		if ok:
-			for sg in netz:
+			for sg in liste_str:
 				var saum: float = float(sg[4]) * 0.5 + 2.0
 				var quer: float = (p.x if sg[3] else p.y) - float(sg[0])
 				var laengs: float = p.y if sg[3] else p.x
