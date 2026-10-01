@@ -472,6 +472,51 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   `match reg:` der Nordregion und stuerzt ab. Auch auf 4f8a9da nachgewiesen. Werkzeug zum
   Nachstellen: `tools/_start_stress.gd` (mehrfach parallel, je eigenes HOME).
 
+## Ferngras (2026-10): die Wiese jenseits der Halme
+Nutzerwunsch: „mach so, dass das Gras von der Ferne so aussieht wie von nahem, aber
+performant". BEFUND: echte Bueschel stehen nur bis 105 m um die Kamera, dahinter lag die
+glatte Bodenfarbe — die Wiese wechselte 100 m vor dem Flugzeug ihr Aussehen.
+- LOESUNG OHNE GEOMETRIE: der Gelaende-Shader (`gelaende_kern`, Abschnitt FERNGRAS) MALT die
+  Bueschel jenseits der Halme. Bueschelkarte `shaders/gras_fern.res` (von
+  `tools/_gras_textur.gd`: 1024², kachelbar ueber 48 m, 625 Bueschel im 1,92-m-Raster wie der
+  aeussere Halmring; R Hoehe, G Gipfelhoehe, B Ton, A Rang). Der Shader schneidet sie in
+  SECHS Hoehen und tastet jeden Schnitt dort ab, wo der Sehstrahl in dieser Hoehe ueber dem
+  Boden laeuft (`fg_staffel`) — die Bueschel stehen, verdecken den Boden und wandern beim
+  Vorbeiflug. Farbe Fuss → Spitze mit den Konstanten der Halme (`GRAS_SPITZE*` in
+  `palette.gdshaderinc`, auch `gras.gdshader` nutzt sie), Lichtnormale kippt nach oben.
+- DICHTE = Regel der Grasmaske (`_gras_block`): gruen × flach × frei. Gruen und Hang kennt der
+  Shader, „frei" (`_open_ground`: Flugplatz, Ort, Halde) steht je Eckpunkt in **UV2.y**
+  (`TerrainWorld._gras_frei`; Vorprobe alle 32 m, fast jeder Chunk braucht nur 169 Aufrufe).
+  Ohne das stuenden gemalte Bueschel rund um die Bahn, und um das Flugzeug laege ein
+  mitwandernder kahler Kreis. Rang < Dichte → das Bueschel steht (exakt der Anteil).
+- UEBERGANG: globale Shader-Variable `gras_halme` (project.godot; x = Halmradius, y = wie voll
+  die Halme stehen, faellt 110..240 m ueber Grund) aus `_gras_nachfuehren`. Wo echte Halme
+  stehen, malt der Boden nichts (sonst stuenden sie auf gemalten).
+- STAFFELN: erste bis ~3..7 Texel je Bildpunkt, dann dieselbe Karte 3-fach vergroessert
+  (`FG_GROB`, ein Fleck = eine Gruppe), dahinter und bei sehr flachem Blick (Kotangens > 6:
+  die Schnitte fielen auseinander) die MITTLERE Farbe: Deckung 1 − exp(−Dichte · (oben +
+  seite · Kotangens)). Die Schuerze (FERN) kennt nur diese Mittelfarbe und nimmt den
+  aufgemalten Wald aus (Helligkeit der Rohfarbe).
+- FALLEN: (1) Nach der LANGEN Seite des Bildpunkt-Abdrucks gefiltert (textureGrad mit den
+  rohen Ableitungen) verschwammen die Bueschel bei flachem Blick zu meterbreiten flachen
+  Scheiben („Seerosenblaetter") — eine Schwelle auf einer weichgefilterten Hoehe blaeht die
+  Form auf. Jetzt `textureLod` nach der SCHMALEN Seite: Flaeche des Abdrucks (Kreuzprodukt
+  der Ableitungen, unabhaengig von der Querlage) und Blickwinkel geben beide Seiten, hoechstens
+  4:1. (2) Die Halmfarbe aus der Schnitthoehe direkt war zu hell (lindgelbe Punkte): ein Halm
+  ist am Fuss breit, die helle Spitze der kleinste Teil — Lage 0,12 + 0,55 · h/Gipfel.
+  (3) Die echten Bueschel sind duenn: die erste Karte mit Radius 0,42 · Groesse gab Kleckse,
+  jetzt 0,30 und ein tiefer Fuenfstern. (4) Ableitungen (dFdx) VOR der Verzweigung nehmen.
+- GEMESSEN (`tools/_gelaende_zeit.gd`, neue Spalte „Ferngras" = mit/ohne im selben Lauf,
+  Windows-Rechner, 4K MSAA 4x, GPU-Zeitstempel, Bild ~4,4 ms): im Mittel 0,06 ms, hoechstens
+  0,12 ms (Wiese aus 300 m). Das Werkzeug hat zwei Stellungen mehr (Wiese 60 m / 300 m bei
+  Lindenau) — das MITTEL laeuft jetzt ueber sieben, aeltere Zahlen ueber fuenf.
+- Sichtprobe: `LUFT_REL=1 _luftbild.gd -- dorf_60 -650 60 17350 -800 0 17200` (Halmring unten,
+  gemalte Bueschel dahinter), `feld_80 -1100 80 16500 -1500 0 16200`, Flugplatz `platz 0 25
+  200 300 0 -600` (kein Gras auf dem Platz, kein Kreis).
+- OFFEN: bei schneller Bewegung koennen die kleinsten gemalten Bueschel flimmern (4:1 ohne
+  anisotrope Filterung) — nur aus Standbildern beurteilt. Die Dichte folgt dem aeusseren
+  Halmring; der innere (0,7 m) steht 7-mal dichter.
+
 ## Lebendige Welt (2026-09): Wolkenstrassen, Baumwind, Voegel
 - WOLKENSTRASSEN (`CloudField._strassen_wert`, `STRASSEN_JE_TYP`): die Deckung der
   wandernden Decken folgt zusaetzlich Strassen laengs des Windes (Rauschen 9 km x 1,5 km

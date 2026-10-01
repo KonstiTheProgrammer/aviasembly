@@ -47,3 +47,7 @@ welt_zeit={
 "type": "float",
 "value": 0.0
 }
+gras_halme={
+"type": "vec2",
+"value": Vector2(105, 0)
+}

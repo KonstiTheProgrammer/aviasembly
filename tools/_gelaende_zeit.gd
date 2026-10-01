@@ -63,10 +63,15 @@ func _lauf() -> void:
 		["Schlucht", Vector3(-13686, 70, 11879), Vector3(-13600, 50, 12900), false],
 		["Berge 950 m", Vector3(-2600, 950, -4500), Vector3(-2350, 700, -7000), false],
 		["Mittel 700 m", Vector3(-6000, 700, 3000), Vector3(-7000, 300, 4000), false],
+		# Offene Wiese (Lindenau): dort kostet das Ferngras am meisten. Seit 2026-10 dabei —
+		# das MITTEL laeuft damit ueber sieben Stellungen, aeltere Zahlen ueber fuenf.
+		["Wiese 60 m", Vector3(-650, 60, 17350), Vector3(-800, 0, 17200), true],
+		["Wiese 300 m", Vector3(-650, 300, 17350), Vector3(-1400, 0, 16600), true],
 	]
 	var gpu := false
 	var summe := Vector3.ZERO
 	var gras_summe := 0.0
+	var fg_summe := 0.0
 	# GZ_NUR=Wald,Mittel: nur diese Stellungen (Namensanfang)
 	var nur := OS.get_environment("GZ_NUR")
 	if nur != "":
@@ -105,6 +110,11 @@ func _lauf() -> void:
 		_gras(false)
 		var o_gras := await _median()
 		_gras(true)
+		# Ferngras (gelaende_kern): gemalte Bueschel jenseits der echten Halme
+		_ferngras(0.0)
+		var o_fg := await _median()
+		_ferngras(1.0)
+		fg_summe += alles.x - o_fg.x
 		# GZ_ARTEN=1: Flora-Kosten JE ART (alle MultiMeshes dieser Art aus, Unterschied messen)
 		if OS.get_environment("GZ_ARTEN") != "":
 			var tw = main.terrain
@@ -119,11 +129,13 @@ func _lauf() -> void:
 		gpu = gpu or alles.y > 0.0
 		summe += Vector3(alles.x, alles.x - o_det.x, alles.x - o_flora.x)
 		gras_summe += alles.x - o_gras.x
-		print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f ms"
-			% [st[0], alles.x, alles.x - o_det.x, alles.x - o_flora.x, alles.x - o_gras.x])
+		print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f  Ferngras %5.2f ms"
+			% [st[0], alles.x, alles.x - o_det.x, alles.x - o_flora.x, alles.x - o_gras.x,
+				alles.x - o_fg.x])
 	summe /= float(stellungen.size())
-	print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f ms"
-		% ["MITTEL", summe.x, summe.y, summe.z, gras_summe / float(stellungen.size())])
+	print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f  Ferngras %5.2f ms"
+		% ["MITTEL", summe.x, summe.y, summe.z, gras_summe / float(stellungen.size()),
+			fg_summe / float(stellungen.size())])
 	print("GELAENDEZEIT Quelle: ", "GPU-Zeitstempel" if gpu else "Wandzeit (4K)")
 	_fertig = true
 	quit()
@@ -134,6 +146,14 @@ func _detail(k: float) -> void:
 	for mt in mats:
 		if mt is ShaderMaterial:
 			(mt as ShaderMaterial).set_shader_parameter("detail_staerke", k)
+
+
+## Ferngras im Gelaende-Shader (Chunks und Schuerze) — auf einem Stand ohne ein Leerlauf.
+func _ferngras(k: float) -> void:
+	var mats: Array = [main.terrain.get("_mat"), main.get("_fern_mat")]
+	for mt in mats:
+		if mt is ShaderMaterial:
+			(mt as ShaderMaterial).set_shader_parameter("ferngras", k)
 
 
 ## Graswiesen (TerrainWorld._gras_knoten) — auf einem Stand ohne Gras ein Leerlauf.

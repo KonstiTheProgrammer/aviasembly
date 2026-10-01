@@ -19,6 +19,34 @@
 uniform sampler2D boden_tex : filter_linear_mipmap, repeat_enable;
 uniform float detail_staerke = 1.0;   // 0 = Verlaeufe/Baenke aus (Messung/Vergleich)
 
+// FERNGRAS — die Wiese JENSEITS der echten Halme (Rechnung und Begruendung in fragment()).
+uniform float ferngras = 1.0;         // 0 = aus (Messung/Vergleich)
+// x = Radius, bis zu dem echte Halme um die Kamera stehen (m), y = wie voll (0..1; faellt
+// mit der Hoehe ueber Grund, 0 = keine Halme). Setzt TerrainWorld._gras_nachfuehren.
+global uniform vec2 gras_halme;
+const float GRAS_UNTEN = -4.8;        // = TerrainWorld.SEA_Y + 1.2: darunter waechst nichts
+const float FG_OBEN = 0.70;           // wie weit die Lichtnormale im Bueschel nach oben kippt
+// Deckung der Wiese durch Bueschel bei Dichte 1: von oben gesehen (Grundflaeche, gemessen
+// von tools/_gras_textur.gd) und je Kotangens des Blickwinkels (Seitenflaeche: flach
+// angeschaut verdecken stehende Bueschel den Boden dahinter).
+const float FG_DECK_OBEN = 0.047;
+const float FG_DECK_SEITE = 0.12;
+#ifndef FERN
+// Bueschelkarte (tools/_gras_textur.gd): R Hoehe, G Gipfelhoehe, B Ton, A Rang.
+uniform sampler2D gras_fern_tex : filter_linear_mipmap, repeat_enable;
+const float FG_KACHEL = 48.0;         // = KACHEL in tools/_gras_textur.gd (m)
+const float FG_HOEHE = 2.2;           // = H_MAX dort (m)
+const float FG_TEXEL = 1024.0;        // = N dort
+// Schnitthoehen (x FG_HOEHE). Sechs: mit vier fielen die Schnitte eines Bueschels schon bei
+// 25 Grad Blickwinkel sichtbar auseinander. Gemessen (tools/_gelaende_zeit.gd, 4K MSAA 4x,
+// beide Staffeln): im Mittel 0,06 ms, hoechstens 0,12 ms ueber offener Wiese.
+const float FG_SCHICHT[6] = float[6](0.05, 0.12, 0.19, 0.27, 0.36, 0.46);
+// ZWEITE STAFFEL: wo die Bueschel der ersten unter ~2 Bildpunkte fallen, uebernimmt dieselbe
+// Karte FG_GROB-fach vergroessert — ein Fleck steht dann fuer eine Gruppe von Bueschel
+// (wie die Fernfassung der Baeume fuer einen Baum). Dahinter bleibt die mittlere Farbe.
+const float FG_GROB = 3.0;
+#endif
+
 #ifdef FERN
 uniform float senke_nah;
 uniform float senke_fern;
@@ -65,8 +93,36 @@ const float MORPH_S = 1.4;   // = TerrainWorld.MORPH_S
 
 #include "res://shaders/palette.gdshaderinc"
 
+#ifndef FERN
+// EINE STAFFEL BUESCHEL: sechs Schnitte der Karte, von unten nach oben uebereinandergelegt.
+// uv = Bodenpunkt in Kacheln, weg = Versatz je Hoehe (wo der Sehstrahl ueber dem Boden
+// laeuft), px = Texel je Bildpunkt. Rueckgabe: x Deckung, y Lage am Halm, z Ton.
+vec3 fg_staffel(vec2 uv, vec2 weg, float px, float dichte) {
+	float kante = 0.02 + 0.03 * px;
+	float lod = log2(max(px, 1.0));
+	vec3 e = vec3(0.0, 0.40, 0.5);
+	for (int i = 0; i < 6; i++) {
+		float h = FG_SCHICHT[i];
+		vec4 s = textureLod(gras_fern_tex, uv + weg * h, lod);
+		float a = smoothstep(h - kante, h + kante, s.r)
+			* smoothstep(s.a - 0.04, s.a + 0.04, dichte);
+		e = mix(e, vec3(1.0, 0.12 + 0.55 * clamp(h / max(s.g, 0.05), 0.0, 1.0), s.b), a);
+	}
+	return e;
+}
+#endif
+
 varying vec3 w_pos;
 varying vec3 w_nrm;
+#ifdef FERN
+// Die Schuerze kennt die Sperrflaechen nicht (Flugplaetze): aus ihrer Entfernung egal.
+#define W_FREI 1.0
+#else
+// UV2.y = darf hier Gras wachsen (TerrainWorld._gras_frei: 0 auf Flugplatz, Ort, Halde).
+// Netze ohne UV2 (Felsboegen) haben 0 — dort waechst auch keines.
+varying float w_frei;
+#define W_FREI w_frei
+#endif
 
 void vertex() {
 #ifndef FERN
@@ -74,6 +130,7 @@ void vertex() {
 	if (morph < 1.0) {
 		VERTEX.y = mix(UV2.x, VERTEX.y, morph);
 	}
+	w_frei = UV2.y;
 #endif
 	w_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	w_nrm = mat3(MODEL_MATRIX) * NORMAL;
@@ -115,6 +172,83 @@ void fragment() {
 	vec3 gras = rampe(GRAS_TIEF, GRAS_MITTE, GRAS_HELL, gras_lage(lum, verlauf, w_pos.y));
 	c = mix(c, gras, gruen * 0.88);
 
+	// --- FERNGRAS: die Wiese sieht aus der Ferne aus wie aus der Naehe ---------------------
+	// Echte Grasbueschel stehen nur bis gras_halme.x um die Kamera (TerrainWorld.GRAS_FERN_R).
+	// Dahinter lag der nackte Boden: glatt, ohne das satte Gruen der Halme und nach der
+	// HANGNORMALE beleuchtet statt wie die Halme nach oben — die Wiese wechselte 100 m vor
+	// dem Flugzeug sichtbar ihr Aussehen. Hier malt der Boden die Bueschel selbst, ohne ein
+	// einziges Dreieck:
+	//   * DIESELBEN BUESCHEL: Dichte nach der Regel der Grasmaske (TerrainWorld._gras_block:
+	//     gruen, flach, frei), Abstand und Groesse wie der aeussere Halmring, Farbe Fuss ->
+	//     Spitze wie in gras.gdshader.
+	//   * STEHEND: die Bueschelkarte wird in sechs Hoehen geschnitten, jeder Schnitt dort
+	//     abgetastet, wo der Sehstrahl in dieser Hoehe ueber dem Boden laeuft. Die Bueschel
+	//     verdecken den Boden hinter sich und wandern beim Vorbeiflug gegen ihn wie echte.
+	//   * WEITER WEG uebernimmt eine zweite, groebere Staffel (FG_GROB), und IN DER FERNE
+	//     (oder wenn der Blick so flach ist, dass die Schnitte auseinanderfielen) bleibt die
+	//     MITTLERE Farbe: Deckung aus Dichte und Blickwinkel. Kein Flimmern, kein Rauschkorn.
+	//   * LICHT: wo Bueschel stehen, kippt die Normale nach oben, wie die Halme sie tragen.
+	vec3 n_licht = n;
+	float neig = sqrt(max(1.0 - n.y * n.y, 0.0)) / max(n.y, 0.05);
+	float dichte = gruen * (1.0 - smoothstep(0.42, 0.75, neig)) * W_FREI
+		* step(GRAS_UNTEN, w_pos.y);
+#ifdef FERN
+	// Die Schuerze traegt den Wald als FARBE (Main._fern_farbe): dort stehen Kronen, kein Gras.
+	dichte *= smoothstep(0.24, 0.36, lum);
+#endif
+	float halme = gras_halme.y * (1.0 - smoothstep(gras_halme.x * 0.72, gras_halme.x,
+		distance(w_pos.xz, CAMERA_POSITION_WORLD.xz)));
+	float fg_an = (1.0 - halme) * ferngras;
+#ifndef FERN
+	// Ableitungen AUSSERHALB der Verzweigung (innen sind sie nicht definiert).
+	vec2 fg_uv = w_pos.xz * (1.0 / FG_KACHEL);
+	vec2 fg_dx = dFdx(fg_uv);
+	vec2 fg_dy = dFdy(fg_uv);
+#endif
+	if (dichte * fg_an > 0.004) {
+		vec3 v = (CAMERA_POSITION_WORLD - w_pos) / max(d, 0.001);
+		float vn = clamp(dot(v, n), 0.08, 1.0);
+		float kot = sqrt(1.0 - vn * vn) / vn;
+		float deck = 1.0 - exp(-dichte * (FG_DECK_OBEN + FG_DECK_SEITE * kot));
+		// Lage am Halm (0 Fuss .. 1 Spitze). Im Mittel UNTER der Mitte: ein Halm ist am Fuss
+		// breit und laeuft spitz zu, die helle Spitze ist der kleinste Teil seiner Flaeche.
+		float h_rel = 0.40;
+		float ton = 0.5;
+#ifndef FERN
+		// SCHAERFE NACH DER SCHMALEN SEITE DES BILDPUNKTS. Flach angeschaut ist der Abdruck
+		// eines Bildpunkts am Boden lang und schmal; nach der langen Seite gefiltert
+		// verschwammen die Bueschel zu flachen Scheiben, gross wie Seerosenblaetter. Die
+		// Flaeche des Abdrucks (Kreuzprodukt, dreht mit der Querlage nicht) und der
+		// Blickwinkel geben beide Seiten; gefiltert wird hoechstens 4:1 gestreckt.
+		float flaeche = abs(fg_dx.x * fg_dy.y - fg_dx.y * fg_dy.x);
+		float px = max(sqrt(flaeche * vn), sqrt(flaeche / vn) * 0.25) * FG_TEXEL;
+		float flach_aus = 1.0 - smoothstep(2.5, 6.0, kot);
+		float m1 = (1.0 - smoothstep(3.0, 7.0, px)) * flach_aus;
+		float m2 = smoothstep(3.0, 7.0, px) * (1.0 - smoothstep(3.0, 7.0, px / FG_GROB))
+			* flach_aus;
+		if (m1 + m2 > 0.01) {
+			vec2 weg = v.xz * (FG_HOEHE / (vn * FG_KACHEL));
+			vec3 st = vec3(0.0, 0.40, 0.5);
+			if (m1 > 0.01) {
+				st += (fg_staffel(fg_uv, weg, px, dichte) - vec3(0.0, 0.40, 0.5)) * m1;
+			}
+			if (m2 > 0.01) {
+				st += (fg_staffel(fg_uv * (1.0 / FG_GROB) + vec2(0.37, 0.71), weg,
+					px / FG_GROB, dichte) - vec3(0.0, 0.40, 0.5)) * m2;
+			}
+			float m = m1 + m2;
+			deck = deck * (1.0 - m) + st.x;
+			h_rel = st.y;
+			ton = st.z;
+		}
+#endif
+		vec3 halm = mix(gras, GRAS_SPITZE, (GRAS_SPITZE_MIN + GRAS_SPITZE_STREU * ton) * h_rel)
+			* (0.92 + 0.16 * ton);
+		float fg = deck * fg_an;
+		c = mix(c, halm, fg);
+		n_licht = normalize(mix(n, vec3(0.0, 1.0, 0.0), fg * FG_OBEN));
+	}
+
 	// --- Fels: Farbton aus der Rampe, Helligkeit bleibt ----------------------------------
 	// NUR DER TON wird vereinheitlicht (dunkel = kuehles Blaugrau, hell = warmer Kalk). Die
 	// Helligkeit bleibt die der Rohfarbe — sonst hoebe die Rampe den schwarzen Basalt am
@@ -134,7 +268,7 @@ void fragment() {
 	c = mix(c, SCHNEE_C, schnee * 0.7);
 
 	ALBEDO = srgb_linear(clamp(c, vec3(0.0), vec3(1.0)));
-	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
+	NORMAL = normalize((VIEW_MATRIX * vec4(n_licht, 0.0)).xyz);
 #ifndef FERN
 	EMISSION = srgb_linear(roh) * (1.0 - COLOR.a) * GLUT;
 #endif

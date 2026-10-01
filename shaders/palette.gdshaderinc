@@ -7,6 +7,13 @@
 const vec3 GRAS_TIEF = vec3(0.11, 0.28, 0.21);
 const vec3 GRAS_MITTE = vec3(0.28, 0.46, 0.20);
 const vec3 GRAS_HELL = vec3(0.50, 0.60, 0.26);
+// HALMSPITZE (= GRAS_HELL * (1.08, 1.08, 0.94)). Ein Halm laeuft vom Fuss (Bodenfarbe) um
+// GRAS_SPITZE_MIN + GRAS_SPITZE_STREU * Zufall auf diese Farbe zu. Das Ferngras im
+// Gelaende-Shader rechnet mit denselben Werten — sonst passt die Wiese jenseits der
+// Halme nicht zu der davor.
+const vec3 GRAS_SPITZE = vec3(0.54, 0.648, 0.244);
+const float GRAS_SPITZE_MIN = 0.30;
+const float GRAS_SPITZE_STREU = 0.25;
 const vec3 FELS_TIEF = vec3(0.38, 0.41, 0.43);
 const vec3 FELS_HELL = vec3(0.80, 0.76, 0.68);
 const vec3 SCHNEE_C = vec3(0.93, 0.96, 1.00);

@@ -3160,6 +3160,7 @@ var _flug_dir := Vector2.ZERO   # geglaettete Bewegungsrichtung (Vorrang voraus)
 var _flug_schritt := 0.0        # geglaetteter Weg je Frame (m), fuer FEIN_HINTEN_AB
 var _mat: ShaderMaterial
 static var _boden_tex: ImageTexture
+static var _gras_fern_tex: ImageTexture
 var _water: MeshInstance3D
 # Sonnenrichtung fuer den Glitzerpfad auf dem Wasser. Wird von Main ueber setze_sonne()
 # gesetzt; der Vorgabewert hier ist nur eine Notbremse, falls das jemand vergisst.
@@ -3533,6 +3534,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mat = ShaderMaterial.new()
 	_mat.shader = load("res://shaders/gelaende.gdshader")
 	_mat.set_shader_parameter("boden_tex", boden_textur())
+	_mat.set_shader_parameter("gras_fern_tex", gras_fern_textur())
 	# FLORA-MATERIAL: gleiche Farbbehandlung, aber jede Instanz faehrt zur Sichtgrenze
 	# hin ihre GROESSE gegen null. Godots VISIBILITY_RANGE_FADE_SELF verlangt ein
 	# transparentes Material und tat an diesem Opaque-Shader nichts — die Baeume waeren
@@ -7508,7 +7510,8 @@ static func netz_aus(verts: PackedVector3Array, nrms: PackedVector3Array,
 	arr[Mesh.ARRAY_NORMAL] = nrms
 	arr[Mesh.ARRAY_COLOR] = cols
 	if not uv2.is_empty():
-		arr[Mesh.ARRAY_TEX_UV2] = uv2      # x = Hoehe der Fernschuerze (weiches Erscheinen)
+		# x = Hoehe der Fernschuerze (weiches Erscheinen), y = Gras darf wachsen (Ferngras)
+		arr[Mesh.ARRAY_TEX_UV2] = uv2
 	arr[Mesh.ARRAY_INDEX] = idx
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 	return mesh
@@ -7652,10 +7655,15 @@ func _gras_nachfuehren() -> void:
 	if cam == null or not _gras_an:
 		for gp in _gras_knoten:
 			gp.visible = false
+		RenderingServer.global_shader_parameter_set("gras_halme", Vector2(GRAS_FERN_R, 0.0))
 		return
 	var p := cam.global_position
 	var ueber := p.y - maxf(height_at(p.x, p.z), SEA_Y)
 	var an := ueber < GRAS_AUS_UEBER and is_visible_in_tree()
+	# FERNGRAS: dem Gelaende-Shader sagen, wo echte Halme stehen — dort malt er keine. Die
+	# Staerke faellt wie die Halmgroesse in gras_bahn.gdshader (110..240 m ueber Grund).
+	RenderingServer.global_shader_parameter_set("gras_halme", Vector2(GRAS_FERN_R,
+		(1.0 - smoothstep(110.0, 240.0, ueber)) if an else 0.0))
 	for gp in _gras_knoten:
 		gp.visible = an
 		if an:
@@ -7670,6 +7678,39 @@ static func boden_textur() -> ImageTexture:
 	if _boden_tex == null:
 		_boden_tex = ImageTexture.create_from_image(load("res://shaders/boden_detail.res"))
 	return _boden_tex
+
+
+## Bueschelkarte des FERNGRASES (tools/_gras_textur.gd): der Gelaende-Shader malt damit die
+## Grasbueschel jenseits der echten Halme (siehe gelaende_kern, Abschnitt FERNGRAS).
+static func gras_fern_textur() -> ImageTexture:
+	if _gras_fern_tex == null:
+		_gras_fern_tex = ImageTexture.create_from_image(load("res://shaders/gras_fern.res"))
+	return _gras_fern_tex
+
+
+## FERNGRAS: traegt je Eckpunkt in UV2.y ein, ob hier Gras wachsen darf (_open_ground: 0 auf
+## Flugplatz, Ort, Blockhalde — dieselbe Sperre wie in der Grasmaske, _gras_block). Der
+## Gelaende-Shader malt jenseits der echten Halme Bueschel auf den Boden; ohne diese Sperre
+## stuenden sie rund um die Bahn, wo aus der Naehe keine wachsen, und um das Flugzeug laege
+## ein mitwandernder Kreis aus kahlem Platz. Farbe und Hang kennt der Shader selbst.
+## VORPROBE alle 32 m: fast jeder Chunk liegt frei, dann genuegen 169 Aufrufe statt 2401.
+func _gras_frei(uv2: PackedVector2Array, ox: float, oz: float, step: float, zn: int) -> PackedVector2Array:
+	var nv := zn + 1
+	var sprung := maxi(int(32.0 / step), 1)
+	var frei := true
+	for j in range(0, nv, sprung):
+		for i in range(0, nv, sprung):
+			if _open_ground(ox + float(i) * step, oz + float(j) * step) < 1.0:
+				frei = false
+				break
+		if not frei:
+			break
+	for j in nv:
+		for i in nv:
+			var o := j * nv + i
+			uv2[o] = Vector2(uv2[o].x,
+				1.0 if frei else _open_ground(ox + float(i) * step, oz + float(j) * step))
+	return uv2
 
 
 func _attach_chunk(key: Vector2i, mesh: ArrayMesh, shape: Shape3D,
@@ -8041,6 +8082,7 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN, vorlage: Array = [
 			uv2[k] = Vector2(gf[k], 0.0)
 	else:
 		uv2 = _schuerzen_hoehen(ox, oz, step, zn)
+	uv2 = _gras_frei(uv2, ox, oz, step, zn)      # UV2.y = hier darf Gras wachsen (Ferngras)
 	# RANDSTREIFEN: je Kante ein senkrechter Streifen RAND_TIEF nach unten. Wo ein feiner an
 	# einen groben Chunk stoesst, liegen die Zwischenpunkte der feinen Kante nicht auf der
 	# geraden groben Kante — ohne Streifen klaffte dort ein Spalt, durch den man auf die
