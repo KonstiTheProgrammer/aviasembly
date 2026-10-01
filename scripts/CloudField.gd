@@ -836,7 +836,7 @@ const BEULEN_TIEFE := 0.18
 const BEULEN_MASS := 2.4
 # Wie frueh die Wolken auf gröbere LOD-Stufen umschalten. KLEINER = frueher = billiger;
 # 1.0 waere wie alle andere Geometrie. Siehe Messreihe an der Zuweisung.
-const PUFF_LOD_BIAS := 0.35
+const PUFF_LOD_BIAS := 0.55
 
 static func _nachbearbeiten(roh: ArrayMesh, s: float, basis_y: float) -> ArrayMesh:
 	var arr := roh.surface_get_arrays(0)
@@ -956,7 +956,14 @@ uniform vec3 farbe_basis : source_color = vec3(0.40, 0.46, 0.60);
 // 0.38 statt 0.60: mit der alten Wrap-Weite war jede Flaeche, die halbwegs zur Kamera
 // zeigte, voll beleuchtet, und mit der Sonne im Ruecken die ganze sichtbare Wolke weiss.
 uniform float streuung = 0.38;      // Wrap-Weite: wie weit das Licht um die Wolke laeuft
-uniform float sockel = 0.14;        // Restlicht auf der sonnenabgewandten Seite
+uniform float sockel = 0.10;        // Restlicht auf der sonnenabgewandten Seite
+// ZWEI-TON-KANTE (siehe light()): Lage und halbe Breite des Uebergangs auf der Wrap-Skala.
+uniform float kante = 0.46;
+uniform float kante_weich = 0.20;
+// Ton der Schattenseite (linear, als Licht addiert) und Anteil der Nebenlichter.
+uniform vec3 schatten_ton = vec3(0.20, 0.25, 0.36);
+uniform float gegenlicht = 0.35;
+global uniform vec3 sonne_dir;      // TerrainWorld.setze_sonne
 uniform float silber = 0.40;        // Vorwaertsstreuung (Silberrand gegen die Sonne)
 // HELLIGKEIT IST KEIN GESCHMACKSWERT. Wrap-Licht hebt jede Flaeche an, die nicht genau
 // zur Sonne zeigt: eine waagerechte Wolkenkrone hat bei 50 Grad Sonnenhoehe dot = 0,766
@@ -1128,12 +1135,22 @@ void light() {
 	// Kumuluswolke wird das Licht so oft gestreut, dass auch die Rueckseite noch leuchtet.
 	// (streuung + 1) verschiebt die Kante nach hinten, smoothstep nimmt ihr die Haerte,
 	// der Sockel setzt einen Boden, unter den nichts faellt.
-	float w = clamp((dot(normalize(NORMAL), normalize(LIGHT)) + streuung) / (1.0 + streuung), 0.0, 1.0);
-	w = w * w * (3.0 - 2.0 * w);
-	w = mix(sockel, 1.0, w);
+	float t = clamp((dot(normalize(NORMAL), normalize(LIGHT)) + streuung) / (1.0 + streuung), 0.0, 1.0);
+	// GEMALTE WOLKE (2026-10-01, Zelda-Stil): ZWEI TOENE mit weicher Kante statt eines
+	// durchgehenden Verlaufs — helle Sonnenseite, hellblaue Schattenseite. Vorher (reines
+	// Wrap-Licht plus das Gegenlicht von unten, das hier genauso weit um die Wolke lief)
+	// lag die Schattenseite bei ~70 % der Lichtseite: die Wolke stand fast einfarbig weiss
+	// da — Styropor. `kante` legt die Mitte des Uebergangs, `kante_weich` seine Breite.
+	float band = smoothstep(kante - kante_weich, kante + kante_weich, t);
+	float w = mix(sockel, 1.0, band * (0.86 + 0.14 * t));
 	// Vorwaertsstreuung: schaut man gegen die Sonne, leuchtet die Wolke auf.
 	float vorwaerts = pow(clamp(dot(normalize(LIGHT), -normalize(VIEW)), 0.0, 1.0), 5.0);
-	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * (w + silber * vorwaerts) * helligkeit;
+	// Nur die SONNE malt die Kante; das Gegenlicht (Main: underfill) hebt nur leicht an.
+	float sonne = step(0.995, dot(normalize(mat3(INV_VIEW_MATRIX) * LIGHT), sonne_dir));
+	vec3 licht = LIGHT_COLOR * ATTENUATION * (w + silber * vorwaerts) * helligkeit;
+	// Die Schattenseite bekommt ihren Ton als Licht (wie HIMMEL_FUELL beim Boden): ein
+	// helles, sattes Himmelsblau statt Grau.
+	DIFFUSE_LIGHT += mix(licht * gegenlicht, licht + schatten_ton * (1.0 - band), sonne);
 }
 """
 

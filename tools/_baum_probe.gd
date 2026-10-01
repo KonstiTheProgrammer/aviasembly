@@ -7,6 +7,8 @@
 ##   Godot --path . --script res://tools/_baum_probe.gd -- <ausgabeordner> [nah] [wald]
 extends SceneTree
 
+const MAIN := preload("res://scripts/Main.gd")
+
 const NAH := [["Fichte", "Kiefer", "Birke"], ["Eiche", "Busch", "Schneetanne"],
 	["Urwaldbaum", "Akazie", "Mangrove"], ["Palme", "Baumfarn", "Kaktus"],
 	["Fels", "Totholz", "Busch"]]
@@ -33,25 +35,40 @@ func _licht() -> void:
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.70, 0.78, 0.92)
 	e.ambient_light_energy = 0.62
-	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	# Tonwerte wie im Spiel (Main._setup_world): ACES, LUT, Saettigung/Kontrast. Mit FILMIC
+	# und hoher Sonne sah die Probe viel heller aus als der Wald im Flugbild (dort Median
+	# 2/51/10) — Abstimmen an der Probe ging am Spielbild vorbei.
+	e.tonemap_mode = Environment.TONE_MAPPER_ACES
+	e.tonemap_white = 6.0
+	e.adjustment_enabled = true
+	e.adjustment_saturation = 1.06
+	e.adjustment_contrast = 1.05
+	e.adjustment_color_correction = MAIN._farb_lut()
 	e.fog_enabled = true
-	e.fog_light_color = Color(0.70, 0.81, 0.95)
+	e.fog_light_color = Color(0.36, 0.54, 0.86)
 	# Tiefennebel wie im Spiel (Main.NEBEL_ENDE / NEBEL_FORM)
 	e.fog_mode = Environment.FOG_MODE_DEPTH
 	e.fog_density = 1.0
-	e.fog_depth_begin = 1000.0
-	e.fog_depth_end = 20000.0
+	e.fog_depth_begin = 800.0
+	e.fog_depth_end = 17000.0
 	e.fog_depth_curve = 1.0
-	e.fog_aerial_perspective = 0.74
+	e.fog_aerial_perspective = 0.25
 	env.environment = e
 	root3.add_child(env)
 	var l := DirectionalLight3D.new()
-	l.rotation_degrees = Vector3(-42, 35, 0)
+	l.rotation_degrees = MAIN.SONNE_WINKEL   # 26 Grad hoch, wie im Spiel
 	l.light_energy = 1.7
 	l.light_color = Color(1.0, 0.95, 0.86)   # wie Main (Sonne)
 	l.shadow_enabled = true
 	l.directional_shadow_max_distance = 500.0
 	root3.add_child(l)
+	# Gegenlicht von unten wie Main (underfill)
+	var u := DirectionalLight3D.new()
+	u.rotation_degrees = Vector3(22, 130, 0)
+	u.light_energy = 0.46
+	u.light_color = Color(0.80, 0.86, 0.95)
+	u.shadow_enabled = false
+	root3.add_child(u)
 
 
 func _boden(groesse: float, farbe: Color) -> void:
@@ -140,7 +157,7 @@ func _process(_d: float) -> bool:
 		for fm in [tw._flora_mat, tw._flora_karten_mat]:
 			fm.set_shader_parameter("fade_start", 9000.0)
 			fm.set_shader_parameter("fade_end", 10000.0)
-		_boden(6000.0, Color(0.30, 0.44, 0.20))
+		_boden(6000.0, Color(0.22, 0.41, 0.15))
 		nah_root = Node3D.new()
 		wald_root = Node3D.new()
 		fern_root = Node3D.new()

@@ -221,7 +221,7 @@ void fragment() {
 	// --- Gruen auf die Rampe (gras_lage: palette.gdshaderinc, auch das Gras nutzt sie) ------
 	vec3 gras = rampe(GRAS_TIEF, GRAS_MITTE, GRAS_HELL, gras_lage(lum, verlauf, w_pos.y));
 	c = mix(c, gras, gruen * 0.88);
-	c = mix(c, c * WIESEN_FLECKEN(boden_tex, w_pos.xz), gruen * k);
+	c = mix(c, c * WIESEN_FLECKEN(boden_tex, w_pos.xz) * WIESEN_WIND(boden_tex, w_pos.xz), gruen * k);
 #ifndef FERN
 	// BODENBUCKEL (Kachel 34 m, Relief aus dem B/A-Kanal der Bodentextur): die glatten
 	// 8-m-Dreiecke lassen Wiesen aus 100-500 m wie Plastik liegen; flache Buckel geben dem

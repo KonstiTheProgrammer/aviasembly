@@ -359,9 +359,10 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
 - GELAENDE-SHADER `shaders/gelaende_kern.gdshaderinc` (Chunks `gelaende.gdshader`, Schuerze
   `gelaende_fern.gdshader` mit FERN = Grundabsenkung, Felsboegen in Landmarks). Glut der
   Lavarinnen weiter aus COLOR.a.
-- UMGEBUNG (Main._setup_world): Tiefennebel NEBEL_ANFANG 1 km / NEBEL_ENDE 20 km /
-  NEBEL_FORM 1.0 (siehe unten), NEBEL_FARBE_FREI himmelblau (0.70/0.81/0.95), aerial 0.74,
-  Sonnenstreuung 0.35, Ambient 0.62, Sonne 1.7 NEUTRAL (1.0/0.95/0.86, vorher golden
+- UMGEBUNG (Main._setup_world): Tiefennebel NEBEL_ANFANG 800 m / NEBEL_ENDE 17 km /
+  NEBEL_FORM 1.0, NEBEL_FARBE_FREI sattes Mittelblau (0.36/0.54/0.86), aerial 0.25,
+  Sonnenstreuung 0.25 (Stand „Baba“-Runde, siehe unten; davor 1 km / 20 km, 0.70/0.81/0.95,
+  0.74, 0.35), Ambient 0.62, Sonne 1.7 NEUTRAL (1.0/0.95/0.86, vorher golden
   1.0/0.91/0.74), Gegenlicht 0.46, Saettigung 1.06 (vorher 1.18: Bonbonfarben).
 - TIEFENNEBEL STATT EXPONENTIELL (2026-10, Nutzer: „Boden und Berge schauen washed aus“).
   BEFUND (`tools/_boden_look.gd`, feste Stellungen, Saettigung/Helligkeit je Bildstreifen):
@@ -555,6 +556,44 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
     innerhalb des Umrisses anfangen, sonst schweben sie), Kiefer = leicht gezackte
     Bueschel OHNE Zweigstriche (die lagen als dunkle Linien ueber den Karten).
   Kosten unveraendert (4K Mittel 15,97 ms, Flora 2,63).
+- „BABA“-RUNDE (2026-10-01 nachts, Nutzer nach der Zelda-Fassung: „schaut schon besser aus,
+  aber mach so, dass es baba ausschaut“). BEFUND aus den Flugbildern, gemessen: Wald Median
+  2/51/10 (Helligkeit 0.20, Saettigung 0.96) gegen Wiese 93/152/29 (0.60) = schwarzgruener
+  Teppich neben Neonrasen; die Ferne lief ohne Tiefe in den hellen Horizont, das ferne Meer
+  stand als GRAUES Band da; die Wolken fast einfarbig weiss (Styropor). Fuenf Eingriffe:
+  * LAUB (Flora-Shader, `LAUB_TON`/`LAUB_SOCKEL`/`LAUB_SCHATTEN`/`FUELL_*`): EINE Tonkurve
+    fuer alles Laub statt zwanzig Modellfarben — nur das DUNKLE Laub (g < 0.30..0.52) wird
+    angehoben und zum Gelbgruen der Wiese gerueckt (mit derselben Kurve fuer helles Laub
+    stand die Birke als Neon-Limette da), Schlagschatten auf Laub nur zu 72 % (bei 26 Grad
+    Sonnenhoehe liegt im Wald fast alles im Schatten des Nachbarn, ACES drueckt das auf
+    null), Cel-Rampe wie der Boden, mehr Himmelsfuellung. Dazu FARBTON je Baum (gelbgruen
+    bis blaugruen, vorher nur Helligkeit) und gedecktere Rinde (Kiefernrot stand orange im
+    Wald). FALLE: `_baum_probe` lief mit FILMIC und 42 Grad Sonne — dort sah der Wald laengst
+    gut aus. Jetzt mit den Tonwerten des Spiels (ACES, LUT, SONNE_WINKEL, Gegenlicht).
+  * BLAUE TIEFE (Main): Dunst als SATTES Mittelblau `NEBEL_FARBE_FREI` 0.36/0.54/0.86
+    (vorher helles 0.70/0.81/0.95), `fog_aerial_perspective` 0.25 (vorher 0.74),
+    NEBEL_ANFANG 800 m / NEBEL_ENDE 17 km (3 km 5 %, 5 km 17 %, 7 km 33 %, 9 km 51 %).
+    Heller Dunst hellt die Ferne auf, bis sie im Horizont verschwindet (= milchig); sattes
+    Blau FAERBT sie: blaugruene Staffeln vor hellem Horizont, das ferne Meer blau. Erste
+    Fassung 300 m / 14 km legte auf die Gletscherkette aus 7 km einen sichtbaren Schleier.
+    In der Hoehe wieder helle Luft (`nebel_farbe_bei`, NEBEL_FARBE_HOCH ab 1,5-4,5 km) —
+    im Mittelblau stand das Land aus 5 km wie ein zweites Meer da. Wasser/Gewitter folgen
+    ueber `setze_dunst`. Werkzeuge (`_luftbild`, `_boden_look`) setzen die Farbe mit.
+  * WIESE: Gruen eine Spur weniger gelb (GRAS_MITTE 0.20/0.42/0.19, GRAS_HELL
+    0.36/0.55/0.25), und WINDWELLEN (`WIESEN_WIND` in palette: wandernde Lichtbaender
+    190 x 620 m, 8,5 m/s, ein Abruf des weichen G-Kanals; Gelaende und Grashalme).
+  * WOLKEN (`PUFF_SHADER.light`): ZWEI TOENE mit weicher Kante (`kante`, `kante_weich`) statt
+    Wrap-Verlauf, Schattenseite bekommt ein helles Himmelsblau als Licht (`schatten_ton`),
+    das Gegenlicht zaehlt nur noch zu 35 % (es lief genauso weit um die Wolke wie die Sonne
+    und hob die Schattenseite auf ~70 % der Lichtseite). PUFF_LOD_BIAS 0.35 -> 0.55 (eckige
+    Umrisse naher Wolken).
+  * ALMZONE (`_face_color_grund`, `steil_fels`): Fels in der Hochregion erst ab ~40 Grad
+    (0.76/0.60 statt 0.82/0.68) — vorher Tarnmuster aus Wiesen- und Felsflecken. Aendert
+    Karte und `_haupt_pruefsumme` oberhalb ~540 m.
+  KOSTEN (`_gelaende_zeit`, 4K): Bild im Mittel 15,97 -> 16,12 ms, Flora 2,63 -> 2,70.
+  Belege: `_loadcheck` 7x OK, `_grafik_check` 0 Beanstandungen, keine Warnungen.
+  NICHT GEMACHT: Schneetanne/Palme/Dschungelarten haben weiter die alten glatten Kronen;
+  aus 5 km Hoehe sieht man vom Land fast nichts (Fernebene 9 km, schon vorher so).
 - BAEUME, VIERTE FASSUNG: BLATTKARTEN (2026-10-01, Nutzer: „billig, rueste es auf“, Baeume
   mit, Quelle SELBST ERZEUGT). Laub-Atlas `tools/build_laubtextur.py` (1024², vier Felder:
   Laubbueschel, Birkenzweiglein, Fichtenzweig mit Ansatz links, Kiefernbueschel; RGB =

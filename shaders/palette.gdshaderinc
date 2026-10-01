@@ -11,9 +11,9 @@
 // ohne Dunst als Neonrasen da (im Bild 0.78-0.85).
 // ZELDA (BotW): das Gruen eine Spur gelber und frischer als "satt & klar" (dort 110 Grad),
 // die Tiefe bleibt (sonst wird es pastellig = "milchig").
-const vec3 GRAS_TIEF = vec3(0.08, 0.23, 0.15);
-const vec3 GRAS_MITTE = vec3(0.22, 0.41, 0.15);
-const vec3 GRAS_HELL = vec3(0.42, 0.54, 0.20);
+const vec3 GRAS_TIEF = vec3(0.08, 0.24, 0.17);
+const vec3 GRAS_MITTE = vec3(0.20, 0.42, 0.19);
+const vec3 GRAS_HELL = vec3(0.36, 0.55, 0.25);
 // Fels: kuehles Granitgrau -> helles warmes Grau. Nur der Farbton; die Helligkeit legt
 // gelaende_kern fest (siehe dort). Erster Anlauf mit Graubraun (0.62/0.55/0.46)
 // gab Schokoladenberge.
@@ -50,6 +50,12 @@ vec3 rampe(vec3 a, vec3 b, vec3 c, float t) {
 // Zwei Massstaebe des weichen G-Kanals (Kachel 240 m und 70 m). Gelaende UND Grashalme
 // nutzen dasselbe Makro, sonst stuenden die Halme farblich neben ihrem Boden.
 #define WIESEN_FLECKEN(tex, xz) mix(vec3(0.86, 0.90, 0.95), vec3(1.10, 1.07, 0.90), clamp((texture(tex, (xz) * (1.0 / 240.0) + vec2(0.13, 0.57)).g - 0.5) * 2.6 + (texture(tex, (xz) * (1.0 / 70.0) + vec2(0.71, 0.29)).g - 0.5) * 1.5 + 0.5, 0.0, 1.0))
+
+// WINDWELLEN UEBER DEN WIESEN (2026-10-01, Zelda-Stil): breite, weiche Lichtbaender laufen mit
+// dem Wind ueber das Gras — wie Boeen, die die Halme umlegen und ihre helle Seite zeigen.
+// Quer zum Wind lang (620 m), laengs schmal (190 m), 8,5 m/s. Derselbe weiche G-Kanal, ein
+// Abruf; Gelaende und Grashalme nutzen dasselbe Makro (sonst liefe die Welle am Halm vorbei).
+#define WIESEN_WIND(tex, xz) (1.0 + (texture(tex, vec2(dot(xz, vec2(0.80, 0.60)) * (1.0 / 190.0) - TIME * 0.045, dot(xz, vec2(-0.60, 0.80)) * (1.0 / 620.0))).g - 0.5) * 0.36)
 
 // Lage auf der Gruen-Rampe: Helligkeit der Rohfarbe (Waldboden dunkel, trockene Wiese
 // hell), grosser Verlauf, und Almen etwas heller und trockener als das Tiefland.

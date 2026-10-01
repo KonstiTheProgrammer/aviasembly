@@ -3595,8 +3595,10 @@ void vertex() {
 	float z1 = fract(sin(dot(wo.xz, vec2(12.9898, 78.233))) * 43758.5453);
 	float z2 = fract(z1 * 91.7 + 0.31);
 	float laub_v = clamp((COLOR.g - max(COLOR.r, COLOR.b)) * 8.0, 0.0, 1.0);
-	COLOR.rgb *= mix(vec3(1.0), vec3(0.86 + 0.26 * z1, 0.90 + 0.18 * z1, 0.84 + 0.18 * z2),
-		laub_v);
+	// Helligkeit (z1) UND Farbton (z2): die einen gelbgruen, die anderen blaugruen — ein Wald
+	// aus einem einzigen Gruen (nur heller/dunkler) stand aus der Naehe als Salat da.
+	COLOR.rgb *= mix(vec3(1.0), vec3(0.80 + 0.14 * z1 + 0.26 * z2, 0.90 + 0.18 * z1,
+		0.78 + 0.10 * z1 + 0.30 * (1.0 - z2)), laub_v);
 	float wachsen = smoothstep(0.0, 1.0,
 		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0));
 	VERTEX *= (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
@@ -3618,6 +3620,14 @@ void vertex() {
 // gebacken dunkel sind — mit dem Umgebungslicht allein soff die abgewandte Seite ab.
 // Nach oben zeigende Flaechen bekommen mehr (sie sehen mehr Himmel).
 const vec3 FUELL_TON = vec3(0.50, 0.68, 0.90);
+const float FUELL_GRUND = 0.14;
+const float FUELL_OBEN = 0.22;
+const vec3 LAUB_TON = vec3(1.30, 1.24, 1.05);
+const vec3 LAUB_SOCKEL = vec3(0.020, 0.030, 0.0);
+// Wie viel vom Schlagschatten das Laub zeigt (1 = hart). Im gemalten Stil liegt ein Wald
+// als zusammenhaengende, besonnte Kronenmasse da — der Schatten des Nachbarbaums daempft,
+// loescht aber nicht.
+const float LAUB_SCHATTEN = 0.72;
 void fragment() {
 	vec3 c = COLOR.rgb;
 #ifdef KARTE
@@ -3634,19 +3644,36 @@ void fragment() {
 		NORMAL = -NORMAL;
 	}
 #endif
-	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 	float laub_f = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
+	// LAUB HELLER UND FRISCHER (2026-10-01, "mach dass es baba ausschaut"). GEMESSEN im
+	// Flugbild: Wald Median 2/51/10 (Helligkeit 0.20, Saettigung 0.96) gegen Wiese 93/152/29
+	// (0.60) — schwarzgruener Teppich neben Neonrasen. Die Laubfarben der Modelle liegen
+	// linear bei 0.01-0.07; im Schatten (tiefe Sonne, 26 Grad: im Wald liegt fast alles im
+	// Schatten des Nachbarn) drueckt ACES das auf null. BotW-Waelder stehen im selben
+	// Gruen wie die Wiese, nur eine Stufe tiefer. Deshalb hier EINE Tonkurve fuer alles Laub
+	// statt zwanzig Modellfarben anzufassen: anheben, zum Gelbgruen der Wiese ruecken.
+	// Nur das DUNKLE Laub (Nadeln, Urwald): helles (Birke, besonnte Kronenoberseite) stand
+	// mit derselben Kurve als Neon-Limette da.
+	c = mix(c, c * LAUB_TON + LAUB_SOCKEL, laub_f * (1.0 - smoothstep(0.30, 0.52, c.g)));
+	// Rinde gedeckter: das Kiefernrot (0.46/0.26/0.15) stand in der Sonne als Orange im Wald.
+	float rinde = (1.0 - laub_f) * clamp((c.r - c.b) * 4.0, 0.0, 1.0);
+	c = mix(c, vec3(dot(c, vec3(0.30, 0.59, 0.11))) * vec3(1.08, 0.97, 0.86), 0.45 * rinde);
+	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 	float auf = 0.5 + 0.5 * (INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).y;
-	EMISSION = ALBEDO * FUELL_TON * (0.10 + 0.17 * auf) * laub_f;
+	EMISSION = ALBEDO * FUELL_TON * (FUELL_GRUND + FUELL_OBEN * auf) * laub_f;
 }
 // WEICHES LICHT (Stil Zelda/Ghibli, wie das Gelaende): breiter, gemalter Uebergang, und
 // Laub SCHEINT DURCH, wenn die Sonne dahinter steht — die Kronenraender gluehen warm auf.
 // Laub wird am ALBEDO erkannt (gruen dominiert) — so braucht es keine Varying.
 void light() {
 	float ndl = dot(NORMAL, LIGHT);
-	float w = smoothstep(-0.30, 0.75, ndl);
-	vec3 l = LIGHT_COLOR * ATTENUATION * (1.0 / PI);
 	float laub = clamp((ALBEDO.g - max(ALBEDO.r, ALBEDO.b)) * 14.0, 0.0, 1.0);
+	// CEL-RAMPE wie der Boden (palette: klares_licht): klare, weiche Kante, flache Lichtseite.
+	// Auf dem Laub liegt die Kante weiter hinten (Kronen streuen), Staemme wie der Boden.
+	float kante = mix(-0.02, -0.22, laub);
+	float w = smoothstep(kante, kante + 0.34, ndl) * (0.78 + 0.22 * smoothstep(0.15, 0.95, ndl));
+	float att = mix(ATTENUATION, 1.0, (1.0 - LAUB_SCHATTEN) * laub);
+	vec3 l = LIGHT_COLOR * att * (1.0 / PI);
 	// NUR AM SAUM: durchscheinen kann, was duenn ist — der Rand der Krone, nicht ihre Mitte.
 	// Ueber die ganze Flaeche (Fassung davor) stand ein Wald im Gegenlicht als grell
 	// leuchtende, formlose Kegel da; jetzt bleibt die Flaeche im Schatten (Fugen, Etagen
@@ -10174,7 +10201,10 @@ func _face_color_grund(cen: Vector3, ny: float) -> Color:
 	# Steilheitsfels: unten nur an wirklich steilen Waenden (dort steht sonst Bergwald),
 	# in der Hochregion schon an maessigen Flanken.
 	var hoch := smoothstep(HAUPT_FELS_AB - 200.0, HAUPT_FELS_AB + 60.0, hh)
-	var steil_fels := lerpf(smoothstep(0.58, 0.44, ny), smoothstep(0.82, 0.68, ny), hoch)
+	# 0.76/0.60 statt 0.82/0.68 (2026-10-01): in der Almzone war jede Flanke ueber 35 Grad
+	# Fels — aus der Luft ein Tarnmuster aus Wiesenflecken und Felsflecken. Jetzt bleibt die
+	# Alm bis ~40 Grad gruen, Fels steht nur an den wirklichen Waenden (grosse, ruhige Formen).
+	var steil_fels := lerpf(smoothstep(0.58, 0.44, ny), smoothstep(0.76, 0.60, ny), hoch)
 	var fels_anteil := maxf(smoothstep(HAUPT_FELS_AB + hub, HAUPT_FELS_VOLL + hub, hh),
 		steil_fels)
 	# Schnee: Flecken ab SCHNEE_AB, geschlossen ab SCHNEE_VOLL; steile Waende bleiben Fels.

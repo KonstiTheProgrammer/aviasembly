@@ -47,6 +47,7 @@ func _hin() -> void:
 	if env != null:
 		env.fog_depth_end = m.nebel_ende_bei(p.y)
 		env.fog_depth_curve = m.nebel_form_bei(p.y)
+		env.fog_light_color = m.nebel_farbe_bei(p.y)
 		m.terrain.setze_dunst(env.fog_depth_begin, env.fog_depth_end, env.fog_depth_curve,
 			env.fog_light_color)
 

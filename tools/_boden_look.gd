@@ -85,7 +85,7 @@ func _anwenden() -> void:
 	env.fog_density = 1.0
 	env.fog_depth_end = m.nebel_ende_bei(p.y)
 	env.fog_depth_curve = m.nebel_form_bei(p.y)
-	env.fog_light_color = basis_farbe
+	env.fog_light_color = m.nebel_farbe_bei(p.y)
 	env.fog_aerial_perspective = basis_luft
 	env.fog_sun_scatter = basis_streu
 	match aktiv:

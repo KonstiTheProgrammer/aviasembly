@@ -104,8 +104,8 @@ const WOLKEN_LAGEN := ["kumulus", "turm", "schaefchen", "linse"]
 # (9 km) endet: dahinter steht nur noch die Landsilhouette der Meeresscheibe, und ohne
 # Dunst an der Fernebene laege dort eine Kante.
 # Wasser (wasser_kern) und Gewitterzelle (CloudField) rechnen dieselbe Formel selbst.
-const NEBEL_ANFANG := 1000.0
-const NEBEL_ENDE := 20000.0
+const NEBEL_ANFANG := 800.0
+const NEBEL_ENDE := 17000.0
 const NEBEL_FORM := 1.0
 # DUNST NIMMT MIT DER FLUGHOEHE AB (siehe nebel_ende_bei): in der Hoehe laeuft die
 # Sichtlinie durch duennere Luft. Ohne das stand das Hochgebirge aus 2 km Hoehe betrachtet
@@ -143,7 +143,15 @@ const NEBEL_WOLKE_FORM := 0.6
 # STIL ZELDA/GHIBLI: der Dunst darf wieder deutlich himmelblau sein (ferne Berge als helle
 # blaue Silhouetten) — der Basalt des Vulkans bleibt trotzdem dunkel, weil der Gelaende-
 # Shader seine Helligkeit nicht mehr anhebt.
-const NEBEL_FARBE_FREI := Color(0.70, 0.81, 0.95)
+# BLAUE TIEFE (2026-10-01, "mach dass es baba ausschaut"): der Dunst ist ein SATTES Mittelblau
+# statt hellem Himmelsblau, und er nimmt kaum noch die Himmelsfarbe an (fog_aerial_perspective
+# 0.25 statt 0.74). Heller Dunst hellt die Ferne auf, bis sie im Horizont verschwindet — das
+# ist das "Milchige". Dunkleres, sattes Blau faerbt sie ein: ferne Huegel stehen als blaugruene
+# Staffeln VOR dem hellen Horizont (BotW), und das ferne Meer ist blau statt grau.
+const NEBEL_FARBE_FREI := Color(0.36, 0.54, 0.86)
+# IN DER HOEHE HELLER: aus 5 km sieht man den Boden nur durch viel Luft. Im satten Mittelblau
+# stand das Land dort wie ein zweites Meer da; oben ist der Dunst deshalb wieder helle Luft.
+const NEBEL_FARBE_HOCH := Color(0.62, 0.75, 0.93)
 const NEBEL_FARBE_WOLKE := Color(0.93, 0.95, 0.97)
 # Kennlinie: erst tief in der Wolke wird es wirklich weiss. Linear waere die Sicht schon
 # beim Streifen einer Kante halb zu, und das fuehlt sich falsch an.
@@ -1159,11 +1167,12 @@ func _setup_world() -> void:
 	# (tools/_terrain_render.gd) kommen ohne Flugzeug aus, laufen also NUR ueber diesen Pfad.
 	env.fog_light_color = NEBEL_FARBE_FREI
 	# Warmer Sonnendunst in Blickrichtung Sonne (Stil Zelda/Ghibli).
-	env.fog_sun_scatter = 0.35
+	env.fog_sun_scatter = 0.25
 	# 0.62 STATT 0.30. Der Wert bestimmt, wie stark der Nebel die Farbe des HIMMELS
 	# annimmt statt einer festen Nebelfarbe — also wie sehr Ferne sich in Luft aufloest.
 	# 0.74 seit dem Stil Zelda/Ghibli: die Ferne kippt staerker in den Himmel.
-	env.fog_aerial_perspective = 0.74
+	# 0.25 seit der BLAUEN TIEFE (siehe NEBEL_FARBE_FREI).
+	env.fog_aerial_perspective = 0.25
 	env.fog_sky_affect = 0.1
 	# GLOW: AUS — und zwar gemessen, nicht aus Geschmack.
 	# Die Nachbelichtungskette dieser Szene wurde durchkalibriert (Graukeil durch
@@ -2866,6 +2875,11 @@ static func nebel_form_bei(hoehe: float) -> float:
 		smoothstep(NEBEL_GIPFEL_AB, NEBEL_GIPFEL_VOLL, hoehe))
 
 
+## Dunstfarbe im Freien fuer eine Kamerahoehe (siehe NEBEL_FARBE_HOCH).
+static func nebel_farbe_bei(hoehe: float) -> Color:
+	return NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_HOCH, smoothstep(1500.0, 4500.0, hoehe))
+
+
 ## Steckt das Flugzeug in einer Wolke? Eine Zahl, drei Wirkungen — deshalb wird sie hier
 ## EINMAL bestimmt und dann verteilt, statt dass drei Systeme dasselbe nachrechnen:
 ##   Turbulenz   -> FlightController.wolken_dichte (Ruetteln und Sacken)
@@ -2897,15 +2911,16 @@ func _wolken_aufenthalt(delta: float) -> void:
 		env_sky.fog_depth_curve = lerpf(nebel_form_bei(cam_y), NEBEL_WOLKE_FORM, k)
 		# Dunst jenseits der Meeresscheibe (wasser_kern: "Dunst hinter der Schale") —
 		# dieselbe Kurve, sonst truebte das ferne Meer anders als das ferne Land.
+		var frei := nebel_farbe_bei(cam_y)
 		if terrain != null:
 			terrain.setze_dunst(env_sky.fog_depth_begin, env_sky.fog_depth_end,
-				env_sky.fog_depth_curve, NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k))
+				env_sky.fog_depth_curve, frei.lerp(NEBEL_FARBE_WOLKE, k))
 			if _gewitter_mat != null:
 				_gewitter_mat.set_shader_parameter("nebel_anfang", env_sky.fog_depth_begin)
 				_gewitter_mat.set_shader_parameter("nebel_ende", env_sky.fog_depth_end)
 				_gewitter_mat.set_shader_parameter("nebel_form", env_sky.fog_depth_curve)
 				_gewitter_mat.set_shader_parameter("nebel_farbe", terrain.dunst_farbe)
-		env_sky.fog_light_color = NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k)
+		env_sky.fog_light_color = frei.lerp(NEBEL_FARBE_WOLKE, k)
 		# Auch der HIMMEL muss mit eintrueben, sonst steht mitten im Weiss noch ein
 		# blauer Zenit — der Nebel faerbt nur Geometrie, nicht den Hintergrund.
 		env_sky.fog_sky_affect = lerpf(0.1, 1.0, k)
