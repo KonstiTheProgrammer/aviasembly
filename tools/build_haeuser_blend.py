@@ -70,6 +70,14 @@ PAL = {
     "holz_blau":    (0.32, 0.43, 0.56),
     "blumen":       (0.80, 0.30, 0.32),
     "wand_gruen":   (0.72, 0.78, 0.66),
+    # Hochhaeuser und Industrie
+    "glas_blau":    (0.38, 0.56, 0.70),
+    "glas_gruen":   (0.38, 0.60, 0.56),
+    "glas_dunkel":  (0.17, 0.24, 0.31),
+    "kies":         (0.57, 0.56, 0.53),
+    "asphalt":      (0.27, 0.27, 0.29),
+    "signal_gelb":  (0.86, 0.66, 0.20),
+    "signal_blau":  (0.20, 0.38, 0.66),
 }
 
 
@@ -93,8 +101,15 @@ def get_mat(key):
     lin = srgb2lin(rgb)
     if b:
         b.inputs["Base Color"].default_value = (*lin, 1.0)
-        b.inputs["Roughness"].default_value = 0.9
-        b.inputs["Metallic"].default_value = 0.6 if key.startswith("metall") else 0.0
+        # GLAS UND FENSTER GLAENZEN: niedrige Rauheit + etwas Metall, dann spiegelt die Flaeche
+        # im Spiel den Himmel und blitzt in der Sonne — matt (0.9) waren die Glasfassaden
+        # stumpfe blaue Kisten und jedes Fenster ein schwarzes Loch.
+        spiegel = key.startswith("glas") or key == "fenster"
+        # (Metall nur 0.25: mit 0.45 schluckte die Spiegelung die Glasfarbe, die Tuerme
+        # standen fast schwarz in der Stadt.)
+        b.inputs["Roughness"].default_value = 0.2 if spiegel else 0.9
+        b.inputs["Metallic"].default_value = (0.6 if key.startswith("metall")
+                                              else 0.25 if spiegel else 0.0)
     m.diffuse_color = (*lin, 1.0)   # Workbench/Viewport
     return m
 
@@ -420,14 +435,20 @@ class Bau:
     # n-seitiger Zylinder/Kegelstumpf; z = Unterkante.
     # achse="y" kippt ihn auf die Y-Achse (liegender Tank) — die Abbildung
     # (x,y,z)->(x,z,-y) ist eine ECHTE Drehung (det=+1), Wicklung bleibt gueltig.
-    def zyl(self, x, y, z, r0, r1, h, sides, key, cap_top=True, cap_bottom=False, achse="z"):
+    def zyl(self, x, y, z, r0, r1, h, sides, key, cap_top=True, cap_bottom=False, achse="z",
+            dreh=0.0):
+        """dreh = Winkelversatz der Ecken. Mit dreh = pi/sides zeigt eine FLAECHE genau nach
+        -y/+y/-x/+x (bei 4, 8, 12 ... Seiten) — noetig, um ein Feld (Tuer, Fenster) buendig
+        aufzusetzen; ihr Abstand zur Mitte ist r * cos(pi/sides)."""
         sides = self.rund(sides)
+        if dreh != 0.0 and self.hd:
+            dreh *= 0.5                       # doppelte Seitenzahl -> halber Versatz
         V = []
         for i in range(sides):
-            a = 2.0 * math.pi * i / sides
+            a = dreh + 2.0 * math.pi * i / sides
             V.append((math.cos(a) * r0, math.sin(a) * r0, 0.0))
         for i in range(sides):
-            a = 2.0 * math.pi * i / sides
+            a = dreh + 2.0 * math.pi * i / sides
             V.append((math.cos(a) * r1, math.sin(a) * r1, h))
         F = []
         for i in range(sides):
@@ -442,14 +463,85 @@ class Bau:
         self.add([(x + p[0], y + p[1], z + p[2]) for p in V], F, key)
 
     # Kegel (Turmdach/Silodach)
-    def kegel(self, x, y, z, r, h, sides, key):
+    def kegel(self, x, y, z, r, h, sides, key, dreh=0.0):
         sides = self.rund(sides)
+        if dreh != 0.0 and self.hd:
+            dreh *= 0.5
         V = []
         for i in range(sides):
-            a = 2.0 * math.pi * i / sides
+            a = dreh + 2.0 * math.pi * i / sides
             V.append((x + math.cos(a) * r, y + math.sin(a) * r, z))
         V.append((x, y, z + h))
         self.add(V, [(i, (i + 1) % sides, sides) for i in range(sides)], key)
+
+    # --- Bausteine fuer Hochhaeuser und Industrie ------------------------------------------
+    # Balken zwischen zwei Punkten in beliebiger Richtung (Foerderbruecke, Kranausleger,
+    # Rohr, Strebe): geschlossener Quader, b = Breite quer, h = Hoehe.
+    def balken(self, p0, p1, b, h, key):
+        a, e = Vector(p0), Vector(p1)
+        d = (e - a).normalized()
+        seit = d.cross(Vector((0, 0, 1)))
+        if seit.length < 1e-4:
+            seit = Vector((1, 0, 0))
+        seit.normalize()
+        auf = seit.cross(d).normalized()
+        V = []
+        for pt in (a, e):
+            for sx in (-0.5, 0.5):
+                for sz in (-0.5, 0.5):
+                    V.append(tuple(pt + seit * (sx * b) + auf * (sz * h)))
+        self.add_koerper(V, [(0, 1, 3, 2), (4, 6, 7, 5), (0, 2, 6, 4), (1, 5, 7, 3),
+                             (0, 4, 5, 1), (2, 3, 7, 6)], key)
+
+    # Waagrechte Flaeche, zeigt nach OBEN (Dachbelag, Markierung, Spielfeld). `feld` kann nur
+    # Wandflaechen: das "H" auf dem Krankenhaus-Helipad stand damit senkrecht wie ein Zaun.
+    def boden(self, x, y, z, sx, sy, key, winkel=0.0):
+        c, sn = math.cos(winkel), math.sin(winkel)
+        pts = []
+        for dx, dy in ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)):
+            px, py = dx * sx, dy * sy
+            pts.append((x + px * c - py * sn, y + px * sn + py * c, z))
+        self.add(self._nach(pts, (0, 0, 1)), [(0, 1, 2, 3)], key)
+
+    # Kreisring bzw. Scheibe (ri = 0), nach oben oder unten; z_innen neigt den Ring
+    # (Tribuene, Stadiondach).
+    def ring(self, x, y, z, ra, ri, sides, key, z_innen=None, unten=False):
+        sides = self.rund(sides)
+        zi = z if z_innen is None else z_innen
+        n = (0, 0, -1) if unten else (0, 0, 1)
+        aussen = [(x + math.cos(2.0 * math.pi * i / sides) * ra,
+                   y + math.sin(2.0 * math.pi * i / sides) * ra, z) for i in range(sides)]
+        if ri <= 0.0:
+            self.add(self._nach(aussen, n), [tuple(range(sides))], key)
+            return
+        innen = [(x + math.cos(2.0 * math.pi * i / sides) * ri,
+                  y + math.sin(2.0 * math.pi * i / sides) * ri, zi) for i in range(sides)]
+        for i in range(sides):
+            j = (i + 1) % sides
+            self.add(self._nach([aussen[i], aussen[j], innen[j], innen[i]], n), [(0, 1, 2, 3)],
+                     key)
+
+    # Rohr in Abschnitten wechselnder Farbe: rot-weisser Schornsteinkopf, Antennenmast.
+    def ringel(self, x, y, z, r0, r1, h, sides, keys, teile):
+        for i in range(teile):
+            t0, t1 = i / float(teile), (i + 1) / float(teile)
+            self.zyl(x, y, z + h * t0, r0 + (r1 - r0) * t0, r0 + (r1 - r0) * t1, h / teile, sides,
+                     keys[i % len(keys)], cap_top=(i == teile - 1))
+
+    # FLACHDACH MIT ATTIKA: Kranz um die Dachkante, innen der Belag (Kies/Asphalt). Ohne den
+    # Kranz war ein Hochhaus oben einfach abgeschnitten. LOD: ein Gesimsquader + Belag darauf.
+    def flachdach(self, x, y, z, sx, sy, key, hoehe=0.9, ueber=0.2, belag="kies"):
+        ax, ay = sx + 2.0 * ueber, sy + 2.0 * ueber
+        if not self.hd:
+            self.box(x, y, z, ax, ay, hoehe, key)
+            self.boden(x, y, z + hoehe + 0.03, ax - 0.9, ay - 0.9, belag)
+            return
+        d = 0.36
+        self.box(x, y - ay * 0.5 + d * 0.5, z, ax, d, hoehe, key)
+        self.box(x, y + ay * 0.5 - d * 0.5, z, ax, d, hoehe, key)
+        self.box(x - ax * 0.5 + d * 0.5, y, z, d, ay - 2.0 * d, hoehe, key)
+        self.box(x + ax * 0.5 - d * 0.5, y, z, d, ay - 2.0 * d, hoehe, key)
+        self.boden(x, y, z + 0.06, ax - 2.0 * d, ay - 2.0 * d, belag)
 
     # Flaches Rechteck AUF einer Wand (Fenster/Tuer/Balken) — 2 Tris statt einer Box.
     def feld(self, ctr, w, h, facing, key, eps=0.04, winkel=0.0, zweiseitig=False):
@@ -518,7 +610,16 @@ class Bau:
 
     # Gelaender (Balkon/Galerie/Terrasse): Handlauf + Pfosten, nur in HD.
     def gelaender(self, x, y, z, sx, sy, key, hoehe=1.0, n=6):
+        """Schmal (sx oder sy <= 1) = ein gerades Gelaender; sonst UMLAUFEND um das Rechteck.
+        Die erste Fassung legte bei zwei grossen Massen den "Handlauf" als ganze PLATTE ueber
+        die Flaeche — ueber dem Krankenhausdach schwebte so ein 30 x 16 m Deckel."""
         if not self.hd:
+            return
+        if min(sx, sy) > 1.0:
+            for s in (-1, 1):
+                self.gelaender(x, y + s * sy * 0.5, z, sx, 0.12, key, hoehe, n)
+                self.gelaender(x + s * sx * 0.5, y, z, 0.12, sy, key, hoehe,
+                               max(2, int(round(n * sy / sx))))
             return
         self.box(x, y, z + hoehe - 0.09, sx, sy, 0.09, key)          # Handlauf
         for i in range(n):
@@ -969,27 +1070,60 @@ def tower(b):
 
 
 def tanklager(b):
-    for x in (-3.4, 3.4):                                          # zwei LIEGENDE Kesseltanks
-        b.zyl(x, -5.5, 3.1, 1.9, 1.9, 11.0, 10, "metall", cap_top=True, cap_bottom=True,
-              achse="y")
-        for y in (-3.6, 1.6):                                      # Sattelboecke
-            b.box(x, y, 0, 3.6, 1.1, 1.5, "beton")
-        b.box(x, 0, 0, 5.0, 12.0, 0.35, "beton")                   # Auffangwanne
-    b.box(0, 6.4, 0, 4.0, 5.0, 3.0, "wand_grau")                   # Pumpenhaus
-    b.pultdach(0, 6.4, 3.0, 4.0, 5.0, 0.8, "metall_dunkel")
-    b.feld((0, 3.9, 1.1), 1.3, 2.2, "-y", "metall_dunkel")
-    b.box(0, 0, 1.0, 7.0, 0.4, 0.4, "metall_dunkel")               # Sammelleitung
-    b.zyl(0, 6.4, 3.8, 0.3, 0.3, 3.2, 6, "metall")                 # Entlueftung
+    """Tanklager: zwei stehende Grosstanks (weiss, flaches Kegeldach) in einer Auffangwanne,
+    zwei liegende Kessel, Pumpenhaus, Rohrleitungen."""
+    b.box(0, -1.9, 0, 11.4, 19.4, 0.5, "beton", skip=())                 # Auffangwanne
+    for y in (-6.7, 2.9):
+        b.zyl(0, y, 0.5, 4.3, 4.3, 8.0, 12, "wand_weiss", cap_top=False)
+        b.kegel(0, y, 8.5, 4.3, 0.9, 12, "metall")
+    for x in (-3.0, 3.0):                                                 # liegende Kessel
+        b.zyl(x, 13.6, 2.3, 1.3, 1.3, 5.2, 8, "metall", cap_top=True, cap_bottom=True, achse="y")
+        for y in (9.6, 12.4):
+            b.box(x, y, 0, 2.2, 0.7, 1.1, "beton")
+    b.box(-4.4, -14.0, 0, 4.0, 3.6, 3.2, "wand_grau")                    # Pumpenhaus
+    b.pultdach(-4.4, -14.0, 3.2, 4.0, 3.6, 0.7, "metall_dunkel")
+    b.feld((-4.4, -15.8, 1.1), 1.2, 2.2, "-y", "metall_dunkel")
+    b.balken((-4.4, -12.2, 1.2), (-4.4, 8.4, 1.2), 0.4, 0.4, "metall_dunkel")   # Sammelleitung
+    if b.hd:
+        for y in (-6.7, 2.9):
+            b.zyl(0, y, 8.3, 4.4, 4.4, 0.3, 12, "metall_dunkel", cap_top=False)   # Randring
+            b.zyl(0, y, 4.3, 4.36, 4.36, 0.2, 12, "metall_dunkel", cap_top=False)
+            for k in range(11):                                           # Wendeltreppe
+                a = 0.6 + k * 0.2
+                b.box(math.cos(a) * 4.7, y + math.sin(a) * 4.7, 0.9 + k * 0.72, 0.8, 0.8, 0.12,
+                      "metall_dunkel")
+            b.balken((-4.4, y, 1.2), (-3.6, y, 1.2), 0.3, 0.3, "metall_dunkel")
+        for s in (-1, 1):                                                  # Wannenrand
+            b.box(s * 5.6, -1.9, 0.5, 0.25, 19.4, 0.6, "beton")
+            b.box(0, -1.9 + s * 9.6, 0.5, 11.4, 0.25, 0.6, "beton")
+        for x in (-3.0, 3.0):
+            b.balken((x, 11.0, 3.4), (x, 11.0, 5.2), 0.2, 0.2, "metall")  # Entlueftung
 
 
 def wasserturm(b):
-    for a in (0.0, math.pi * 0.5, math.pi, math.pi * 1.5):        # 4 Stuetzen
-        b.box(math.cos(a) * 2.6, math.sin(a) * 2.6, 0, 0.55, 0.55, 9.0, "metall_dunkel")
-    b.box(0, 0, 4.4, 6.2, 6.2, 0.3, "metall_dunkel")              # Querverband
-    b.zyl(0, 0, 9.0, 4.2, 3.8, 5.2, 10, "metall")                 # Behaelter
-    b.kegel(0, 0, 14.2, 3.9, 1.8, 10, "metall_dunkel")
-    b.zyl(0, 0, 8.4, 4.4, 4.4, 0.35, 10, "metall_dunkel")
-    b.feld((0, -4.0, 11.4), 3.0, 1.6, "-y", "wand_weiss", eps=0.1)
+    """Wasserturm: achteckiger Ziegelschaft, auskragender Behaelter mit Fensterband,
+    Schieferhelm. (dreh = pi/8: eine Flaeche zeigt genau nach vorn, dort sitzt die Tuer.)"""
+    d = math.pi / 8.0
+    k = math.cos(d)
+    b.zyl(0, 0, 0, 3.5, 2.9, 11.0, 8, "ziegel", cap_top=False, dreh=d)   # Schaft
+    b.zyl(0, 0, 11.0, 2.9, 4.6, 1.7, 8, "ziegel", cap_top=False, dreh=d)  # Auskragung
+    b.zyl(0, 0, 12.7, 4.6, 4.6, 4.6, 8, "wand_creme", dreh=d)            # Behaelter
+    b.kegel(0, 0, 17.3, 5.0, 3.4, 8, "dach_schiefer", dreh=d)
+    b.zyl(0, 0, 20.5, 0.12, 0.12, 2.0, 6, "metall")
+    if not b.hd:
+        b.feld((0, -3.5 * k + 0.1, 1.2), 1.3, 2.4, "-y", "holz_dunkel", eps=0.12)
+        for f, n in (("-y", (0, -1)), ("+y", (0, 1)), ("-x", (-1, 0)), ("+x", (1, 0))):
+            b.feld((n[0] * 4.6 * k, n[1] * 4.6 * k, 15.0), 2.2, 1.3, f, "fenster")
+        return
+    # HD hat 16 Seiten: die Flaeche nach -y liegt bei r*cos(pi/16)
+    k2 = math.cos(math.pi / 16.0)
+    b.feld((0, -3.5 * k2 + 0.16, 1.2), 1.1, 2.4, "-y", "holz_dunkel", eps=0.12)
+    for f, n in (("-y", (0, -1)), ("+y", (0, 1)), ("-x", (-1, 0)), ("+x", (1, 0))):
+        b.feld((n[0] * 4.6 * k2, n[1] * 4.6 * k2, 15.0), 1.5, 1.3, f, "fenster")
+        b.feld((n[0] * 3.1 * k2, n[1] * 3.1 * k2, 6.5), 0.5, 1.3, f, "fenster", eps=0.05)
+    b.zyl(0, 0, 12.5, 4.8, 4.8, 0.3, 8, "stein", cap_top=False, dreh=d)   # Gesimsring
+    b.zyl(0, 0, 17.1, 4.85, 4.85, 0.25, 8, "stein", cap_top=False, dreh=d)
+    b.zyl(0, 0, 0, 3.7, 3.6, 0.7, 8, "stein", cap_top=False, dreh=d)      # Sockel
 
 
 def leuchtfeuer_haus(b):     # kleines Hafen-/Lotsenhaus mit Signalmast
@@ -1005,103 +1139,253 @@ def leuchtfeuer_haus(b):     # kleines Hafen-/Lotsenhaus mit Signalmast
 
 
 # --- Hochhaeuser, Grossbauten & Sonderbauten ------------------------------------------------
-def _baender(b, x, y, sx, sy, z0, z1, n, key="fenster", hoehe=1.5, rand=1.4):
-    """Umlaufende Fensterbaender: EIN Quad je Fassade und Band statt Einzelfenster —
-    aus der Luft dieselbe Wirkung fuer einen Bruchteil der Dreiecke."""
+def _baender(b, x, y, sx, sy, z0, dz, n, key="fenster", hoehe=1.6, rand=1.3,
+             seiten=("-y", "+y", "-x", "+x"), sprossen=6, rahmen="wand_weiss"):
+    """Fensterbaender: je Geschoss (ab z0, Abstand dz) und Fassade EIN Quad. HD: senkrechte
+    Pfeilerstreifen ueber alle Geschosse (ein Quad je Achse) — zusammen ein Fensterraster,
+    ohne ein einziges Einzelfenster zu bauen."""
     for i in range(n):
-        z = z0 + (z1 - z0) * (i + 0.5) / max(n, 1)
-        b.feld((x, y - sy * 0.5, z), sx - rand * 2.0, hoehe, "-y", key)
-        b.feld((x, y + sy * 0.5, z), sx - rand * 2.0, hoehe, "+y", key)
-        b.feld((x - sx * 0.5, y, z), sy - rand * 2.0, hoehe, "-x", key)
-        b.feld((x + sx * 0.5, y, z), sy - rand * 2.0, hoehe, "+x", key)
-        if b.hd:
-            # Geschossbaender ober- und unterhalb der Fensterzone + senkrechte Pfeiler
-            for dz in (0.5, -0.5):
-                zz = z + dz * (hoehe + 0.22)
-                b.box(x, y, zz - 0.11, sx + 0.16, sy + 0.16, 0.22, "wand_weiss")
-            for k in range(4):
-                t = (k + 0.5) / 4 - 0.5
-                b.feld((x + t * (sx - rand * 2.0), y - sy * 0.5, z), 0.16, hoehe, "-y", "wand_weiss", eps=0.05)
-                b.feld((x + t * (sx - rand * 2.0), y + sy * 0.5, z), 0.16, hoehe, "+y", "wand_weiss", eps=0.05)
+        z = z0 + i * dz
+        for f in seiten:
+            if f in ("-y", "+y"):
+                b.feld((x, y + (sy * 0.5 if f == "+y" else -sy * 0.5), z), sx - rand * 2.0, hoehe,
+                       f, key)
+            else:
+                b.feld((x + (sx * 0.5 if f == "+x" else -sx * 0.5), y, z), sy - rand * 2.0, hoehe,
+                       f, key)
+    if not b.hd or sprossen < 2:
+        return
+    zc = z0 + (n - 1) * dz * 0.5
+    hh = (n - 1) * dz + hoehe + 0.3
+    for f in seiten:
+        br = (sx if f in ("-y", "+y") else sy) - rand * 2.0
+        for k in range(1, sprossen):
+            u = (k / float(sprossen) - 0.5) * br
+            if f in ("-y", "+y"):
+                ctr = (x + u, y + (sy * 0.5 if f == "+y" else -sy * 0.5), zc)
+            else:
+                ctr = (x + (sx * 0.5 if f == "+x" else -sx * 0.5), y + u, zc)
+            b.feld(ctr, 0.24, hh, f, rahmen, eps=0.06)
+
+
+def _geraete(b, z, liste):
+    """Dachgeraete (nur HD): Klimakaesten mit dunklem Deckel. liste = (x, y, sx, sy, h)."""
+    if not b.hd:
+        return
+    for x, y, sx, sy, h in liste:
+        b.box(x, y, z, sx, sy, h, "metall")
+        b.box(x, y, z + h, sx * 0.7, sy * 0.7, 0.12, "metall_dunkel")
+
+
+def _auto(b, x, y, z, laengs_x, farbe):
+    """Geparktes Auto (nur HD): Karosserie + Kabine."""
+    sx, sy = (4.2, 1.8) if laengs_x else (1.8, 4.2)
+    b.box(x, y, z, sx, sy, 0.75, farbe)
+    b.box(x, y, z + 0.75, sx * (0.5 if laengs_x else 0.86), sy * (0.86 if laengs_x else 0.5), 0.55,
+          "fenster")
 
 
 def hochhaus_wohnturm(b):
-    b.box(0, 0, 0, 14, 14, 40.0, "beton")
-    _baender(b, 0, 0, 14, 14, 3.5, 37.0, 7, "fenster", 1.8)
-    b.box(0, 0, 40.0, 15.2, 15.2, 0.7, "beton")             # Attika
-    b.box(3.2, 3.2, 40.7, 5.0, 5.0, 2.8, "wand_grau")       # Technikaufbau
-    b.zyl(-3.6, -3.6, 40.7, 0.16, 0.16, 5.5, 6, "metall")   # Antenne
-    for z in (11.0, 22.0, 33.0):                            # Balkonbaender
-        b.box(0, -7.5, z, 12.0, 1.8, 0.35, "wand_weiss")
-    b.feld((0, -7.0, 1.6), 3.4, 3.0, "-y", "glas")          # Eingang
+    """Wohnhochhaus (40 m): heller Putz, Loggienachsen in Akzentfarbe vorn und hinten,
+    Fensterraster an den Seiten, Dach mit Attika, Aufzugshaus, Wassertank und Antenne."""
+    gh, n, z0 = 3.05, 12, 3.4
+    z1 = z0 + n * gh                                                   # 40.0
+    b.box(0, 0, 0, 14.6, 14.6, z0, "wand_grau")                        # Sockelgeschoss
+    b.box(0, 0, z0, 14, 14, z1 - z0, "wand_weiss", skip=("bottom",))
+    for s, f in ((-1, "-y"), (1, "+y")):
+        fy = s * 7.0
+        b.box(0, fy + s * 0.6, z0, 6.6, 1.2, z1 - z0, "wand_terra", skip=("bottom",))  # Loggien
+        for i in range(n):
+            z = z0 + i * gh + 1.75
+            b.feld((0, fy + s * 1.2, z), 5.8, 1.7, f, "fenster")       # Loggia-Oeffnung
+            for x in (-5.0, 5.0):
+                b.feld((x, fy, z), 2.4, 1.5, f, "fenster")
+            if b.hd:
+                b.box(0, fy + s * 1.45, z - 1.55, 6.2, 0.5, 0.95, "wand_weiss")   # Bruestung
+    _baender(b, 0, 0, 14, 14, z0 + 1.75, gh, n, hoehe=1.5, rand=1.6, seiten=("-x", "+x"),
+             sprossen=4)
+    b.flachdach(0, 0, z1, 14, 14, "wand_weiss")
+    b.box(-3.2, 2.6, z1, 4.6, 4.6, 3.6, "wand_grau")                   # Aufzugshaus
+    b.zyl(3.6, -3.0, z1, 1.3, 1.3, 3.0, 8, "metall")                    # Wassertank
+    b.zyl(-3.2, 2.6, z1 + 3.6, 0.14, 0.14, 6.0, 6, "metall")           # Antenne
+    b.feld((0, -7.3, 1.7), 4.2, 2.8, "-y", "glas_blau")                 # Eingang
+    b.box(0, -8.3, 3.0, 5.4, 2.0, 0.28, "wand_weiss")                   # Vordach
+    _geraete(b, z1, ((3.8, 3.6, 2.0, 1.6, 1.1), (0.6, -4.4, 1.6, 1.4, 0.9)))
+    if b.hd:
+        b.feld((-3.2, 0.3, z1 + 1.3), 1.0, 2.0, "-y", "metall_dunkel")  # Tuer Aufzugshaus
 
 
 def hochhaus_buero(b):
-    b.box(0, 0, 0, 18, 15, 52.0, "metall_dunkel")
-    for i in range(5):                                       # senkrechte Glasbaender
-        t = (i + 0.5) / 5 - 0.5
-        b.feld((t * 15.0, -7.5, 27.0), 2.1, 46.0, "-y", "glas")
-        b.feld((t * 15.0, 7.5, 27.0), 2.1, 46.0, "+y", "glas")
-    for i in range(4):
-        t = (i + 0.5) / 4 - 0.5
-        b.feld((-9.0, t * 12.5, 27.0), 2.1, 46.0, "-x", "glas")
-        b.feld((9.0, t * 12.5, 27.0), 2.1, 46.0, "+x", "glas")
-    b.box(0, 0, 52.0, 19.0, 16.0, 0.8, "metall")            # Dachkranz
-    b.box(0, 3.0, 52.8, 8.0, 6.0, 3.2, "metall_dunkel")
-    b.zyl(0, -4.0, 52.8, 0.2, 0.2, 9.0, 6, "metall")        # Mast
-    b.feld((0, -7.5, 3.0), 9.0, 5.0, "-y", "glas")          # Lobby
+    """Buerohochhaus (52 m): zwei verschraenkte GLASSCHEIBEN unterschiedlicher Hoehe auf einem
+    Steinsockel, helle Geschossbaender, Technikkrone mit Mast."""
+    b.box(0, 0, 0, 19.0, 16.0, 7.0, "stein")                           # Sockel
+    b.feld((0, -8.0, 3.3), 10.0, 5.0, "-y", "glas_blau")                # Lobby
+    b.box(0, -8.9, 5.9, 11.0, 1.8, 0.3, "metall")                       # Vordach
+    scheiben = (((-2.5, 0.0, 12.0, 14.0, 7.0, 52.0), "glas_blau"),
+                ((5.5, 0.0, 6.0, 10.5, 7.0, 43.0), "glas_dunkel"))
+    schritt = 4.0 if b.hd else 12.0
+    for (x, y, sx, sy, za, zb), glas in scheiben:
+        b.box(x, y, za, sx, sy, zb - za, glas, skip=("bottom",))
+        seiten = (("-y", (x, y - sy * 0.5), sx), ("+y", (x, y + sy * 0.5), sx),
+                  ("-x", (x - sx * 0.5, y), sy), ("+x", (x + sx * 0.5, y), sy))
+        z = za + schritt
+        while z < zb - 1.0:                                              # Geschossbaender
+            for f, (cx, cy), br in seiten:
+                b.feld((cx, cy, z), br, 0.45, f, "metall")
+            z += schritt
+        if b.hd:                                                          # Pfosten
+            for f, (cx, cy), br in seiten:
+                for k in range(1, 4):
+                    u = (k / 4.0 - 0.5) * br
+                    ctr = (cx + u, cy, (za + zb) * 0.5) if f in ("-y", "+y") else \
+                        (cx, cy + u, (za + zb) * 0.5)
+                    b.feld(ctr, 0.16, zb - za, f, "metall", eps=0.05)
+    b.box(-2.5, 0, 52.0, 12.6, 14.6, 1.0, "metall")                     # Krone
+    b.box(-2.5, 0.5, 53.0, 7.0, 8.0, 3.0, "metall_dunkel")              # Technikgeschoss
+    b.zyl(-2.5, 0.5, 56.0, 0.28, 0.08, 11.0, 6, "metall")               # Mast
+    b.flachdach(5.5, 0, 43.0, 6.0, 10.5, "metall")
+    _geraete(b, 43.0, ((6.0, 2.6, 2.2, 1.8, 1.2), (6.0, -2.4, 2.2, 1.8, 1.2)))
+    if b.hd:
+        for f, fy in (("-y", -3.5), ("+y", 4.5)):                        # Lamellen am Technikgeschoss
+            for z in (53.6, 54.5, 55.4):
+                b.feld((-2.5, fy, z), 6.4, 0.3, f, "metall", eps=0.05)
 
 
 def wolkenkratzer(b):
-    b.box(0, 0, 0, 22, 22, 34.0, "beton")                   # Sockelblock
-    _baender(b, 0, 0, 22, 22, 4.0, 31.0, 6, "fenster", 2.0)
-    b.box(0, 0, 34.0, 23.0, 23.0, 0.8, "wand_grau")
-    b.box(0, 0, 34.8, 16, 16, 24.0, "beton")                # 1. Ruecksprung
-    _baender(b, 0, 0, 16, 16, 37.0, 57.0, 4, "fenster", 2.0)
-    b.box(0, 0, 58.8, 17.0, 17.0, 0.8, "wand_grau")
-    b.box(0, 0, 59.6, 10, 10, 15.0, "beton")                # 2. Ruecksprung
-    _baender(b, 0, 0, 10, 10, 62.0, 72.0, 3, "fenster", 1.6)
-    b.spitze(0, 0, 74.6, 10.4, 10.4, 5.0, "metall")         # Krone
-    b.zyl(0, 0, 79.6, 0.35, 0.12, 12.0, 6, "metall")        # Turmspitze
-    b.feld((0, -11.0, 3.4), 7.0, 6.0, "-y", "glas")
+    """Art-Deco-Turm (92 m): heller Stein, drei Ruecksprünge mit Gesims, SENKRECHTE
+    Fensterachsen (ein Quad je Achse), kupferne Krone, Nadel."""
+    S = "wand_sand"
+    for w, z0, z1 in ((22.0, 0.0, 30.0), (17.0, 30.0, 56.0), (12.0, 56.0, 74.0),
+                      (8.0, 74.0, 81.0)):
+        b.box(0, 0, z0, w, w, z1 - z0, S, skip=("bottom",))
+        b.box(0, 0, z1 - 0.7, w + 0.8, w + 0.8, 0.7, "stein")           # Gesims
+        n = max(2, int(w // 3.6))
+        if z0 == 0.0:
+            hh, zc = z1 - 10.0, 8.0 + (z1 - 10.0) * 0.5
+        else:
+            hh, zc = z1 - z0 - 4.0, z0 + 2.0 + (z1 - z0 - 4.0) * 0.5
+        for f, sg, quer in (("-y", -1, False), ("+y", 1, False), ("-x", -1, True),
+                            ("+x", 1, True)):
+            for i in range(n):
+                u = ((i + 0.5) / n - 0.5) * (w - 2.4)
+                ctr = (sg * w * 0.5, u, zc) if quer else (u, sg * w * 0.5, zc)
+                b.feld(ctr, 1.5, hh, f, "fenster")
+            if b.hd:                                    # Bruestungen quer ueber die Achsen
+                k = max(2, int(hh // 3.3))
+                for j in range(1, k):
+                    zz = zc - hh * 0.5 + j * hh / k
+                    ctr = (sg * w * 0.5, 0, zz) if quer else (0, sg * w * 0.5, zz)
+                    b.feld(ctr, w - 1.8, 0.9, f, S, eps=0.06)
+        if b.hd:                                        # Eckpfeiler
+            for ex in (-1, 1):
+                for ey in (-1, 1):
+                    b.box(ex * (w * 0.5 - 0.3), ey * (w * 0.5 - 0.3), z0, 1.0, 1.0,
+                          z1 - z0 - 0.7, "stein")
+    b.spitze(0, 0, 81.0, 8.6, 8.6, 7.0, "dach_kupfer")                  # Krone
+    b.zyl(0, 0, 87.6, 0.4, 0.1, 11.0, 6, "metall")                       # Nadel
+    b.feld((0, -11.0, 4.2), 6.0, 7.4, "-y", "glas_blau", eps=0.07)       # Portal
+    b.box(0, -11.8, 8.0, 8.0, 1.8, 0.4, "stein")
+    if b.hd:
+        for ex in (-1, 1):                              # Fialen auf dem dritten Ruecksprung
+            for ey in (-1, 1):
+                b.spitze(ex * 5.4, ey * 5.4, 74.0, 1.2, 1.2, 3.0, "dach_kupfer")
+        b.feld((0, 0, 97.0), 1.8, 1.1, "-y", "dach_rot", eps=0.1, zweiseitig=True)
 
 
 def plattenbau(b):
+    """Plattenbau (6 Geschosse, 44 m lang): Fensterbaender, farbige Bruestungsbaender, drei
+    verglaste Treppenhaus-Risalite mit Eingang, Aufzugshaeuser auf dem Dach. HD: Balkone."""
     b.box(0, 0, 0, 44, 12, 19.0, "beton")
     for i in range(6):
         z = 2.0 + i * 2.9
-        b.feld((0, -6.0, z), 40.0, 1.5, "-y", "fenster")
-        b.feld((0, 6.0, z), 40.0, 1.5, "+y", "fenster")
-    b.box(0, 0, 19.0, 45.0, 13.0, 0.5, "wand_grau")
-    for x in (-15.0, 0.0, 15.0):                             # Hauseingaenge
-        b.feld((x, -6.0, 1.3), 2.2, 2.6, "-y", "holz_dunkel")
-    b.box(-9.0, 3.0, 19.5, 3.4, 3.4, 2.2, "wand_grau")       # Aufzugsturm
+        b.feld((0, -6.0, z), 42.0, 1.5, "-y", "fenster")
+        b.feld((0, 6.0, z), 42.0, 1.5, "+y", "fenster")
+        for f, fx in (("-x", -22.0), ("+x", 22.0)):
+            b.feld((fx, 0, z), 7.0, 1.5, f, "fenster")
+        farbe = "wand_blau" if i % 2 else "wand_ocker"
+        if b.hd:
+            b.box(0, -6.55, z - 1.55, 42.0, 1.1, 0.2, "wand_grau")      # Balkonplatte
+            b.box(0, -7.0, z - 1.35, 42.0, 0.14, 0.95, farbe)           # Bruestung
+        else:
+            b.feld((0, -6.0, z - 1.1), 42.0, 0.8, "-y", farbe, eps=0.06)
+    for x in (-15.0, 0.0, 15.0):
+        b.box(x, -6.7, 0, 3.4, 1.8, 19.6, "wand_weiss")                 # Treppenhaus-Risalit
+        b.feld((x, -7.6, 11.0), 1.4, 15.0, "-y", "glas_blau")
+        b.tuer((x, -7.6, 1.2), 1.8, 2.4, "-y", key="metall_dunkel", vordach="beton")
+        b.box(x, 2.6, 19.0, 3.4, 3.4, 2.8, "wand_grau")                 # Aufzugshaus
+    b.flachdach(0, 0, 19.0, 44, 12, "beton")
+    if b.hd:
+        for x in (-21.0, -10.0, -5.0, 5.0, 10.0, 21.0):                  # Balkon-Trennwaende
+            b.box(x, -6.55, 0.45, 0.14, 1.1, 17.6, "wand_weiss")
+        for x in (-7.5, 7.5):                                            # Plattenfugen hinten
+            b.feld((x, 6.0, 9.5), 0.2, 19.0, "+y", "wand_grau", eps=0.06)
 
 
 def hotel(b):
-    b.box(0, 0, 0, 24, 15, 26.0, "wand_creme")
-    _baender(b, 0, 0, 24, 15, 5.0, 23.5, 6, "fenster", 1.5)
-    b.box(0, 0, 26.0, 25.0, 16.0, 0.6, "dach_terra")
-    b.box(0, -8.8, 3.4, 12.0, 3.6, 0.35, "wand_weiss")       # Vorfahrt-Vordach
+    """Hotel (27 m): Steinsockel mit Vorfahrt, sechs Zimmergeschosse mit Balkonbaendern,
+    zurueckgesetztes Penthouse mit auskragendem Dach, Leuchtschrift auf der Attika."""
+    b.box(0, 0, 0, 24.6, 15.6, 4.6, "stein")
+    b.box(0, 0, 4.6, 24, 15, 19.4, "wand_creme", skip=("bottom",))
+    for i in range(6):
+        z = 6.3 + i * 3.1
+        for s, f in ((-1, "-y"), (1, "+y")):
+            b.feld((0, s * 7.5, z), 21.6, 1.7, f, "fenster")
+            if b.hd:
+                b.box(0, s * 8.0, z - 1.55, 21.6, 1.0, 0.18, "wand_weiss")     # Balkonplatte
+                b.box(0, s * 8.45, z - 1.37, 21.6, 0.1, 0.9, "glas_blau")      # Glasbruestung
+            else:
+                b.feld((0, s * 7.5, z - 1.15), 21.6, 0.7, f, "wand_weiss", eps=0.06)
+        for s, f in ((-1, "-x"), (1, "+x")):
+            b.feld((s * 12.0, 0, z), 11.0, 1.6, f, "fenster")
+    b.flachdach(0, 0, 24.0, 24, 15, "wand_creme")
+    b.box(0, 1.2, 24.0, 15.0, 8.0, 3.4, "wand_weiss")                   # Penthouse
+    b.feld((0, -2.8, 25.8), 13.0, 2.2, "-y", "glas_blau")
+    b.box(0, 0.8, 27.4, 17.0, 10.0, 0.35, "wand_weiss")                 # auskragendes Dach
+    b.box(0, -7.4, 24.9, 11.0, 0.4, 1.9, "dach_rot")                    # Leuchtschrift
+    b.box(0, -9.4, 3.6, 12.0, 3.6, 0.35, "wand_weiss")                  # Vorfahrt-Vordach
     for x in (-5.0, 5.0):
-        b.box(x, -10.2, 0, 0.4, 0.4, 3.4, "metall")
-    b.feld((0, -7.5, 1.8), 8.0, 3.4, "-y", "glas")
-    b.feld((0, -7.5, 24.6), 10.0, 1.8, "-y", "dach_rot", eps=0.1)   # Leuchtschrift
-    b.box(9.0, 4.0, 26.6, 4.0, 4.0, 2.0, "metall_dunkel")
+        b.box(x, -10.8, 0, 0.4, 0.4, 3.6, "metall")
+    b.feld((0, -7.8, 2.0), 8.0, 3.4, "-y", "glas_blau")
+    _geraete(b, 24.0, ((9.6, 4.6, 2.2, 1.8, 1.1), (-9.6, 4.6, 2.2, 1.8, 1.1)))
+    if b.hd:
+        for x in (-10.8, -5.4, 0.0, 5.4, 10.8):                          # Balkon-Trennwaende
+            for s in (-1, 1):
+                b.box(x, s * 8.0, 4.75, 0.12, 1.0, 18.3, "wand_weiss")
 
 
 def kaufhaus(b):
+    """Kaufhaus: Schaufensterfront mit Markise, Fensterband im Obergeschoss, Schriftzug ueber der
+    Attika, PARKDECK auf dem Dach mit Auffahrtsrampe (HD: geparkte Autos)."""
     b.box(0, 0, 0, 28, 20, 11.5, "wand_taupe")
-    b.feld((0, -10.0, 2.4), 24.0, 4.0, "-y", "glas")         # Schaufensterfront
-    b.feld((0, -10.0, 8.0), 24.0, 2.2, "-y", "fenster")
-    b.feld((-14.0, 0, 6.0), 16.0, 6.0, "-x", "fenster")
-    b.feld((14.0, 0, 6.0), 16.0, 6.0, "+x", "fenster")
-    b.box(0, 0, 11.5, 29.0, 21.0, 0.6, "beton")
-    b.box(7.0, 5.0, 12.1, 7.0, 6.0, 2.4, "metall_dunkel")    # Lueftungszentrale
-    b.feld((0, -10.2, 10.2), 14.0, 1.8, "-y", "dach_rot", eps=0.12)
+    b.feld((0, -10.0, 2.5), 25.0, 4.2, "-y", "glas_blau")               # Schaufenster
+    for s, f in ((-1, "-x"), (1, "+x")):
+        b.feld((s * 14.0, -3.0, 2.5), 12.0, 4.2, f, "glas_blau")
+        b.feld((s * 14.0, 0, 8.4), 17.0, 2.6, f, "fenster")
+    b.box(0, -10.9, 4.8, 26.0, 1.8, 0.3, "dach_rot")                    # Markise
+    b.feld((0, -10.0, 8.4), 25.0, 2.6, "-y", "fenster")
+    b.feld((0, 10.0, 8.4), 25.0, 2.6, "+y", "fenster")
+    b.box(0, -10.2, 12.4, 14.0, 0.5, 2.0, "dach_rot")                   # Schriftzug
+    b.flachdach(0, 0, 11.5, 28, 20, "wand_taupe", belag="asphalt")
+    b.box(9.5, 6.0, 11.5, 5.0, 5.0, 3.2, "wand_grau")                   # Treppenhaus
+    b.balken((15.7, 8.5, 0.0), (15.7, -7.5, 11.6), 3.2, 0.5, "beton")   # Auffahrtsrampe
+    b.box(15.7, 9.2, 0, 3.2, 1.4, 0.5, "beton")
+    if b.hd:
+        for x in (-12.5, -6.25, 0.0, 6.25, 12.5):                        # Schaufensterpfeiler
+            b.box(x, -10.0, 0, 0.6, 0.5, 11.5, "wand_weiss")
+        farben = ("dach_rot", "signal_blau", "wand_weiss", "signal_gelb", "metall_dunkel")
+        k = 0
+        for y in (-6.0, 1.5):                                            # geparkte Autos
+            for x in (-11.0, -7.6, -4.2, -0.8, 2.6):
+                if (k * 7) % 5 != 3:
+                    _auto(b, x, y, 11.56, False, farben[k % 5])
+                k += 1
+        for x in (-12.7, -9.3, -5.9, -2.5, 0.9, 4.3):                    # Parkstreifen
+            b.boden(x, -2.2, 11.58, 0.14, 12.5, "wand_weiss")
 
 
 def parkhaus(b):
+    """Parkhaus: fuenf offene Decks auf Stuetzen, Bruestungsbaender, Treppenturm, P-Schild.
+    HD: Gelaender, Rampen, geparkte Autos auf dem obersten Deck."""
     for i in range(5):                                        # offene Decks
         b.box(0, 0, i * 3.3, 26, 18, 0.4, "beton", skip=())
     for x in (-11.5, 0.0, 11.5):                              # Stuetzen
@@ -1111,21 +1395,59 @@ def parkhaus(b):
         z = i * 3.3 + 2.6
         b.feld((0, -9.0, z), 25.0, 0.9, "-y", "metall_dunkel")
         b.feld((0, 9.0, z), 25.0, 0.9, "+y", "metall_dunkel")
-    b.box(-10.0, 7.0, 13.6, 4.4, 4.4, 3.4, "wand_grau")       # Treppenhaus
+    b.boden(0, 0, 13.63, 25.0, 17.0, "asphalt")
+    b.box(-10.0, 7.0, 0, 4.4, 4.4, 17.0, "wand_grau")         # Treppenturm (durchgehend)
+    b.feld((-10.0, 4.8, 8.5), 1.6, 15.0, "-y", "glas_blau")
     b.feld((0, -9.0, 1.4), 5.0, 2.6, "-y", "metall_dunkel")   # Einfahrt
+    b.box(13.3, -7.0, 9.6, 0.3, 2.6, 2.6, "signal_blau")      # P-Schild
+    b.feld((13.45, -7.0, 10.9), 1.5, 1.5, "+x", "wand_weiss", eps=0.02)
+    if b.hd:
+        for i in range(5):                                     # Gelaender je Deck
+            z = i * 3.3 + 0.4
+            if i < 4:
+                b.gelaender(0, -9.0, z, 26.0, 0.3, "metall_dunkel", 1.05, 16)
+                b.gelaender(0, 9.0, z, 26.0, 0.3, "metall_dunkel", 1.05, 16)
+            b.gelaender(-13.0, 0, z, 0.3, 18.0, "metall_dunkel", 1.05, 11)
+            b.gelaender(13.0, 0, z, 0.3, 18.0, "metall_dunkel", 1.05, 11)
+        b.gelaender(0, -9.0, 13.6, 26.0, 0.3, "metall_dunkel", 1.05, 16)
+        b.gelaender(0, 9.0, 13.6, 26.0, 0.3, "metall_dunkel", 1.05, 16)
+        for i in range(4):                                     # Rampen zwischen den Decks
+            b.balken((4.0, -4.0 + (i % 2) * 2.6, i * 3.3 + 0.4),
+                     (12.0, -4.0 + (i % 2) * 2.6, (i + 1) * 3.3 + 0.4), 2.4, 0.3, "beton")
+        farben = ("dach_rot", "signal_blau", "wand_weiss", "signal_gelb", "metall_dunkel")
+        k = 0
+        for y in (-5.5, 5.0):
+            for x in (-6.0, -2.8, 0.4, 3.6, 6.8, 10.0):
+                if (k * 3) % 4 != 1:
+                    _auto(b, x, y, 13.66, False, farben[k % 5])
+                k += 1
+        for x in (-9.0, 9.0):                                  # Lichtmasten
+            b.zyl(x, 0, 13.6, 0.14, 0.14, 3.4, 6, "metall_dunkel")
 
 
 def krankenhaus(b):
+    """Krankenhaus: weisser Riegel mit Fensterraster, Dach mit Attika, HELIPAD auf eigener
+    Plattform (Ring und H liegen flach), Aufzugsturm mit rotem Kreuz, Notaufnahme mit Vordach."""
     b.box(0, 0, 0, 30, 16, 22.0, "wand_weiss")
-    _baender(b, 0, 0, 30, 16, 3.6, 20.0, 6, "fenster", 1.5)
-    b.box(0, 0, 22.0, 31.0, 17.0, 0.5, "wand_grau")
-    b.zyl(0, 0, 22.5, 6.5, 6.5, 0.3, 12, "beton")             # Hubschrauberdeck
-    b.feld((0, 0, 22.85), 3.0, 0.9, "-y", "wand_weiss", eps=0.0)   # "H"
-    b.feld((0, 0, 22.85), 0.9, 3.0, "-y", "wand_weiss", eps=0.0)
-    b.box(-11.0, -9.5, 0, 8.0, 5.0, 5.0, "wand_weiss")        # Notaufnahme-Vorbau
-    b.pultdach(-11.0, -9.5, 5.0, 8.0, 5.0, 0.8, "dach_rot")
-    b.feld((-11.0, -12.0, 1.8), 3.4, 3.0, "-y", "glas")
-    b.feld((-11.0, -12.0, 4.4), 5.0, 0.9, "-y", "dach_rot", eps=0.1)
+    _baender(b, 0, 0, 30, 16, 3.4, 3.2, 6, hoehe=1.6, rand=1.4, sprossen=8)
+    b.flachdach(0, 0, 22.0, 30, 16, "wand_weiss")
+    b.zyl(-7.0, 0, 22.0, 6.4, 6.4, 1.4, 12, "beton")                    # Helipad-Plattform
+    b.ring(-7.0, 0, 23.43, 5.6, 5.0, 12, "wand_weiss")
+    for dx in (-1.0, 1.0):
+        b.boden(-7.0 + dx, 0, 23.44, 0.6, 3.0, "wand_weiss")           # das H, FLACH
+    b.boden(-7.0, 0, 23.44, 2.0, 0.6, "wand_weiss")
+    b.box(9.5, 1.0, 22.0, 7.0, 7.0, 5.0, "wand_grau")                   # Aufzugsturm
+    b.feld((9.5, -2.5, 24.7), 3.8, 3.8, "-y", "wand_weiss", eps=0.05)
+    b.feld((9.5, -2.5, 24.7), 2.8, 0.9, "-y", "dach_rot", eps=0.08)     # rotes Kreuz
+    b.feld((9.5, -2.5, 24.7), 0.9, 2.8, "-y", "dach_rot", eps=0.08)
+    b.box(-11.0, -9.5, 0, 8.0, 5.0, 5.0, "wand_weiss")                  # Notaufnahme
+    b.flachdach(-11.0, -9.5, 5.0, 8.0, 5.0, "wand_weiss", hoehe=0.5)
+    b.box(-11.0, -12.9, 3.4, 6.4, 1.8, 0.3, "dach_rot")                 # Vordach
+    b.feld((-11.0, -12.0, 1.7), 3.4, 3.0, "-y", "glas_blau")
+    b.feld((6.0, -8.0, 1.8), 6.0, 3.2, "-y", "glas_blau", eps=0.07)     # Haupteingang
+    b.box(6.0, -8.9, 3.6, 7.4, 1.8, 0.3, "wand_grau")
+    _geraete(b, 22.0, ((3.0, 4.6, 2.4, 1.8, 1.2), (3.0, -4.6, 2.4, 1.8, 1.2),
+                       (12.5, -5.0, 2.0, 1.6, 1.0)))
 
 
 def bahnhof(b):
@@ -1146,102 +1468,220 @@ def bahnhof(b):
 
 
 def fabrik(b):
+    """Fabrik: Ziegelhalle mit SHEDDACH (Glas nach Norden, Blech nach Sueden), Verwaltungsbau,
+    Laderampe mit Rolltoren, hohe Hallenfenster, frei stehender Schornstein."""
     b.box(0, 0, 0, 30, 18, 8.0, "ziegel", skip=("bottom", "top"))
-    prof = [(-15.0, 0.0), (-15.0, 11.0)]                      # SHEDDACH (Saegezahn)
-    x = -15.0
     for i in range(4):
-        x += 7.5
-        prof.append((x, 8.0))
-        if i < 3:
-            prof.append((x, 11.0))
-    prof.append((15.0, 0.0))
-    b.profil(0, 0, 0, prof, 18.0, "ziegel")
-    for gx in (-7.5, 0.0, 7.5):                                # Nordlicht-Verglasung
-        b.feld((gx, 0, 9.5), 17.0, 2.9, "-x", "glas")
-    b.zyl(-12.0, 7.0, 8.0, 1.5, 1.2, 18.0, 8, "ziegel")        # Schornstein
-    b.box(13.0, -11.0, 0, 5.0, 4.0, 4.0, "wand_grau")          # Pfoertner
-    b.pultdach(13.0, -11.0, 4.0, 5.0, 4.0, 0.8, "metall_dunkel")
-    b.feld((0, -9.0, 3.0), 6.0, 4.4, "-y", "metall_dunkel")    # Werkstor
+        x0 = -15.0 + i * 7.5
+        x1 = x0 + 7.5
+        b.add(b._nach([(x0, -9, 8.0), (x0, 9, 8.0), (x0, 9, 11.0), (x0, -9, 11.0)], (-1, 0, 0)),
+              [(0, 1, 2, 3)], "glas_blau")                               # Oberlicht
+        b.add(b._nach([(x0, -9, 11.0), (x0, 9, 11.0), (x1, 9, 8.0), (x1, -9, 8.0)], (0.4, 0, 1)),
+              [(0, 1, 2, 3)], "metall_dunkel")                           # Blechdach
+        for s in (-1, 1):                                                # Giebeldreiecke
+            b.add(b._nach([(x0, s * 9, 8.0), (x1, s * 9, 8.0), (x0, s * 9, 11.0)], (0, s, 0)),
+                  [(0, 1, 2)], "ziegel")
+    b.box(8.5, -11.5, 0, 12.0, 5.0, 7.0, "wand_creme")                  # Verwaltung
+    b.flachdach(8.5, -11.5, 7.0, 12.0, 5.0, "wand_creme")
+    for z in (2.2, 5.2):
+        b.feld((9.3, -14.0, z), 8.6, 1.5, "-y", "fenster")
+        b.feld((14.5, -11.5, z), 3.6, 1.5, "+x", "fenster")
+    b.tuer((3.4, -14.0, 1.1), 1.4, 2.2, "-y", key="metall_dunkel", vordach="metall_dunkel")
+    b.box(-7.5, -9.9, 0, 13.0, 1.8, 1.1, "beton")                       # Laderampe
+    for x in (-11.5, -7.5, -3.5):
+        b.feld((x, -9.0, 3.1), 3.2, 3.8, "-y", "metall")                # Rolltore
+    b.box(-7.5, -10.2, 5.3, 13.6, 2.6, 0.25, "metall_dunkel")           # Rampendach
+    for x in (-11.25, -3.75, 3.75, 11.25):
+        b.feld((x, 9.0, 4.4), 3.0, 4.4, "+y", "fenster")                # Hallenfenster
+    b.feld((15.0, 1.5, 4.4), 10.0, 4.4, "+x", "fenster")
+    b.zyl(-18.0, 5.0, 0, 1.9, 1.2, 30.0, 10, "ziegel")                   # Schornstein
+    b.zyl(-18.0, 5.0, 30.0, 1.45, 1.45, 0.9, 10, "metall_dunkel")
+    if b.hd:
+        for gx in (-11.0, -3.5, 4.0, 11.5):                              # Wandpfeiler
+            b.box(gx, 0, 0, 0.7, 18.2, 8.0, "ziegel")
+        for x in (-11.25, -3.75, 3.75, 11.25):                           # Fenstersprossen
+            b.feld((x, 9.0, 4.4), 0.14, 4.4, "+y", "wand_weiss", eps=0.06)
+            b.feld((x, 9.0, 4.4), 3.0, 0.14, "+y", "wand_weiss", eps=0.06)
+        for x in (-11.5, -7.5, -3.5):                                    # Rolltor-Lamellen
+            for k in range(4):
+                b.feld((x, -9.0, 1.9 + k * 0.85), 3.2, 0.1, "-y", "metall_dunkel", eps=0.06)
+        b.zyl(17.2, 5.0, 0, 1.5, 1.5, 6.0, 10, "metall")                 # Tank
+        b.kegel(17.2, 5.0, 6.0, 1.5, 0.7, 10, "metall_dunkel")
+        b.balken((17.2, 5.0, 4.6), (15.0, 5.0, 4.6), 0.3, 0.3, "metall_dunkel")
+        for z in (10.0, 20.0):                                            # Schornsteinbaender
+            b.zyl(-18.0, 5.0, z, 1.75 - z * 0.022, 1.75 - z * 0.022, 0.35, 10, "metall_dunkel")
+        _geraete(b, 7.0, ((11.0, -11.5, 2.0, 1.6, 1.0),))
 
 
 def kraftwerk(b):
-    b.box(-7.0, 0, 0, 22, 16, 15.0, "beton")                   # Maschinenhaus
-    b.pultdach(-7.0, 0, 15.0, 22, 16, 1.6, "metall_dunkel")
-    for x in (-14.0, -9.0):
-        b.zyl(x, 6.0, 15.0, 1.4, 1.1, 20.0, 8, "ziegel")       # Doppelschornstein
-    b.zyl(13.0, 0, 0, 9.5, 6.6, 13.0, 12, "beton", cap_top=False)   # Kuehlturm
-    b.zyl(13.0, 0, 13.0, 6.6, 8.0, 15.0, 12, "beton", cap_top=False)
-    b.feld((-7.0, -8.0, 7.0), 16.0, 7.0, "-y", "fenster")
-    b.box(-7.0, -10.0, 0, 6.0, 4.0, 3.0, "wand_grau")          # Schaltwarte
+    """Kraftwerk: hohes Kesselhaus mit Lamellenbaendern, Turbinenhalle mit hohen Fenstern, zwei
+    Schornsteine mit ROT-WEISSEM Kopf, Kuehlturm als Hyperboloid mit dunklem Lufteinlass und
+    offenem Inneren, schraege Foerderbruecke, Schaltwarte."""
+    b.box(-12.5, 0.5, 0, 11.0, 14.0, 24.0, "beton")                     # Kesselhaus
+    b.flachdach(-12.5, 0.5, 24.0, 11.0, 14.0, "beton")
+    for z in (8.0, 15.0, 21.0):
+        b.feld((-12.5, -6.5, z), 9.0, 2.2, "-y", "metall_dunkel")       # Lamellenbaender
+        b.feld((-18.0, 0.5, z), 11.5, 2.2, "-x", "metall_dunkel")
+        b.feld((-12.5, 7.5, z), 9.0, 2.2, "+y", "metall_dunkel")
+    b.box(-1.5, 0.5, 0, 11.0, 14.0, 12.0, "wand_grau")                  # Turbinenhalle
+    b.dach(-1.5, 0.5, 12.0, 11.0, 14.0, 2.2, "metall_dunkel", axis="y", over=0.3)
+    for x in (-5.0, -1.5, 2.0):
+        b.feld((x, -6.5, 6.0), 1.8, 8.0, "-y", "fenster")               # hohe Fenster
+        b.feld((x, 7.5, 6.0), 1.8, 8.0, "+y", "fenster")
+    for y in (-3.5, 0.5, 4.5):
+        b.feld((4.0, y, 6.0), 1.8, 8.0, "+x", "fenster")
+    for x in (-15.5, -9.5):                                               # Schornsteine
+        b.zyl(x, 10.4, 0, 1.6, 1.25, 32.0, 8, "beton", cap_top=False)
+        b.ringel(x, 10.4, 32.0, 1.25, 1.0, 14.0, 8, ("dach_rot", "wand_weiss"), 4)
+    for r0, r1, z0, z1 in ((9.6, 8.0, 0.0, 6.5), (8.0, 6.7, 6.5, 13.0), (6.7, 6.5, 13.0, 19.5),
+                           (6.5, 7.9, 19.5, 28.0)):                       # Kuehlturm
+        b.zyl(13.0, 0, z0, r0, r1, z1 - z0, 12, "beton", cap_top=False)
+    b.zyl(13.0, 0, 0, 9.75, 9.3, 2.4, 12, "fenster", cap_top=False)      # Lufteinlass
+    b.ring(13.0, 0, 27.2, 7.72, 0.0, 12, "fenster")                       # dunkles Inneres
+    b.balken((7.0, -10.5, 1.2), (-9.0, -7.0, 17.0), 2.0, 2.2, "metall")  # Foerderbruecke
+    b.box(7.0, -10.5, 0, 3.0, 3.0, 2.4, "metall_dunkel")
+    b.box(-2.0, -9.5, 0, 6.5, 4.0, 3.6, "wand_creme")                    # Schaltwarte
+    b.flachdach(-2.0, -9.5, 3.6, 6.5, 4.0, "wand_creme", hoehe=0.5)
+    b.feld((-2.0, -11.5, 2.0), 5.0, 1.4, "-y", "fenster")
+    if b.hd:
+        b.zyl(13.0, 0, 27.6, 8.0, 8.0, 0.5, 12, "beton", cap_top=False)   # Kronenring
+        for x in (-5.0, -1.5, 2.0):                                       # Fenstersprossen
+            for z in (3.5, 6.0, 8.5):
+                b.feld((x, -6.5, z), 1.8, 0.14, "-y", "wand_weiss", eps=0.06)
+        for t in (0.3, 0.62):                                             # Stuetzen der Bruecke
+            px, py, pz = 7.0 - 16.0 * t, -10.5 + 3.5 * t, 1.2 + 15.8 * t
+            b.box(px, py, 0, 0.5, 0.5, pz - 1.0, "metall_dunkel")
+        for x in (6.5, 9.0):                                              # Trafos
+            b.box(x, 11.0, 0, 1.8, 1.6, 2.2, "metall")
+            b.zyl(x, 11.0, 2.2, 0.12, 0.12, 1.2, 6, "metall_dunkel")
+        for x in (-15.5, -9.5):                                           # Rauchgaskanal
+            b.balken((x, 7.6, 14.0), (x, 10.0, 14.0), 1.6, 1.6, "metall")
+        _geraete(b, 24.0, ((-14.5, 3.0, 2.4, 2.0, 1.4), (-10.5, -2.0, 2.4, 2.0, 1.4)))
 
 
 def funkturm(b):
-    b.zyl(0, 0, 0, 4.5, 2.6, 22.0, 4, "metall_dunkel", cap_top=False)
-    b.zyl(0, 0, 22.0, 2.6, 1.5, 16.0, 4, "metall_dunkel", cap_top=False)
-    for z, w, hh in ((6.0, 7.0, 11.0), (16.0, 4.6, 9.0), (28.0, 3.4, 8.0)):
-        for f, fx in (("-y", -w * 0.30), ("+y", w * 0.30)):    # Kreuzstreben
-            b.feld((0, fx, z), 0.5, hh, f, "metall", eps=0.0, winkel=0.6, zweiseitig=True)
-            b.feld((0, fx, z), 0.5, hh, f, "metall", eps=0.0, winkel=-0.6, zweiseitig=True)
-    b.zyl(0, 0, 30.0, 4.2, 4.2, 2.6, 10, "wand_weiss")         # Kanzel
-    b.zyl(0, 0, 29.7, 4.5, 4.5, 0.3, 10, "metall_dunkel")
-    for i in range(5):
-        t = (i + 0.5) / 5 - 0.5
-        b.feld((t * 7.0, -4.2, 31.4), 1.2, 1.4, "-y", "glas")
-    b.zyl(0, 0, 38.0, 0.5, 0.15, 16.0, 6, "metall")            # Sendemast
-    b.feld((0, 0, 46.0), 2.2, 0.25, "-y", "dach_rot", eps=0.3, zweiseitig=True)
+    """Fernsehturm (57 m): Fussbau, schlanker Betonschaft, Kanzel mit umlaufendem Glasband,
+    rot-weisser Antennenmast. (Vorher ein vierkantiger Stumpf mit aufgeklebten Kreuzen.)"""
+    b.zyl(0, 0, 0, 6.2, 5.2, 3.2, 10, "beton")                           # Fussbau
+    b.zyl(0, 0, 3.2, 3.1, 1.9, 26.0, 10, "beton", cap_top=False)         # Schaft
+    b.zyl(0, 0, 29.2, 1.9, 5.3, 2.2, 10, "beton", cap_top=False)         # Kanzelkorb
+    b.zyl(0, 0, 31.4, 5.3, 5.3, 2.6, 10, "glas_blau", cap_top=False)     # Glasband
+    b.zyl(0, 0, 34.0, 5.6, 3.2, 1.3, 10, "wand_weiss")                   # Kanzeldach
+    b.zyl(0, 0, 35.3, 3.0, 3.0, 1.7, 10, "wand_weiss")                   # oberes Deck
+    b.ringel(0, 0, 37.0, 0.62, 0.22, 20.0, 6, ("dach_rot", "wand_weiss"), 5)
+    b.feld((0, -5.95, 1.3), 1.6, 2.4, "-y", "metall_dunkel", eps=0.3)
+    if b.hd:
+        b.zyl(0, 0, 31.2, 5.5, 5.5, 0.22, 10, "metall_dunkel", cap_top=False)
+        b.zyl(0, 0, 33.9, 5.5, 5.5, 0.22, 10, "metall_dunkel", cap_top=False)
+        for k in range(10):                                               # Glasband-Pfosten
+            a = 2.0 * math.pi * (k + 0.5) / 10.0
+            b.balken((math.cos(a) * 5.34, math.sin(a) * 5.34, 31.4),
+                     (math.cos(a) * 5.34, math.sin(a) * 5.34, 34.0), 0.16, 0.16, "wand_weiss")
+        for a in (0.6, 2.2, 3.8, 5.4):                                    # Richtfunkschuesseln
+            b.zyl(math.cos(a) * 3.3, math.sin(a) * 3.3, 36.0, 0.9, 0.9, 0.3, 8, "wand_weiss")
 
 
 def hafenkran(b):
-    b.box(0, 0, 0, 9.0, 9.0, 2.0, "metall_dunkel")             # Portal/Fahrwerk
-    for x in (-3.6, 3.6):
-        for y in (-3.6, 3.6):
-            b.zyl(x, y, 0, 0.7, 0.7, 1.4, 6, "metall_dunkel")
-    b.zyl(0, 0, 2.0, 2.4, 1.4, 22.0, 6, "dach_rot", cap_top=False)   # Turm
-    b.box(0, 0, 24.0, 4.0, 4.0, 2.6, "metall")                 # Drehkopf
-    b.box(9.0, 0, 25.4, 26.0, 2.0, 1.4, "dach_rot")            # Ausleger
-    b.box(-6.0, 0, 25.4, 8.0, 3.0, 2.6, "metall_dunkel")       # Gegengewicht
-    b.box(0, -2.4, 24.2, 2.6, 1.6, 2.0, "glas")                # Fuehrerkanzel
-    b.box(17.0, 0, 18.2, 0.25, 0.25, 7.2, "metall_dunkel")     # Hubseil
-    b.box(17.0, 0, 16.6, 1.8, 1.6, 1.6, "metall_dunkel")       # Spreader
+    """Portal-Hafenkran: vier gespreizte Beine mit Durchfahrt, Drehkranz, Maschinenhaus mit
+    Kanzel, schraeger Ausleger mit Abspannung, Gegengewicht, Seil und Haken.
+    (Vorher ein Kegelstumpf mit waagrechtem Balken.)"""
+    K = "signal_gelb"
+    for ex in (-1, 1):
+        for ey in (-1, 1):
+            b.balken((ex * 4.2, ey * 4.2, 0.6), (ex * 1.9, ey * 1.9, 12.4), 0.8, 0.8, K)  # Beine
+            b.box(ex * 4.2, ey * 4.2, 0, 2.2, 1.2, 0.9, "metall_dunkel")                    # Fahrwerk
+    b.box(0, 0, 11.8, 5.2, 5.2, 1.2, K)                                   # Portalkopf
+    for ey in (-1, 1):
+        b.balken((-4.2, ey * 4.2, 4.0), (4.2, ey * 4.2, 4.0), 0.4, 0.5, K)
+    b.zyl(0, 0, 13.0, 2.2, 2.2, 0.8, 10, "metall_dunkel")                 # Drehkranz
+    b.box(-1.6, 0, 13.8, 7.6, 4.0, 3.6, K)                                # Maschinenhaus
+    b.box(-6.2, 0, 14.0, 2.6, 3.4, 2.8, "metall_dunkel")                  # Gegengewicht
+    b.box(2.9, -1.5, 14.4, 1.8, 1.4, 2.2, "glas_blau")                    # Kanzel
+    b.balken((1.8, 0, 17.0), (24.0, 0, 30.0), 1.5, 1.5, K)                # Ausleger
+    b.balken((-2.5, 0, 17.4), (-1.0, 0, 24.0), 0.5, 0.5, K)               # A-Bock
+    b.balken((-1.0, 0, 24.0), (23.6, 0, 30.4), 0.16, 0.16, "metall_dunkel")  # Abspannung
+    b.balken((-1.0, 0, 24.0), (-5.6, 0, 17.0), 0.16, 0.16, "metall_dunkel")
+    b.box(23.6, 0, 16.0, 0.16, 0.16, 13.6, "metall_dunkel")               # Hubseil
+    b.box(23.6, 0, 14.6, 2.0, 1.6, 1.4, "metall_dunkel")                  # Haken/Spreader
+    if b.hd:
+        for t in (0.2, 0.4, 0.6, 0.8):                                    # Gitterstreben
+            px, pz = 1.8 + 22.2 * t, 17.0 + 13.0 * t
+            b.box(px, 0, pz - 0.9, 0.2, 1.7, 1.8, "metall_dunkel")
+        for ex in (-1, 1):                                                 # Portal-Querriegel
+            b.balken((ex * 4.2, -4.2, 4.0), (ex * 4.2, 4.2, 4.0), 0.4, 0.5, K)
+        b.gelaender(-1.6, 0, 17.4, 7.4, 3.8, "metall_dunkel", 0.9, 8)
+        for ey in (-1, 1):                                                 # Schienen
+            b.box(0, ey * 4.2, 0, 11.0, 0.5, 0.2, "metall_dunkel")
+        b.feld((-1.6, -2.0, 15.6), 1.4, 1.2, "-y", "fenster", eps=0.05)
 
 
 def getreidesilo(b):
+    """Getreidesilo: fuenf Betonzellen, Foerdergalerie mit Satteldach darauf, hoher
+    Elevatorturm am Ende, Annahme mit Tor, Verladerohr."""
     for i in range(5):
         x = (i - 2) * 4.6
-        b.zyl(x, 0, 0, 2.3, 2.3, 20.0, 10, "beton", cap_top=False)
-        b.kegel(x, 0, 20.0, 2.4, 1.6, 10, "metall_dunkel")
-    b.box(0, 0, 20.0, 23.0, 5.6, 4.0, "metall")                # Kopfbau/Foerderbruecke
-    b.pultdach(0, 0, 24.0, 23.0, 5.6, 1.0, "metall_dunkel")
-    b.box(-13.5, 0, 0, 5.0, 7.0, 8.0, "wand_grau")             # Annahme
-    b.pultdach(-13.5, 0, 8.0, 5.0, 7.0, 1.0, "metall_dunkel")
-    b.feld((-13.5, -3.5, 2.6), 3.4, 4.6, "-y", "metall_dunkel")
+        b.zyl(x, 0, 0, 2.3, 2.3, 20.2, 10, "beton")
+    b.box(0, 0, 20.2, 23.4, 3.8, 3.0, "metall")                          # Foerdergalerie
+    b.dach(0, 0, 23.2, 23.4, 3.8, 1.0, "metall_dunkel", axis="x", over=0.25, giebel="metall")
+    for s, f in ((-1, "-y"), (1, "+y")):
+        b.feld((0, s * 1.9, 21.9), 21.0, 1.0, f, "fenster")
+    b.box(-14.4, 0, 0, 5.4, 6.6, 31.0, "wand_grau")                      # Elevatorturm
+    b.pultdach(-14.4, 0, 31.0, 5.4, 6.6, 1.2, "metall_dunkel")
+    for z in (6.0, 12.0, 18.0, 27.0):
+        b.feld((-14.4, -3.3, z), 1.2, 1.4, "-y", "fenster")
+    b.box(-14.4, -5.6, 0, 5.4, 4.6, 6.0, "wand_grau")                    # Annahme
+    b.pultdach(-14.4, -5.6, 6.0, 5.4, 4.6, 0.9, "metall_dunkel")
+    b.feld((-14.4, -7.9, 2.3), 3.6, 4.2, "-y", "metall_dunkel")
+    b.balken((11.6, 0, 21.0), (15.0, 0, 8.5), 0.9, 0.9, "metall_dunkel")  # Verladerohr
+    if b.hd:
+        for i in range(5):
+            x = (i - 2) * 4.6
+            for z in (6.5, 13.0, 19.4):                                   # Ringanker
+                b.zyl(x, 0, z, 2.42, 2.42, 0.3, 10, "metall", cap_top=False)
+        for k in range(18):                                                # Steigleiter
+            b.box(11.75, -0.6, 1.0 + k * 1.05, 0.08, 0.6, 0.06, "metall_dunkel")
+        b.box(11.75, -0.9, 0.6, 0.06, 0.06, 19.4, "metall_dunkel")
+        b.box(11.75, -0.3, 0.6, 0.06, 0.06, 19.4, "metall_dunkel")
+        b.zyl(15.0, 0, 6.6, 0.7, 0.4, 1.9, 8, "metall_dunkel")           # Verladetrichter
 
 
 def stadion(b):
+    """Stadion: Aussenwand, geneigte Tribuene in zwei Farbringen, umlaufendes Dach (Ober- und
+    Unterseite, an der Aussenwand aufgehaengt), Spielfeld mit Laufbahn, vier Flutlichtmasten.
+    (Vorher schwebten die Dachplatten einzeln ueber dem Rand.)"""
     n = 16
-    R, RT, RI, hh = 38.0, 29.0, 26.0, 17.0
-    V = []
-    for i in range(n):
-        a = 2.0 * math.pi * i / n
-        c, sa = math.cos(a), math.sin(a)
-        V += [(c * R, sa * R, 0.0), (c * R, sa * R, hh),
-              (c * RT, sa * RT, hh), (c * RI, sa * RI, 2.5)]
-    F = []
-    for i in range(n):
-        j = (i + 1) % n
-        a0, b0 = i * 4, j * 4
-        F.append((a0 + 0, b0 + 0, b0 + 1, a0 + 1))     # Aussenwand
-        F.append((a0 + 1, b0 + 1, b0 + 2, a0 + 2))     # Dachkante
-        F.append((a0 + 2, b0 + 2, b0 + 3, a0 + 3))     # Raenge
-    b.add(V, F, "beton")
-    spielfeld = [(math.cos(2.0 * math.pi * i / n) * RI * 0.97,
-                  math.sin(2.0 * math.pi * i / n) * RI * 0.97, 0.35) for i in range(n)]
-    b.add(spielfeld, [tuple(range(n))], "gruen")
-    for k in range(4):                                  # Flutlichtmasten
+    R, hh = 38.0, 14.0
+    b.zyl(0, 0, 0, R, R, hh, n, "beton", cap_top=False)                   # Aussenwand
+    b.ring(0, 0, hh, R, 31.5, n, "wand_weiss", z_innen=8.6)               # Oberrang
+    b.ring(0, 0, 8.6, 31.5, 25.0, n, "signal_blau", z_innen=2.4)          # Unterrang
+    b.zyl(0, 0, 0, 25.0, 25.0, 2.4, n, "beton", cap_top=False)            # Bande (innen sichtbar)
+    b.ring(0, 0, 0.3, 25.0, 20.5, n, "dach_terra")                        # Laufbahn
+    b.ring(0, 0, 0.3, 20.5, 0.0, n, "gruen")                              # Rasen
+    # Das Dach LIEGT AUF DER AUSSENWAND und steigt nach innen an (Kragdach) — so braucht es
+    # auch in der Fernstufe keine Stuetzen und schwebt nicht.
+    b.zyl(0, 0, hh, R + 1.4, R + 1.4, 0.6, n, "metall_dunkel", cap_top=False)     # Dachrand
+    b.ring(0, 0, hh + 0.6, R + 1.4, 28.5, n, "metall", z_innen=17.6)      # Dach oben
+    b.ring(0, 0, hh, R + 1.4, 28.5, n, "metall_dunkel", z_innen=17.3, unten=True)
+    for k in range(4):                                                     # Flutlicht
         a = math.pi * 0.25 + k * math.pi * 0.5
-        x, y = math.cos(a) * (R - 1.5), math.sin(a) * (R - 1.5)
-        b.zyl(x, y, hh, 0.5, 0.35, 12.0, 6, "metall_dunkel")
-        b.box(x, y, hh + 12.0, 4.4, 1.0, 1.8, "wand_weiss")
+        x, y = math.cos(a) * (R + 2.6), math.sin(a) * (R + 2.6)
+        b.zyl(x, y, 0, 0.55, 0.35, 30.0, 6, "metall_dunkel")
+        b.box(x - math.cos(a) * 0.6, y - math.sin(a) * 0.6, 30.0, 4.4, 1.0, 2.0, "wand_weiss")
+    if b.hd:
+        m = n * 2
+        for i in range(m):                                                 # Dachtraeger
+            a = 2.0 * math.pi * (i + 0.5) / m
+            c, sa = math.cos(a), math.sin(a)
+            b.balken((c * (R + 1.2), sa * (R + 1.2), hh + 0.75), (c * 28.8, sa * 28.8, 17.75),
+                     0.4, 0.3, "metall_dunkel")
+        b.boden(0, 0, 0.33, 30.0, 0.25, "wand_weiss")                      # Mittellinie
+        b.ring(0, 0, 0.33, 4.8, 4.5, 12, "wand_weiss")                     # Mittelkreis
+        for s in (-1, 1):
+            b.boden(0, s * 13.0, 0.33, 30.0, 0.25, "wand_weiss")
+            b.boden(s * 15.0, 0, 0.33, 0.25, 26.0, "wand_weiss")
+        for a in (0.0, math.pi * 0.5, math.pi, math.pi * 1.5):             # Eingaenge
+            b.box(math.cos(a) * R, math.sin(a) * R, 0, 5.0 if abs(math.sin(a)) > 0.5 else 1.0,
+                  1.0 if abs(math.sin(a)) > 0.5 else 5.0, 4.6, "metall_dunkel")
 
 
 def burg(b):
@@ -1340,6 +1780,16 @@ VARIANTEN = {
         {"wand_creme": "wand_ocker", "dach_terra": "dach_schiefer", "holz_gruen": "holz_rot"}],
     "Haus_Villa": [
         {"wand_weiss": "wand_sand", "dach_schiefer": "dach_terra"}],
+    # Hochhaeuser: die Skyline besteht aus wenigen Typen, also zaehlt hier jede Variante
+    "Haus_Wohnturm": [
+        {"wand_terra": "wand_blau"},
+        {"wand_weiss": "wand_creme", "wand_terra": "wand_ocker"}],
+    "Haus_Bueroturm": [
+        {"glas_blau": "glas_gruen", "glas_dunkel": "glas_blau"}],
+    "Haus_Plattenbau": [
+        {"wand_blau": "wand_mauve", "wand_ocker": "wand_gruen"}],
+    "Haus_Hotel": [
+        {"wand_creme": "wand_mauve", "dach_rot": "signal_blau"}],
 }
 
 
@@ -1388,34 +1838,6 @@ def hd_rathaus(b):
     b.box(0, -4.4, 0.45, 5.2, 1.8, 0.45, "stein")
 
 
-def hd_wohnturm(b):
-    for z in (11.0, 22.0, 33.0):
-        b.gelaender(0, -8.3, z + 0.35, 12.0, 0.3, "wand_weiss", 1.0, 10)
-    for x in (-7.0, 7.0):                                          # Lisenen
-        b.box(x, 0, 0, 0.5, 14.2, 40.0, "wand_grau")
-    b.box(0, 0, 43.5, 1.2, 1.2, 1.4, "metall_dunkel")              # Aufzugsmaschinenraum
-    b.zyl(3.6, -3.6, 40.7, 0.5, 0.5, 1.2, 8, "metall_dunkel")
-
-
-def hd_bueroturm(b):
-    for i in range(6):                                             # Geschossbaender
-        z = 4.0 + i * 8.0
-        b.box(0, 0, z, 18.3, 15.3, 0.28, "metall")
-    b.box(0, 0, 0, 19.4, 16.4, 1.2, "beton")                       # Sockelgeschoss
-    b.box(0, -8.4, 5.2, 10.0, 2.0, 0.3, "metall")                  # Vordach
-    b.zyl(0, 3.0, 56.0, 0.9, 0.9, 1.2, 8, "metall_dunkel")
-
-
-def hd_wolkenkratzer(b):
-    for z, w in ((34.0, 23.0), (58.8, 17.0)):                      # Terrassenbruestungen
-        b.gelaender(0, 0, z + 0.8, w, w, "wand_grau", 1.0, 10)
-    for sx in (-1, 1):                                              # Ecklisenen Sockel
-        for sy in (-1, 1):
-            b.box(sx * 11.0, sy * 11.0, 0, 1.2, 1.2, 34.0, "wand_grau")
-    b.zyl(0, 0, 91.6, 0.16, 0.16, 5.0, 6, "metall")                # Fahnenmast
-    b.feld((0, 0, 94.6), 1.8, 1.1, "-y", "dach_rot", eps=0.1, zweiseitig=True)
-
-
 def hd_burg(b):
     b.zinnen(0, 0, 21.2, 16.4, 16.4, "stein", 7, 1.2)              # Bergfried-Zinnen
     for sx in (-1, 1):                                              # Mauerkronen-Zinnen
@@ -1428,22 +1850,11 @@ def hd_burg(b):
     b.zinnen(0, -18.6, 11.4, 5.6, 2.2, "stein", 4, 0.9)
 
 
-def hd_stadion(b):
-    n = 16
-    for i in range(n):                                              # Dachtraeger
-        a = 2.0 * math.pi * i / n
-        c, sa = math.cos(a), math.sin(a)
-        b.box(c * 33.5, sa * 33.5, 17.0, 1.0, 1.0, 2.2, "metall_dunkel")
-    for i in range(n):                                              # Vordach
-        a = 2.0 * math.pi * (i + 0.5) / n
-        b.box(math.cos(a) * 33.0, math.sin(a) * 33.0, 19.2, 6.0, 6.0, 0.4, "metall")
-
-
 def hd_hangar(b):
-    for y in (-8.0, -2.0, 4.0, 8.5):                                # Binder/Traeger
-        b.box(0, y, 8.6, 21.0, 0.5, 0.5, "metall_dunkel")
-    for x in (-10.4, 10.4):
-        b.box(x, 0, 0, 0.6, 20.0, 4.6, "metall_dunkel")             # Wandpfosten
+    prof = [(-11.0, 0.0), (-11.0, 4.6), (-8.2, 7.6), (0.0, 9.0), (8.2, 7.6), (11.0, 4.6), (11.0, 0.0)]
+    rippe = [(px * 1.025, pz * 1.035) for px, pz in prof]              # Bogenbinder aussen
+    for y in (-8.5, -3.0, 3.0, 8.5):
+        b.profil(0, y, 0, rippe, 0.45, "metall_dunkel")
     b.box(0, -10.2, 7.0, 17.4, 0.5, 0.6, "metall_dunkel")           # Torschiene
     b.box(0, -10.4, 0, 18.0, 0.6, 0.4, "beton")                     # Vorfeldschwelle
 
@@ -1457,24 +1868,6 @@ def hd_bahnhof(b):
         b.box(x, -7.0, 0, 0.25, 0.25, 6.6, "metall_dunkel")
 
 
-def hd_fabrik(b):
-    for gx in (-11.0, -3.5, 4.0, 11.5):                              # Fassadenpfeiler
-        b.box(gx, 0, 0, 0.7, 18.2, 8.0, "ziegel")
-    for y in (-6.0, 0.0, 6.0):                                       # Dachlaufsteg
-        b.box(0, y, 11.1, 30.0, 0.5, 0.25, "metall_dunkel")
-    b.zyl(-12.0, 7.0, 26.0, 1.7, 1.7, 0.8, 8, "metall_dunkel")       # Schornsteinkrone
-    b.box(9.0, 9.2, 0, 3.0, 0.5, 6.5, "metall_dunkel")               # Rohrbruecke
-
-
-def hd_kraftwerk(b):
-    for i in range(4):                                                # Rohrleitungen
-        b.zyl(-1.0 + i * 1.2, -8.4, 4.0, 0.32, 0.32, 9.0, 8, "metall")
-    b.box(-7.0, 0, 16.6, 22.4, 16.4, 0.5, "metall_dunkel")            # Dachrand
-    b.zyl(13.0, 0, 27.8, 8.0, 8.0, 0.6, 12, "beton")                  # Kuehlturm-Krone
-    for x in (-14.0, -9.0):
-        b.zyl(x, 6.0, 34.6, 1.5, 1.5, 0.7, 8, "metall_dunkel")
-
-
 def hd_windmuehle(b):
     for k in range(2):                                                 # Fluegel-Gitter
         a = k * math.pi * 0.5 + 0.35
@@ -1483,29 +1876,6 @@ def hd_windmuehle(b):
                    eps=0.0, winkel=a + j * 0.10, zweiseitig=True)
     b.gelaender(0, 0, 5.65, 8.4, 8.4, "holz_dunkel", 0.9, 12)
     b.box(0, -3.4, 1.0, 2.2, 0.5, 0.25, "holz_dunkel")                # Tuerschwelle
-
-
-def hd_kaufhaus(b):
-    for x in (-13.0, -6.5, 0.0, 6.5, 13.0):                            # Schaufenster-Pfeiler
-        b.box(x, -10.0, 0, 0.6, 0.5, 11.5, "wand_weiss")
-    b.box(0, -10.6, 4.6, 25.0, 1.4, 0.35, "dach_rot")                  # Markise
-    b.gelaender(0, 0, 12.1, 28.0, 20.0, "wand_grau", 0.9, 14)
-
-
-def hd_krankenhaus(b):
-    b.gelaender(0, 0, 22.8, 30.5, 16.5, "wand_grau", 1.0, 14)
-    for x in (-14.0, 14.0):
-        b.box(x, 0, 0, 0.6, 16.2, 22.0, "wand_grau")
-    b.zyl(0, 0, 22.8, 6.6, 6.6, 0.12, 12, "metall_dunkel")             # Deckrand Helipad
-
-
-def hd_getreidesilo(b):
-    for i in range(5):
-        x = (i - 2) * 4.6
-        b.zyl(x, 0, 19.6, 2.45, 2.45, 0.5, 10, "metall")               # Ringanker
-        b.zyl(x, 0, 9.8, 2.45, 2.45, 0.35, 10, "metall")
-    b.box(0, -3.0, 6.0, 23.0, 0.4, 0.4, "metall_dunkel")               # Steigleiter-Schiene
-    b.box(11.6, 0, 0, 0.5, 0.5, 20.0, "metall_dunkel")
 
 
 def hd_gasthaus(b):
@@ -1518,45 +1888,13 @@ def hd_gasthaus(b):
 
 HD_EXTRAS = {
     "Haus_Fachwerk": hd_fachwerk, "Haus_Kirche": hd_kirche,
-    "Haus_Villa": hd_villa, "Haus_Rathaus": hd_rathaus, "Haus_Wohnturm": hd_wohnturm,
-    "Haus_Bueroturm": hd_bueroturm, "Haus_Wolkenkratzer": hd_wolkenkratzer,
-    "Haus_Burg": hd_burg, "Haus_Stadion": hd_stadion, "Haus_Hangar": hd_hangar,
-    "Haus_Bahnhof": hd_bahnhof, "Haus_Fabrik": hd_fabrik, "Haus_Kraftwerk": hd_kraftwerk,
-    "Haus_Windmuehle": hd_windmuehle, "Haus_Kaufhaus": hd_kaufhaus,
-    "Haus_Krankenhaus": hd_krankenhaus, "Haus_Getreidesilo": hd_getreidesilo,
+    "Haus_Villa": hd_villa, "Haus_Rathaus": hd_rathaus,
+    "Haus_Burg": hd_burg, "Haus_Hangar": hd_hangar,
+    "Haus_Bahnhof": hd_bahnhof,
+    "Haus_Windmuehle": hd_windmuehle,
     "Haus_Gasthaus": hd_gasthaus,
 }
 
-
-
-def hd_plattenbau(b):
-    for i in range(6):                                              # Balkonbaender je Geschoss
-        z = 2.0 + i * 2.9
-        b.box(0, -6.5, z - 0.75, 40.0, 1.1, 0.22, "wand_grau")
-        b.gelaender(0, -6.9, z - 0.53, 40.0, 0.3, "wand_weiss", 0.95, 26)
-    for x in (-15.0, 0.0, 15.0):                                    # Eingangsvordaecher
-        b.box(x, -6.9, 3.1, 3.4, 1.6, 0.25, "wand_grau")
-        for dx in (-1.4, 1.4):
-            b.box(x + dx, -7.5, 0, 0.16, 0.16, 3.1, "wand_grau")
-    for x in (-22.0, -11.0, 0.0, 11.0, 22.0):                       # Fassadenfugen
-        b.box(x, 0, 0, 0.22, 12.2, 19.0, "wand_grau")
-    b.gelaender(0, 0, 19.5, 44.0, 12.0, "wand_grau", 0.8, 22)       # Dachattika
-    b.box(9.0, 3.0, 19.5, 2.4, 2.4, 1.6, "wand_grau")               # Lueftungsaufbau
-
-
-def hd_parkhaus(b):
-    for i in range(4):                                               # Gelaender je Deck
-        z = i * 3.3 + 0.4
-        b.gelaender(0, -9.0, z, 26.0, 0.3, "metall_dunkel", 1.05, 16)
-        b.gelaender(0, 9.0, z, 26.0, 0.3, "metall_dunkel", 1.05, 16)
-        b.gelaender(-13.0, 0, z, 0.3, 18.0, "metall_dunkel", 1.05, 11)
-        b.gelaender(13.0, 0, z, 0.3, 18.0, "metall_dunkel", 1.05, 11)
-    for i in range(4):                                               # Auffahrtsrampe
-        b.box(8.0, -4.0 + i * 2.4, i * 3.3, 8.0, 2.4, 0.3, "beton")
-    b.gelaender(-10.0, 7.0, 17.0, 4.4, 4.4, "metall_dunkel", 0.9, 6)
-    for x in (-9.0, 9.0):                                            # Lichtmasten
-        b.zyl(x, 0, 13.6, 0.14, 0.14, 3.4, 6, "metall_dunkel")
-        b.box(x, 0, 17.0, 1.4, 0.4, 0.24, "wand_weiss")
 
 
 def hd_silo(b):
@@ -1591,66 +1929,6 @@ def hd_werkstatt(b):
     b.zyl(4.6, 2.4, 8.0, 0.5, 0.5, 0.4, 6, "metall")                 # Kaminhut
     b.box(6.2, -2.0, 0, 0.4, 3.0, 4.4, "metall_dunkel")              # Fallrohr/Leitung
     b.box(0, 0, 4.4, 12.4, 8.4, 0.28, "metall_dunkel")               # Traufblech
-
-
-def hd_wasserturm(b):
-    b.gelaender(0, 0, 14.2, 8.6, 8.6, "metall_dunkel", 1.0, 14)      # Behaelter-Umgang
-    for a in (0.0, 1.5708, 3.1416, 4.7124):                          # Kreuzverbaende
-        x, y = math.cos(a) * 1.9, math.sin(a) * 1.9
-        b.box(x, y, 2.0, 0.22, 0.22, 7.0, "metall_dunkel")
-    for i in range(8):                                                # Steigleiter
-        b.box(2.9, 0, 1.0 + i * 1.0, 0.5, 0.06, 0.06, "metall_dunkel")
-    b.zyl(0, 0, 8.6, 4.5, 4.5, 0.3, 10, "metall_dunkel")
-    b.box(0, -4.2, 12.0, 2.6, 0.3, 1.2, "wand_weiss")                # Schriftfeld
-
-
-def hd_funkturm(b):
-    for z in (2.0, 9.0, 18.0, 25.0):                                  # Horizontalriegel
-        w = 8.6 - z * 0.22
-        b.box(0, 0, z, w, w, 0.26, "metall_dunkel")
-    b.gelaender(0, 0, 32.6, 8.6, 8.6, "metall_dunkel", 1.0, 14)      # Kanzel-Umgang
-    for a in (0.6, 2.2, 3.8, 5.4):                                    # Richtfunkschuesseln
-        x, y = math.cos(a) * 2.4, math.sin(a) * 2.4
-        b.zyl(x, y, 24.0, 0.9, 0.7, 0.5, 8, "wand_weiss", achse="y")
-    for z in (40.0, 46.0):
-        b.box(0, 0, z, 1.8, 0.2, 0.16, "metall_dunkel")
-
-
-def hd_hafenkran(b):
-    for i in range(6):                                                 # Auslegergitter
-        x = -2.0 + i * 4.6
-        b.box(x, 0, 25.4, 0.3, 2.2, 1.5, "dach_rot")
-    b.box(9.0, 0, 26.8, 26.0, 0.3, 0.3, "dach_rot")                   # Obergurt
-    for z in (6.0, 12.0, 18.0):                                        # Turmverbaende
-        b.box(0, 0, z, 4.0, 4.0, 0.26, "dach_rot")
-    b.gelaender(0, 0, 26.6, 4.4, 4.4, "metall_dunkel", 0.9, 6)
-    b.box(17.0, 0, 21.0, 0.4, 0.4, 4.4, "metall_dunkel")              # zweites Seil
-    for x in (-3.6, 3.6):                                              # Schienen
-        b.box(x, 0, 0, 0.5, 11.0, 0.25, "metall_dunkel")
-
-
-def hd_tanklager(b):
-    for x in (-3.4, 3.4):
-        b.gelaender(x, -5.5, 5.0, 4.0, 11.0, "metall_dunkel", 0.9, 9)  # Tank-Laufsteg
-        b.box(x, -5.5, 4.9, 1.4, 11.0, 0.16, "metall_dunkel")
-        for i in range(4):                                              # Spannringe
-            b.zyl(x, -8.0 + i * 3.0, 3.1, 1.95, 1.95, 0.2, 10, "metall_dunkel", achse="y")
-    b.box(0, -11.4, 0, 8.4, 0.5, 3.6, "metall_dunkel")                 # Treppenturm
-    for i in range(5):
-        b.box(-1.2, -11.4, 0.4 + i * 0.7, 1.6, 0.5, 0.12, "metall")
-    for x in (-3.4, 3.4):                                               # Steigrohre
-        b.zyl(x, 1.2, 1.0, 0.22, 0.22, 3.2, 6, "metall")
-
-
-def hd_bueroturm(b):
-    for i in range(12):                                                 # feines Fassadenraster
-        z = 3.0 + i * 4.1
-        b.box(0, 0, z, 18.25, 15.25, 0.2, "metall")
-    for x in (-9.1, 9.1):
-        b.box(x, 0, 0, 0.3, 15.3, 52.0, "metall")
-    b.gelaender(0, 0, 52.8, 18.0, 15.0, "metall_dunkel", 0.9, 16)      # Dachumgang
-    b.box(-5.0, -3.0, 52.8, 3.4, 3.4, 2.2, "metall_dunkel")            # Kuehlaggregate
-    b.box(5.0, -3.0, 52.8, 2.6, 2.6, 1.8, "metall_dunkel")
 
 
 def hd_tower(b):
@@ -1704,12 +1982,8 @@ def hd_stall(b):
         b.box(-3.6 + i * 2.4, -3.2, 0, 1.8, 0.25, 1.1, "holz_hell")
 
 
-HD_EXTRAS.update({
-    "Haus_Plattenbau": hd_plattenbau, "Haus_Parkhaus": hd_parkhaus, "Haus_Silo": hd_silo,
-    "Haus_Bunker": hd_bunker, "Haus_Werkstatt": hd_werkstatt,
-    "Haus_Wasserturm": hd_wasserturm, "Haus_Funkturm": hd_funkturm,
-    "Haus_Hafenkran": hd_hafenkran, "Haus_Tanklager": hd_tanklager,
-    "Haus_Bueroturm": hd_bueroturm, "Haus_Tower": hd_tower,
+HD_EXTRAS.update({ "Haus_Silo": hd_silo,
+    "Haus_Bunker": hd_bunker, "Haus_Werkstatt": hd_werkstatt, "Haus_Tower": hd_tower,
     "Haus_Radarstation": hd_radarstation, "Haus_Kate": hd_kate,
     "Haus_Kapelle": hd_kapelle, "Haus_Stall": hd_stall,
 })
@@ -1863,8 +2137,11 @@ def render_previews(scn):
     scn.render.engine = 'BLENDER_WORKBENCH'
     scn.display.shading.light = 'STUDIO'
     scn.display.shading.color_type = 'MATERIAL'
-    scn.display.shading.show_shadows = True
+    # Ohne Schattenwurf: die Workbench-Schatten (Stencil-Volumen) zerkratzen offene Flaechen —
+    # jedes Fensterband sah aus wie verrauscht. "Standard" statt AgX, sonst ist alles duester.
+    scn.display.shading.show_shadows = False
     scn.display.shading.show_cavity = True
+    scn.view_settings.view_transform = 'Standard'
     scn.world = scn.world or bpy.data.worlds.new("W")
     scn.world.color = (0.55, 0.68, 0.85)
     boden = bpy.data.objects.new("PrevBoden", bpy.data.meshes.new("PrevBoden"))
@@ -1902,10 +2179,15 @@ def render_previews(scn):
         scn.render.resolution_x, scn.render.resolution_y = res
         breite = (hi.x - lo.x) * 1.08
         fov = 2.0 * math.atan(0.5 * 36.0 / cam.data.lens)
-        dist = breite * 0.5 / math.tan(fov * 0.5) + (hi.y - lo.y)
+        vfov = 2.0 * math.atan(0.5 * 36.0 * res[1] / res[0] / cam.data.lens)
+        dist = max(breite * 0.5 / math.tan(fov * 0.5),
+                   (hi.z - lo.z) * 0.62 / math.tan(vfov * 0.5)) + (hi.y - lo.y)
         d = (V(blick) if blick else V((-von_links, -1.0, hoehe))).normalized()
         cam.location = ctr + d * dist
         cam.rotation_euler = (ctr - cam.location).to_track_quat('-Z', 'Y').to_euler()
+        # Nahe Clipebene mit dem Abstand mitfuehren: bei 0.1 m reicht die Tiefenaufloesung in
+        # 150 m Entfernung nicht fuer Felder, die 4 cm vor der Wand liegen (Fenster flimmerten).
+        cam.data.clip_start = max(dist * 0.25, 0.5)
         cam.data.clip_end = dist * 4.0
         scn.render.filepath = pfad
         bpy.ops.render.render(write_still=True)
@@ -1920,19 +2202,45 @@ def render_previews(scn):
              "Haus_Villa", "Haus_Lotsenhaus"]
     gross = ["Haus_Kirche", "Haus_Kapelle", "Haus_Rathaus", "Haus_Bahnhof", "Haus_Wassermuehle",
              "Haus_Windmuehle", "Haus_Speicher"]
-    gruppe([n + "_HD" for n in dorf], os.path.join(PREVIEW, "hd_dorf.png"))
-    gruppe([n + "_HD" for n in stadt], os.path.join(PREVIEW, "hd_stadt.png"))
-    gruppe([n + "_HD" for n in gross], os.path.join(PREVIEW, "hd_gross.png"))
-    gruppe(dorf, os.path.join(PREVIEW, "lod_dorf.png"))
-    gruppe(stadt, os.path.join(PREVIEW, "lod_stadt.png"))
-    gruppe([n for n, _f, _t, g in alle_bauten() if g in ("Haus_Bauernhaus", "Haus_Fachwerk",
-                                                            "Haus_Kate", "Haus_Stadthaus2")],
-           os.path.join(PREVIEW, "varianten.png"), hoehe=0.6)
-    gruppe(["Haus_Bauernhaus_HD"], os.path.join(PREVIEW, "nah_bauernhaus.png"), res=(1200, 900),
-           hoehe=0.35)
-    gruppe(["Haus_Fachwerk_HD"], os.path.join(PREVIEW, "nah_fachwerk.png"), res=(1000, 1000),
-           hoehe=0.25, von_links=0.6)
-    gruppe(["Haus_Bauernhaus_HD"], os.path.join(PREVIEW, "nah_bauernhaus_hinten.png"),
-           res=(1200, 900), blick=(0.6, 1.0, 0.5))
+    hoch = ["Haus_Wohnturm", "Haus_Bueroturm", "Haus_Wolkenkratzer", "Haus_Hotel",
+            "Haus_Krankenhaus"]
+    block = ["Haus_Plattenbau", "Haus_Kaufhaus", "Haus_Parkhaus"]
+    industrie = ["Haus_Fabrik", "Haus_Kraftwerk", "Haus_Getreidesilo", "Haus_Werkstatt",
+                 "Haus_Tanklager", "Haus_Silo"]
+    tuerme = ["Haus_Hafenkran", "Haus_Funkturm", "Haus_Wasserturm"]
+    spezial = ["Haus_Hangar", "Haus_Tower", "Haus_Radarstation", "Haus_Bunker", "Haus_Stadion",
+               "Haus_Burg"]
+    hd = lambda l: [n + "_HD" for n in l]
+    bilder = {
+        "hd_dorf": (hd(dorf), {}), "hd_stadt": (hd(stadt), {}), "hd_gross": (hd(gross), {}),
+        "lod_dorf": (dorf, {}), "lod_stadt": (stadt, {}),
+        "varianten": ([n for n, _f, _t, g in alle_bauten()
+                       if g in ("Haus_Bauernhaus", "Haus_Fachwerk", "Haus_Kate",
+                                "Haus_Stadthaus2")], dict(hoehe=0.6)),
+        "hd_hoch": (hd(hoch), dict(res=(1800, 1100), hoehe=0.30)),
+        "lod_hoch": (hoch, dict(res=(1800, 1100), hoehe=0.30)),
+        "hd_block": (hd(block), {}), "hd_industrie": (hd(industrie), {}),
+        "lod_industrie": (industrie, {}),
+        "hd_tuerme": (hd(tuerme), dict(res=(1500, 1100), hoehe=0.25)),
+        "hd_spezial": (hd(spezial), {}),
+        "nah_bauernhaus": (["Haus_Bauernhaus_HD"], dict(res=(1200, 900), hoehe=0.35)),
+        "nah_fachwerk": (["Haus_Fachwerk_HD"], dict(res=(1000, 1000), hoehe=0.25, von_links=0.6)),
+    }
+    # HAEUSER_BILDER=hd_hoch,hd_industrie: nur diese Bilder; nah:<Typ>[:hinten] = Einzelbild
+    nur = os.environ.get("HAEUSER_BILDER", "")
+    if nur:
+        for w in nur.split(","):
+            if w.startswith("nah:"):
+                t = w.split(":")
+                kw = dict(res=(1200, 1000), hoehe=0.32)
+                if len(t) > 2:
+                    kw["blick"] = (0.6, 1.0, 0.45)
+                gruppe(["Haus_%s_HD" % t[1]], os.path.join(PREVIEW, "nah_%s%s.png" % (
+                    t[1].lower(), "_hinten" if len(t) > 2 else "")), **kw)
+            elif w in bilder:
+                gruppe(bilder[w][0], os.path.join(PREVIEW, w + ".png"), **bilder[w][1])
+        return
+    for name, (namen, kw) in bilder.items():
+        gruppe(namen, os.path.join(PREVIEW, name + ".png"), **kw)
 
 main()

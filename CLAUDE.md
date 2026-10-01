@@ -1409,12 +1409,38 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
     Stadthaus3 (TREPPENGIEBEL), Reihenhaus (je Einheit Farbe/Tuer/Gaube/Kamin), Eckhaus,
     Gasthaus (Laube, Schild), Villa (Walmdach mit Gauben).
   * FARBVARIANTEN (`VARIANTEN`): Farbtausch je Materialschluessel (`Bau.tausch`), Export als
-    `<Typ>_2`, `<Typ>_3` (58 Meshes statt 42). CityBuilder ordnet sie beim Laden zu
+    `<Typ>_2`, `<Typ>_3`. CityBuilder ordnet sie beim Laden zu
     (`_varianten`) und waehlt je Bauplatz per Hash der Weltlage (`variante()`); die Plaene
     nennen weiter nur den Grundtyp. Beleg: `tools/_haus_varianten_check.gd`.
   * `pruefen()` am Ende des Baus: jede geschlossene Insel mit positivem Volumen.
-  * Zahlen jetzt: LOD 135 Tris im Schnitt, HD 644 (Plattenbau 2120 max).
-- **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser (+16 Farbvarianten) gehen als EIN glb
+  * HOCHHAEUSER UND INDUSTRIE (zweite Runde 2026-10) neu modelliert, HD-Details stehen jetzt
+    in der Hausfunktion (`if b.hd:`) statt in getrennten `hd_*`-Extras:
+    Wohnturm (Loggienachsen in Akzentfarbe, Fensterraster), Bueroturm (zwei verschraenkte
+    GLASSCHEIBEN auf Steinsockel), Wolkenkratzer (Art Deco: senkrechte Fensterachsen = ein
+    Quad je Achse, Gesimse, Kupferkrone), Plattenbau (Treppenhaus-Risalite, farbige
+    Bruestungen), Hotel (Penthouse, Glasbruestungen), Krankenhaus (Helipad-Plattform, rotes
+    Kreuz), Kaufhaus (Parkdeck mit Rampe), Parkhaus; Fabrik (Sheddach aus Glas + Blech —
+    vorher war das ganze Dach ZIEGEL —, Verwaltung, Laderampe, frei stehender Schornstein),
+    Kraftwerk (Kesselhaus, Turbinenhalle, rot-weisse Schornsteine, Kuehlturm als Hyperboloid
+    mit dunklem Inneren, Foerderbruecke), Getreidesilo (Elevatorturm, Galerie), Hafenkran
+    (Portalkran mit schraegem Ausleger), Funkturm (jetzt Fernsehturm: Schaft, Kanzel,
+    Ringelmast), Wasserturm (Ziegelschaft), Tanklager (stehende Grosstanks), Stadion
+    (Tribuenenringe, Kragdach LIEGT auf der Aussenwand — vorher schwebten Dachplatten).
+    Neue Bausteine: `flachdach()` (Attika + Kies/Asphalt), `balken(p0, p1, b, h)` (Quader in
+    beliebiger Richtung), `boden()` (waagrechte Flaeche — `feld` kann nur Waende: das "H" des
+    Helipads stand vorher senkrecht), `ring()`, `ringel()`, `zyl(dreh=)` (eine Flaeche zeigt
+    genau nach vorn), `_baender` (HD: Pfeilerstreifen ueber alle Geschosse = Fensterraster),
+    `_geraete`, `_auto`. `gelaender()` mit zwei grossen Massen ist jetzt UMLAUFEND (vorher
+    eine Platte: ueber dem Krankenhausdach schwebte ein 30 x 16 m Deckel).
+    GLAS UND FENSTER glaenzen (Rauheit 0.2, Metall 0.25) und spiegeln im Spiel den Himmel;
+    mit Metall 0.45 standen die Glastuerme fast schwarz da.
+    Varianten auch fuer Wohnturm (3), Bueroturm, Plattenbau, Hotel (je 2) -> 63 Meshes.
+    Hangar: Binder folgen dem Bogen (ragten vorher als gerade Balken aus dem Dach).
+    VORSCHAU-FALLEN: Workbench-Schatten zerkratzen offene Flaechen (aus); nahe Clipebene mit
+    dem Abstand mitfuehren, sonst flimmern Felder 4 cm vor der Wand (kein Modellfehler).
+    `HAEUSER_BILDER=hd_hoch,hd_industrie,nah:Fabrik[:hinten]` waehlt die Bilder.
+  * Zahlen jetzt: 63 Meshes, LOD 162 Tris im Schnitt, HD 663.
+- **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser (+21 Farbvarianten) gehen als EIN glb
   (`models/world_buildings.glb`, aus `build_haeuser_blend.py` mitexportiert) ins Spiel;
   `CityBuilder` zieht daraus die Meshes und setzt sie **je Typ und Viertel als ein
   MultiMeshInstance3D** (ein Draw-Call pro Typ, wie die Baeume) — und zwar ZWEIMAL: die
