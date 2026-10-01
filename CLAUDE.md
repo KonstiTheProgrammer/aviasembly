@@ -1439,7 +1439,26 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
     VORSCHAU-FALLEN: Workbench-Schatten zerkratzen offene Flaechen (aus); nahe Clipebene mit
     dem Abstand mitfuehren, sonst flimmern Felder 4 cm vor der Wand (kein Modellfehler).
     `HAEUSER_BILDER=hd_hoch,hd_industrie,nah:Fabrik[:hinten]` waehlt die Bilder.
-  * Zahlen jetzt: 63 Meshes, LOD 162 Tris im Schnitt, HD 663.
+  * RESTLICHE BAUTEN (dritte Runde 2026-10): Werkstatt (Satteldach, zwei Rolltore, Schild,
+    Buero; HD Paletten/Faesser/Lieferwagen), Hofsilo (Kuppeldach, zweiter Silo, Foerderrohr),
+    Speicher (Rundbogen-Ladeluken, Windenerker mit Ladebalken, Fenster ringsum, Gauben),
+    Kontrollturm (achteckiger Schaft, nach oben weitere GLASKANZEL, Betriebsgebaeude),
+    Radarstation (Radomkugel, Parabolspiegel, echter Zaun statt loser Pfosten), Bunker
+    (Grasdach, Panzerkuppel, Splitterschutzmauer), Burg (Torhaus mit Flankentuermen und
+    Zugbruecke, Bergfried seitlich im Hof, Palas, Brunnen), Kirche (Spitzbogenfenster,
+    Schalluken und Zifferblaetter auf drei Seiten, Eckfialen, Rosette, Sakristei), Kapelle,
+    Rathaus (Arkaden, Balkon, Glockenstube, Gauben), Bahnhof (Mittelbau mit Giebel und Uhr,
+    Bogenportale, Bahnsteigdach auf Stuetzen, zwei Gleise im Schotterbett), Windmuehle (runde
+    Haube, vier Fluegel aus Rute + versetztem Gatter, Eingang als Vorbau — ein senkrechtes
+    Tuerfeld schneidet die schraege Turmwand). Nicht angefasst: Stall, Wassermuehle,
+    Lotsenhaus, Hangar (haben die Dach-/Binder-Korrekturen der ersten Runden).
+    Bausteine dazu: `bogen()` (Rund-/Spitzbogenfeld als EIN Vieleck), `rundfeld()`
+    (Zifferblatt, Rosette), `kuppel()` (Halbkugel bis Radomkugel, `von` < 0). `zinnen()` mit
+    zwei grossen Massen ist jetzt ein KRANZ (vorher Balken quer ueber die Plattform).
+    FALLE BEIM PATCHEN: Funktionen per "bis zur naechsten dreifachen Leerzeile" zu ersetzen
+    frass die HAEUSER-Liste, weil nach `bunker` nur EINE Leerzeile stand — nach solchen
+    Ersetzungen die Liste der `def`-Namen gegen den alten Stand vergleichen.
+  * Zahlen jetzt: 63 Meshes, LOD 186 Tris im Schnitt, HD 709.
 - **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser (+21 Farbvarianten) gehen als EIN glb
   (`models/world_buildings.glb`, aus `build_haeuser_blend.py` mitexportiert) ins Spiel;
   `CityBuilder` zieht daraus die Meshes und setzt sie **je Typ und Viertel als ein
