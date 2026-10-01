@@ -1458,7 +1458,41 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
     FALLE BEIM PATCHEN: Funktionen per "bis zur naechsten dreifachen Leerzeile" zu ersetzen
     frass die HAEUSER-Liste, weil nach `bunker` nur EINE Leerzeile stand — nach solchen
     Ersetzungen die Liste der `def`-Namen gegen den alten Stand vergleichen.
-  * Zahlen jetzt: 63 Meshes, LOD 186 Tris im Schnitt, HD 709.
+  * Zahlen jetzt: 63 Meshes, LOD 190 Tris im Schnitt, HD 883 (mit Gaerten).
+  * **DESIGN-RUNDE (2026-10, "alle Haeuser noch besser"): Haeuser im Stil der Welt.**
+    - HAUS-SHADER `shaders/haus.gdshader`: `CityBuilder._malen` tauscht beim Laden jedes
+      importierte Standardmaterial gegen ein ShaderMaterial (Farbe, Rauheit, Metall
+      uebernommen, je Quellmaterial eines). Licht = `weiches_licht` wie Gelaende und Baeume,
+      dazu KUEHLE HIMMELSFUELLUNG (`fuellung` 0.26, EMISSION = Albedo x Blauton): vorher
+      standen Schattenseiten fast schwarz da (Burgmauer, abgewandte Daecher). Glas/Fenster
+      bekommen ein Sonnen-Glanzlicht.
+      FALLE (eine Stunde gesucht): das Farb-Uniform hiess zuerst `farbe` — so heisst auch
+      ein Parameter von `weiches_licht()` im Include. Kein Compilerfehler, aber bei den
+      Haeusern kam KEIN Sonnenlicht mehr an: helle Waende fielen nicht auf (Umgebungslicht),
+      Daecher und die Burg standen schwarz da. Uniforms in Shadern mit Include nie wie
+      Parameter der eingebundenen Funktionen nennen (jetzt `haus_farbe`).
+    - GEMALTER VERLAUF (`Bau._verlauf`): Vertexfarbe als Faktor — Waende unten dunkler
+      (0.78) und nach oben heller, Daecher von der Traufe zum First heller, Glas unveraendert.
+      glTF-Export mit `export_vertex_color='ACTIVE'`, der Shader multipliziert COLOR.rgb.
+    - WEICHE RUNDUNGEN: `set_sharp_from_angle(40 Grad)` statt flacher Facetten — Tuerme,
+      Silos, Kuppeln, Kuehlturm, Hallenbogen, Kegeldaecher sind rund. 40 Grad ist die Grenze:
+      flache Dachfirste haben ab 43 Grad, darueber wuerde der First verschmiert.
+    - FUNDAMENT: jeder Eckpunkt auf z = 0 wandert 1.6 m in den Boden (`FUNDAMENT`). Ein Haus
+      steht auf der Gelaendehoehe seiner MITTE — am Hang schwebte die Talseite, und durch den
+      offenen Boden sah man darunter durch.
+    - GESCHWUNGENE TRAUFE (`Bau.schwung`, Satteldaecher der Dorf-/Stadthaeuser 0.55): Knick an
+      der Wandlinie, der Ueberstand laeuft flacher aus; ueber den Waenden bleibt die
+      Dachflaeche gleich (Gauben/Kamine rechnen unveraendert).
+    - GARTEN UND HOF (nur Nahstufe — die Fernstufe ist der Kartengrundriss): `zaun`, `hecke`,
+      `beet`, `waescheleine`, `schirm` (Biergarten), `laterne`, `brunnen`, `holzstapel`,
+      `heuballen`. Bauernhaus mit Garten und Waescheleine, Kate mit Vorgarten und
+      Ziehbrunnen, Scheune mit Koppel/Heuballen/Leiterwagen, Gasthaus mit Biergarten,
+      Villa mit Park und Brunnen, Reihenhaus mit Vor- und Hintergaerten, Stadthaeuser mit
+      Hofmauer und Laterne, Kirche mit Kirchhofmauer und Grabsteinen, Rathaus mit
+      Marktbrunnen, Muehlgraben an der Wassermuehle, Boot am Lotsenhaus.
+    - Sichtprobe: `tools/_haus_tafel.gd -- <ordner> [Typen]` (Haeuser mit dem Spiel-Shader
+      in einer kleinen Szene, drei Blickwinkel — ohne die Welt zu laden; damit wurde der
+      Shaderfehler in einer Minute eingekreist, den vier Welt-Renders nicht erklaerten).
 - **GEBAEUDE IN DER WELT (`scripts/CityBuilder.gd`)**: die 42 Haeuser (+21 Farbvarianten) gehen als EIN glb
   (`models/world_buildings.glb`, aus `build_haeuser_blend.py` mitexportiert) ins Spiel;
   `CityBuilder` zieht daraus die Meshes und setzt sie **je Typ und Viertel als ein

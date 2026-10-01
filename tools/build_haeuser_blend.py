@@ -36,6 +36,10 @@ OUT = ROOT + "blender_lib/haeuser.blend"
 GLB = ROOT + "models/world_buildings.glb"
 GLB_HD = ROOT + "models/world_buildings_hd.glb"
 HD_VERSATZ = 46.0   # HD-Reihe leicht versetzt neben der LOD-Reihe
+# FUNDAMENT: alles, was auf z = 0 steht, reicht so tief in den Boden. CityBuilder setzt ein
+# Haus auf die Gelaendehoehe seiner MITTE — am Hang schwebte die Talseite, und weil die
+# Waende unten offen sind, sah man darunter durch.
+FUNDAMENT = 1.6
 PREVIEW = os.environ.get("HAEUSER_PREVIEW", "")
 
 # --- Palette (sRGB wie im Spiel; Blender-BaseColor ist LINEAR -> umrechnen) ---------------
@@ -78,6 +82,10 @@ PAL = {
     "asphalt":      (0.27, 0.27, 0.29),
     "signal_gelb":  (0.86, 0.66, 0.20),
     "signal_blau":  (0.20, 0.38, 0.66),
+    # Garten und Hof
+    "hecke":        (0.22, 0.38, 0.21),
+    "erde":         (0.38, 0.28, 0.19),
+    "beet":         (0.36, 0.52, 0.24),
 }
 
 
@@ -144,6 +152,10 @@ class Bau:
         self.tausch = tausch or {}
         # Wandfarbe des zuletzt gesetzten BAUKOERPERS: daraus werden die Giebel gemalt.
         self.wand_key = None
+        # GESCHWUNGENE TRAUFE (Aufschiebling) der Satteldaecher: Anteil, um den der Ueberstand
+        # flacher auslaeuft. Dorf- und Stadthaeuser setzen 0.55 — das gibt die weiche,
+        # leicht geschweifte Dachlinie statt einer steifen Dreieckskante.
+        self.schwung = 0.0
 
     def rund(self, n):
         """Rundungsaufloesung: in HD doppelt so fein."""
@@ -257,7 +269,7 @@ class Bau:
     # Giebel ist ein Dreieck in Wandfarbe in der Wandebene. HD: Firstziegel + Ziegelreihen.
     # Rueckgabe: Dachmasse fuer gaube()/kamin().
     def dach(self, x, y, z, w, d, h, key, axis="x", inset=0.0, over=0.45, giebel=None,
-             dicke=None, details=True):
+             dicke=None, details=True, schwung=None):
         S, L = (d, w) if axis == "x" else (w, d)
         hs, hl = S * 0.5, L * 0.5
         o = over
@@ -276,18 +288,36 @@ class Bau:
         # Oberkante der Wand steckt dann mitten in der Platte. Lief die Dachflaeche genau durch
         # die Wandkante, flimmerte dort eine gepunktete Linie (gleiche Tiefe).
         lift = t * 0.5
-        E = [(-xe, -ye, ze + lift), (xe, -ye, ze + lift), (xe, ye, ze + lift), (-xe, ye, ze + lift)]
-        R = [(0.0, -ry, h + lift), (0.0, ry, h + lift)]
-        U = [(p[0], p[1], p[2] - t) for p in E + R]
-        V = [self._welt(info, p) for p in E + R + U]
-        if ins > 0.0:
-            F = [(0, 4, 5, 3), (1, 2, 5, 4), (0, 1, 4), (2, 3, 5),
-                 (6, 9, 11, 10), (7, 10, 11, 8), (6, 10, 7), (8, 11, 9),
-                 (0, 3, 9, 6), (1, 7, 8, 2), (0, 6, 7, 1), (2, 8, 9, 3)]
+        sw = self.schwung if schwung is None else schwung
+        if ins == 0.0 and sw > 0.0 and o >= 0.3:
+            # Satteldach MIT SCHWUNG (Aufschiebling): Knick an der Wandlinie, der Ueberstand
+            # laeuft flacher aus. Profil quer zum First: Traufe - Wandlinie - First - Wandlinie
+            # - Traufe. Ueber den Waenden bleibt die Dachflaeche unveraendert (Gauben und
+            # Kamine rechnen weiter mit h * (1 - |x| / hs)).
+            zf = ze * (1.0 - sw)
+            prof = [(-xe, zf), (-hs, 0.0), (0.0, h), (hs, 0.0), (xe, zf)]
+            V = []
+            for ly in (-ye, ye):
+                V += [self._welt(info, (px, ly, pz + lift)) for px, pz in prof]
+                V += [self._welt(info, (px, ly, pz + lift - t)) for px, pz in prof]
+            F = [(0, 10, 15, 5), (4, 9, 19, 14)]                     # Traufkanten
+            for k in range(4):
+                F += [(k, k + 1, 10 + k + 1, 10 + k), (5 + k, 15 + k, 15 + k + 1, 5 + k + 1),
+                      (k, 5 + k, 5 + k + 1, k + 1), (10 + k, 10 + k + 1, 15 + k + 1, 15 + k)]
         else:
-            F = [(0, 4, 5, 3), (1, 2, 5, 4), (6, 9, 11, 10), (7, 10, 11, 8),
-                 (0, 3, 9, 6), (1, 7, 8, 2),
-                 (0, 6, 10, 4), (4, 10, 7, 1), (3, 5, 11, 9), (5, 2, 8, 11)]
+            E = [(-xe, -ye, ze + lift), (xe, -ye, ze + lift), (xe, ye, ze + lift),
+                 (-xe, ye, ze + lift)]
+            R = [(0.0, -ry, h + lift), (0.0, ry, h + lift)]
+            U = [(p[0], p[1], p[2] - t) for p in E + R]
+            V = [self._welt(info, p) for p in E + R + U]
+            if ins > 0.0:
+                F = [(0, 4, 5, 3), (1, 2, 5, 4), (0, 1, 4), (2, 3, 5),
+                     (6, 9, 11, 10), (7, 10, 11, 8), (6, 10, 7), (8, 11, 9),
+                     (0, 3, 9, 6), (1, 7, 8, 2), (0, 6, 7, 1), (2, 8, 9, 3)]
+            else:
+                F = [(0, 4, 5, 3), (1, 2, 5, 4), (6, 9, 11, 10), (7, 10, 11, 8),
+                     (0, 3, 9, 6), (1, 7, 8, 2),
+                     (0, 6, 10, 4), (4, 10, 7, 1), (3, 5, 11, 9), (5, 2, 8, 11)]
         self.add_koerper(V, F, key)
         if ins == 0.0:
             gk = giebel if giebel is not None else (self.wand_key or "wand_creme")
@@ -346,10 +376,10 @@ class Bau:
         gh = breite * 0.42
         if info["axis"] == "x":
             self.dach(mitte[0], mitte[1], mitte[2], breite, tiefe, gh, info["key"], axis="y",
-                      over=0.18, dicke=0.16, giebel=wk, details=False)
+                      over=0.18, dicke=0.16, giebel=wk, details=False, schwung=0.0)
         else:
             self.dach(mitte[0], mitte[1], mitte[2], tiefe, breite, gh, info["key"], axis="x",
-                      over=0.18, dicke=0.16, giebel=wk, details=False)
+                      over=0.18, dicke=0.16, giebel=wk, details=False, schwung=0.0)
         fh = min(fenster_h, zt - zb - 0.4)
         ctr = self._welt(info, (seite * lxf, u, zb + 0.25 + fh * 0.5))
         self.fenster(ctr, fenster_b, fh, self._seite_facing(info, seite), laeden=laeden,
@@ -473,6 +503,125 @@ class Bau:
             V.append((x + math.cos(a) * r, y + math.sin(a) * r, z))
         V.append((x, y, z + h))
         self.add(V, [(i, (i + 1) % sides, sides) for i in range(sides)], key)
+
+    # GEMALTER VERLAUF (Stil Zelda/Ghibli) als Vertexfarbe, die der Haus-Shader mit der
+    # Materialfarbe multipliziert: Waende unten dunkler (Erdnaehe, Schmutz) und nach oben
+    # heller, Daecher von der Traufe zum First heller. Glas und Fenster bleiben unveraendert.
+    # Kostet nichts — die Flaechen sind dieselben, nur ihre Ecken tragen einen Faktor.
+    def _verlauf(self, me):
+        col = me.color_attributes.new("Color", 'FLOAT_COLOR', 'CORNER')
+        zmax = max((v.co.z for v in me.vertices), default=1.0)
+        wand_h = min(max(zmax, 3.0), 7.5)
+        dz = [me.vertices[i].co.z for pl in me.polygons
+              if self.mats[pl.material_index].startswith("dach") for i in pl.vertices]
+        d0, d1 = (min(dz), max(dz)) if dz else (0.0, 1.0)
+        for pl in me.polygons:
+            key = self.mats[pl.material_index]
+            for li in pl.loop_indices:
+                z = me.vertices[me.loops[li].vertex_index].co.z
+                if key.startswith(("glas", "fenster")):
+                    k = 1.0
+                elif key.startswith("dach"):
+                    k = 0.84 + 0.16 * min(max((z - d0) / max(d1 - d0, 0.5), 0.0), 1.0)
+                else:
+                    t = min(max(z / wand_h, 0.0), 1.0)
+                    k = 0.78 + 0.22 * (t * t * (3.0 - 2.0 * t))
+                col.data[li].color = (k, k, k, 1.0)
+
+    # --- GARTEN UND HOF (alles nur in der Nahstufe) -----------------------------------------
+    # Die Fernstufe bleibt ohne Garten: ihr Umriss ist der Grundriss auf der Karte
+    # (CityBuilder.karte_haeuser nimmt die Huelle des Fern-Meshes).
+    def zaun(self, punkte, key="holz_hell", hoehe=1.0, abstand=2.2, geschlossen=False):
+        """Zaun als Linienzug (x, y): Pfosten + zwei Riegel. Die Pfosten stehen auf z = 0 und
+        reichen damit ueber das Fundament in den Boden (am Hang kein Schweben)."""
+        if not self.hd:
+            return
+        pts = list(punkte) + ([punkte[0]] if geschlossen else [])
+        for (x0, y0), (x1, y1) in zip(pts[:-1], pts[1:]):
+            n = max(1, int(round(math.hypot(x1 - x0, y1 - y0) / abstand)))
+            for i in range(n):
+                t = i / float(n)
+                self.box(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 0, 0.14, 0.14, hoehe, key)
+            for z in (hoehe * 0.45, hoehe * 0.85):
+                self.balken((x0, y0, z), (x1, y1, z), 0.06, 0.1, key)
+        if not geschlossen:
+            self.box(pts[-1][0], pts[-1][1], 0, 0.14, 0.14, hoehe, key)
+
+    def hecke(self, x, y, sx, sy, h=1.2, key="hecke"):
+        if self.hd:
+            self.box(x, y, 0, sx, sy, h, key)
+
+    def beet(self, x, y, sx, sy, reihen=3):
+        """Gemuesebeet: Erdflaeche mit gruenen Reihen (laengs der laengeren Seite)."""
+        if not self.hd:
+            return
+        self.box(x, y, 0, sx, sy, 0.18, "erde")
+        for i in range(reihen):
+            t = (i + 0.5) / reihen - 0.5
+            if sx >= sy:
+                self.box(x, y + t * sy, 0.18, sx * 0.9, sy / reihen * 0.45, 0.22, "beet")
+            else:
+                self.box(x + t * sx, y, 0.18, sx / reihen * 0.45, sy * 0.9, 0.22, "beet")
+
+    def waescheleine(self, x0, x1, y, hoehe=1.9):
+        """Zwei Pfosten, Leine, Waeschestuecke (zweiseitig) — laengs X."""
+        if not self.hd:
+            return
+        for x in (x0, x1):
+            self.box(x, y, 0, 0.1, 0.1, hoehe, "holz_hell")
+        self.balken((x0, y, hoehe - 0.05), (x1, y, hoehe - 0.05), 0.03, 0.03, "metall_dunkel")
+        farben = ("wand_weiss", "holz_blau", "wand_weiss", "dach_rot", "wand_creme")
+        n = max(2, int((x1 - x0) / 0.9))
+        for i in range(n):
+            x = x0 + (x1 - x0) * (i + 0.5) / n
+            self.feld((x, y, hoehe - 0.5), 0.6, 0.8 if i % 2 else 0.6, "-y", farben[i % 5],
+                      eps=0.0, zweiseitig=True)
+
+    def schirm(self, x, y, key="dach_rot"):
+        """Biergartentisch mit Sonnenschirm und zwei Baenken."""
+        if not self.hd:
+            return
+        self.zyl(x, y, 0, 0.55, 0.55, 0.75, 6, "holz_hell")
+        self.zyl(x, y, 0.75, 0.05, 0.05, 1.5, 6, "holz_dunkel")
+        self.kegel(x, y, 2.05, 1.5, 0.6, 8, key)
+        for s in (-1, 1):
+            self.box(x, y + s * 1.05, 0, 1.3, 0.3, 0.45, "holz_hell")
+
+    def laterne(self, x, y, hoehe=3.4):
+        if not self.hd:
+            return
+        self.zyl(x, y, 0, 0.09, 0.07, hoehe, 6, "metall_dunkel")
+        self.box(x, y, hoehe, 0.36, 0.36, 0.42, "wand_weiss")
+        self.spitze(x, y, hoehe + 0.42, 0.5, 0.5, 0.25, "metall_dunkel")
+
+    def brunnen(self, x, y, r=1.4, dach=False):
+        """Brunnen: Steinbecken mit Wasserflaeche; dach=True = Ziehbrunnen mit Galgen."""
+        if not self.hd:
+            return
+        self.zyl(x, y, 0, r, r, 0.8, 8, "stein", cap_top=False)
+        self.ring(x, y, 0.8, r, r - 0.3, 8, "stein")
+        self.ring(x, y, 0.62, r - 0.3, 0.0, 8, "glas_blau")
+        if dach:
+            for s in (-1, 1):
+                self.box(x + s * (r - 0.15), y, 0.8, 0.14, 0.14, 1.6, "holz_dunkel")
+            self.dach(x, y, 2.4, 2 * r + 0.4, 1.2, 0.6, "dach_terra", axis="x", over=0.1,
+                      dicke=0.12, giebel="holz_dunkel", details=False, schwung=0.0)
+        else:
+            self.zyl(x, y, 0.62, 0.22, 0.16, 1.1, 6, "stein")
+            self.zyl(x, y, 1.72, 0.5, 0.5, 0.14, 8, "stein")
+
+    def holzstapel(self, x, y, sx, sy, h=1.1):
+        if self.hd:
+            self.box(x, y, 0, sx, sy, h, "holz_hell")
+            self.box(x, y, h, sx + 0.2, sy + 0.2, 0.08, "holz_dunkel")
+
+    def heuballen(self, x, y, quer=False):
+        if self.hd:
+            if quer:
+                self.zyl(x - 0.65, y, 0.7, 0.7, 0.7, 1.3, 8, "dach_stroh", cap_top=True,
+                         cap_bottom=True, achse="y")
+            else:
+                self.zyl(x, y, 0, 0.75, 0.75, 1.2, 8, "dach_stroh")
 
     # --- Bausteine fuer Hochhaeuser und Industrie ------------------------------------------
     # Balken zwischen zwei Punkten in beliebiger Richtung (Foerderbruecke, Kranausleger,
@@ -725,14 +874,21 @@ class Bau:
 
     def build(self, parent_col, ort):
         me = bpy.data.meshes.new(self.name)
-        me.from_pydata(self.v, [], [fc for fc, _ in self.f])
+        # FUNDAMENT: jeder Eckpunkt auf z = 0 wandert FUNDAMENT tief in den Boden.
+        verts = [(v[0], v[1], -FUNDAMENT if abs(v[2]) < 1e-5 else v[2]) for v in self.v]
+        me.from_pydata(verts, [], [fc for fc, _ in self.f])
         me.update()
         for key in self.mats:
             me.materials.append(get_mat(key))
         for poly, (_, mi) in zip(me.polygons, self.f):
             poly.material_index = mi
-            poly.use_smooth = False
         me.validate()
+        self._verlauf(me)
+        # WEICHE RUNDUNGEN: Flaechen, die flacher als 40 Grad aneinanderstossen, werden weich
+        # schattiert — Tuerme, Silos, Kuppeln, Kuehlturm, Hallenbogen und Kegeldaecher sind
+        # dann rund statt facettiert. Quader (90 Grad) und Dachfirste (ab 43 Grad) bleiben
+        # hart. 40 Grad ist die Grenze: darueber wuerde der First flacher Daecher verschmiert.
+        me.set_sharp_from_angle(angle=math.radians(40.0))
         ob = bpy.data.objects.new(self.name, me)
         ob.location = (ort[0], ort[1], 0.0)
         col = bpy.data.collections.new(self.name)
@@ -746,6 +902,7 @@ def bauernhaus(b):
     """Anderthalbgeschossiges Bauernhaus, Traufe zur Strasse: zwei Gauben, Fensterlaeden,
     Vordach ueber der Tuer, Giebelfenster an beiden Enden."""
     L = "holz_gruen"
+    b.schwung = 0.55
     b.box(0, 0, 0, 11, 8, 4.4, "wand_creme")
     b.sockel(0, 0, 11, 8)
     d = b.dach(0, 0, 4.4, 11, 8, 4.4, "dach_terra", axis="x", over=0.55)
@@ -760,12 +917,21 @@ def bauernhaus(b):
     for f, fx in (("-x", -5.5), ("+x", 5.5)):
         b.fenster_reihe(f, fx, 0, 4.4, 2.2, 2, 1.1, 1.3, laeden=L)
         b.fenster((fx, 0, 6.1), 1.0, 1.1, f)                   # Giebelfenster
+    # Hof (nur HD): Garten hinter dem Haus, Beete, Waescheleine, Holzstapel, Bank
+    b.zaun([(-6.6, 4.0), (-6.6, 11.5), (6.6, 11.5), (6.6, 4.0)])
+    b.beet(-3.4, 8.8, 4.0, 2.6)
+    b.beet(2.2, 9.2, 3.0, 2.0, reihen=2)
+    b.waescheleine(1.0, 5.6, 6.0)
+    b.holzstapel(-4.2, 4.5, 2.4, 0.8)
+    if b.hd:
+        b.box(2.1, -4.5, 0, 1.8, 0.5, 0.45, "holz_hell")              # Bank
 
 
 def fachwerkhaus(b):
     """Fachwerkhaus, GIEBEL zur Strasse, das Obergeschoss kragt vor. Das Fachwerk (Rahmen,
     Staender, Streben, Kehlbalken im Giebel) steht in beiden Stufen — es ist das Merkmal."""
     H = "holz_dunkel"
+    b.schwung = 0.55
     b.box(0, 0, 0, 8, 7.4, 3.3, "wand_weiss")
     b.sockel(0, 0, 8, 7.4)
     b.box(0, -0.25, 3.3, 8.6, 7.9, 3.2, "wand_weiss")               # Obergeschoss
@@ -798,6 +964,12 @@ def fachwerkhaus(b):
         b.fenster((x, -3.7, 1.8), 1.0, 1.2, "-y", kasten=True)
     b.fenster_reihe("+y", 3.7, 0, 5.0, 1.8, 2, 1.0, 1.2)
     b.fenster_reihe("+y", 3.7, 0, 5.0, 4.9, 2, 1.0, 1.2)
+    b.hecke(-5.5, 0.0, 0.8, 7.0)
+    b.zaun([(-4.9, 3.7), (-4.9, 9.0), (4.6, 9.0), (4.6, 3.7)])
+    b.beet(0, 6.6, 5.0, 2.4)
+    if b.hd:
+        b.box(1.7, -4.25, 0, 1.6, 0.5, 0.45, "holz_hell")             # Bank
+        b.zyl(3.6, -4.2, 0, 0.4, 0.4, 0.9, 8, "holz_dunkel")          # Regenfass
 
 
 def kate(b):
@@ -814,11 +986,17 @@ def kate(b):
     b.fenster((1.3, 2.7, 1.55), 0.9, 0.9, "+y", laeden=L)
     for f, fx in (("-x", -3.3), ("+x", 3.3)):
         b.fenster((fx, 0, 1.55), 0.9, 0.9, f, laeden=L)
+    # Vorgarten mit Luecke fuers Gartentor, Ziehbrunnen
+    b.zaun([(-4.6, -2.7), (-4.6, -6.6), (0.6, -6.6)], hoehe=0.8)
+    b.zaun([(2.4, -6.6), (4.6, -6.6), (4.6, -2.7)], hoehe=0.8)
+    b.beet(-2.2, -4.9, 3.2, 1.6, reihen=2)
+    b.brunnen(6.4, 1.0, r=0.9, dach=True)
 
 
 def scheune(b):
     """Scheune: rote Bretterwaende, grosses Tor mit weissem Rahmen und Streben, Heuluken in den
     Giebeln, Lueftungsreiter auf dem First."""
+    b.schwung = 0.55
     b.box(0, 0, 0, 14, 9, 5.2, "holz_rot")
     b.sockel(0, 0, 14, 9, h=0.5)
     d = b.dach(0, 0, 5.2, 14, 9, 5.0, "dach_schiefer", axis="x", over=0.5)
@@ -841,6 +1019,17 @@ def scheune(b):
             x = -6.5 + i * (13.0 / 14.0)
             for fy, f in ((-4.5, "-y"), (4.5, "+y")):
                 b.feld((x, fy, 2.6), 0.07, 5.0, f, "holz_rot_d", eps=0.022)
+    b.zaun([(-7.0, 4.5), (-7.0, 12.0), (5.0, 12.0), (5.0, 4.5)], hoehe=1.2, abstand=2.6)  # Koppel
+    b.heuballen(8.7, -2.2)
+    b.heuballen(8.7, 0.0)
+    b.heuballen(10.4, -1.1, quer=True)
+    if b.hd:                                                            # Leiterwagen
+        b.box(-9.6, -1.5, 0.55, 3.4, 1.6, 0.6, "holz_hell", skip=())
+        for dx in (-1.1, 1.1):
+            for sy in (-1, 1):
+                b.zyl(-9.6 + dx, -1.5 + sy * 0.86 - 0.06, 0.5, 0.5, 0.5, 0.12, 8, "holz_dunkel",
+                      cap_top=True, cap_bottom=True, achse="y")
+        b.balken((-7.9, -1.5, 0.7), (-6.4, -1.5, 0.35), 0.1, 0.1, "holz_dunkel")   # Deichsel
 
 
 def stall(b):
@@ -848,6 +1037,10 @@ def stall(b):
     b.pultdach(0, 0, 2.9, 10, 6, 1.3, "dach_schiefer")
     b.fenster_reihe("-y", -3.0, 0, 8.0, 1.9, 4, 1.0, 0.9)
     b.feld((3.6, -3.0, 1.1), 1.6, 2.2, "-y", "holz_hell")
+    b.zaun([(5.0, -3.0), (11.0, -3.0), (11.0, 4.0), (5.0, 4.0)], hoehe=1.2, abstand=2.5)
+    b.heuballen(9.2, 0.6)
+    if b.hd:
+        b.box(7.4, -2.4, 0, 2.0, 0.6, 0.5, "holz_dunkel")              # Trog
 
 
 def silo(b):
@@ -873,6 +1066,7 @@ def silo(b):
 
 
 def wassermuehle(b):
+    b.schwung = 0.55
     b.box(0, 0, 0, 9, 7.5, 6.8, "wand_creme")
     b.sockel(0, 0, 9, 7.5)
     d = b.dach(0, 0, 6.8, 9, 7.5, 3.8, "dach_schiefer", axis="x", over=0.5)
@@ -883,6 +1077,14 @@ def wassermuehle(b):
     b.fenster_reihe("-y", -3.75, 0, 6.0, 2.0, 2, 1.1, 1.3, laeden="holz_dunkel")
     b.tuer((2.6, -3.75, 1.05), 1.2, 2.1, "-y", vordach="dach_schiefer")
     b.fenster((4.5, 0, 8.2), 0.9, 1.0, "+x")
+    b.zaun([(4.5, 3.75), (4.5, 8.5), (-3.0, 8.5), (-3.0, 3.75)])
+    b.beet(0.8, 6.2, 4.0, 2.2)
+    b.holzstapel(5.1, 0.0, 0.8, 2.4)
+    if b.hd:                                                            # Muehlgraben
+        b.box(-5.9, 0, 0, 2.0, 9.6, 0.45, "stein")
+        b.boden(-5.9, 0, 0.47, 1.3, 9.2, "glas_blau")
+        for k in range(3):                                              # Mehlsaecke
+            b.box(1.0 + k * 0.75, -4.2, 0, 0.6, 0.45, 0.75, "wand_creme")
 
 
 def windmuehle(b):
@@ -924,6 +1126,7 @@ def windmuehle(b):
 def stadthaus2(b):
     """Buergerhaus, Giebel zur Strasse, zwei Vollgeschosse, Geschossgesims."""
     L = "holz_gruen"
+    b.schwung = 0.55
     b.box(0, 0, 0, 9, 8, 7.4, "wand_terra")
     b.sockel(0, 0, 9, 8)
     d = b.dach(0, 0, 7.4, 9, 8, 4.6, "dach_schiefer", axis="y", over=0.35)
@@ -940,6 +1143,12 @@ def stadthaus2(b):
         b.fenster_reihe(f, fx, 0, 4.0, 1.9, 2, 1.1, 1.5)
     b.fenster_reihe("+y", 4.0, 0, 6.0, 5.5, 3, 1.1, 1.5)
     b.fenster_reihe("+y", 4.0, 0, 6.0, 1.9, 3, 1.1, 1.5)
+    b.laterne(-5.4, -4.9)
+    b.hecke(0, 9.0, 9.4, 0.4, h=1.6, key="stein")                       # Hofmauer
+    for sx in (-1, 1):
+        b.hecke(sx * 4.5, 6.5, 0.4, 5.0, h=1.6, key="stein")
+    b.beet(-1.6, 6.6, 3.2, 2.2, reihen=2)
+    b.holzstapel(3.2, 4.5, 1.8, 0.7)
 
 
 def stadthaus3(b):
@@ -963,6 +1172,12 @@ def stadthaus3(b):
     b.feld((0, -4.5, 1.2), 1.4, 2.4, "-y", "holz_dunkel")
     for f, fx in (("-x", -3.3), ("+x", 3.3)):
         b.fenster_reihe(f, fx, 0, 5.0, 8.6, 2, 0.9, 1.3)
+    b.laterne(4.3, -5.5)
+    b.hecke(0, 8.8, 7.0, 0.4, h=1.6, key="stein")
+    for sx in (-1, 1):
+        b.hecke(sx * 3.3, 6.65, 0.4, 4.3, h=1.6, key="stein")
+    if b.hd:
+        b.zyl(-2.4, 5.3, 0, 0.4, 0.4, 0.9, 8, "holz_dunkel")           # Regenfass
 
 
 def reihenhaus(b):
@@ -970,7 +1185,8 @@ def reihenhaus(b):
     farben = ("wand_creme", "wand_mauve", "wand_blau")
     tueren = ("holz_rot", "holz_gruen", "holz_blau")
     for i, c in enumerate(farben):
-        b.box((i - 1) * 5.6, 0, 0, 5.6, 8, 7.2, c, skip=("bottom", "top"))
+        b.schwung = 0.55
+    b.box((i - 1) * 5.6, 0, 0, 5.6, 8, 7.2, c, skip=("bottom", "top"))
     b.sockel(0, 0, 16.8, 8)
     d = b.dach(0, 0, 7.2, 16.8, 8, 4.0, "dach_schiefer", axis="x", over=0.4,
                giebel=(farben[0], farben[2]))
@@ -983,6 +1199,14 @@ def reihenhaus(b):
         b.tuer((x - 1.4, -4.0, 1.1), 1.1, 2.2, "-y", key=tueren[i], vordach="dach_schiefer")
         b.fenster_reihe("+y", 4.0, x, 3.4, 5.3, 2, 1.0, 1.4)
         b.fenster_reihe("+y", 4.0, x, 3.4, 1.9, 2, 1.0, 1.4)
+    for i in range(3):                                                  # Vor- und Hintergaerten
+        x = (i - 1) * 5.6
+        b.zaun([(x - 2.7, -4.0), (x - 2.7, -6.4), (x - 2.1, -6.4)], hoehe=0.8)
+        b.zaun([(x - 0.7, -6.4), (x + 2.7, -6.4), (x + 2.7, -4.0)], hoehe=0.8)
+        b.hecke(x - 2.8, 7.5, 0.5, 7.0, h=1.3)
+        b.beet(x + 0.4, 8.2, 3.2, 2.0, reihen=2)
+    b.hecke(8.4, 7.5, 0.5, 7.0, h=1.3)
+    b.waescheleine(-7.4, -4.6, 5.6)
 
 
 def eckhaus(b):
@@ -1002,11 +1226,17 @@ def eckhaus(b):
     b.fenster_reihe("-y", 0.0, 5.0, 4.0, 5.4, 2, 1.1, 1.4, laeden=L)
     b.fenster_reihe("-y", 0.0, 5.0, 4.0, 2.2, 2, 1.1, 1.4, laeden=L)
     b.fenster_reihe("+x", 7.5, 3.0, 4.0, 5.4, 2, 1.1, 1.4)
+    b.laterne(-7.4, -4.9)
+    b.hecke(5.2, -4.0, 4.6, 0.4, h=1.1, key="stein")                    # Hofmauer im Winkel
+    b.hecke(7.5, -2.0, 0.4, 4.4, h=1.1, key="stein")
+    if b.hd:
+        b.box(4.6, -0.5, 0, 1.6, 0.5, 0.45, "holz_hell")               # Bank im Hof
 
 
 def gasthaus(b):
     """Gasthaus: Laube vor dem Erdgeschoss, zwei Gauben, zwei Kamine, Wirtshausschild."""
     L = "holz_gruen"
+    b.schwung = 0.55
     b.box(0, 0, 0, 12, 9, 7.2, "wand_creme")
     b.sockel(0, 0, 12, 9)
     d = b.dach(0, 0, 7.2, 12, 9, 4.8, "dach_terra", axis="x", over=0.55)
@@ -1028,6 +1258,15 @@ def gasthaus(b):
         b.fenster((fx, 0, 8.9), 1.0, 1.0, f)
     b.box(5.3, -5.2, 4.9, 0.16, 1.4, 0.16, "holz_dunkel")             # Ausleger
     b.feld((5.3, -5.6, 4.3), 0.9, 1.0, "+x", "holz_gruen", eps=0.0, zweiseitig=True)
+    # Biergarten neben dem Haus
+    b.zaun([(6.0, -4.6), (14.4, -4.6), (14.4, 4.3), (6.0, 4.3)], hoehe=0.9)
+    b.schirm(8.6, -2.2, "dach_rot")
+    b.schirm(12.0, -2.2, "wand_weiss")
+    b.schirm(8.6, 1.7, "wand_weiss")
+    b.schirm(12.0, 1.7, "dach_rot")
+    if b.hd:
+        for k in range(2):                                              # Bierfaesser
+            b.zyl(-6.7, -3.2 + k * 1.0, 0, 0.42, 0.42, 0.95, 8, "holz_dunkel")
 
 
 def villa(b):
@@ -1054,12 +1293,19 @@ def villa(b):
         b.fenster_reihe(f, fx, 0, 6.0, 1.9, 2, 1.3, 1.7)
     b.fenster_reihe("+y", 5.0, 0, 9.6, 5.6, 4, 1.3, 1.7)
     b.fenster_reihe("+y", 5.0, 0, 9.6, 1.9, 4, 1.3, 1.7)
+    b.hecke(0, 13.6, 17.0, 0.9, h=1.6)                                  # Park hinter dem Haus
+    for sx in (-1, 1):
+        b.hecke(sx * 8.05, 9.4, 0.9, 9.3, h=1.6)
+        b.beet(sx * 4.3, 9.4, 3.0, 3.0)
+        b.laterne(sx * 5.2, -8.8)
+    b.brunnen(0, 9.4, r=1.5)
 
 
 def kirche(b):
     """Dorfkirche: Langhaus mit steilem Dach und Spitzbogenfenstern, Westturm mit Schalluken und
     Zifferblaettern auf drei Seiten, Kupferhelm mit vier Eckfialen, Apsis, Sakristei, Portal mit
     Rosette."""
+    b.schwung = 0.4
     b.box(0, 2.0, 0, 11, 20, 8.6, "wand_creme")                           # Langhaus
     b.dach(0, 2.0, 8.6, 11, 20, 6.2, "dach_schiefer", axis="y", over=0.5)
     b.box(0, -10.0, 0, 6.6, 6.6, 19.0, "wand_creme")                      # Westturm
@@ -1090,6 +1336,7 @@ def kirche(b):
 
 
 def kapelle(b):
+    b.schwung = 0.55
     b.box(0, 0, 0, 5.4, 8, 4.2, "wand_weiss")
     b.dach(0, 0, 4.2, 5.4, 8, 2.8, "dach_terra", axis="y", over=0.4)
     b.box(0, -2.6, 6.2, 1.7, 1.7, 2.6, "wand_weiss")          # Dachreiter
@@ -1138,6 +1385,9 @@ def rathaus(b):
             b.box(x, -5.0, 0.55, 0.5, 0.36, 7.85, "wand_weiss")
         b.box(0, -5.0, 4.4, 15.2, 0.4, 0.3, "wand_weiss")                  # Gurtgesims
         b.feld((0.9, -1.2, 24.5), 1.4, 0.9, "-y", "dach_rot", eps=0.0, zweiseitig=True)
+    b.brunnen(0, -11.5, r=1.8)                                          # Marktbrunnen
+    for sx in (-1, 1):
+        b.laterne(sx * 5.6, -7.8)
 
 
 def speicher(b):
@@ -1308,6 +1558,7 @@ def wasserturm(b):
 
 
 def leuchtfeuer_haus(b):     # kleines Hafen-/Lotsenhaus mit Signalmast
+    b.schwung = 0.55
     b.box(0, 0, 0, 7.5, 6, 3.6, "wand_weiss")
     b.sockel(0, 0, 7.5, 6)
     d = b.dach(0, 0, 3.6, 7.5, 6, 2.6, "dach_rot", axis="x", over=0.45)
@@ -1317,6 +1568,12 @@ def leuchtfeuer_haus(b):     # kleines Hafen-/Lotsenhaus mit Signalmast
         b.feld((3.2, 1.6, z), 1.6, 0.3, "-y", "dach_rot", eps=0.16, zweiseitig=True)
     b.fenster_reihe("-y", -3.0, 0.8, 4.4, 2.2, 2, 1.1, 1.2, laeden="holz_blau")
     b.tuer((-2.6, -3.0, 1.05), 1.1, 2.1, "-y", key="holz_blau", vordach="dach_rot")
+    if b.hd:                                                            # Boot auf Boecken
+        b.box(5.9, 0.4, 0.4, 1.3, 3.6, 0.55, "holz_blau", skip=())
+        b.box(5.9, 0.4, 0.95, 0.9, 3.0, 0.2, "wand_weiss", skip=())
+        for y in (-0.8, 1.6):
+            b.box(5.9, y, 0, 1.5, 0.2, 0.4, "holz_dunkel")
+    b.zaun([(-3.75, 3.0), (-3.75, 7.0), (3.75, 7.0), (3.75, 3.0)], hoehe=0.9)
 
 
 # --- Hochhaeuser, Grossbauten & Sonderbauten ------------------------------------------------
@@ -1671,6 +1928,9 @@ def bahnhof(b):
             b.zyl(x * 1.5, 11.0, 0.9, 0.08, 0.08, 3.0, 6, "metall_dunkel")
         b.feld((0, -7.3, 11.6), 0.1, 0.9, "-y", "wand_weiss", eps=0.12, winkel=0.5)   # Zeiger
         b.feld((0, -7.3, 11.6), 0.1, 0.6, "-y", "wand_weiss", eps=0.12, winkel=-1.3)
+    for sx in (-1, 1):
+        b.laterne(sx * 8.0, -9.6)
+        b.laterne(sx * 13.0, -7.4)
 
 
 def fabrik(b):
@@ -2100,6 +2360,17 @@ def hd_kirche(b):
     for y in (-3.0, 2.0, 7.0):                                    # Masswerk (Mittelpfosten)
         b.feld((-5.5, y, 4.5), 0.12, 3.4, "-x", "stein", eps=0.07)
         b.feld((5.5, y, 4.5), 0.12, 3.4, "+x", "stein", eps=0.07)
+    # KIRCHHOF: Mauer ringsum mit Tor vorn, Grabsteine
+    for sx in (-1, 1):
+        b.box(sx * 12.5, 2.0, 0, 0.5, 37.0, 1.3, "stein")
+        b.box(sx * 7.4, -16.5, 0, 10.7, 0.5, 1.3, "stein")
+        b.box(sx * 2.3, -16.5, 0, 0.7, 0.7, 2.0, "stein")               # Torpfeiler
+    b.box(0, 20.5, 0, 25.5, 0.5, 1.3, "stein")
+    for j in range(3):
+        for i in range(5):
+            b.box(-10.6 + j * 1.5, -8.0 + i * 4.2, 0, 0.6, 0.18, 0.85, "stein")
+    for i in range(3):
+        b.box(10.4, 0.0 + i * 3.6 - 9.0, 0, 0.6, 0.18, 0.85, "stein")
 
 
 def hd_villa(b):
@@ -2150,6 +2421,8 @@ def hd_kapelle(b):
     b.zyl(0, -2.6, 11.2, 0.14, 0.14, 1.0, 6, "metall")                 # Kreuz
     b.feld((0, -2.6, 11.9), 0.6, 0.12, "-y", "metall", eps=0.16, zweiseitig=True)
     b.box(0, 0, 4.2, 5.6, 8.2, 0.22, "wand_weiss")                     # Traufgesims
+    b.box(2.0, -4.7, 0, 1.6, 0.5, 0.45, "holz_hell")                    # Bank
+    b.zaun([(-3.4, -4.0), (-3.4, 4.6), (3.4, 4.6), (3.4, -4.0)], hoehe=0.8)
 
 
 def hd_stall(b):
@@ -2230,7 +2503,7 @@ def main():
             erste = erste or ob
     bpy.context.view_layer.objects.active = erste
     bpy.ops.export_scene.gltf(filepath=GLB, export_format='GLB', use_selection=True,
-                              export_apply=True)
+                              export_apply=True, export_vertex_color='ACTIVE')
     print("EXPORTED", GLB)
 
     # dasselbe fuer die HD-Stufe -> world_buildings_hd.glb. Die Knoten heissen dort
@@ -2245,7 +2518,7 @@ def main():
             erste = erste or ob
     bpy.context.view_layer.objects.active = erste
     bpy.ops.export_scene.gltf(filepath=GLB_HD, export_format='GLB', use_selection=True,
-                              export_apply=True)
+                              export_apply=True, export_vertex_color='ACTIVE')
     print("EXPORTED", GLB_HD)
     total = sum(r[1] for r in report)
     total_hd = sum(r[2] for r in report)

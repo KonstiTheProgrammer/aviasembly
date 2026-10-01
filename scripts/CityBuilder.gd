@@ -32,6 +32,10 @@ static var _meshes_hd: Dictionary = {}  # dieselbe Form mit Nahdetails
 ## Grundtyp; build() waehlt je Bauplatz eine Variante aus der Lage (fest, jeder Start gleich).
 static var _varianten: Dictionary = {}
 static var _loaded := false
+## HAUS-SHADER (shaders/haus.gdshader): weiches Licht wie Gelaende und Baeume, Materialfarbe
+## mal Vertexfarbe (gemalter Verlauf aus dem Bauskript). Je Quellmaterial EIN ShaderMaterial.
+static var _haus_shader: Shader = null
+static var _mat_cache: Dictionary = {}
 
 ## FUER DIE KARTE (WorldMap): Grundrisse aller gesetzten Haeuser und Strassenstuecke in
 ## Weltkoordinaten. Die Karte zeichnet daraus beim Hineinzoomen die ECHTE Bebauung statt
@@ -61,8 +65,32 @@ static func _sammeln(pfad: String, ziel: Dictionary) -> void:
 		var nm := String(c.name)
 		if nm.ends_with("_HD"):
 			nm = nm.substr(0, nm.length() - 3)
+		_malen(mi.mesh)
 		ziel[nm] = mi.mesh
 	root.free()
+
+
+## Die importierten Standardmaterialien eines Haus-Meshes gegen den Haus-Shader tauschen
+## (Farbe, Rauheit, Metall uebernommen). Die Meshes sind geteilte Ressourcen — der Tausch
+## gilt fuer die Sitzung, die glb-Dateien bleiben unberuehrt.
+static func _malen(mesh: Mesh) -> void:
+	if _haus_shader == null:
+		_haus_shader = load("res://shaders/haus.gdshader")
+	if _haus_shader == null:
+		return
+	for si in mesh.get_surface_count():
+		var m := mesh.surface_get_material(si)
+		var bm := m as BaseMaterial3D
+		if bm == null:
+			continue
+		if not _mat_cache.has(bm):
+			var sm := ShaderMaterial.new()
+			sm.shader = _haus_shader
+			sm.set_shader_parameter("haus_farbe", bm.albedo_color)
+			sm.set_shader_parameter("rauheit", bm.roughness)
+			sm.set_shader_parameter("metall", bm.metallic)
+			_mat_cache[bm] = sm
+		mesh.surface_set_material(si, _mat_cache[bm])
 
 
 static func _load_lib() -> void:
