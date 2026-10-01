@@ -19,6 +19,11 @@ const SZENEN := [
 	["fetzen", Vector3(-32000, 368, 9500), Vector2(1.0, 0.05), 170.0, -99.0],
 	["heimat_ost", Vector3(74, 410, -1933), Vector2(0.747, -0.664), 140.0, -99.0],
 	["tief_wald", Vector3(-3500, 70, 6000), Vector2(-0.6, 0.8), 120.0, -99.0],
+	# Wald aus der ueblichen Tiefflughoehe (30 m ueber den Wipfeln), gegen die Sonne und mit
+	# der Sonne im Ruecken — "tief_wald" fliegt auf Wipfelhoehe und steckt je nach Lauf mit
+	# der Kamera in einer Krone.
+	["wald_gegen", Vector3(-3500, 105, 6000), Vector2(-0.6, 0.8), 120.0, -99.0],
+	["wald_sonne", Vector3(-4400, 105, 7200), Vector2(0.6, -0.8), 120.0, -99.0],
 	["mittel", Vector3(-6000, 700, 3000), Vector2(-0.7, 0.7), 150.0, -99.0],
 	["reise", Vector3(2000, 1800, 8000), Vector2(0.2, 1.0), 180.0, -99.0],
 	["schlucht_flug", Vector3(-13686, 70, 11879), Vector2(0.2, 1.0), 120.0, -99.0],

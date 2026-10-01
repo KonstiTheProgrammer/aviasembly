@@ -14,9 +14,24 @@
 # einseitig (von unten unsichtbar), Birkenringe standen als Kragen vom duenner werdenden
 # Stamm ab, der Schnee der Schneetanne schwebte als lose Baender neben den Kraenzen.
 #
-# REGELN DIESER FASSUNG:
+# DRITTE FASSUNG (2026-10), nach Spielbildern: der Nadelwald (der Grossteil der Insel) stand
+# als Stapel glatter Zackenkegel da — Papierhuetchen in einem einzigen Smaragdgruen —, die
+# Laubkronen als drei bis fuenf Kugeln mit sechseckigem Umriss, die Birken neongelb.
+#   * NADELBAEUME: `Baum.etage` statt des geraden Zackenkegels — jede Astlage ist eine
+#     GLOCKE aus haengenden Zweigen mit Ruecken und Kerben; die Etagen sind flach und liegen
+#     so weit auseinander, dass unter jeder ein Schattenspalt bleibt. Farbe nach der ROLLE
+#     des Punkts (heller Ruecken, helle Spitze, dunkle Kerbe): von oben, im Flug, ein Stern
+#     aus Zweigen. Gleiches Dreiecksbudget wie vorher (Fichte 236 statt 228).
+#   * LAUBKRONEN: `Baum.krone` — ein grosser Kern (80 Dreiecke), drei bis vier Wolken und
+#     ein, zwei Buckel aus der 60er-Kugel ("mittel"; die UV-Kugel 8x4 mit ihren flachen
+#     Polen ist raus). Jeder zweite Ballen in der helleren Laubfarbe.
+#   * Das LICHT (Schatten in den Fugen zwischen den Ballen, Verlauf, Normalen) entsteht
+#     nicht hier, sondern beim Laden: TerrainWorld._weiche_krone. Hier nur Form und Farbe.
+#   * Sichtprobe ohne Welt: tools/_baum_probe.gd (Nahaufnahmen, Probewald, Fernstufe).
+#
+# REGELN (seit der zweiten Fassung):
 #   * Jedes Teil ist ein GESCHLOSSENER Koerper in einem eigenen bmesh (Ballen = Ikosaeder-
-#     kugel, Kranz = Kegel mit Unterseite, Rohr = Zylinderzug mit Deckeln). Nur auf einem
+#     kugel, Etage = Glocke mit Unterseite, Rohr = Zylinderzug mit Deckeln). Nur auf einem
 #     geschlossenen Koerper ist die Aussenseite eindeutig; die Ausrichtung wird danach
 #     ueber das VORZEICHEN DES VOLUMENS geprueft und notfalls umgedreht (nicht geraten).
 #   * Duenne Flaechen (Wedel) werden ausdruecklich ZWEISEITIG gebaut: eigene Eckpunkte
@@ -62,28 +77,40 @@ RINDE_KIEFER = (0.46, 0.26, 0.15)
 BIRKE = (0.86, 0.85, 0.80)
 BIRKE_FLECK = (0.22, 0.20, 0.19)
 TOT = (0.42, 0.38, 0.32)
-NADEL = (0.16, 0.40, 0.22)
-NADEL_HELL = (0.22, 0.47, 0.26)
-KIEFERGRUEN = (0.24, 0.42, 0.20)
-BIRKENLAUB = (0.50, 0.66, 0.26)
-EICHE = (0.28, 0.47, 0.20)
-PALME = (0.30, 0.52, 0.24)
+# NADELGRUEN in drei Stufen: tief im Inneren der Etage, Flaeche, frische Zweigspitze. Bewusst
+# gedeckter und blauer als die Wiese (shaders/palette.gdshaderinc: GRAS_TIEF 0.11/0.28/0.21)
+# — das alte 0.16/0.40/0.22 stand unter der warmen Sonne als Smaragd-Plastik im Bild.
+NADEL_TIEF = (0.10, 0.26, 0.19)
+NADEL = (0.17, 0.38, 0.22)
+NADEL_SPITZE = (0.30, 0.49, 0.23)
+KIEFERGRUEN = (0.20, 0.38, 0.21)
+KIEFER_HELL = (0.28, 0.45, 0.22)
+# Birke: frisches, aber nicht mehr neongelbes Gruen (0.50/0.66/0.26 leuchtete aus jedem
+# Waldbild als gelbe Punkte heraus).
+BIRKENLAUB = (0.36, 0.55, 0.25)
+BIRKE_HELL = (0.45, 0.62, 0.27)
+EICHE = (0.24, 0.43, 0.20)
+EICHE_HELL = (0.32, 0.50, 0.21)
+PALME = (0.28, 0.50, 0.24)
 PALME_STAMM = (0.50, 0.40, 0.27)
 KOKOS = (0.36, 0.30, 0.16)
-BUSCH = (0.34, 0.50, 0.24)
-NADEL_KALT = (0.10, 0.25, 0.17)
+BUSCH = (0.30, 0.47, 0.23)
+NADEL_KALT = (0.09, 0.23, 0.18)
 SCHNEE = (0.88, 0.91, 0.95)   # Gruen > Rot: zaehlt als Laub (Farbregel)
 RINDE_URWALD = (0.47, 0.42, 0.34)
-URWALD = (0.14, 0.38, 0.13)
-URWALD_HELL = (0.22, 0.48, 0.17)
-FARN = (0.28, 0.55, 0.20)
+URWALD = (0.13, 0.36, 0.14)
+URWALD_HELL = (0.21, 0.46, 0.17)
+FARN = (0.26, 0.52, 0.20)
 FARN_STAMM = (0.26, 0.20, 0.15)
-AKAZIE = (0.36, 0.44, 0.19)
+AKAZIE = (0.34, 0.43, 0.19)
+AKAZIE_HELL = (0.41, 0.48, 0.20)
 RINDE_AKAZIE = (0.34, 0.26, 0.20)
-MANGROVE = (0.18, 0.35, 0.17)
+MANGROVE = (0.17, 0.35, 0.18)
+MANGROVE_HELL = (0.23, 0.42, 0.19)
 MANGROVE_WURZEL = (0.36, 0.30, 0.24)
 KAKTUS = (0.33, 0.47, 0.27)
-FELS = (0.38, 0.385, 0.40)
+FELS_TIEF = (0.34, 0.34, 0.35)   # Rot >= Gruen: zaehlt nicht als Laub
+FELS_HELL = (0.56, 0.54, 0.50)
 MOOS = (0.40, 0.46, 0.30)
 
 UNTER_BODEN = -0.8   # so weit reichen Staemme in den Boden (Hangfuss)
@@ -219,8 +246,9 @@ class Baum:
     # --- Ballen: Laubwolke, Busch, Fels -----------------------------------------------------
     def ballen(self, mitte, radien, farbe, fein=True, beulen=0.10, unten=0.80, drehung=None,
                kanten=0.0):
-        """Runder Laubballen: Ikosaederkugel (fein=True: 80 Dreiecke, fein=False: UV-Kugel
-        8x4 = 48, fein="winzig": nacktes Ikosaeder = 20), leicht verbeult, Unterseite flacher
+        """Runder Laubballen: Ikosaederkugel (fein=True: 80 Dreiecke, fein="mittel": 60,
+        fein=False: UV-Kugel 8x4 = 48, fein="winzig": nacktes Ikosaeder = 20), leicht
+        verbeult, Unterseite flacher
         (`unten`). kanten>0 macht daraus einen Fels (grobes, schollenartiges Rauschen statt
         sanfter Beulen).
         ACHTUNG Blender: create_icosphere(subdivisions=1) ist das NACKTE Ikosaeder (20
@@ -228,6 +256,12 @@ class Baum:
         tb = bmesh.new()
         if fein == "winzig":
             bmesh.ops.create_icosphere(tb, subdivisions=1, radius=1.0)
+        elif fein == "mittel":
+            # 60 Dreiecke / 32 Eckpunkte: Ikosaeder, jede Flaeche mit einem Mittelpunkt auf
+            # der Kugel. Deutlich runder als die UV-Kugel 8x4 (48 Dreiecke, zwei Pole mit
+            # flachem Deckel — flachgedrueckt stand die als Sechseckteller im Bild).
+            bmesh.ops.create_icosphere(tb, subdivisions=1, radius=1.0)
+            bmesh.ops.poke(tb, faces=tb.faces[:])
         elif fein:
             bmesh.ops.create_icosphere(tb, subdivisions=2, radius=1.0)
         else:
@@ -251,30 +285,83 @@ class Baum:
             v.co = m + rot @ Vector((p.x * rx, p.y * ry, p.z * rz))
         self._uebernehmen(tb, farbe)
 
-    # --- Kranz: ein Astkranz eines Nadelbaums ---------------------------------------------
-    def kranz(self, z0, z1, r, farbe, zweige=8, zacken=0.28, haengen=0.45, unter=0.22,
-              farbe_fn=None):
-        """Kegel mit gezacktem, haengendem Rand UND geschlossener Unterseite. Die Zweig-
-        spitzen (aeussere Zacken) haengen tiefer als die Kerben dazwischen — so liest sich
-        der Kranz als Astlage statt als gedrechselter Kegel."""
+    # --- Etage: eine Astlage als GLOCKE aus haengenden Zweigen -----------------------------
+    def etage(self, z_fuss, z_kopf, r, farbe_fn, zweige=7, haengen=0.5, schulter=0.56,
+              wulst=0.18, zacken=0.24, versatz=0.07):
+        """Astetage eines Nadelbaums. Der alte `kranz` war ein gerader Kegel mit Zackenrand:
+        im Spiel ein Stapel Papierhuetchen. Hier hat jeder Zweig einen RUECKEN (Schulterpunkt
+        auf der Zweigachse, ueber der Geraden Kopf-Rand) und faellt von dort zur haengenden
+        Spitze ab; zwischen den Zweigen liegt eine Kerbe. Das gibt im Profil eine Glocke und
+        von oben einen Stern aus Lappen. Geschlossen (Unterseite), 6 Dreiecke je Zweig.
+        farbe_fn(teil, rnd) -> (r, g, b) mit teil = "kopf", "ruecken", "spitze", "kerbe"
+        oder "unter": die Farbe haengt an der ROLLE des Punkts, nicht nur am Abstand — helle
+        Ruecken und Spitzen gegen dunkle Kerben zeichnen von oben (Flugblick) den Stern aus
+        Zweigen; nach dem Abstand allein war die Etage von oben ein glattes Vieleck."""
+        mx = self.rng.uniform(-versatz, versatz)
+        my = self.rng.uniform(-versatz, versatz)
+        hoch = z_kopf - z_fuss
         tb = bmesh.new()
-        spitze = tb.verts.new((0.0, 0.0, z1))
-        unterpunkt = tb.verts.new((0.0, 0.0, z0 + (z1 - z0) * unter))
+        kopf = tb.verts.new((mx, my, z_kopf))
+        z_unter = z_fuss + hoch * 0.16
+        unterpunkt = tb.verts.new((mx, my, z_unter))
         phase = self.rng.uniform(0.0, 2.0 * math.pi)
-        rand = []
-        n = zweige * 2
-        for i in range(n):
-            a = phase + 2.0 * math.pi * (i + self.rng.uniform(-0.18, 0.18)) / n
-            tip = i % 2 == 0
-            rr = r * (1.0 if tip else 1.0 - zacken) * self.rng.uniform(0.92, 1.06)
-            zz = z0 - (haengen if tip else haengen * 0.25) * self.rng.uniform(0.75, 1.25)
-            rand.append(tb.verts.new((math.cos(a) * rr, math.sin(a) * rr, zz)))
-        for i in range(n):
-            j = (i + 1) % n
-            tb.faces.new([rand[i], rand[j], spitze])
-            tb.faces.new([rand[j], rand[i], unterpunkt])
-        f = farbe_fn or self.einfarbig(farbe, ALPHA_LAUB, 0.08)
+        wink = []
+        lang = []
+        for i in range(zweige):
+            wink.append(phase + 2.0 * math.pi * (i + self.rng.uniform(-0.17, 0.17)) / zweige)
+            lang.append(self.rng.uniform(0.86, 1.10))
+        schultern = []
+        spitzen = []
+        kerben = []
+        for i in range(zweige):
+            a = wink[i]
+            la = lang[i]
+            ca, sa = math.cos(a), math.sin(a)
+            schultern.append(tb.verts.new((mx + ca * r * schulter * la, my + sa * r * schulter * la,
+                                           z_fuss + hoch * (1.0 - schulter + wulst))))
+            spitzen.append(tb.verts.new((mx + ca * r * la, my + sa * r * la,
+                                         z_fuss - haengen * self.rng.uniform(0.8, 1.2))))
+            j = (i + 1) % zweige
+            a2 = wink[j] + (2.0 * math.pi if j == 0 else 0.0)
+            am = (a + a2) * 0.5
+            rk = r * (1.0 - zacken) * (la + lang[j]) * 0.5
+            kerben.append(tb.verts.new((mx + math.cos(am) * rk, my + math.sin(am) * rk,
+                                        z_fuss - haengen * 0.35)))
+        for i in range(zweige):
+            j = (i + 1) % zweige
+            h = (i - 1) % zweige
+            tb.faces.new([kopf, schultern[i], schultern[j]])
+            tb.faces.new([schultern[i], kerben[h], spitzen[i]])
+            tb.faces.new([schultern[i], spitzen[i], kerben[i]])
+            tb.faces.new([schultern[i], kerben[i], schultern[j]])
+            tb.faces.new([unterpunkt, spitzen[i], kerben[h]])
+            tb.faces.new([unterpunkt, kerben[i], spitzen[i]])
+
+        rolle = {}
+        for v in schultern:
+            rolle[v.co.copy().freeze()] = "ruecken"
+        for v in spitzen:
+            rolle[v.co.copy().freeze()] = "spitze"
+        for v in kerben:
+            rolle[v.co.copy().freeze()] = "kerbe"
+        rolle[kopf.co.copy().freeze()] = "kopf"
+        rolle[unterpunkt.co.copy().freeze()] = "unter"
+
+        def f(p, _n, rnd):
+            c = farbe_fn(rolle.get(p.copy().freeze(), "ruecken"), rnd)
+            return (c[0], c[1], c[2], ALPHA_LAUB)
+
         self._uebernehmen(tb, f)
+
+    def krone(self, ballen, farbe, unten=0.78, beulen=0.11, hell=None):
+        """Laubkrone als WOLKE: Liste aus (mitte, radien, art) mit art "g" (80 Dreiecke),
+        "m" (60) oder "k" (20, nacktes Ikosaeder — nur fuer kleine Buckel, die halb in einem
+        grossen Ballen stecken und den Umriss brechen). `hell`: zweite Laubfarbe fuer jeden
+        zweiten Ballen (Flecken von frischem Laub)."""
+        art_fein = {"g": True, "m": "mittel", "k": "winzig"}
+        for i, (m, r, art) in enumerate(ballen):
+            c = hell if (hell is not None and i % 2 == 1) else farbe
+            self.ballen(m, r, laub(c), fein=art_fein[art], beulen=beulen, unten=unten)
 
     # --- Wedel: Palme, Farn (duenn -> zweiseitig) ------------------------------------------
     def wedel(self, wurzel, richtung, laenge, breite, farbe, knick=0.5, stationen=4, falz=0.0):
@@ -380,89 +467,96 @@ def laub(c, streuung=0.06):
 
 
 # --- die Arten --------------------------------------------------------------------------------
+def nadel_farbe(tief, flaeche, spitze):
+    """Farben einer Astetage nach der Rolle des Punkts (siehe Baum.etage)."""
+    farben = {"kopf": _mix(tief, flaeche, 0.5), "ruecken": _mix(flaeche, spitze, 0.25),
+              "spitze": spitze, "kerbe": _mix(tief, flaeche, 0.55), "unter": tief}
+
+    def f(teil, rnd):
+        return _mul(farben[teil], 0.96 + 0.08 * rnd)
+    return f
+
+
 def fichte():
+    """Fichte: sechs GLOCKIGE Astetagen aus haengenden Zweigen (Baum.etage), nach oben
+    schmaler, Wipfel als schlanke Spitze. Die Etagen sind flach (2,3 m hoch bei 2,7 m
+    Radius) und liegen 1,5 m auseinander: unter jeder bleibt ein Schattenspalt, der Baum
+    liest sich als geschichtet. Vorher sechs gerade Zackenkegel = ein Stapel Papierhuetchen."""
     b = Baum("Fichte", 11)
-    # Stammfuss verbreitert (Wurzelanlauf), laeuft bis in die Spitze
-    # Der Stamm reicht nur bis in den zweiten Kranz — darueber sieht ihn niemand.
-    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.0), (0, 0, 0.5), (0, 0, 3.4)],
-           [0.40, 0.40, 0.27, 0.20], holz(RINDE), segs=6, offen="uo")
-    kraenze = [(1.35, 4.7, 2.70), (2.65, 5.9, 2.35), (3.95, 7.1, 1.98), (5.25, 8.3, 1.58),
-               (6.55, 9.5, 1.15), (7.85, 10.6, 0.74)]
-    for i, (z0, z1, r) in enumerate(kraenze):
-        f = NADEL if i % 2 == 0 else NADEL_HELL
-        b.kranz(z0, z1, r, f, zweige=8, zacken=0.30, haengen=0.48 * (r / 2.7) + 0.12)
+    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.35), (0, 0, 3.2)],
+           [0.44, 0.33, 0.20], holz(RINDE), segs=5, offen="uo")
+    # (Fuss, Kopf, Radius, Haengen, Zweige)
+    etagen = [(1.50, 3.9, 2.75, 0.42, 7), (3.10, 5.5, 2.36, 0.38, 7), (4.65, 6.95, 1.96, 0.33, 6),
+              (6.10, 8.3, 1.56, 0.28, 6), (7.45, 9.55, 1.16, 0.22, 5), (8.70, 10.8, 0.76, 0.16, 5)]
+    f = nadel_farbe(NADEL_TIEF, NADEL, NADEL_SPITZE)
+    for z0, z1, r, haeng, n in etagen:
+        b.etage(z0, z1, r, f, zweige=n, haengen=haeng)
     return b.objekt()
 
 
 def schneetanne():
-    """Nordland: schmale, dunkle Tanne. SCHNEE ALS FARBE, nicht als eigene Geometrie: die
-    Kerben zwischen den Zweigspitzen und die Spitze jedes Kranzes tragen Weiss, die haengenden
-    Zweigspitzen und die Unterseite bleiben dunkel. Von oben (so sieht man Baeume im Flug)
-    ergibt das einen weissen Stern auf jedem Kranz; die alte Fassung legte Baender NEBEN die
-    Kraenze, die sichtbar in der Luft standen."""
+    """Nordland: schmale, dunkle Tanne. SCHNEE ALS FARBE, nicht als eigene Geometrie: der
+    Ruecken jeder Etage traegt Weiss, die haengenden Zweigspitzen und die Unterseite bleiben
+    dunkel. Von oben (so sieht man Baeume im Flug) ergibt das einen weissen Stern auf jeder
+    Etage; die erste Fassung legte Baender NEBEN die Kraenze, die sichtbar in der Luft standen."""
     b = Baum("Schneetanne", 88)
-    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.0), (0, 0, 0.5), (0, 0, 3.0)],
-           [0.34, 0.34, 0.22, 0.17], holz(RINDE), segs=6, offen="uo")
+    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.35), (0, 0, 3.0)],
+           [0.36, 0.27, 0.17], holz(RINDE), segs=5, offen="uo")
 
-    def schnee_fn(z0, z1, r):
-        def f(p, n, rnd):
-            if n.z < -0.05:                      # Unterseite: tiefes Nadelgruen
-                c = _mul(NADEL_KALT, 0.85)
-            else:
-                # Oberseite: die KERBEN (rr ~0.66) und die Spitze tragen Schnee, die
-                # haengenden Zweigspitzen (rr ~1) bleiben dunkel. Ein Verlauf nach der Hoehe
-                # zeigte nur die Spitze weiss — das Innere jedes Kranzes verdeckt der naechste.
-                rr = math.hypot(p.x, p.y) / max(r, 0.01)
-                s = min(max((0.95 - rr) / 0.22, 0.0), 1.0)
-                c = _mix(NADEL_KALT, SCHNEE, s)
-            return (c[0], c[1], c[2], ALPHA_LAUB)
-        return f
+    # Der Ruecken jedes Zweigs und der Kopf tragen Schnee, Spitzen, Kerben und Unterseite
+    # bleiben dunkel — von oben ein weisser Stern auf jeder Etage.
+    farben = {"kopf": SCHNEE, "ruecken": _mix(NADEL_KALT, SCHNEE, 0.85),
+              "spitze": NADEL_KALT, "kerbe": _mix(NADEL_KALT, SCHNEE, 0.22),
+              "unter": _mul(NADEL_KALT, 0.85)}
 
-    kraenze = [(1.2, 4.3, 2.15), (2.55, 5.6, 1.85), (3.9, 6.9, 1.52), (5.25, 8.2, 1.18),
-               (6.6, 9.5, 0.84), (7.9, 10.6, 0.52)]
-    for z0, z1, r in kraenze:
-        b.kranz(z0, z1, r, NADEL_KALT, zweige=7, zacken=0.34, haengen=0.30,
-                farbe_fn=schnee_fn(z0, z1, r))
+    def schnee(teil, rnd):
+        return farben[teil]
+
+    etagen = [(1.30, 3.6, 2.20, 0.34, 6), (2.90, 5.2, 1.88, 0.30, 6), (4.45, 6.7, 1.56, 0.26, 6),
+              (5.95, 8.1, 1.24, 0.22, 5), (7.35, 9.4, 0.92, 0.18, 5), (8.60, 10.6, 0.60, 0.14, 5)]
+    for z0, z1, r, haeng, n in etagen:
+        b.etage(z0, z1, r, schnee, zweige=n, haengen=haeng)
     return b.objekt()
 
 
 def kiefer():
-    """Waldkiefer: hoher, leicht gebogener Stamm (unten grau, oben fuchsrot), die Krone
-    als flache Wolkenschichten ganz oben."""
+    """Waldkiefer: hoher, leicht gebogener Stamm (unten grau, oben fuchsrot), die Krone als
+    flache Wolkenschichten ganz oben — ein Schirm aus drei breiten Polstern mit Buckeln."""
     b = Baum("Kiefer", 22)
-    p = [(0, 0, UNTER_BODEN), (0, 0, 0.0), (0.12, 0.05, 2.6), (0.34, 0.02, 5.1),
-         (0.40, -0.08, 7.2), (0.34, -0.10, 8.7)]
-    r = [0.34, 0.33, 0.26, 0.21, 0.17, 0.12]
+    p = [(0, 0, UNTER_BODEN), (0.02, 0.0, 0.4), (0.14, 0.05, 3.0), (0.36, 0.02, 5.6),
+         (0.38, -0.09, 8.2)]
+    r = [0.40, 0.31, 0.25, 0.20, 0.13]
 
     def rinde(pos, _n, rnd):
         c = _mix(RINDE, RINDE_KIEFER, min(max((pos.z - 2.0) / 3.0, 0.0), 1.0))
         c = _mul(c, 0.92 + 0.16 * rnd)
         return (c[0], c[1], c[2], ALPHA_HOLZ)
 
-    b.rohr(p, r, rinde, segs=6, offen="uo")
-    kopf = Vector(p[4])
-    aeste = [((1.55, 0.55, 8.5), (1.55, 1.35, 0.92)), ((-1.25, -0.7, 8.15), (1.45, 1.30, 0.86)),
-             ((0.1, 1.40, 9.05), (1.35, 1.25, 0.84)), ((0.55, -0.40, 9.55), (1.70, 1.50, 0.98)),
-             ((-0.55, 0.55, 9.95), (1.15, 1.10, 0.80))]
-    for ziel, rad in aeste[:4]:
-        z = Vector(ziel)
+    b.rohr(p, r, rinde, segs=5, offen="uo")
+    kopf = Vector((0.38, -0.08, 7.3))
+    polster = [((0.50, -0.30, 9.60), (1.95, 1.80, 1.22), "g"),
+               ((1.80, 0.75, 8.55), (1.62, 1.45, 1.02), "m"),
+               ((-1.40, -0.75, 8.25), (1.55, 1.40, 0.96), "m"),
+               ((0.00, 1.60, 8.95), (1.40, 1.30, 0.92), "m"),
+               ((-0.85, 0.50, 10.15), (1.10, 1.02, 0.78), "m")]
+    for ziel, _rad, _art in polster[1:4]:
+        z = Vector(ziel) - Vector((0, 0, 0.25))
         mid = kopf.lerp(z, 0.5) + Vector((0, 0, 0.35))
         b.rohr([kopf, mid, z], [0.13, 0.09, 0.06], rinde, segs=4, offen="uo")
-    for i, (ziel, rad) in enumerate(aeste):
-        b.ballen(ziel, rad, laub(KIEFERGRUEN), unten=0.62, fein=(i == 3))
+    b.krone(polster, KIEFERGRUEN, unten=0.62, beulen=0.16, hell=KIEFER_HELL)
     return b.objekt()
 
 
 def birke():
-    """Birke: schlanker weisser Stamm mit dunklen Querflecken (Farbe je Flaeche, keine
-    abstehenden Ringe mehr), lockere hohe Krone aus hellgruenen Ballen."""
+    """Birke: schlanker weisser Stamm mit dunklen Querflecken (Farbe je Flaeche), hohe,
+    lockere Krone — ein Kern, drei seitliche Wolken, zwei kleine Buckel."""
     b = Baum("Birke", 33)
     pts = [(0, 0, UNTER_BODEN)]
-    rad = [0.21]
-    for k in range(7):
-        z = k * 0.78
-        pts.append((0.06 * math.sin(z * 0.9), 0.04 * math.sin(z * 0.6 + 1.0), z))
-        rad.append(0.20 - z * 0.012)
+    rad = [0.24]
+    for k in range(5):
+        z = 0.2 + k * 1.15
+        pts.append((0.07 * math.sin(z * 0.9), 0.05 * math.sin(z * 0.6 + 1.0), z))
+        rad.append(0.21 - z * 0.016)
 
     def rinde(pos, _n, rnd):
         # dunkle Flecken aus dem Eckpunkt-Zufall, unten (Borke) dunkel
@@ -470,45 +564,49 @@ def birke():
         return (c[0], c[1], c[2], ALPHA_HOLZ)
 
     b.rohr(pts, rad, rinde, segs=5, offen="uo")
-    for ziel in ((0.9, 0.35, 5.6), (-0.8, 0.45, 5.3), (0.15, -0.85, 5.9)):
+    for ziel in ((0.9, 0.35, 5.5), (-0.8, 0.45, 5.4), (0.15, -0.85, 5.7)):
         b.rohr([(0.06, 0.02, 3.9), ziel], [0.08, 0.05], rinde, segs=4, offen="uo")
-    # Hohes, lockeres Oval: ein grosser Kern, drei seitliche Wolken, die ihn nur wenig
-    # ueberragen. Fuenf gleich grosse Kugeln sahen aus wie eine Weintraube.
-    kronen = [((0.08, 0.02, 6.35), (1.45, 1.35, 2.05)), ((0.75, 0.30, 5.55), (1.05, 0.98, 1.20)),
-              ((-0.70, 0.40, 5.75), (1.00, 0.95, 1.15)), ((0.20, -0.72, 6.85), (0.95, 0.90, 1.10))]
-    for i, (m, r) in enumerate(kronen):
-        b.ballen(m, r, laub(BIRKENLAUB), beulen=0.12, unten=0.85, fein=(i == 0))
+    b.krone([((0.08, 0.02, 6.45), (1.50, 1.42, 2.00), "g"),
+             ((0.92, 0.34, 5.45), (1.08, 1.00, 1.22), "m"),
+             ((-0.84, 0.48, 5.65), (1.02, 0.98, 1.18), "m"),
+             ((0.16, -0.90, 6.05), (1.00, 0.94, 1.28), "m"),
+             ((-0.30, -0.20, 7.85), (0.92, 0.88, 0.98), "m")],
+            BIRKENLAUB, unten=0.85, beulen=0.12, hell=BIRKE_HELL)
     return b.objekt()
 
 
 def eiche():
-    """Eiche: kurzer, dicker Stamm mit Wurzelanlauf, kraeftige Aeste, breite Kuppel aus
-    grossen Laubwolken."""
+    """Eiche: kurzer, dicker Stamm mit Wurzelanlauf, kraeftige Aeste, breite Kuppel: ein
+    grosser Kern, vier Laubwolken rundum, dazu Buckel, die den Umriss brechen."""
     b = Baum("Eiche", 44)
-    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.0), (0, 0, 0.3), (0.05, 0.0, 1.5), (0.1, 0.05, 2.7)],
-           [0.80, 0.80, 0.58, 0.46, 0.40], holz(RINDE, 0.10), segs=6, offen="uo")
+    b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.3), (0.05, 0.0, 1.5), (0.1, 0.05, 2.9)],
+           [0.84, 0.58, 0.46, 0.40], holz(RINDE, 0.10), segs=6, offen="uo")
     kopf = Vector((0.1, 0.05, 2.6))
-    wolken = [((0.15, 0.10, 6.15), (2.35, 2.20, 1.75)), ((1.95, 0.55, 5.05), (1.75, 1.60, 1.35)),
-              ((-1.80, 0.85, 5.10), (1.70, 1.65, 1.30)), ((0.35, -1.90, 5.20), (1.65, 1.55, 1.30)),
-              ((-0.60, -1.00, 6.60), (1.35, 1.30, 1.10))]
-    for i, (m, r) in enumerate(wolken[:4]):
+    wolken = [((0.15, 0.10, 6.05), (2.45, 2.30, 1.85), "g"),
+              ((2.05, 0.60, 5.00), (1.80, 1.65, 1.38), "m"),
+              ((-1.90, 0.90, 5.05), (1.75, 1.68, 1.34), "m"),
+              ((0.35, -2.00, 5.15), (1.70, 1.60, 1.32), "m"),
+              ((-0.70, -1.05, 6.85), (1.40, 1.34, 1.12), "m"),
+              ((1.05, 1.30, 7.10), (1.25, 1.18, 1.00), "m"),
+              ((2.20, -1.60, 5.55), (1.10, 1.05, 0.90), "m")]
+    for m, _r, _a in wolken[1:4]:
         z = Vector(m) - Vector((0, 0, 0.6))
         mid = kopf.lerp(z, 0.45) + Vector((0, 0, 0.25))
         b.rohr([kopf, mid, z], [0.30, 0.20, 0.12], holz(RINDE_HELL), segs=4, offen="uo")
-    for i, (m, r) in enumerate(wolken):
-        b.ballen(m, r, laub(EICHE), fein=(i == 0))
+    b.krone(wolken, EICHE, hell=EICHE_HELL)
     return b.objekt()
 
 
 def palme():
-    """Kokospalme: geschwungener Stamm mit Ringen, Kokosnuesse, gefaltete Wedel (zweiseitig)."""
+    """Kokospalme: geschwungener Stamm mit Ringen, Kokosnuesse, gefaltete Wedel (zweiseitig)
+    in zwei Lagen — die obere steht, die untere haengt tief herab."""
     b = Baum("Palme", 55)
     pts = [(0, 0, UNTER_BODEN)]
-    rad = [0.34]
-    for k in range(8):
-        t = k / 7.0
+    rad = [0.36]
+    for k in range(7):
+        t = k / 6.0
         pts.append((1.15 * t * t, 0.25 * t * t, 6.2 * t))
-        rad.append(0.32 - 0.13 * t)
+        rad.append(0.33 - 0.14 * t)
 
     def ringe(pos, _n, rnd):
         band = int(max(pos.z, 0.0) / 0.45) % 2
@@ -521,12 +619,13 @@ def palme():
     for a in (0.3, 2.4, 4.4):
         b.ballen(kopf + Vector((math.cos(a) * 0.30, math.sin(a) * 0.30, -0.25)),
                  (0.22, 0.22, 0.24), holz(KOKOS, 0.1), fein="winzig")
-    for i in range(9):
-        a = 2.0 * math.pi * i / 9 + 0.2 + b.rng.uniform(-0.12, 0.12)
-        hoch = 0.55 if i % 2 else 0.25
-        d = Vector((math.cos(a), math.sin(a), hoch))
-        f = PALME if i % 3 else _mul(PALME, 0.86)
-        b.wedel(kopf + Vector((0, 0, 0.15)), d, 3.2, 0.62, f, knick=0.55, stationen=3, falz=0.35)
+    for i in range(10):
+        a = 2.0 * math.pi * i / 10 + 0.2 + b.rng.uniform(-0.12, 0.12)
+        oben = i % 2 == 0
+        d = Vector((math.cos(a), math.sin(a), 0.62 if oben else 0.10))
+        f = PALME if oben else _mul(PALME, 0.84)
+        b.wedel(kopf + Vector((0, 0, 0.15)), d, 3.3 if oben else 3.0, 0.60, f,
+                knick=0.50 if oben else 0.72, stationen=4, falz=0.35)
     return b.objekt()
 
 
@@ -544,11 +643,13 @@ def totholz():
 
 
 def busch():
+    """Busch: ein runder Kern und zwei Buckel (200 statt 224 Dreiecke — Buesche sind
+    die haeufigste Pflanze der Heide und nur 2 m gross)."""
     b = Baum("Busch", 77)
-    b.ballen((0.0, 0.0, 0.62), (0.95, 0.90, 0.80), laub(BUSCH), unten=0.6)
-    for m, r in (((0.62, 0.28, 0.42), (0.66, 0.62, 0.56)), ((-0.52, 0.36, 0.38), (0.60, 0.58, 0.52)),
-                 ((0.12, -0.58, 0.36), (0.58, 0.55, 0.50))):
-        b.ballen(m, r, laub(_mul(BUSCH, 0.93)), fein=False, unten=0.6)
+    b.krone([((0.0, 0.0, 0.62), (0.98, 0.92, 0.82), "g"),
+             ((0.62, 0.34, 0.44), (0.68, 0.64, 0.58), "m"),
+             ((-0.50, -0.42, 0.40), (0.64, 0.60, 0.55), "m")],
+            BUSCH, unten=0.6, beulen=0.10, hell=_mul(BUSCH, 1.10))
     return b.objekt()
 
 
@@ -560,17 +661,17 @@ def urwaldbaum():
     b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.0), (0.12, 0.06, 4.0), (0.2, 0.1, 7.5), (0.1, -0.1, 11.0)],
            [0.62, 0.60, 0.48, 0.40, 0.30], holz(RINDE_URWALD), segs=6, offen="uo")
     kopf = Vector((0.1, -0.1, 10.6))
-    wolken = [((2.6, 0.6, 11.9), (2.45, 2.25, 1.05), URWALD),
-              ((-2.25, 1.35, 11.6), (2.30, 2.20, 1.00), URWALD_HELL),
-              ((0.45, -2.5, 11.95), (2.35, 2.25, 1.05), URWALD),
-              ((0.1, 0.25, 13.05), (2.75, 2.60, 1.20), URWALD_HELL),
-              ((-1.3, -1.6, 12.6), (1.80, 1.70, 0.90), URWALD)]
-    for m, r, c in wolken[:3]:
+    wolken = [((0.10, 0.25, 13.00), (2.90, 2.75, 1.30), "g"),
+              ((2.70, 0.60, 11.90), (2.50, 2.30, 1.10), "m"),
+              ((-2.35, 1.40, 11.65), (2.35, 2.25, 1.05), "m"),
+              ((0.45, -2.60, 11.95), (2.40, 2.30, 1.10), "m"),
+              ((-1.60, -1.80, 12.75), (1.75, 1.65, 0.92), "m"),
+              ((1.90, 2.40, 12.50), (1.60, 1.52, 0.86), "m")]
+    for m, _r, _a in wolken[1:4]:
         z = Vector(m) - Vector((0, 0, 0.4))
         b.rohr([kopf, kopf.lerp(z, 0.5) + Vector((0, 0, 0.3)), z], [0.24, 0.16, 0.10],
                holz(RINDE_URWALD), segs=4, offen="uo")
-    for i, (m, r, c) in enumerate(wolken):
-        b.ballen(m, r, laub(c), unten=0.6, fein=(i == 3))
+    b.krone(wolken, URWALD, unten=0.6, hell=URWALD_HELL)
     return b.objekt()
 
 
@@ -580,7 +681,7 @@ def baumfarn():
     b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.0), (0.15, 0.05, 2.4), (0.25, 0.0, 4.6)],
            [0.24, 0.23, 0.19, 0.16], holz(FARN_STAMM, 0.12), segs=5, offen="uo")
     kopf = Vector((0.25, 0.0, 4.6))
-    b.ballen(kopf + Vector((0, 0, 0.1)), (0.34, 0.34, 0.30), laub(_mul(FARN, 0.8)), fein=False)
+    b.ballen(kopf + Vector((0, 0, 0.1)), (0.34, 0.34, 0.30), laub(_mul(FARN, 0.8)), fein="winzig")
     for i in range(10):
         a = 2.0 * math.pi * i / 10 + 0.15 + b.rng.uniform(-0.1, 0.1)
         d = Vector((math.cos(a), math.sin(a), 0.80 if i % 2 else 0.45))
@@ -594,15 +695,18 @@ def akazie():
     b = Baum("Akazie", 122)
     f = holz(RINDE_AKAZIE, 0.10)
     b.rohr([(0, 0, UNTER_BODEN), (0, 0, 0.0), (0.05, 0.0, 1.2), (0.1, 0.0, 2.2)],
-           [0.30, 0.29, 0.24, 0.21], f, segs=6, offen="uo")
+           [0.32, 0.29, 0.24, 0.21], f, segs=5, offen="uo")
     enden = ((1.5, 0.5, 4.7), (-1.3, 0.75, 4.55), (0.2, -1.4, 4.8))
     for e in enden:
         ev = Vector(e)
         b.rohr([(0.1, 0.0, 2.1), Vector((0.1, 0.0, 2.1)).lerp(ev, 0.5) + Vector((0, 0, -0.15)), ev],
                [0.15, 0.11, 0.08], f, segs=4, offen="uo")
-    for m, r in (((0.0, 0.0, 5.35), (2.70, 2.50, 0.62)), ((1.35, 0.45, 5.05), (1.90, 1.75, 0.52)),
-                 ((-1.25, 0.70, 4.95), (1.85, 1.70, 0.50)), ((0.25, -1.30, 5.10), (1.85, 1.70, 0.52))):
-        b.ballen(m, r, laub(AKAZIE), unten=0.55, fein=(m[2] > 5.3))
+    b.krone([((0.0, 0.0, 5.35), (2.75, 2.55, 0.66), "g"),
+             ((1.45, 0.50, 5.05), (1.95, 1.80, 0.54), "m"),
+             ((-1.35, 0.75, 4.95), (1.90, 1.75, 0.52), "m"),
+             ((0.25, -1.40, 5.10), (1.90, 1.75, 0.54), "m"),
+             ((-1.35, -1.55, 5.40), (1.25, 1.18, 0.44), "m")],
+            AKAZIE, unten=0.55, hell=AKAZIE_HELL)
     return b.objekt()
 
 
@@ -621,9 +725,12 @@ def mangrove():
                [0.10, 0.10, 0.11, 0.14], f, segs=4, offen="uo")
     b.rohr([(0, 0, 1.5), (0.05, 0.05, 2.6), (0.1, 0.1, 3.5)], [0.24, 0.20, 0.16], f, segs=5,
            offen="uo")
-    for m, r in (((0.75, 0.2, 4.2), (1.65, 1.55, 1.15)), ((-0.7, 0.5, 4.0), (1.55, 1.50, 1.10)),
-                 ((0.1, -0.65, 4.7), (1.70, 1.60, 1.20)), ((0.0, 0.3, 5.1), (1.10, 1.05, 0.85))):
-        b.ballen(m, r, laub(MANGROVE), unten=0.65, fein=(m[2] == 4.7))
+    b.krone([((0.10, -0.65, 4.70), (1.75, 1.65, 1.22), "g"),
+             ((0.80, 0.25, 4.20), (1.68, 1.58, 1.16), "m"),
+             ((-0.75, 0.55, 4.00), (1.58, 1.52, 1.10), "m"),
+             ((0.00, 0.35, 5.15), (1.15, 1.10, 0.88), "m"),
+             ((-1.25, -0.85, 4.45), (1.00, 0.95, 0.76), "m")],
+            MANGROVE, unten=0.65, hell=MANGROVE_HELL)
     return b.objekt()
 
 
@@ -643,19 +750,34 @@ def kaktus():
 
 
 def fels():
-    """Felsbrocken fuer Haenge und Hochlagen (ersetzt den prozeduralen Doppelkegel in
-    TerrainWorld._build_rock_mesh). Masse wie dort: Radius ~1, Fuss bei -0.5 im Boden, oben
-    ~1.3; die Platzierung streckt ihn je Achse 0.5..2.6. Oben ein Hauch Moos."""
+    """Felsgruppe fuer Haenge und Hochlagen: ein kantiger Hauptblock und zwei kleine Brocken
+    daneben (vorher eine einzelne verbeulte Kugel in dunklem Grau — auf der Wiese eine
+    flache dunkle Scheibe). Farbe wie der Fels des Gelaendes (shaders/palette.gdshaderinc,
+    FELS_TIEF -> FELS_HELL): unten kuehl und dunkel, oben und auf nach oben zeigenden
+    Flaechen hell und warm, darauf ein Hauch Moos. Masse wie vorher: Radius ~1, Fuss im
+    Boden, oben ~1.3; die Platzierung streckt je Achse 0.5..2.6."""
     b = Baum("Fels", 155)
 
-    def farbe(p, n, rnd):
-        c = _mul(FELS, 0.92 + 0.12 * rnd)
-        if n.z > 0.45:
-            c = _mix(c, MOOS, min((n.z - 0.45) * 1.6, 0.55))
-        return (c[0], c[1], c[2], ALPHA_HOLZ)
+    def farbe(mitte, rz):
+        # "Zeigt nach oben" aus der LAGE des Punkts auf seinem Brocken, nicht aus der
+        # Flaechennormale: mit der Normale bekam jede Flaeche an einem Punkt eine andere
+        # Farbe, und der Export teilte jeden Eckpunkt (227 Eckpunkte fuer 120 Dreiecke).
+        def f(p, _n, rnd):
+            auf = min(max((p.z - mitte[2]) / rz, -1.0), 1.0)
+            oben = min(max((p.z + 0.2) / 1.3, 0.0), 1.0) * 0.5 + max(auf, 0.0) * 0.5
+            c = _mix(FELS_TIEF, FELS_HELL, oben)
+            c = _mul(c, 0.94 + 0.10 * rnd)
+            if auf > 0.55 and p.z > 0.45:
+                c = _mix(c, MOOS, min((auf - 0.55) * 1.4, 0.45))
+            return (c[0], c[1], c[2], ALPHA_HOLZ)
+        return f
 
-    b.ballen((0.0, 0.0, 0.35), (1.05, 0.95, 0.95), farbe, kanten=0.20, unten=0.9, drehung=0.4)
-    return b.objekt(kante_grad=62.0)
+    for mitte, rad, fein, dreh in (((0.0, 0.0, 0.42), (0.98, 0.86, 1.08), True, 0.4),
+                                   ((0.90, 0.40, 0.22), (0.48, 0.42, 0.52), "winzig", 1.3),
+                                   ((-0.68, -0.70, 0.16), (0.40, 0.36, 0.44), "winzig", 2.1)):
+        b.ballen(mitte, rad, farbe(mitte, rad[2]), fein=fein, kanten=0.26 if fein is True else 0.22,
+                 unten=0.9, drehung=dreh)
+    return b.objekt(kante_grad=66.0)
 
 
 ARTEN = [fichte, kiefer, birke, eiche, palme, totholz, busch, schneetanne, urwaldbaum, baumfarn,

@@ -379,6 +379,57 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   nach der Aufbereitung): 3921 Dreiecke / 2208 Eckpunkte fuer 13 Arten (vorher 3743 / 3260).
   GPU (`_gelaende_zeit`, 4K): Flora 2,27 -> 2,51 ms im Mittel, Wald 22 m 4,26 -> 4,53.
   Sichtprobe: `tools/_flora_tafel.gd -- <ordner>` (Spielweg, drei Blickwinkel + Fernstufe).
+- BAEUME, DRITTE FASSUNG (2026-10, Nutzer: "mach dass die Baeume und so besser aussehen").
+  BEFUND aus Flugbildern (nicht aus der Artentafel — dort sah die zweite Fassung gut aus):
+  der Nadelwald, also fast die ganze Insel, stand als Stapel glatter Zackenkegel in EINEM
+  Smaragdgruen da (ueber 42 m gab es nur Fichte + 14 % Totholz), Laubkronen als 3-5 Kugeln,
+  jede fuer sich beleuchtet, Birken neongelb, die Fernstufe der Laubbaeume fuenfeckige Rauten,
+  und im Gegenlicht leuchtete jeder Baum flaechig grell.
+  * MODELLE (`tools/build_baeume.py`): `Baum.etage` = Astlage als GLOCKE aus haengenden
+    Zweigen (Ruecken, Spitze, Kerbe; 6 Dreiecke je Zweig, geschlossen), Farbe nach der ROLLE
+    des Punkts (helle Ruecken/Spitzen, dunkle Kerben) — von oben ein Stern aus Zweigen. Sechs
+    flache Etagen mit Schattenspalt darunter (erster Anlauf: fuenf hohe = Umhaenge aus Stoff;
+    Zacken 0.30 mit hochgezogener Kerbe = rechteckige Ausschnitte). `Baum.krone` = ein Kern
+    (80 Dreiecke) + 3-4 Wolken + Buckel aus der 60er-Kugel ("mittel": Ikosaeder + `poke`);
+    das nackte Ikosaeder (20) taugt nur fuer Steine — als Laubbuckel stand es als Kristall
+    im Umriss. Jeder zweite Ballen heller. Palme mit zwei Wedellagen, Fels = Block + zwei
+    Brocken in Gelaendefarben. Palette gedeckter (NADEL_*, BIRKENLAUB 0.36/0.55/0.25).
+    FALLEN: (1) Farbe aus der FLAECHENNORMALE gibt je Flaeche eine andere Farbe am selben
+    Punkt -> der Export teilt jeden Eckpunkt (Fels 227 statt 66 Eckpunkte); Farbe nur aus der
+    Lage rechnen. (2) Dreiseitige Aeste (segs=3) sparen Dreiecke, kosten aber Eckpunkte: 120
+    Grad zwischen den Flaechen liegen ueber der Weichgrenze (95), jede Kante wird geteilt.
+  * LICHT BEIM LADEN (`TerrainWorld._weiche_krone`): Normale = 0.45 geglaettete Netznormale
+    + 0.20 Huelle des Ballens + 0.35 Huelle der GANZEN Krone (vorher reine Ballenhuelle =
+    lauter einzeln beleuchtete Murmeln). FUGEN: Abstand zum naechsten ANDEREN Ballen in
+    dessen Halbachsen -> dunkel in der Kehle (KRONE_FUGE 0.64); dieselbe Regel dunkelt jede
+    Astetage unter der naechsten ab. Verlauf zur Haelfte aus "Flaeche zeigt nach oben".
+  * SHADER (Flora, in TerrainWorld.setup): kuehle Himmelsfuellung als EMISSION auf dem Laub
+    (wie haus.gdshader; Schattenseite Blaugruen statt Schwarz) und DURCHSCHEINEN NUR AM SAUM
+    (`saum = 1 - N.V`, hoch 3) — flaechig gerechnet war ein Wald im Gegenlicht grell und
+    formlos, jetzt dunkle Massen mit leuchtendem Rand.
+  * BERGMISCHWALD (`_bewuchs_rechnen`, BERGWALD_REIN_AB 360 m): zwischen 42 und 360 m
+    Fichte 74 / Kiefer 12 / Birke 5 / Busch 4 / Totholz 5 %, darueber Fichte 88 / Totholz 12.
+    Weiter EIN Zufallszug je Pflanze -> Lage und Drehung aller Pflanzen unveraendert.
+  * FERNSTUFE (`_stellvertreter`, `_stellvertreter_flach`): Masse und Farben (drei Lagen) aus
+    dem LAUB des Originals; rund oder spitz entscheidet der Kronenradius im oberen Drittel
+    (> 55 % = Kuppel aus zwei verdrehten Viererringen, sonst Kegel) — vorher "breiter als
+    55 % der Hoehe", damit war die Birke in der Ferne eine Fichte. Stamm als Pyramide (3
+    statt 6 Dreiecke): Fichte 8 statt 11, Kuppel 19 statt 26. Busch und Fels: Huegel aus 12
+    Dreiecken statt des halben Originalnetzes. ALTER FEHLER dabei gefunden: `_grobe_fassung`
+    zaehlte "Eckpunkte / 3" als Dreiecke — das indizierte Totholz (125 Dreiecke, 78 Eckpunkte)
+    fiel unter die Schwelle, bekam nie einen Stellvertreter und kostete allein 0,6 ms.
+  * GEMESSEN (`_gelaende_zeit`, 4K, alle fuenf Stellungen im selben Lauf): Flora alt 2,59 ms
+    -> neu 2,42 (Wald 22 m 4,61 -> 3,80; Mittel 700 m 3,23 -> 3,37), Bild 14,26 -> 14,15.
+    Zwischenstand mit Mischwald und alten Fernfassungen: 3,28 ms — die Fernstufe ist der
+    groesste Posten, nicht die Nahmodelle. Dreiecke/Eckpunkte aller Arten (`_flora_zahlen`):
+    4001/2288 -> 4627/2553. FALLE: `GZ_NUR=<eine Stellung>` ist mit dem vollen Lauf NICHT
+    vergleichbar (Hang allein 4,09 ms, im vollen Lauf 1,40 — andere Sparstufen der Chunks).
+  * WERKZEUGE: `tools/_baum_probe.gd -- <ordner> [nah] [wald]` (Nahaufnahmen je Art aus drei
+    Richtungen, Probewald tief/hoch/gegen die Sonne, Fernstufe — mit dem Spielweg, ohne die
+    Welt zu laden: Sekunden statt Minuten; FALLE: verdeckt macOS das Fenster, speichert es
+    denselben Frame mehrfach — gleiche Dateigroessen pruefen). `_gefuehl_bilder` hat die
+    Szenen `wald_gegen`/`wald_sonne` (30 m ueber den Wipfeln; `tief_wald` steckt je nach Lauf
+    mit der Kamera in einer Kiefernkrone). `_bewuchs_stufen_check` unveraendert OK.
   Beim Laden `_weiche_krone`: Normale je LAUBBALLEN (Union-Find ueber Eckpunktlagen),
   Farbe je Lage gemittelt (Flicken der Flaechenstreuung weg), Verlauf oben warm/hell
   (KRONE_OBEN_TON) → unten kuehl/tief (KRONE_UNTEN_TON), innen dunkler; dann
@@ -763,8 +814,8 @@ Biom ueber ±34 km bitgleich; Stand seit dem Hauptinsel-Neubau oben); VORHER/NAC
   erst nach setup() aus dem Ring-Median (`_region_hoehen`); die Schluessel stehen vorher
   (Chunk-Worker liest schon). Trittstein-Inseln in den Meeresstrassen.
 - 13 Baumarten + Fels (`tools/build_baeume.py`, Blender 5.2 `--background`), neu: Schneetanne,
-  Urwaldbaum, Baumfarn, Akazie, Mangrove, Kaktus. Fern-Stellvertreter: breite Kronen
-  (b > 0,55 h) als abgeflachte Raute statt Kegel; Schnee zaehlt in der Kronenfarbe nur 0,4.
+  Urwaldbaum, Baumfarn, Akazie, Mangrove, Kaktus. Fern-Stellvertreter: runde Kronen
+  als Kuppel statt Kegel (siehe „BAEUME, DRITTE FASSUNG“); Schnee zaehlt in der Kronenfarbe nur 0,4.
 - FERNSCHUERZE STREAMT (Main._fern_pruefen, 1×/s, auch im Hangar): grob bis FERN_GROB_R,
   fein bis FERN_FEIN_R um den Spieler, Pakete à FERN_PAKET, naechste zuerst. FERN_KACHEL
   2176 (ganzes Vielfaches beider Zellweiten — mit 2200 klaffte ein 24-m-Spalt).

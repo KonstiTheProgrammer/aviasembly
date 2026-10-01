@@ -99,6 +99,9 @@ const FLORA_FADE_RAND := 300.0
 # von 921 600 Bildpunkten, alle im Mitteldistanzband, und die beiden Ausschnitte sind
 # nebeneinander nicht zu unterscheiden.
 const FLORA_GROB_AB := 1200.0
+# Ab dieser Hoehe ist der Bergwald reiner Fichtenwald (darunter gemischt, siehe
+# _bewuchs_rechnen).
+const BERGWALD_REIN_AB := 360.0
 # Ab so vielen Dreiecken lohnt sich ein Stellvertretermesh fuer die Fernstufe (siehe
 # _stellvertreter). Darunter ist das Original schon billiger als der Ersatz.
 const STELLV_AB_DREIECK := 40
@@ -3579,9 +3582,17 @@ void vertex() {
 		VERTEX += transpose(m) * vec3(aus.x, 0.0, aus.y) / max(dot(m[0], m[0]), 1e-4);
 	}
 }
+// KUEHLE HIMMELSFUELLUNG auf dem Laub (wie shaders/haus.gdshader): die Schattenseite einer
+// Krone ist tiefes Blaugruen, nicht Schwarz. Noetig, seit die Fugen zwischen den Laubballen
+// gebacken dunkel sind — mit dem Umgebungslicht allein soff die abgewandte Seite ab.
+// Nach oben zeigende Flaechen bekommen mehr (sie sehen mehr Himmel).
+const vec3 FUELL_TON = vec3(0.50, 0.68, 0.90);
 void fragment() {
 	vec3 c = COLOR.rgb;
 	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+	float laub_f = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
+	float auf = 0.5 + 0.5 * (INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).y;
+	EMISSION = ALBEDO * FUELL_TON * (0.10 + 0.17 * auf) * laub_f;
 }
 // WEICHES LICHT (Stil Zelda/Ghibli, wie das Gelaende): breiter, gemalter Uebergang, und
 // Laub SCHEINT DURCH, wenn die Sonne dahinter steht — die Kronenraender gluehen warm auf.
@@ -3591,11 +3602,17 @@ void light() {
 	float w = smoothstep(-0.30, 0.75, ndl);
 	vec3 l = LIGHT_COLOR * ATTENUATION * (1.0 / PI);
 	float laub = clamp((ALBEDO.g - max(ALBEDO.r, ALBEDO.b)) * 14.0, 0.0, 1.0);
-	float gegen = pow(clamp(-dot(LIGHT, VIEW), 0.0, 1.0), 3.0) * laub;
+	// NUR AM SAUM: durchscheinen kann, was duenn ist — der Rand der Krone, nicht ihre Mitte.
+	// Ueber die ganze Flaeche (Fassung davor) stand ein Wald im Gegenlicht als grell
+	// leuchtende, formlose Kegel da; jetzt bleibt die Flaeche im Schatten (Fugen, Etagen
+	// lesbar) und nur der Umriss glueht.
+	float saum = 1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+	float gegen = pow(clamp(-dot(LIGHT, VIEW), 0.0, 1.0), 3.0) * laub
+		* (0.14 + 0.86 * saum * saum * saum);
 	// Durchscheinen auch im Eigenschatten der Krone (sonst gluehte nie etwas: die abgewandten
 	// Blaetter liegen fast immer im Schatten der vorderen).
 	vec3 durch = LIGHT_COLOR * (0.35 + 0.65 * ATTENUATION) * (1.0 / PI);
-	DIFFUSE_LIGHT += l * w * 0.95 + durch * gegen * 0.9 * vec3(1.0, 1.05, 0.55);
+	DIFFUSE_LIGHT += l * w * 0.95 + durch * gegen * 0.6 * vec3(1.15, 1.0, 0.50);
 }
 """
 	_flora_mat = ShaderMaterial.new()
@@ -8356,8 +8373,23 @@ func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat
 						hi = 1.8
 				else:
 					var r := rng.randf()
-					if hart > 42.0:
-						art = "Fichte" if r < 0.86 else "Totholz"
+					if hart > BERGWALD_REIN_AB:
+						art = "Fichte" if r < 0.88 else "Totholz"
+					elif hart > 42.0:
+						# BERGMISCHWALD. Bis hierher stand ueber 42 m nur Fichte und Totholz:
+						# im Tiefflug ein Meer gleicher Kegel bis zum Horizont. Jetzt stehen
+						# Kiefern (Schirmkronen ueber dem Dach), einzelne helle Birken und
+						# Unterholz dazwischen; erst in der Hoehe wird der Wald rein.
+						if r < 0.74:
+							art = "Fichte"
+						elif r < 0.86:
+							art = "Kiefer"
+						elif r < 0.91:
+							art = "Birke"
+						elif r < 0.95:
+							art = "Busch"
+						else:
+							art = "Totholz"
 					elif hart > 24.0:
 						if r < 0.50:
 							art = "Fichte"
@@ -10256,26 +10288,28 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 ##
 ## Ein Baum jenseits von FLORA_GROB_AB ist im Bild wenige Pixel hoch. Was ihn dort ausmacht,
 ## ist seine Silhouette und seine Farbe, nicht seine Geometrie. Also wird sie nicht
-## vereinfacht, sondern ERSETZT: ein fuenfseitiger Kegel fuer die Krone, ein dreiseitiger
-## Stamm darunter, Masse aus der Huelle des Originals, Farben aus dessen Scheitelfarben
-## (oben Krone, unten Stamm). Elf Dreiecke statt 136 bis 292.
+## vereinfacht, sondern ERSETZT: ein fuenfseitiger Kegel (spitze Kronen) oder eine Kuppel
+## aus zwei Ringen (runde Kronen), darunter ein dreiseitiger Stamm; Masse und Farben aus dem
+## Laub des Originals. 8 bzw. 19 Dreiecke statt 236 bis 524.
 ##
-## NUR FUER BAUMAEHNLICHES. Fuer Felsen und Buesche waere ein Kegel falsch, und sie sind
-## ohnehin schon billig — unter STELLV_AB_DREIECK Dreiecken oder wenn das Mesh breiter als
-## hoch ist, bleibt es beim alten Weg.
+## NUR FUER BAUMAEHNLICHES. Flaches (Busch, Fels) bekommt _stellvertreter_flach.
 static func _stellvertreter(quelle: Mesh) -> Mesh:
 	var ab := quelle.get_aabb()
 	var h := ab.size.y
 	var b := maxf(ab.size.x, ab.size.z)
 	if h <= 0.001 or b <= 0.001:
 		return quelle
-	# Farben mitteln: oberhalb von 45 Prozent der Hoehe zaehlt zur Krone, darunter zum Stamm.
-	var krone := Color(0.20, 0.42, 0.20)
-	var stamm := Color(0.32, 0.24, 0.16)
-	var ks := Vector3.ZERO
+	var y0 := ab.position.y
+	# MASSE UND FARBEN AUS DEM LAUB DES ORIGINALS, nicht aus der Huelle des ganzen Baums: wo
+	# die Krone beginnt und endet, wo ihre Mitte liegt (Kiefer und Palme stehen schief) und
+	# wie breit sie ist. Vorher sass die Krone stur ab 28 % der Hoehe ueber dem Ursprung —
+	# die Fichte bekam in der Ferne einen vier Meter langen nackten Stamm.
+	# Farben in DREI Lagen (unteres, mittleres, oberes Kronendrittel): der gebackene Verlauf
+	# des Originals (oben warm und hell, unten kuehl und tief) bleibt in der Ferne erhalten;
+	# mit einer einzigen Mittelfarbe lag der ferne Wald als flacher Teppich da.
+	var l_lo := Vector3(INF, INF, INF)
+	var l_hi := Vector3(-INF, -INF, -INF)
 	var ss := Vector3.ZERO
-	var kn := 0
-	var ksg := 0.0
 	var sn := 0
 	for si in quelle.get_surface_count():
 		var arr := quelle.surface_get_arrays(si)
@@ -10286,26 +10320,53 @@ static func _stellvertreter(quelle: Mesh) -> Mesh:
 		var vp: PackedVector3Array = vs
 		var cp: PackedColorArray = cs
 		for i in mini(vp.size(), cp.size()):
-			var c := cp[i]
-			if vp[i].y - ab.position.y > h * 0.45:
-				# SCHNEE ZAEHLT KAUM MIT. Die Schneetanne ist zur Haelfte weiss (die Baender
-				# auf den Kraenzen); gleich gewichtet war ihr Stellvertreter ein blassgrauer
-				# Kegel, und aus der Ferne lag die Taiga wie eine verwaschene Lichtung da.
-				# Aus der Luft sieht man vor allem die dunklen Flanken unter dem Schnee.
-				# Andere Arten haben oben kein Weiss und bleiben unveraendert.
-				if minf(c.r, minf(c.g, c.b)) > 0.75:
-					ks += Vector3(c.r, c.g, c.b) * 0.4
-					ksg += 0.4
-				else:
-					ks += Vector3(c.r, c.g, c.b)
-					ksg += 1.0
-				kn += 1
+			if _ist_laub(cp[i], 0.0):
+				l_lo = l_lo.min(vp[i])
+				l_hi = l_hi.max(vp[i])
 			else:
-				ss += Vector3(c.r, c.g, c.b)
+				ss += Vector3(cp[i].r, cp[i].g, cp[i].b)
 				sn += 1
-	if kn > 0:
-		ks /= ksg
-		krone = Color(ks.x, ks.y, ks.z)
+	var hat_laub := l_lo.x != INF and l_hi.y - l_lo.y > h * 0.15
+	if not hat_laub:
+		# Totholz und anderes ohne Laub: Krone = alles ueber 28 % der Hoehe (wie frueher)
+		l_lo = Vector3(-b * 0.5, y0 + h * 0.28, -b * 0.5)
+		l_hi = Vector3(b * 0.5, y0 + h, b * 0.5)
+	var lh := l_hi.y - l_lo.y
+	var mx := (l_lo.x + l_hi.x) * 0.5 if hat_laub else 0.0
+	var mz := (l_lo.z + l_hi.z) * 0.5 if hat_laub else 0.0
+	var kr := maxf(l_hi.x - l_lo.x, l_hi.z - l_lo.z) * 0.5
+	var r_oben := 0.0      # groesster Kronenradius im oberen Drittel (spitz oder rund?)
+	var lagen := [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+	var lagen_g := [0.0, 0.0, 0.0]
+	for si in quelle.get_surface_count():
+		var arr := quelle.surface_get_arrays(si)
+		var vs: Variant = arr[Mesh.ARRAY_VERTEX]
+		var cs: Variant = arr[Mesh.ARRAY_COLOR]
+		if vs == null or cs == null:
+			continue
+		var vp: PackedVector3Array = vs
+		var cp: PackedColorArray = cs
+		for i in mini(vp.size(), cp.size()):
+			var c := cp[i]
+			if hat_laub and not _ist_laub(c, 0.0):
+				continue
+			if vp[i].y < l_lo.y:
+				continue
+			var lage := clampi(int((vp[i].y - l_lo.y) / maxf(lh, 0.01) * 3.0), 0, 2)
+			if lage == 2:
+				r_oben = maxf(r_oben, Vector2(vp[i].x - mx, vp[i].z - mz).length())
+			# SCHNEE ZAEHLT KAUM MIT. Die Schneetanne ist zur Haelfte weiss; gleich gewichtet
+			# war ihr Stellvertreter ein blassgrauer Kegel, und aus der Ferne lag die Taiga wie
+			# eine verwaschene Lichtung da. Aus der Luft sieht man vor allem die dunklen Flanken.
+			var g := 0.4 if minf(c.r, minf(c.g, c.b)) > 0.75 else 1.0
+			lagen[lage] += Vector3(c.r, c.g, c.b) * g
+			lagen_g[lage] += g
+	var farbe: Array[Color] = [Color(0.16, 0.34, 0.18), Color(0.20, 0.42, 0.20), Color(0.26, 0.48, 0.22)]
+	for k in 3:
+		if lagen_g[k] > 0.0:
+			var m: Vector3 = lagen[k] / float(lagen_g[k])
+			farbe[k] = Color(m.x, m.y, m.z)
+	var stamm := Color(0.32, 0.24, 0.16)
 	if sn > 0:
 		ss /= float(sn)
 		stamm = Color(ss.x, ss.y, ss.z)
@@ -10313,112 +10374,185 @@ static func _stellvertreter(quelle: Mesh) -> Mesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_smooth_group(-1)
-	var y0 := ab.position.y
-	var stamm_h := y0 + h * 0.34
-	var sr := maxf(b * 0.055, 0.06)
-	# Stamm: dreiseitiges Prisma, drei Seitenflaechen zu je zwei Dreiecken.
+	# Stamm: dreiseitige PYRAMIDE vom Fuss bis in die Krone (schraeg, wenn die Krone versetzt
+	# sitzt) — drei Dreiecke statt der sechs eines Prismas. Die Fernstufe ist der groesste
+	# Posten der Flora (alles jenseits von FLORA_GROB_AB), dort zaehlt jedes Dreieck: die
+	# Fichte faellt damit von 11 auf 8.
+	var stamm_h := l_lo.y + lh * 0.30
+	var sr := maxf(b * 0.065, 0.07)
+	var stamm_kopf := Vector3(mx, stamm_h, mz)
 	for i in 3:
 		var a0 := TAU * float(i) / 3.0
 		var a1 := TAU * float(i + 1) / 3.0
-		var p0 := Vector3(cos(a0) * sr, y0, sin(a0) * sr)
-		var p1 := Vector3(cos(a1) * sr, y0, sin(a1) * sr)
-		var q0 := Vector3(p0.x, stamm_h, p0.z)
-		var q1 := Vector3(p1.x, stamm_h, p1.z)
 		st.set_color(stamm)
-		for v in [p0, p1, q1, p0, q1, q0]:
-			st.add_vertex(v)
-	# Krone: fuenfseitiger Kegel, setzt im oberen Drittel des Stamms an.
-	var kr := b * 0.5
-	var ky := y0 + h * 0.28
-	var spitze := Vector3(0.0, y0 + h, 0.0)
-	# BREITE KRONEN (Eiche, Urwaldbaum, Akazie, Palme ...) bekommen eine RAUTE statt eines
-	# Kegels: breitester Ring in 62 % Hoehe, darunter spitz zum Stamm. Mit Kegeln sah ein
-	# Dschungel am Horizont aus wie ein Fichtenwald. Schlanke Baeume bleiben Kegel.
-	var breit := b > h * 0.55
-	var unten := Vector3(0.0, y0 + h * 0.34, 0.0)
-	if breit:
-		ky = y0 + h * 0.62
-	# Breite Kronen sind oben ABGEFLACHT (Stumpf mit Deckel statt Spitze) — eine Raute mit
-	# Spitze las sich von der Seite wieder als Nadelbaum.
-	var dy := y0 + h * 0.94
-	var dr := kr * 0.55
-	for i in 5:
-		var a0 := TAU * float(i) / 5.0
-		var a1 := TAU * float(i + 1) / 5.0
-		var r0 := Vector3(cos(a0) * kr, ky, sin(a0) * kr)
-		var r1 := Vector3(cos(a1) * kr, ky, sin(a1) * kr)
-		# Facettenweise leicht verschiedener Ton, wie bei den vollen Meshes.
-		st.set_color(krone.darkened(0.10 * (0.5 + 0.5 * sin(a0 * 3.0))))
-		if not breit:
-			st.add_vertex(r0)
-			st.add_vertex(r1)
+		st.add_vertex(Vector3(cos(a0) * sr, y0, sin(a0) * sr))
+		st.add_vertex(Vector3(cos(a1) * sr, y0, sin(a1) * sr))
+		st.add_vertex(stamm_kopf)
+	var spitze := Vector3(mx, l_hi.y, mz)
+	# RUNDE KRONEN (Eiche, Birke, Urwaldbaum, Akazie, Palme ...) bekommen eine KUPPEL statt
+	# eines Kegels. Mit Kegeln sah ein Dschungel am Horizont aus wie ein Fichtenwald; die
+	# Fassung davor (ein breiter Ring, flacher Deckel) stand als fuenfeckige Raute im Bild.
+	# Jetzt zwei VIERECKIGE Ringe, gegeneinander um einen halben Schritt verdreht (im Umriss
+	# acht Ecken), oben flach zugespitzt: 16 Dreiecke statt der 20 der Raute.
+	# RUND ODER SPITZ entscheidet die Form selbst: ist die Krone im oberen Drittel noch
+	# breiter als 55 % ihres groessten Radius, ist sie rund (vorher: "breiter als 55 % der
+	# Hoehe" — damit wurde die schlanke Birke in der Ferne zur Fichte).
+	var breit := hat_laub and r_oben > kr * 0.55
+	if not breit:
+		# Nadelbaum/spitze Krone: fuenfseitiger Kegel, unten dunkel, zur Spitze hell.
+		# Ohne Laub (Totholz) nur ein schlanker Dorn.
+		var ky := l_lo.y + lh * 0.04
+		var rr := kr * (0.88 if hat_laub else 0.30)
+		for i in 5:
+			var a0 := TAU * float(i) / 5.0
+			var a1 := TAU * float(i + 1) / 5.0
+			st.set_color(farbe[0].lerp(farbe[1], 0.5))
+			st.add_vertex(Vector3(mx + cos(a0) * rr, ky, mz + sin(a0) * rr))
+			st.add_vertex(Vector3(mx + cos(a1) * rr, ky, mz + sin(a1) * rr))
+			st.set_color(farbe[2])
 			st.add_vertex(spitze)
-			continue
-		var d0 := Vector3(cos(a0) * dr, dy, sin(a0) * dr)
-		var d1 := Vector3(cos(a1) * dr, dy, sin(a1) * dr)
-		for v in [r0, r1, d1, r0, d1, d0]:
-			st.add_vertex(v)
-		st.set_color(krone.lightened(0.06))
-		st.add_vertex(d0)
-		st.add_vertex(d1)
-		st.add_vertex(Vector3(0.0, dy, 0.0))
-		st.set_color(krone.darkened(0.22))
-		st.add_vertex(r1)
-		st.add_vertex(r0)
-		st.add_vertex(unten)
+	else:
+		var ya := l_lo.y + lh * 0.27
+		var yb := l_lo.y + lh * 0.72
+		var ra := kr * 0.88
+		var rb := kr * 0.74
+		var unten := Vector3(mx, l_lo.y + lh * 0.05, mz)
+		var c_unten := farbe[0].darkened(0.12)
+		var c_a := farbe[0].lerp(farbe[1], 0.6)
+		var c_b := farbe[1].lerp(farbe[2], 0.6)
+		const SEITEN := 4
+		for i in SEITEN:
+			var a0 := TAU * float(i) / float(SEITEN)
+			var a1 := TAU * float(i + 1) / float(SEITEN)
+			var am := (a0 + a1) * 0.5
+			var an := am + TAU / float(SEITEN)
+			var pa0 := Vector3(mx + cos(a0) * ra, ya, mz + sin(a0) * ra)
+			var pa1 := Vector3(mx + cos(a1) * ra, ya, mz + sin(a1) * ra)
+			var pb0 := Vector3(mx + cos(am) * rb, yb, mz + sin(am) * rb)
+			var pb1 := Vector3(mx + cos(an) * rb, yb, mz + sin(an) * rb)
+			# Unterseite (Faecher zum Stamm)
+			st.set_color(c_a)
+			st.add_vertex(pa1)
+			st.add_vertex(pa0)
+			st.set_color(c_unten)
+			st.add_vertex(unten)
+			# Band zwischen den Ringen (Antiprisma)
+			st.set_color(c_a)
+			st.add_vertex(pa0)
+			st.add_vertex(pa1)
+			st.set_color(c_b)
+			st.add_vertex(pb0)
+			st.set_color(c_a)
+			st.add_vertex(pa1)
+			st.set_color(c_b)
+			st.add_vertex(pb1)
+			st.add_vertex(pb0)
+			# Kuppe
+			st.add_vertex(pb0)
+			st.add_vertex(pb1)
+			st.set_color(farbe[2])
+			st.add_vertex(spitze)
 	st.generate_normals()
 	# Dieselbe weiche Krone wie das Original, sonst sprang das Licht an der Fernstufe. Ohne
-	# zweiten Tiefenschatten: die gemittelten Farben tragen den des Originals schon.
+	# zweiten Tiefenschatten: die Lagenfarben tragen den des Originals schon.
 	return _weiche_krone(st.commit(), false)
 
 
 static func _grobe_fassung(quelle: Mesh) -> Mesh:
 	if quelle == null or quelle.get_surface_count() == 0:
 		return quelle
-	# Baumaehnliches bekommt einen Stellvertreter statt einer Vereinfachung (Begruendung
-	# dort). Alles andere — Felsen, flache Buesche — geht den alten Weg.
+	# Alles ab STELLV_AB_DREIECK Dreiecken bekommt einen Stellvertreter statt einer
+	# Vereinfachung: Baumaehnliches (hoeher als breit) Kegel oder Kuppel mit Stamm, Flaches
+	# (Busch, Fels) einen niedrigen Huegel.
 	var ab0 := quelle.get_aabb()
 	var tris := 0
+	# DREIECKE AUS DER INDEXLISTE ZAEHLEN. Vorher stand hier "Eckpunkte / 3" — das stimmt nur
+	# fuer unindizierte Netze. Das Totholz kommt indiziert aus dem Import (125 Dreiecke, 78
+	# Eckpunkte = "26 Dreiecke") und fiel damit unter die Schwelle: es bekam nie einen
+	# Stellvertreter, stand in der Ferne mit dem halben Originalnetz da und kostete gemessen
+	# (tools/_gelaende_zeit.gd, GZ_ARTEN=1) 0,6 ms — ein Drittel der Fichten bei einem
+	# Siebtel der Stueckzahl. Die verschweissten Nadelbaeume lagen knapp darueber (Zufall).
 	for si0 in quelle.get_surface_count():
-		var a0v: Variant = quelle.surface_get_arrays(si0)[Mesh.ARRAY_VERTEX]
-		if a0v != null:
+		var a0: Array = quelle.surface_get_arrays(si0)
+		var a0v: Variant = a0[Mesh.ARRAY_VERTEX]
+		var a0i: Variant = a0[Mesh.ARRAY_INDEX]
+		if a0i != null and (a0i as PackedInt32Array).size() > 0:
+			@warning_ignore("integer_division")
+			tris += (a0i as PackedInt32Array).size() / 3
+		elif a0v != null:
 			@warning_ignore("integer_division")
 			tris += (a0v as PackedVector3Array).size() / 3
-	if tris >= STELLV_AB_DREIECK and ab0.size.y > maxf(ab0.size.x, ab0.size.z) * 0.9:
+	if tris < STELLV_AB_DREIECK:
+		return quelle
+	if ab0.size.y > maxf(ab0.size.x, ab0.size.z) * 0.9:
 		return _stellvertreter(quelle)
-	var im := ImporterMesh.new()
-	for si in quelle.get_surface_count():
-		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, quelle.surface_get_arrays(si), [], {}, null, "", 0)
-	im.generate_lods(25.0, 60.0, [])
-	var raus := ArrayMesh.new()
+	return _stellvertreter_flach(quelle)
+
+
+## FLACHES IN DER FERNE (Busch, Felsgruppe): ein niedriger Huegel aus zwei viereckigen
+## Ringen und einer Kuppe, 12 Dreiecke. Vorher ging Flaches durch den Netzvereinfacher, der
+## hoechstens die Haelfte wegnehmen durfte (sonst verlor er bei Baeumen den Stamm) — ein
+## Busch stand in 2 km Entfernung, zwei Bildpunkte gross, mit 100 Dreiecken da, eine
+## Felsgruppe mit 60. Gemessen (tools/_gelaende_zeit.gd, GZ_ARTEN=1, 4K) kosteten Buesche
+## bis 0,9 ms und Felsen 0,4 ms.
+static func _stellvertreter_flach(quelle: Mesh) -> Mesh:
+	var ab := quelle.get_aabb()
+	var y0 := ab.position.y
+	var h := ab.size.y
+	var mx := ab.position.x + ab.size.x * 0.5
+	var mz := ab.position.z + ab.size.z * 0.5
+	# Farben: untere und obere Haelfte getrennt gemittelt (der Verlauf bleibt erhalten)
+	var summe := [Vector3.ZERO, Vector3.ZERO]
+	var zahl := [0, 0]
 	for si in quelle.get_surface_count():
 		var arr := quelle.surface_get_arrays(si)
-		# NICHT JEDES MESH IST INDIZIERT. Die prozeduralen Felsen kommen ohne Indexliste
-		# aus dem SurfaceTool, arr[ARRAY_INDEX] ist dort null — die typisierte Zuweisung
-		# brach damit beim Weltaufbau ab. Meine Pruefung hatte nur die Baum-GLB angesehen,
-		# und die ist indiziert.
-		var roh_idx: Variant = arr[Mesh.ARRAY_INDEX]
-		var voll: PackedInt32Array = roh_idx if roh_idx != null else PackedInt32Array()
-		var n := im.get_surface_lod_count(si)
-		if n > 0 and voll.size() > 0:
-			# NICHT BLIND DIE GROEBSTE STUFE NEHMEN.
-			# Symptom war: ueber dem Boden schwebten Baumkronen ohne Stamm, anderswo
-			# standen nackte Staemme. Ursache ist NICHT, dass Stamm und Krone getrennte
-			# Teilflaechen waeren — sie liegen in derselben (jeder Baum hat genau eine).
-			# Der Vereinfacher wirft schlicht den duennen Stamm zuerst weg, weil er von
-			# allen Dreiecken am wenigsten zur Silhouette beitraegt. Gemessen: Birke fiel
-			# von 272 auf 70 Dreiecke, Busch von 128 auf 32 — dabei geht der Stamm drauf.
-			# Deshalb die groebste Stufe nehmen, die noch die HAELFTE behaelt. Der Verlust
-			# ist klein: von sieben Baumarten dezimieren ohnehin nur zwei ueberhaupt, die
-			# uebrigen liefern auf jeder Stufe dieselbe Dreieckszahl.
-			var mind: int = maxi(int(voll.size() * 0.5), 12)
-			for stufe in range(n - 1, -1, -1):
-				var idx: PackedInt32Array = im.get_surface_lod_indices(si, stufe)
-				if idx.size() >= mind:
-					arr[Mesh.ARRAY_INDEX] = idx
-					break
-		raus.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-	return raus
+		var vs: Variant = arr[Mesh.ARRAY_VERTEX]
+		var cs: Variant = arr[Mesh.ARRAY_COLOR]
+		if vs == null or cs == null:
+			continue
+		var vp: PackedVector3Array = vs
+		var cp: PackedColorArray = cs
+		for i in mini(vp.size(), cp.size()):
+			var k := 1 if vp[i].y > y0 + h * 0.55 else 0
+			summe[k] += Vector3(cp[i].r, cp[i].g, cp[i].b)
+			zahl[k] += 1
+	var farbe: Array[Color] = [Color(0.30, 0.34, 0.28), Color(0.40, 0.44, 0.34)]
+	for k in 2:
+		if zahl[k] > 0:
+			var m: Vector3 = summe[k] / float(zahl[k])
+			farbe[k] = Color(m.x, m.y, m.z)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(-1)
+	var ra := Vector2(ab.size.x, ab.size.z) * 0.5 * 0.86
+	var rb := ra * 0.62
+	var ya := y0 + h * 0.10
+	var yb := y0 + h * 0.66
+	var spitze := Vector3(mx, y0 + h * 0.97, mz)
+	for i in 4:
+		var a0 := TAU * float(i) / 4.0
+		var a1 := TAU * float(i + 1) / 4.0
+		var am := (a0 + a1) * 0.5
+		var an := am + TAU / 4.0
+		var pa0 := Vector3(mx + cos(a0) * ra.x, ya, mz + sin(a0) * ra.y)
+		var pa1 := Vector3(mx + cos(a1) * ra.x, ya, mz + sin(a1) * ra.y)
+		var pb0 := Vector3(mx + cos(am) * rb.x, yb, mz + sin(am) * rb.y)
+		var pb1 := Vector3(mx + cos(an) * rb.x, yb, mz + sin(an) * rb.y)
+		st.set_color(farbe[0])
+		st.add_vertex(pa0)
+		st.add_vertex(pa1)
+		st.set_color(farbe[1])
+		st.add_vertex(pb0)
+		st.set_color(farbe[0])
+		st.add_vertex(pa1)
+		st.set_color(farbe[1])
+		st.add_vertex(pb1)
+		st.add_vertex(pb0)
+		st.add_vertex(pb0)
+		st.add_vertex(pb1)
+		st.add_vertex(spitze)
+	st.generate_normals()
+	return _weiche_krone(st.commit(), false)
 
 
 func _load_flora() -> Dictionary:
@@ -10448,18 +10582,31 @@ func _load_flora() -> Dictionary:
 
 
 # --- WEICHE KRONEN -----------------------------------------------------------------------
-# Die Baeume sind Low-Poly-Modelle (tools/build_baeume.py) mit flacher Schattierung: jede
-# Facette eine Helligkeit, aus der Naehe ein Stapel gefalteter Pappe. Statt neuer Modelle
-# bekommt das LAUB eine Normale, die zur Huelle der Krone passt (Gradient eines Ellipsoids
-# um die Laubmasse), mit einem Rest der Facettennormale fuer etwas Struktur. Das Licht
-# laeuft dann weich ueber die ganze Krone, wie ueber einen echten Baum. Dazu ein
-# gebackener Tiefenschatten: Laub tief im Inneren und unten an der Krone ist dunkler.
-# Staemme, Totholz und Kakteen bleiben hart — die sind auch in echt kantig/rund genug.
+# Die Modelle (tools/build_baeume.py) bringen nur Form und Grundfarbe mit. Hier bekommt das
+# LAUB sein gemaltes Licht (Stil Zelda/Ghibli):
+#   * NORMALE = Mischung aus der geglaetteten Netznormale (haelt Zweigruecken und Buckel
+#     lesbar), der Huelle des einzelnen Ballens und der Huelle der GANZEN Krone. Mit der
+#     reinen Ballenhuelle (Fassung davor) stand jede Kugel als eigene beleuchtete Murmel da;
+#     der Kronenanteil laesst den Baum als EIN Koerper mit Sonnen- und Schattenseite lesen.
+#   * FUGEN: wo ein Ballen an einen anderen stoesst (oder eine Astetage unter der naechsten
+#     verschwindet), wird die Farbe dunkler — der Schatten zwischen den Laubwolken. Das ist
+#     es, was eine Krone aus Ballen von einem Haufen Kugeln unterscheidet.
+#   * VERLAUF: oben und auf nach oben zeigenden Flaechen warm und hell, unten kuehl und
+#     tief, im Inneren dunkel.
+# Alles haengt nur an der LAGE des Eckpunkts (und seinem Ballen) — deshalb lassen sich die
+# Eckpunkte danach verschweissen (_laub_verschweissen).
+# Staemme, Totholz und Kakteen bleiben, wie sie aus dem Modell kommen.
 const HART_BLEIBEN := ["Totholz", "Kaktus"]
-const KRONE_WEICH := 1.0         # Anteil der Huellennormale (1 = rein, erlaubt Verschweissen)
-const KRONE_INNEN := 0.66        # Helligkeit ganz innen in der Krone
+const KRONE_N_NETZ := 0.45       # Anteil geglaettete Netznormale
+const KRONE_N_BALLEN := 0.20     # Anteil Huelle des Ballens
+const KRONE_N_KRONE := 0.35      # Anteil Huelle der ganzen Krone
+const KRONE_INNEN := 0.70        # Helligkeit ganz innen in der Krone
+const KRONE_FUGE := 0.64         # Helligkeit in der Fuge zwischen zwei Ballen
+const KRONE_FUGE_AB := 0.90      # Abstand (in Ballenradien), bis zu dem die Fuge voll dunkel ist
+const KRONE_FUGE_BIS := 1.55     # ... und ab dem sie nicht mehr wirkt
+const KRONE_OBEN_NORMAL := 0.5   # Anteil "Flaeche zeigt nach oben" am Verlauf (Rest: Hoehe)
 const KRONE_UNTEN_TON := Vector3(0.66, 0.80, 0.86)   # Kronenunterseite: kuehl, tief
-const KRONE_OBEN_TON := Vector3(1.14, 1.10, 0.84)    # Kronenoberseite: warm, sonnig
+const KRONE_OBEN_TON := Vector3(1.12, 1.09, 0.86)    # Kronenoberseite: warm, sonnig
 
 
 ## Gehoert der Eckpunkt zum Laub? FARBREGEL: Holz (Rinde, Aeste, Birke, Totholz) hat
@@ -10532,44 +10679,86 @@ static func _weiche_krone(quelle: Mesh, mit_schatten := true) -> Mesh:
 		var b_lo: Dictionary = {}
 		var b_hi: Dictionary = {}
 		var summe: Dictionary = {}
+		# GEGLAETTETE NETZNORMALE je Eckpunktlage: flaechengewichtetes Mittel ueber alle
+		# Laubdreiecke an dieser Lage. Zweiseitige Wedel (Vorder- und Rueckseite an derselben
+		# Lage) heben sich dabei auf — `flaeche` merkt die Summe der Betraege, daran erkennt man es.
+		var glatt: Dictionary = {}
+		var flaeche: Dictionary = {}
+		for t in range(0, ix.size() - 2, 3):
+			var j0 := ix[t]
+			var j1 := ix[t + 1]
+			var j2 := ix[t + 2]
+			if laub[j0] == 0 or laub[j1] == 0 or laub[j2] == 0:
+				continue
+			var fn := (vs[j1] - vs[j0]).cross(vs[j2] - vs[j0])
+			if fn.dot(ns[j0] + ns[j1] + ns[j2]) < 0.0:
+				fn = -fn
+			var fl := fn.length()
+			for j in [j0, j1, j2]:
+				glatt[keys[j]] = (glatt.get(keys[j], Vector3.ZERO) as Vector3) + fn
+				flaeche[keys[j]] = float(flaeche.get(keys[j], 0.0)) + fl
 		for i in vs.size():
 			if laub[i] == 0:
 				continue
 			var bk := _uf_finde(eltern, keys[i])
 			b_lo[bk] = (b_lo.get(bk, vs[i]) as Vector3).min(vs[i])
 			b_hi[bk] = (b_hi.get(bk, vs[i]) as Vector3).max(vs[i])
-			# FARBE JE ECKPUNKTLAGE MITTELN: das Bauskript wuerfelt jeder Flaeche ihre eigene
-			# Helligkeit (+-13 %), und genau das zeichnete auch bei weichen Normalen noch
-			# jedes Dreieck als Flicken. Die Koernung kommt jetzt aus dem Blattwerk im Shader.
+			# FARBE JE ECKPUNKTLAGE MITTELN: jede Ecke einer Lage bekommt dieselbe Farbe, sonst
+			# zeichnete sich jedes Dreieck als Flicken ab (und Verschweissen ginge nicht).
 			var sc0: Color = summe.get(keys[i], Color(0, 0, 0, 0))
 			summe[keys[i]] = Color(sc0.r + cs[i].r, sc0.g + cs[i].g, sc0.b + cs[i].b, sc0.a + 1.0)
+		# Ballen als flache Listen (Mitte, Halbachsen) fuer die Fugenrechnung
+		var bal_k: Array = b_lo.keys()
+		var bal_m := PackedVector3Array()
+		var bal_r := PackedVector3Array()
+		for ok in bal_k:
+			bal_m.append(((b_lo[ok] as Vector3) + (b_hi[ok] as Vector3)) * 0.5)
+			bal_r.append((((b_hi[ok] as Vector3) - (b_lo[ok] as Vector3)) * 0.5).max(
+				Vector3(0.12, 0.12, 0.12)))
 		var mitte := (lo + hi) * 0.5
 		var r := ((hi - lo) * 0.5).max(Vector3(0.15, 0.15, 0.15))
 		for i in vs.size():
 			if laub[i] == 0:
 				continue
 			var bk := _uf_finde(eltern, keys[i])
-			var bm: Vector3 = ((b_lo[bk] as Vector3) + (b_hi[bk] as Vector3)) * 0.5
-			var br: Vector3 = (((b_hi[bk] as Vector3) - (b_lo[bk] as Vector3)) * 0.5).max(
-				Vector3(0.12, 0.12, 0.12))
+			var bi := bal_k.find(bk)
+			var bm: Vector3 = bal_m[bi]
+			var br: Vector3 = bal_r[bi]
 			var dv := vs[i] - bm
-			var huelle := Vector3(dv.x / (br.x * br.x), dv.y / (br.y * br.y), dv.z / (br.z * br.z))
-			if huelle.length_squared() > 1e-8:
-				ns[i] = ns[i].lerp(huelle.normalized(), KRONE_WEICH).normalized()
+			var dk := vs[i] - mitte
+			var n_ballen := Vector3(dv.x / (br.x * br.x), dv.y / (br.y * br.y), dv.z / (br.z * br.z))
+			var n_krone := Vector3(dk.x / (r.x * r.x), dk.y / (r.y * r.y), dk.z / (r.z * r.z))
+			var n_netz: Vector3 = glatt.get(keys[i], Vector3.ZERO)
+			if n_netz.length() < 0.25 * float(flaeche.get(keys[i], 1.0)):
+				n_netz = Vector3.ZERO      # zweiseitiger Wedel: keine eigene Richtung
+			var n_neu := n_netz.normalized() * KRONE_N_NETZ + n_ballen.normalized() * KRONE_N_BALLEN \
+				+ n_krone.normalized() * KRONE_N_KRONE
+			if n_neu.length_squared() > 1e-8:
+				ns[i] = n_neu.normalized()
 			var sc: Color = summe[keys[i]]
 			var c0 := Color(sc.r / sc.a, sc.g / sc.a, sc.b / sc.a, cs[i].a)
 			if not mit_schatten:
 				cs[i] = c0
 				continue
+			# FUGE: Abstand zum naechsten ANDEREN Ballen, gemessen in dessen Halbachsen. Unter 1
+			# steckt der Punkt im Nachbarn (unsichtbar), knapp darueber liegt er in der Kehle.
+			var e_min := 9.0
+			for oi in bal_m.size():
+				if oi == bi:
+					continue
+				var q := (vs[i] - bal_m[oi]) / bal_r[oi]
+				e_min = minf(e_min, q.length())
+			var fuge := lerpf(KRONE_FUGE, 1.0, smoothstep(KRONE_FUGE_AB, KRONE_FUGE_BIS, e_min))
 			# GEMALTER VERLAUF UEBER DIE KRONE (Stil Zelda/Ghibli): oben warm und hell
 			# (sonniges Gelbgruen), unten kuehl und tief (Blaugruen), innen dunkel.
-			var dk := vs[i] - mitte
 			var tief := clampf(Vector3(dk.x / r.x, dk.y / r.y, dk.z / r.z).length(), 0.0, 1.0)
 			var oben := clampf((vs[i].y - lo.y) / maxf(hi.y - lo.y, 0.01), 0.0, 1.0)
-			var f := lerpf(KRONE_INNEN, 1.0, tief)
+			oben = lerpf(oben, 0.5 + 0.5 * ns[i].y, KRONE_OBEN_NORMAL)
+			var f := lerpf(KRONE_INNEN, 1.0, tief) * fuge
 			var ton := KRONE_UNTEN_TON.lerp(KRONE_OBEN_TON, oben)
 			if minf(c0.r, minf(c0.g, c0.b)) > 0.7:
 				ton = Vector3(0.90, 0.95, 1.0).lerp(Vector3.ONE, oben)   # Schnee bleibt weiss
+				f = lerpf(f, 1.0, 0.5)
 			cs[i] = Color(c0.r * f * ton.x, c0.g * f * ton.y, c0.b * f * ton.z, c0.a)
 		arr[Mesh.ARRAY_NORMAL] = ns
 		arr[Mesh.ARRAY_COLOR] = cs
