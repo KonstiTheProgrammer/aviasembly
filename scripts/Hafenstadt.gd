@@ -45,6 +45,12 @@ const STRASSE_B := 11.0
 const HAUPT_B := 18.0
 const GASSE_B := 5.0
 const KAISTR_X := 262.5          # Kaistrasse laengs der Promenade (Altstadt- und Fischerkai)
+# ANSCHLUSS ANS LANDSTRASSENNETZ: zwei Ortsausgaenge (lokal). Bis hierher reicht das Stadtnetz
+# (Landstrassen-Stummel), ab hier laeuft die Landstrasse aus scripts/StrassenZusatz.gd
+# (erzeugt von tools/_dorf_planer.gd -- anschluss).
+const AUSGANG_WEST := Vector2(-652.0, -138.0)     # Richtung GROSSSTADT (Bruecke ueber den Silberfluss)
+const AUSGANG_NORD := Vector2(-178.0, -652.0)     # Richtung Rosenthal (von dort weiter nach Fuchsried)
+const NORD_ACHSE := -170.0                        # die Stadtstrasse, die im Norden hinausfuehrt
 const VORGARTEN := 1.0           # Abstand der Hausfront vom Gehweg
 ## GASSEN in Altstadt, Speicherstadt und Fischerviertel: sie halbieren die 120-m-Bloecke.
 ## Ohne sie stand je Block nur eine duenne Haeuserzeile um einen leeren Hof — aus der Luft
@@ -108,6 +114,23 @@ static func wasserformen() -> Array:
 		"hs": PackedFloat32Array([-12.0, -12.0, -12.0, -12.0]), "r_kern": 300.0, "r_aus": 480.0}]
 
 
+## Auftraege fuer den Strassenplaner: [Start (Welt, am Ortsausgang), Ziel im vorhandenen Netz].
+static func anschluesse() -> Array:
+	var m := Vector2(MITTE.x, MITTE.z)
+	return [
+		[m + AUSGANG_NORD, Vector2(14250, 1450)],     # Fuchsried; der Planer buendelt ueber Rosenthal
+		[m + AUSGANG_WEST, Vector2(4350, 2550)],      # GROSSSTADT
+	]
+
+
+static func _nord_ende() -> Vector2:
+	return Vector2(NORD_ACHSE, -sqrt(540.0 * 540.0 - NORD_ACHSE * NORD_ACHSE))
+
+
+static func _west_ende() -> Vector2:
+	return Vector2(-sqrt(540.0 * 540.0 - 120.0 * 120.0), -120.0)
+
+
 ## Kartenpunkte (WorldMap).
 static func pois() -> Array:
 	return [
@@ -141,10 +164,9 @@ static func netz() -> Dictionary:
 				bis = KAISTR_X
 			Stadtstrassen.strecke(n, Vector2(float(sg[1]), a), Vector2(bis, a), art)
 	Stadtstrassen.strecke(n, Vector2(KAISTR_X, -120.0), Vector2(KAISTR_X, 440.0), Stadtstrassen.LAND)
-	# Landstrasse nach Westen hinaus (laeuft als Feldweg im Gelaende aus)
-	var west := Vector2(-sqrt(540.0 * 540.0 - 120.0 * 120.0), -120.0)
-	Stadtstrassen.strecke(n, west, Vector2(-760, -150), Stadtstrassen.LAND)
-	Stadtstrassen.strecke(n, Vector2(-760, -150), Vector2(-900, -240), Stadtstrassen.WEG)
+	# Ortsausgaenge: Landstrassen-Stummel bis zum Beginn der Landstrassen (StrassenZusatz)
+	Stadtstrassen.strecke(n, _west_ende(), AUSGANG_WEST, Stadtstrassen.LAND)
+	Stadtstrassen.strecke(n, _nord_ende(), AUSGANG_NORD, Stadtstrassen.LAND)
 	Stadtstrassen.schliessen(n)
 	_netz = n
 	return n
@@ -312,8 +334,13 @@ static func plan(frei: Array = []) -> Array:
 		var a := lerpf(1.75, 4.55, (float(i) + rng.randf()) / 34.0)      # West- und Landseite
 		var r := rng.randf_range(R_FLACH + 14.0, R_FLACH + 150.0)
 		var pos := Vector2(cos(a) * r, sin(a) * r)
-		liste.append({"typ": hang[rng.randi() % hang.size()], "pos": pos,
-			"yaw": atan2(-pos.x, -pos.y) + rng.randf_range(-0.5, 0.5)})
+		var typ_h: String = hang[rng.randi() % hang.size()]
+		var yaw_h := atan2(-pos.x, -pos.y) + rng.randf_range(-0.5, 0.5)
+		# nicht auf die Ortsausgaenge (die Landstrassen dahinter prueft bauen() am Gelaende)
+		if Geometry2D.get_closest_point_to_segment(pos, _west_ende(), AUSGANG_WEST).distance_to(pos) < 24.0 \
+				or Geometry2D.get_closest_point_to_segment(pos, _nord_ende(), AUSGANG_NORD).distance_to(pos) < 24.0:
+			continue
+		liste.append({"typ": typ_h, "pos": pos, "yaw": yaw_h})
 	for r in belegt:
 		frei.append(r)
 	for r in tabu:
@@ -344,7 +371,15 @@ static func bauen(parent: Node3D, terrain) -> Node3D:
 	parent.add_child(wurzel)
 	var frei: Array = []
 	if CityBuilder.has_lib():
-		CityBuilder.build(wurzel, terrain, MITTE, plan(frei), "Freihafen")
+		# Haeuser am Hang (ausserhalb der Stadtflaeche) duerfen nicht auf einer Landstrasse stehen
+		var bauplan: Array = []
+		for e in plan(frei):
+			var lp: Vector2 = e["pos"]
+			if lp.length() > R_FLACH and terrain != null \
+					and terrain.strasse_abstand(MITTE.x + lp.x, MITTE.z + lp.y) < 20.0:
+				continue
+			bauplan.append(e)
+		CityBuilder.build(wurzel, terrain, MITTE, bauplan, "Freihafen")
 		var st_node := CityBuilder.build(wurzel, terrain, insel_welt(),
 			[{"typ": "Haus_Freiheitsstatue", "pos": Vector2.ZERO, "yaw": STATUE_YAW,
 				"scale": STATUE_MASS}], "Freiheitsstatue")

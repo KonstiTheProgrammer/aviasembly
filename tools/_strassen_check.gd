@@ -150,6 +150,9 @@ func _pruefen() -> void:
 					nicht_gefunden += 1
 				if t.height_at(p.x, p.y) > hh[i] + 0.05:
 					ueber += 1
+					if ueber <= 12:
+						print("  Gelaende ueber dem Band bei (%d, %d): %.2f m ueber Fahrbahn %.2f" % [
+							roundi(p.x), roundi(p.y), t.height_at(p.x, p.y) - hh[i], hh[i]])
 	print("STRASSEN Raster: %d Eintraege; Fahrbahnproben ohne Strasse %d, Gelaende ueber Band %d von %d" % [
 		t._st_seg.size(), nicht_gefunden, ueber, proben_n])
 	# Baeume auf der Fahrbahn? Chunks um drei Strassenpunkte bauen und zaehlen.

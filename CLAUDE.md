@@ -762,7 +762,7 @@ Landdorf standen die (zufaellig gestreuten) Haeuser AUF den Strassen. Die Landst
   Block in den Boulevard — feste Bauten in Blockmitte, ungedreht.
 - OFFEN: `CityBuilder._band` ist unbenutzt (die Kommentare in Strassen.gd/Skyline.gd
   verweisen auf seine Wicklungs-Lektion). Die 20 Strassendoerfer (Strassen._dorf) haben
-  weiter ihr Schotterband. Die Hafenstadt haengt noch nicht am Landstrassennetz.
+  weiter ihr Schotterband.
 
 ## Hafenstadt FREIHAFEN mit Freiheitsstatue (2026-10)
 Nutzerwunsch: „baue eine hafenstadt mit freiheitstatue". Alles in `scripts/Hafenstadt.gd`
@@ -818,14 +818,31 @@ Skyline), Kartenpunkte (`pois()`).
   Variant-Schleifenvariable; jede `:=`-Ableitung daraus bricht den Compile von Main mit —
   `for seite: int in ...`. (3) Direkt nach `--import` kam einmal ein Schwall Fehler aus
   CloudField (leere Netze); beim zweiten Lauf weg — nicht vom Hafen.
-- OFFEN: kein Anschluss ans Landstrassennetz (`StrassenDaten` ist vom Planer erzeugt; neu
-  erzeugen wuerde das ganze Netz aendern). `_haupt_pruefsumme` aendert sich im Umkreis der
-  Stadt (neue Zonen und Wasserform).
+- ANSCHLUSS ANS LANDSTRASSENNETZ (Nutzerwunsch): zwei Ortsausgaenge (`AUSGANG_WEST`,
+  `AUSGANG_NORD`, im Stadtnetz als Landstrassen-Stummel), ab dort Landstrassen aus
+  `scripts/StrassenZusatz.gd` — ERZEUGT mit `tools/_dorf_planer.gd -- anschluss` (~10 s).
+  Der Modus laesst `StrassenDaten` UNVERAENDERT (ein voller Neulauf wuerfelt alle Doerfer und
+  Strassen neu): er tastet nur einen Ausschnitt ab (`fenster`), traegt das alte Netz in die
+  Strassenmaske ein, sperrt die Stadtflaeche und sucht mit demselben A* samt Buendelung von
+  `Hafenstadt.anschluesse()` aus; was ueber alte Strasse laeuft, entfaellt, das Ende wird
+  AUF die alte Fahrbahn gezogen (lag sonst nur in deren Rasterzelle, gemessen 34 m daneben).
+  Ergebnis: West 10,6 km mit 120-m-Bruecke ueber den Silberfluss bei (10811, 8158), Einmuendung
+  bei (4441, 5245) in die Strasse GROSSSTADT–Hasenwinkel; Nord 5,4 km — das Ziel war
+  Fuchsried, die Buendelung fuehrt aber ueber die Nebenstrasse bei Rosenthal (18180, 6433),
+  dort trifft Asphalt auf Schotterweg. `Strassen.strassen_daten()` haengt die Zusatzstrassen
+  an; Hanghaeuser auf der Trasse filtert `Hafenstadt.bauen` (strasse_abstand < 20 m).
+  Beleg in `_hafenstadt_check` (Start am Stadtnetz, Ende auf dem alten Netz, kein Haus auf
+  der Landstrasse); `_strassen_check`: 33 Strassen, 294 km, 6 Bruecken, max. 8 %.
+  NACH AENDERUNGEN AN DER STADTLAGE ODER DEN AUSGAENGEN den Modus neu laufen lassen.
+- `_haupt_pruefsumme` aendert sich im Umkreis der Stadt (neue Zonen, Wasserform) und
+  entlang der Anschlussstrassen.
 
 ## Doerfer und Landstrassen (2026-09)
 Wunsch des Nutzers: mehr Doerfer auf der Hauptinsel, mit Strassen verbunden. 20 neue
 Doerfer, 31 Strassenstuecke (~278 km), 5 Bruecken; Anschluss an alle Orte (ausser NEONBUCHT
 und Bergdorf) und alle Flugplaetze der Hauptinsel (ausser ADLERHORST).
+- (Dazu `scripts/StrassenZusatz.gd`: Anschlussstrassen der Hafenstadt, Planer-Modus
+  `-- anschluss`, siehe Abschnitt Hafenstadt.)
 - DATEN `scripts/StrassenDaten.gd` sind ERZEUGT von `tools/_dorf_planer.gd` — nicht von Hand
   aendern, neu erzeugen: `HOME=<test-home> Godot --headless --path . --script
   res://tools/_dorf_planer.gd` (~4 min, deterministisch). Der Planer haelt Schuerzen- und

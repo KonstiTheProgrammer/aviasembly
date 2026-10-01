@@ -147,6 +147,54 @@ func _process(_d: float) -> bool:
 			if hs.get_node_or_null("Freiheitsstatue") == null:
 				print("Freiheitsstatue fehlt")
 				fehler += 1
+		# --- Anschluss ans Landstrassennetz: an jedem Ortsausgang beginnt eine Landstrasse, und
+		# ihr anderes Ende liegt auf einer Strasse des alten Netzes (StrassenDaten) ---
+		for auftrag in Hafenstadt.anschluesse():
+			var start: Vector2 = auftrag[0]
+			var gefunden := false
+			for st in StrassenZusatz.STRASSEN:
+				var sp: Array = st[1]
+				if (sp[0] as Vector2).distance_to(start) > 1.5:
+					continue
+				gefunden = true
+				var ende: Vector2 = sp[sp.size() - 1]
+				var nah := INF
+				for alt in StrassenDaten.STRASSEN:
+					var ap: Array = alt[1]
+					for k in range(ap.size() - 1):
+						nah = minf(nah, Geometry2D.get_closest_point_to_segment(ende, ap[k], ap[k + 1]).distance_to(ende))
+				var lang := 0.0
+				for k in range(1, sp.size()):
+					lang += (sp[k] as Vector2).distance_to(sp[k - 1])
+				print("Anschluss ab %s: %.1f km, Ende %s liegt %.0f m neben dem alten Netz %s" % [
+					start, lang / 1000.0, ende, nah, "ok" if nah < 60.0 else "NICHT VERBUNDEN"])
+				if nah >= 60.0:
+					fehler += 1
+				# das Stadtnetz reicht bis genau an den Anfang der Landstrasse
+				var am_netz := false
+				for kp in Hafenstadt.netz()["p"]:
+					if ((kp as Vector2) + Vector2(mi.x, mi.z)).distance_to(start) < 0.5:
+						am_netz = true
+				if not am_netz:
+					print("  Stadtnetz endet nicht am Anschlusspunkt ", start)
+					fehler += 1
+			if not gefunden:
+				print("Anschluss ab %s: KEINE Landstrasse (tools/_dorf_planer.gd -- anschluss laufen lassen)" % start)
+				fehler += 1
+		# Hanghaeuser nicht auf einer Landstrasse (wie Hafenstadt.bauen filtert)
+		var hang_auf := 0
+		var hk: Node = (m.get("fly_world") as Node).get_node_or_null("Hafenstadt/Freihafen")
+		if hk != null:
+			for n in hk.get_children():
+				var mmi := n as MultiMeshInstance3D
+				if mmi == null or String(mmi.name).ends_with("_HD"):
+					continue
+				for k in mmi.multimesh.instance_count:
+					var o := mmi.multimesh.get_instance_transform(k).origin
+					if tw.strasse_abstand(mi.x + o.x, mi.z + o.z) < 12.0:
+						hang_auf += 1
+		print("Haeuser auf einer Landstrasse: %d" % hang_auf)
+		fehler += hang_auf
 		_fehler = fehler
 	if f == 24:
 		# --- Kollision (braucht ein paar Physikschritte): Strahl von oben auf Kai, Pier, Mole,

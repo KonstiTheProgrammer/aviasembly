@@ -133,7 +133,8 @@ Am Westufer des Ostgolfs (rund 17 km südöstlich von HEIMAT, auf der Karte **FR
 die **Hafenstadt**: Altstadt mit Markt, Rathaus und Kirche, Speicherstadt aus rotem Backstein,
 Frachtkai mit Kränen, Containern und Frachtern, Fischerstege, zwei Molen mit Leuchtfeuern —
 und vor der Einfahrt auf einer eigenen Insel die **Freiheitsstatue** (150 m, mit Sternfort
-und Sockel). Kai, Piers und Molen sind fest: man kann darauf landen.
+und Sockel). Kai, Piers und Molen sind fest: man kann darauf landen. Zwei Landstraßen binden die Stadt an: nach Westen
+über eine Brücke über den Silberfluss Richtung GROSSSTADT, nach Norden Richtung Rosenthal.
 
 Quer durch die Hauptinsel fließt der **Silberfluss**: 41 km von einer Gletscherquelle an der
 Nordkette als Wildbach hinunter, durch einen Durchbruch im Hügelland und in weiten Bögen durch

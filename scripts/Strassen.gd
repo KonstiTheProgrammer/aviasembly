@@ -27,6 +27,9 @@ static func strassen_daten() -> Array:
 	var raus: Array = []
 	for s in StrassenDaten.STRASSEN:
 		raus.append({"neben": bool(s[0]), "pts": PackedVector2Array(s[1] as Array)})
+	# Anschlussstrassen der Hafenstadt (eigene Datei: das Netz oben bleibt, wie es ist)
+	for s in StrassenZusatz.STRASSEN:
+		raus.append({"neben": bool(s[0]), "pts": PackedVector2Array(s[1] as Array)})
 	return raus
 
 

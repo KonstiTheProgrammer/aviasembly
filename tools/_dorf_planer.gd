@@ -16,6 +16,13 @@
 ##    (_querungen_begradigen) und als GDScript-Konstanten schreiben.
 ##
 ##   HOME=<test-home> Godot --headless --path . --script res://tools/_dorf_planer.gd
+##
+## MODUS "anschluss" (... --script res://tools/_dorf_planer.gd -- anschluss): laesst das
+## vorhandene Netz (StrassenDaten) UNVERAENDERT und sucht nur Anschlussstrassen von der
+## Hafenstadt (Hafenstadt.anschluesse()) dorthin — derselbe A*, dieselbe Buendelung (was ueber
+## schon gebaute Strasse laeuft, entfaellt), dasselbe Glaetten. Schreibt
+## scripts/StrassenZusatz.gd; Strassen.strassen_daten() haengt es an. Ein voller Neulauf
+## wuerde alle Doerfer und Strassen neu wuerfeln.
 extends SceneTree
 
 const Z := 100.0
@@ -39,6 +46,7 @@ var sperre := PackedByteArray()     # 1 = gesperrt
 var fluss := PackedByteArray()      # 1 = Flussbett (Bruecke)
 var strasse := PackedByteArray()    # 1 = schon Strasse
 var rauh := PackedFloat32Array()    # steilste 25-m-Steigung in der Zelle (Felsstufen)
+var fenster := Rect2()              # Modus "anschluss": nur dieser Ausschnitt wird abgetastet
 
 
 func _process(_d: float) -> bool:
@@ -47,48 +55,16 @@ func _process(_d: float) -> bool:
 		m = load("res://scenes/Main.tscn").instantiate()
 		root.add_child(m)
 	if f == 8:
-		_planen()
+		if OS.get_cmdline_user_args().has("anschluss"):
+			_anschluss()
+		else:
+			_planen()
 		quit()
 	return false
 
 
-func _idx(ix: int, iz: int) -> int:
-	return iz * nx + ix
-
-
-func _welt(i: int) -> Vector2:
-	return Vector2(X0 + (float(i % nx) + 0.5) * Z, Z0 + (float(i / nx) + 0.5) * Z)
-
-
-func _zelle(p: Vector2) -> int:
-	var ix := clampi(int((p.x - X0) / Z), 0, nx - 1)
-	var iz := clampi(int((p.y - Z0) / Z), 0, nz - 1)
-	return _idx(ix, iz)
-
-
-func _planen() -> void:
-	t = m.terrain
-	# AUF DEM GELAENDE OHNE DIE EIGENEN DOERFER UND STRASSEN planen: sonst sieht der Planer
-	# den vorigen Stand als "vorhandene Orte" und waehlt 20 neue Doerfer daneben.
-	# Schuerzen- und Kartenfaden ANHALTEN, bevor Listen des Gelaendes veraendert werden —
-	# beide lesen sie nebenlaeufig (sonst Absturz im Kartenfaden, Signal 11).
-	m.set("_fern_stopp", true)
-	var ft: Thread = m.get("_fern_thread")
-	if ft != null and ft.is_started():
-		ft.wait_to_finish()
-		m.set("_fern_thread", null)
-	(m.get("_map_stopp") as Array)[0] = true
-	var mt: Thread = m.get("_map_thread")
-	if mt != null and mt.is_started():
-		mt.wait_to_finish()
-		m.set("_map_thread", null)
-	t.set("_strassen_an", false)
-	var eigene: Dictionary = {}
-	for d in StrassenDaten.DOERFER:
-		eigene[String(d[0])] = true
-	for z in m.get("_dorf_zonen"):
-		t.airfields.erase(z)
-	t.zonen_gitter_bauen()      # das Flachzonen-Raster haengt an der Liste
+## Das 100-m-Raster: Hoehe, Sperren, Flusstaeler, Rauheit (siehe Kopfkommentar, Schritt 1).
+func _raster() -> void:
 	nx = int((X1 - X0) / Z)
 	nz = int((Z1 - Z0) / Z)
 	h.resize(nx * nz)
@@ -109,6 +85,10 @@ func _planen() -> void:
 		for ix in nx:
 			var i := _idx(ix, iz)
 			var w := _welt(i)
+			# Nur ein Ausschnitt (Modus "anschluss"): alles ausserhalb ist gesperrt
+			if fenster.size.x > 0.0 and not fenster.has_point(w):
+				sperre[i] = 1
+				continue
 			var hh := t.height_at(w.x, w.y)
 			h[i] = hh
 			var sp := 0
@@ -155,6 +135,46 @@ func _planen() -> void:
 					vorher = hq
 				rauh[i] = st_max
 	print("PLANER Raster %dx%d in %.1f s" % [nx, nz, (Time.get_ticks_msec() - t0) / 1000.0])
+
+
+func _idx(ix: int, iz: int) -> int:
+	return iz * nx + ix
+
+
+func _welt(i: int) -> Vector2:
+	return Vector2(X0 + (float(i % nx) + 0.5) * Z, Z0 + (float(i / nx) + 0.5) * Z)
+
+
+func _zelle(p: Vector2) -> int:
+	var ix := clampi(int((p.x - X0) / Z), 0, nx - 1)
+	var iz := clampi(int((p.y - Z0) / Z), 0, nz - 1)
+	return _idx(ix, iz)
+
+
+func _planen() -> void:
+	t = m.terrain
+	# AUF DEM GELAENDE OHNE DIE EIGENEN DOERFER UND STRASSEN planen: sonst sieht der Planer
+	# den vorigen Stand als "vorhandene Orte" und waehlt 20 neue Doerfer daneben.
+	# Schuerzen- und Kartenfaden ANHALTEN, bevor Listen des Gelaendes veraendert werden —
+	# beide lesen sie nebenlaeufig (sonst Absturz im Kartenfaden, Signal 11).
+	m.set("_fern_stopp", true)
+	var ft: Thread = m.get("_fern_thread")
+	if ft != null and ft.is_started():
+		ft.wait_to_finish()
+		m.set("_fern_thread", null)
+	(m.get("_map_stopp") as Array)[0] = true
+	var mt: Thread = m.get("_map_thread")
+	if mt != null and mt.is_started():
+		mt.wait_to_finish()
+		m.set("_map_thread", null)
+	t.set("_strassen_an", false)
+	var eigene: Dictionary = {}
+	for d in StrassenDaten.DOERFER:
+		eigene[String(d[0])] = true
+	for z in m.get("_dorf_zonen"):
+		t.airfields.erase(z)
+	t.zonen_gitter_bauen()      # das Flachzonen-Raster haengt an der Liste
+	_raster()
 
 	# --- vorhandene Orte und Plaetze (Knoten + Abstand) ------------------------------
 	var knoten: Array = []    # [name, Vector2, art]   art: 0 Dorf, 1 Ort, 2 Flugplatz
@@ -438,6 +458,115 @@ func _planen() -> void:
 	fa.store_string("\n".join(zeilen) + "\n")
 	fa.close()
 	print("PLANER %d Strassenstuecke, %.1f km, geschrieben: %s" % [strassen.size(), gesamt / 1000.0, ZIEL])
+
+
+## ANSCHLUSSSTRASSEN an das vorhandene Netz (siehe Kopfkommentar).
+func _anschluss() -> void:
+	t = m.terrain
+	m.set("_fern_stopp", true)
+	var ft: Thread = m.get("_fern_thread")
+	if ft != null and ft.is_started():
+		ft.wait_to_finish()
+		m.set("_fern_thread", null)
+	(m.get("_map_stopp") as Array)[0] = true
+	var mt: Thread = m.get("_map_thread")
+	if mt != null and mt.is_started():
+		mt.wait_to_finish()
+		m.set("_map_thread", null)
+	# gewachsenes Gelaende OHNE die Einschnitte der Strassen (auch der eigenen vom letzten Lauf)
+	t.set("_strassen_an", false)
+	fenster = Rect2(2500.0, -1500.0, 19000.0, 15000.0)
+	_raster()
+	# Die Hafenstadt selbst ist gesperrt: die Strasse beginnt am Ortsrand und laeuft aussen herum.
+	var hm := Vector2(Hafenstadt.MITTE.x, Hafenstadt.MITTE.z)
+	for i in nx * nz:
+		if _welt(i).distance_to(hm) < Hafenstadt.R_FLACH + 30.0:
+			sperre[i] = 1
+	# vorhandenes Netz in die Strassenmaske
+	for st in StrassenDaten.STRASSEN:
+		var sp: Array = st[1]
+		for k in range(sp.size() - 1):
+			var a: Vector2 = sp[k]
+			var b: Vector2 = sp[k + 1]
+			var n := maxi(1, int(a.distance_to(b) / 25.0))
+			for j in n + 1:
+				strasse[_zelle(a.lerp(b, float(j) / float(n)))] = 1
+	var zeilen := PackedStringArray()
+	zeilen.append("## ERZEUGT von tools/_dorf_planer.gd -- anschluss — nicht von Hand bearbeiten.")
+	zeilen.append("## Anschlussstrassen der Hafenstadt FREIHAFEN an das Netz aus StrassenDaten (das")
+	zeilen.append("## dabei unveraendert bleibt). Jede beginnt genau an Hafenstadt.anschluesse().")
+	zeilen.append("class_name StrassenZusatz")
+	zeilen.append("")
+	zeilen.append("## [Nebenstrasse?, Punkte (x, z)]")
+	zeilen.append("const STRASSEN := [")
+	var gesamt := 0.0
+	for auftrag in Hafenstadt.anschluesse():
+		var start: Vector2 = auftrag[0]
+		var ziel: Vector2 = auftrag[1]
+		sperre[_zelle(start)] = 0
+		_freigeben(ziel)
+		var r := _astern(start, ziel, true)
+		if r.is_empty():
+			print("ANSCHLUSS kein Weg: ", start, " -> ", ziel)
+			continue
+		var pfad: Array = r[1]
+		# wie im Planer: nur Stuecke, die nicht schon Strasse sind; das Ende reicht eine
+		# Zelle in die alte Strasse hinein
+		var stuecke: Array = []
+		var stueck: Array = []
+		for k in pfad.size():
+			var i: int = pfad[k]
+			if strasse[i] == 0:
+				if stueck.is_empty() and k > 0:
+					stueck.append(pfad[k - 1])
+				stueck.append(i)
+			elif not stueck.is_empty():
+				stueck.append(i)
+				if stueck.size() >= 3:
+					stuecke.append(stueck)
+				stueck = []
+		if stueck.size() >= 3:
+			stuecke.append(stueck)
+		for i in pfad:
+			strasse[i] = 1
+		for si in stuecke.size():
+			var pts: Array[Vector2] = []
+			for i in stuecke[si]:
+				pts.append(_welt(i))
+			# das erste Stueck beginnt GENAU am Anschlusspunkt der Stadt
+			if si == 0 and int(stuecke[si][0]) == _zelle(start):
+				pts[0] = start
+			var glatt := _chaikin(_querungen_begradigen(_chaikin(_chaikin(_dp(pts, 30.0)))))
+			if si == 0 and int(stuecke[si][0]) == _zelle(start):
+				glatt[0] = start
+			# Das Ende AUF die alte Strasse ziehen: es liegt sonst nur in deren Rasterzelle,
+			# bis zu 70 m neben der Fahrbahn (gemessen 34 m — eine Luecke zwischen den Baendern).
+			var ende := glatt[glatt.size() - 1]
+			var best := ende
+			var best_d := 90.0
+			for alt_s in StrassenDaten.STRASSEN:
+				var ap: Array = alt_s[1]
+				for k in range(ap.size() - 1):
+					var q := Geometry2D.get_closest_point_to_segment(ende, ap[k], ap[k + 1])
+					if q.distance_to(ende) < best_d:
+						best_d = q.distance_to(ende)
+						best = q
+			glatt[glatt.size() - 1] = best
+			var lang := 0.0
+			for k in range(1, glatt.size()):
+				lang += glatt[k].distance_to(glatt[k - 1])
+			gesamt += lang
+			print("ANSCHLUSS %s -> %s: Stueck %d, %.1f km, von %s bis %s" % [start, ziel, si,
+				lang / 1000.0, glatt[0], glatt[glatt.size() - 1]])
+			var z := "\t[false, ["
+			for k in glatt.size():
+				z += "Vector2(%d, %d), " % [roundi(glatt[k].x), roundi(glatt[k].y)]
+			zeilen.append(z + "]],")
+	zeilen.append("]")
+	var fa := FileAccess.open("res://scripts/StrassenZusatz.gd", FileAccess.WRITE)
+	fa.store_string("\n".join(zeilen) + "\n")
+	fa.close()
+	print("ANSCHLUSS %.1f km geschrieben: res://scripts/StrassenZusatz.gd" % (gesamt / 1000.0))
 
 
 ## Um einen Knoten 600 m freigeben (Sperrzonen duerfen keinen Ort einschliessen —
