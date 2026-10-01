@@ -859,6 +859,19 @@ const REGION_ORTE := [
 ]
 var _region_ort_zonen: Array = []     # [Ort, Flachzone]
 
+## FLUGZEUGTRAEGER vor der Hauptinsel (Landmarks.build_traeger; Modell "traeger_<id>.glb").
+## "kurs" ist rotation.y: der Bug zeigt nach (-sin, -cos), bei allen dreien seewaerts — der
+## Anflug kommt also von der Landseite ueber das Heck.
+## DIE LAGE IST GEMESSEN (tools/_traeger_platz.gd): im Umkreis von 1,2 km liegt der Grund
+## ueberall mehr als 15 m unter dem Meer. Bewusst OHNE Kuestenanker — jeder Anker kostet in
+## height_at und verschiebt die Kueste (und damit die Pruefsumme der Hauptinsel). Nach einer
+## Kuestenaenderung deshalb mit `_traeger_platz.gd -- x z ...` nachpruefen.
+const TRAEGER := [
+	{"id": "enterprise", "name": "USS Enterprise", "pos": Vector2(-4200, -23800), "kurs": 0.175},
+	{"id": "forrestal", "name": "USS Forrestal", "pos": Vector2(20500, 11850), "kurs": -2.094},
+	{"id": "kusnezow", "name": "Admiral Kusnezow", "pos": Vector2(-33000, 0), "kurs": 1.571},
+]
+
 
 ## Median der Gelaendehoehe auf einem Ring um p — AUSSERHALB der Einebnung gemessen, also
 ## das, worauf der Platz natuerlich stuende. Der Median, weil ein Ring auch mal ueber eine
@@ -2288,6 +2301,10 @@ func _setup_world() -> void:
 		{"name": "Minenstadt", "pos": Vector3(-55500, 0, 7000), "color": Color(0.90, 0.72, 0.55), "art": "ort", "radius": 220.0},
 	]
 	_map_pois.append_array(Strassen.karten_orte())
+	for schiff in TRAEGER:
+		var tp: Vector2 = schiff["pos"]
+		_map_pois.append({"name": String(schiff["name"]), "pos": Vector3(tp.x, 0, tp.y),
+			"color": Color(0.80, 0.85, 0.90)})
 	# KARTE ZWEISTUFIG, wie die Fernschuerze: erst 512 px mit Vorrang, damit M bald nach
 	# dem Start funktioniert, dann still die feine 2048-px-Fassung ohne Vorrang — die
 	# steht hinter der Schuerze an und wird ausgetauscht, sobald sie fertig ist.
@@ -2376,6 +2393,8 @@ func _setup_world() -> void:
 	for sh in [[Vector2(26373, -8791), 0.7], [Vector2(21642, -17765), 2.4],
 			[Vector2(-23566, 19986), -0.9], [Vector2(7824, -28236), 1.6]]:
 		Landmarks.build_ship(fly_world, sh[0], sh[1])
+	for schiff in TRAEGER:
+		Landmarks.build_traeger(fly_world, String(schiff["id"]), schiff["pos"], float(schiff["kurs"]))
 	Landmarks.build_wreck(fly_world, Vector2(26983, -7477), 0.8)
 	Landmarks.build_village(fly_world, village_pos)
 	# LANDSTRASSEN, BRUECKEN UND DOERFER der Hauptinsel (die Doerfer nur mit Blender-

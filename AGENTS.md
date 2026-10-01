@@ -515,6 +515,38 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   auf `body`, Waffentyp bekannt).
   Und im Flug: `tools/_waffen_neu_flug.gd` tauscht in der Vorlage `sturmjet` die vier
   Waffenarten gegen neue Teile (R-73, AIM-54, S-24, FAB-500), startet und feuert jede einmal.
+- **DREI FLUGZEUGTRAEGER** (`models/traeger_<id>.glb`, je 2500-2900 Dreiecke, Massstab echt):
+  `enterprise` (USS Enterprise CV-6, 250 m, gerades Holzdeck), `forrestal` (USS Forrestal,
+  323 m, Schraegdeck), `kusnezow` (Admiral Kusnezow, 306 m, Schraegdeck + Sprungschanze).
+  Sie liegen als Wahrzeichen MIT KOLLISION vor der Hauptinsel (`Main.TRAEGER`,
+  `Landmarks.build_traeger`), stehen auf der Karte und sind zum Starten und Landen da. KEINE
+  Flugplaetze im Sinn von `airfields` (kein Spawn, nicht in der NAV-Pille).
+  ZWEISTUFIG wie die Waffen: `tools/_traeger_vermessen.py` liest eine Vorlage AUSSERHALB des
+  Repos (200 000 bis 550 000 Flaechen) und schreibt nur ZAHLEN nach
+  `tools/traeger_modelle.json`; `tools/build_traeger_modelle.py` baut daraus die glbs und
+  `tools/traeger_modelle_masse.json` (Masse + Landebahn in Godot-Koordinaten).
+  Gemessen wird: Flugdeck = groesste zusammenhaengende waagerechte Flaeche im 1-m-Raster
+  (waechst ueber sanfte Stufen, also auch die Schanze hinauf, aber nicht die Inselwand);
+  je Meter Laenge Deckbreite, Deckhoehe und Bordwand in sechs Hoehen (2./98. Perzentil);
+  daraus bleiben hoechstens 64 Spanten. Was ueber dem Deck steht, zerfaellt in Flecken —
+  die Insel wird in 1,5-m-Stufen geschnitten, jede Stufe ein Prisma ueber ihrer konvexen
+  Huelle. HANDARBEIT sind Farben, Deckmarkierung und Landebahn (`farben`, `linien`, `bahn`
+  im Zahlensatz — bleiben beim Neuvermessen erhalten): die Decktexturen der Vorlagen sind
+  gekachelt und geben die Markierung nicht her.
+  FALLEN, alle hier reingelaufen: (1) "mindestens ein Punkt je Dreieck" zaehlt Antennen und
+  Reling wie Waende — flaechentreu ZUFAELLIG abtasten (fester Keim). (2) Die Wicklung der
+  Bordwand NICHT aus "zeigt von der Schiffsmitte weg" raten: die Unterseite eines
+  ueberhaengenden Decks liegt hoeher und weiter aussen als die Mitte und zeigt trotzdem nach
+  unten — die Wicklung steht im Lofting fest. (3) Die Insel zaehlt zur Deckbreite, sonst
+  endet das Deck an ihrer Wand und sie steht in einer Stufe. (4) Heruntergefahrene Aufzuege
+  sind 15-m-Buchten in der Deckkante (morphologisch schliessen). (5) Ein Ausleger am Heck
+  wurde als Rumpf gelesen (Dorn): ein Spant zaehlt nur, wenn er die Schiffsmitte ueberdeckt.
+  (6) Die Markierung schwebt 7 cm ueber dem Deck und bleibt aus der Kollision heraus.
+  LAGE: gemessen mit `tools/_traeger_platz.gd` (ringsum 1,2 km mehr als 15 m tief), bewusst
+  OHNE Kuestenanker — nach einer Kuestenaenderung damit nachpruefen.
+  Belege: `tools/_traeger_check.gd` (Masse, Dreiecke, Kollision, Deck unter der Landebahn)
+  und `tools/_traeger_flug.gd` (Erststart-Flugzeug steht, startet und setzt auf jedem Deck
+  auf; steht nach 59-68 m, es gibt keine Fangseile).
 
 ## Modi, Geld & Upgrades (`scripts/GameState.gd`)
 - **GameState** (Node, in Main als `game` erzeugt + `load_state()`): hält `mode`

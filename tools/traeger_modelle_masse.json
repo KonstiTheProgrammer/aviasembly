@@ -1,0 +1,86 @@
+{
+ "enterprise": {
+  "bahn": [
+   [
+    -3.0,
+    16.8,
+    116.0
+   ],
+   [
+    -3.0,
+    16.8,
+    -112.0
+   ]
+  ],
+  "breite": 35.32,
+  "deck": 16.8,
+  "dreiecke": 2509,
+  "hoehe": 50.21,
+  "laenge": 250.0,
+  "materialien": [
+   "rumpf",
+   "deck",
+   "wasserpass",
+   "aufbau",
+   "dunkel",
+   "gelb"
+  ],
+  "name": "USS Enterprise (CV-6)"
+ },
+ "forrestal": {
+  "bahn": [
+   [
+    3.8,
+    18.7,
+    154.0
+   ],
+   [
+    -28.6,
+    18.7,
+    -30.0
+   ]
+  ],
+  "breite": 86.22,
+  "deck": 18.7,
+  "dreiecke": 2592,
+  "hoehe": 53.12,
+  "laenge": 323.0,
+  "materialien": [
+   "rumpf",
+   "deck",
+   "wasserpass",
+   "aufbau",
+   "weiss",
+   "gelb"
+  ],
+  "name": "USS Forrestal (CV-59)"
+ },
+ "kusnezow": {
+  "bahn": [
+   [
+    -0.0,
+    16.82,
+    148.0
+   ],
+   [
+    -23.6,
+    16.82,
+    -44.0
+   ]
+  ],
+  "breite": 77.56,
+  "deck": 16.82,
+  "dreiecke": 2869,
+  "hoehe": 54.38,
+  "laenge": 306.0,
+  "materialien": [
+   "rumpf",
+   "deck",
+   "wasserpass",
+   "aufbau",
+   "weiss",
+   "gelb"
+  ],
+  "name": "Admiral Kusnezow"
+ }
+}

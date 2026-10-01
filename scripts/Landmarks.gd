@@ -653,6 +653,64 @@ static func build_wreck(parent: Node3D, pos2: Vector2, heading := 0.8) -> void:
 	_box(mast, Vector3(0, 4.0, 0), Vector3(0.5, 8.0, 0.5), rust)
 
 
+# FLUGZEUGTRAEGER: schlichtes Modell (res://models/traeger_<id>.glb, gebaut von
+# tools/build_traeger_modelle.py aus vermessenen ZAHLEN) auf der Wasserlinie. Bug = -Z.
+#
+# MIT KOLLISION, anders als Segler und Wrack: das Deck ist zum Landen da. Die Kollisions-
+# flaeche kommt aus DENSELBEN Dreiecken wie das Sichtnetz (wie beim Felsentor) — nur die
+# Deckmarkierung bleibt draussen: sie schwebt 7 cm ueber dem Deck, und ein Rad, das ueber
+# eine Linie rollt, soll keine Stufe spueren.
+const TRAEGER_OHNE_KOLLISION := ["weiss", "gelb"]
+
+static func build_traeger(parent: Node3D, id: String, pos2: Vector2, heading := 0.0) -> Node3D:
+	var pfad := "res://models/traeger_%s.glb" % id
+	if not ResourceLoader.exists(pfad):
+		return null
+	var szene := load(pfad) as PackedScene
+	if szene == null:
+		return null
+	var node := Node3D.new()
+	node.name = "Traeger_" + id
+	node.position = Vector3(pos2.x, TerrainWorld.SEA_Y, pos2.y)
+	node.rotation.y = heading
+	parent.add_child(node)
+	var modell := szene.instantiate() as Node3D
+	node.add_child(modell)
+
+	var flaechen := PackedVector3Array()
+	for mi: MeshInstance3D in modell.find_children("*", "MeshInstance3D", true, false):
+		# Lage des Netzes im Traeger-Knoten, ohne den Szenenbaum zu brauchen.
+		var xf := mi.transform
+		var eltern := mi.get_parent() as Node3D
+		while eltern != null and eltern != node:
+			xf = eltern.transform * xf
+			eltern = eltern.get_parent() as Node3D
+		for s in mi.mesh.get_surface_count():
+			var mat := mi.mesh.surface_get_material(s)
+			if mat != null and TRAEGER_OHNE_KOLLISION.has(String(mat.resource_name)):
+				continue
+			var felder := mi.mesh.surface_get_arrays(s)
+			var punkte: PackedVector3Array = felder[Mesh.ARRAY_VERTEX]
+			var idx = felder[Mesh.ARRAY_INDEX]
+			if idx == null or (idx as PackedInt32Array).is_empty():
+				for p in punkte:
+					flaechen.append(xf * p)
+			else:
+				for i: int in idx:
+					flaechen.append(xf * punkte[i])
+	var body := StaticBody3D.new()
+	body.name = "Kollision"
+	body.collision_layer = 1
+	body.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(flaechen)
+	cs.shape = shape
+	body.add_child(cs)
+	node.add_child(body)
+	return node
+
+
 # --- FELSENTOR ------------------------------------------------------------------------
 # Ein LOCH IN EINER FELSRIPPE am Eingang des Hochtals, durch das man hindurchfliegt. Das
 # einzige Wahrzeichen mit KOLLISION.

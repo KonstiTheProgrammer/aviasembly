@@ -170,6 +170,12 @@ Die Welt lebt: Möwen kreisen über Küsten und Seen, Krähen- und Starenschwär
 Felder, Greifvögel segeln in der Thermik über Schlucht und Gebirge, der Wald wiegt sich im
 Wind, und die Schönwetterwolken stehen in langen Wolkenstraßen.
 
+**Drei Flugzeugträger** liegen vor der Hauptinsel und stehen auf der Karte — man kann auf
+ihnen landen und wieder starten (keine Fangseile: mit Gegenschub bremsen):
+- **USS Enterprise** (CV-6, 250 m, gerades Holzdeck) im Norden,
+- **USS Forrestal** (323 m, Schrägdeck) im Ostgolf, 6 km vor FREIHAFEN,
+- **Admiral Kusnezow** (306 m, Schrägdeck und Sprungschanze) westlich von WESTKAP.
+
 **Wolken zum Durchfliegen** (alle auf der Karte):
 - **Gewitterzelle** weit draußen im Osten — 5 km hoher Turm mit Amboss, Blitzen und Regen,
   heftiger Turbulenz, Aufwind im Kern und Fallwind unter der Basis.
