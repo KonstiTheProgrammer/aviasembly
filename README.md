@@ -197,6 +197,11 @@ Glitzerpfad unter der Sonne und ferne Küsten als Silhouette im Dunst.
   **Schwere Lenkrakete** (große Reichweite, viel Schaden) · Bombe (Freifall, **Taste B**) —
   gefeuert wird per **Leertaste** oder **linker Maustaste** — und zwar die unten in der
   Mitte **ausgewählte Waffengruppe** (Auswahl: **1–4** direkt, **X** durchschalten)
+- **27 Waffen nach echten Vorbildern** (fliegen wie ihr Grundtyp, eigen sind Aussehen,
+  Größe und Gewicht): R-73 · R-60 · Magic 2 · Python 4 · Hellfire · AIM-120 · AIM-54
+  Phoenix · R-27ER · R-77 · MICA · Kh-29T · Kh-25ML · AGM-88 HARM · Harpoon · HVAR · RP-3 ·
+  Zuni · RS-82 · S-24 · S-25 · Mk 82 · Mk 82 Snakeye · Mk 84 · GBU-12 · GBU-31 JDAM ·
+  FAB-500 · AN-M64 — dazu die Abwurf-Boost-Rakete im Kleid der AGM-65 Maverick
 
 *Mit `tools/build_jet.gd` gibt's einen vorgebauten zweimotorigen Delta-Canard-Jet
 (zwei eckige Triebwerke) im Speicherstand.*

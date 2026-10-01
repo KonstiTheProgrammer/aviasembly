@@ -38,7 +38,10 @@ LIB = {
                 "f4_nose", "f4_front", "f4_intake", "f14_front"],
     "fluegel_leitwerk": ["mig21_wing", "spitfire_wing", "mig21_stab", "mig21_fin"],
     "waffen": ["cannon", "autocannon", "heavy_cannon", "mg", "wing_gun", "minigun",
-               "rocket", "rocket_pod", "missile", "missile_heavy", "bomb"],
+               "rocket", "rocket_pod", "missile", "missile_heavy", "missile_drop", "bomb",
+               "r73", "magic2", "hellfire", "aim120", "aim54", "r27er", "kh29t", "agm88",
+               "hvar", "rp3", "zuni", "s24", "mk82", "mk84", "gbu12", "fab500", "anm64",
+               "r60", "python4", "r77", "mica", "harpoon", "kh25", "s25", "rs82", "jdam", "snakeye"],
 }
 
 PER_ROW = 6

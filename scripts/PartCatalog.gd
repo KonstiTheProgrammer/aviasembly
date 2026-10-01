@@ -961,9 +961,78 @@ static func _build() -> void:
 	_add({
 		"id": "missile_drop", "name": "Abwurf-Boost-Rakete", "category": CAT_WEAPON,
 		"mass": 130.0, "color": Color(0.55, 0.58, 0.63), "shape": "missile", "weapon": "missile_drop",
-		"size": Vector3(0.5, 0.5, 2.9), "metal": 0.5, "rough": 0.4,
+		# Box = das Blender-Modell (tools/build_missile_drop_model.py): die vier Deltafluegel
+		# stehen in X-Stellung und spannen 0,61 ueber Eck — bei 0,5 ragten die Spitzen heraus.
+		"size": Vector3(0.6, 0.6, 2.9), "metal": 0.5, "rough": 0.4,
 		"desc": "IR-SCHWER (LEERTASTE): Abwurfstart — fällt erst frei aus der Aufhängung und zündet dann. Wärmesuchkopf bis 2500 m, großer Gefechtskopf, mittelwendig (19 g). Gegen große, träge Ziele. Im Tiefflug wegen des Zündverzugs mit Vorsicht.",
 	})
+	# --- WAFFEN NACH ECHTEN VORBILDERN (Modelle: tools/build_waffen_modelle.py) -----------
+	# Jede fliegt und trifft wie ihr Grundtyp (drittes Feld = "weapon"); eigen sind nur
+	# Aussehen, Masse und Groesse. Box und Farbe kommen vom Modell und stehen in
+	# tools/waffen_modelle_masse.json — die Box ist symmetrisch um die Laengsachse, weil der
+	# Bau-Snap ohne col_offset rechnet.
+	for w in [
+		["r73", "R-73", "missile", 105.0, Vector3(0.41, 0.41, 2.95), "e6dfce",
+			"IR-KURZ (LEERTASTE): sowjetische R-73. Lenkt wie die Zielsuchrakete, ist nur etwas schwerer."],
+		["magic2", "Matra Magic 2", "missile", 89.0, Vector3(0.49, 0.49, 2.83), "dbdcd6",
+			"IR-KURZ (LEERTASTE): französische Magic 2 mit doppelten Canards. Lenkt wie die Zielsuchrakete."],
+		["hellfire", "AGM-114 Hellfire", "missile", 45.0, Vector3(0.23, 0.24, 1.65), "212126",
+			"IR-KURZ (LEERTASTE): klein und leicht — passt in Mengen unter jede Fläche. Lenkt wie die Zielsuchrakete."],
+		["aim120", "AIM-120 AMRAAM", "missile_heavy", 157.0, Vector3(0.34, 0.34, 3.72), "919a9c",
+			"RADAR-MITTEL (LEERTASTE): braucht die Aufschaltung wie die Schwere Lenkrakete, ist aber leichter und schlanker."],
+		["aim54", "AIM-54 Phoenix", "missile_heavy", 463.0, Vector3(0.67, 0.67, 4.01), "818689",
+			"RADAR-MITTEL (LEERTASTE): der dicke Brocken der F-14. Lenkt wie die Schwere Lenkrakete, wiegt aber mehr als das Doppelte."],
+		["r27er", "R-27ER", "missile_heavy", 350.0, Vector3(0.71, 0.71, 4.86), "d6d0c0",
+			"RADAR-MITTEL (LEERTASTE): sowjetisch, mit Schmetterlingsflossen und fast fünf Meter lang. Lenkt wie die Schwere Lenkrakete."],
+		["kh29t", "Kh-29T", "missile_drop", 680.0, Vector3(0.84, 0.84, 4.02), "b5b6b5",
+			"IR-SCHWER (LEERTASTE): sowjetischer Bodenziel-Flugkörper. Abwurfstart wie die Abwurf-Boost-Rakete — und sehr schwer."],
+		["agm88", "AGM-88 HARM", "missile_drop", 355.0, Vector3(0.82, 0.82, 4.24), "c0bbb8",
+			"IR-SCHWER (LEERTASTE): die Rakete gegen Flugabwehr. Abwurfstart wie die Abwurf-Boost-Rakete."],
+		["hvar", "HVAR (5 Zoll)", "rocket", 64.0, Vector3(0.29, 0.29, 1.80), "cecece",
+			"Ungelenkt (LEERTASTE): die „Holy Moses“ des Zweiten Weltkriegs. Fliegt geradeaus wie die Ungelenkte Rakete."],
+		["rp3", "RP-3 (60 lb)", "rocket", 37.0, Vector3(0.25, 0.25, 1.95), "3a4d34",
+			"Ungelenkt (LEERTASTE): britische Rakete der Typhoon mit 60-Pfund-Kopf und Schienenschellen. Fliegt geradeaus."],
+		["zuni", "Zuni (5 Zoll)", "rocket", 48.0, Vector3(0.14, 0.14, 2.50), "919799",
+			"Ungelenkt (LEERTASTE): schlank und leicht, mit Klappflossen am Heck. Fliegt geradeaus."],
+		["s24", "S-24", "rocket", 235.0, Vector3(0.45, 0.45, 2.13), "3d4547",
+			"Ungelenkt (LEERTASTE): sowjetischer 235-kg-Brocken. Fliegt geradeaus wie die Ungelenkte Rakete."],
+		["mk82", "Mk 82 (500 lb)", "bomb", 227.0, Vector3(0.29, 0.29, 2.25), "4d503d",
+			"Freifallbombe (Taste B): die schlanke Allzweckbombe."],
+		["mk84", "Mk 84 (2000 lb)", "bomb", 925.0, Vector3(0.48, 0.48, 3.94), "4d4e3c",
+			"Freifallbombe (Taste B): fast vier Meter lang und fast eine Tonne schwer. Wirkt im Spiel wie die normale Bombe."],
+		["gbu12", "GBU-12 Paveway II", "bomb", 230.0, Vector3(0.42, 0.41, 3.30), "67604a",
+			"Freifallbombe (Taste B): sieht aus wie eine Lenkbombe, fällt im Spiel aber ungelenkt."],
+		["fab500", "FAB-500", "bomb", 500.0, Vector3(0.51, 0.51, 2.54), "737d84",
+			"Freifallbombe (Taste B): sowjetische 500-kg-Bombe mit Ringleitwerk."],
+		["anm64", "AN-M64 (500 lb)", "bomb", 250.0, Vector3(0.39, 0.39, 1.53), "55513a",
+			"Freifallbombe (Taste B): die Bombe der B-17 und B-29, mit Kastenleitwerk."],
+		["r60", "R-60", "missile", 44.0, Vector3(0.33, 0.33, 2.18), "949797",
+			"IR-KURZ (LEERTASTE): die kleinste Lenkwaffe im Katalog — 44 kg. Lenkt wie die Zielsuchrakete."],
+		["python4", "Python 4", "missile", 105.0, Vector3(0.51, 0.47, 3.16), "6b6963",
+			"IR-KURZ (LEERTASTE): israelische Kurvenkampf-Rakete mit Zackenflossen am Bug. Lenkt wie die Zielsuchrakete."],
+		["r77", "R-77", "missile_heavy", 175.0, Vector3(0.64, 0.64, 3.66), "cecccb",
+			"RADAR-MITTEL (LEERTASTE): sowjetisch, mit Gitterrudern am Heck. Lenkt wie die Schwere Lenkrakete (Aufschaltung nötig)."],
+		["mica", "MICA EM", "missile_heavy", 112.0, Vector3(0.36, 0.37, 3.17), "9fa5a5",
+			"RADAR-MITTEL (LEERTASTE): französisch, mit langen Leisten am Rumpf — die leichteste Radarwaffe. Lenkt wie die Schwere Lenkrakete."],
+		["harpoon", "AGM-84 Harpoon", "missile_drop", 520.0, Vector3(0.69, 0.69, 3.92), "b0aead",
+			"IR-SCHWER (LEERTASTE): Seezielflugkörper. Abwurfstart wie die Abwurf-Boost-Rakete, wiegt über eine halbe Tonne."],
+		["kh25", "Kh-25ML", "missile_drop", 300.0, Vector3(0.57, 0.59, 3.77), "c5c3c5",
+			"IR-SCHWER (LEERTASTE): sowjetischer Bodenziel-Flugkörper. Abwurfstart wie die Abwurf-Boost-Rakete."],
+		["s25", "S-25", "rocket", 380.0, Vector3(0.43, 0.43, 3.88), "b2b2aa",
+			"Ungelenkt (LEERTASTE): sowjetische Riesenrakete mit dickem Kopf, fast vier Meter lang. Fliegt geradeaus wie die Ungelenkte Rakete."],
+		["rs82", "RS-82", "rocket", 7.0, Vector3(0.16, 0.16, 0.66), "606142",
+			"Ungelenkt (LEERTASTE): die kleine sowjetische Rakete der I-16 und Il-2 — 65 cm, 7 kg. Fliegt geradeaus."],
+		["jdam", "GBU-31 JDAM", "bomb", 934.0, Vector3(0.49, 0.49, 3.91), "6b6c6b",
+			"Freifallbombe (Taste B): Mk 84 mit Leisten und Lenksatz. Fällt im Spiel ungelenkt und wirkt wie die normale Bombe."],
+		["snakeye", "Mk 82 Snakeye", "bomb", 254.0, Vector3(0.29, 0.29, 2.31), "4d503d",
+			"Freifallbombe (Taste B): Mk 82 mit Bremsleitwerk für den Tiefflug (im Spiel ohne Bremswirkung)."],
+	]:
+		_add({
+			"id": String(w[0]), "name": String(w[1]), "category": CAT_WEAPON,
+			"mass": float(w[3]), "color": Color(String(w[5])),
+			"shape": "bomb" if String(w[2]) == "bomb" else "missile", "weapon": String(w[2]),
+			"size": w[4], "metal": 0.35, "rough": 0.5, "desc": String(w[6]),
+		})
 
 
 

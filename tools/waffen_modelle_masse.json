@@ -1,0 +1,418 @@
+{
+ "agm88": {
+  "dreiecke": 976,
+  "farbe": "#c0bbb8",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1"
+  ],
+  "size": [
+   0.814,
+   0.814,
+   4.24
+  ]
+ },
+ "aim120": {
+  "dreiecke": 1308,
+  "farbe": "#919a9c",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent2",
+   "akzent3",
+   "akzent1",
+   "akzent4"
+  ],
+  "size": [
+   0.337,
+   0.337,
+   3.719
+  ]
+ },
+ "aim54": {
+  "dreiecke": 1024,
+  "farbe": "#818689",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent2",
+   "akzent3",
+   "akzent1"
+  ],
+  "size": [
+   0.661,
+   0.661,
+   4.009
+  ]
+ },
+ "anm64": {
+  "dreiecke": 1464,
+  "farbe": "#55513a",
+  "materialien": [
+   "body",
+   "akzent3",
+   "akzent1",
+   "akzent2",
+   "dark"
+  ],
+  "size": [
+   0.383,
+   0.383,
+   1.526
+  ]
+ },
+ "fab500": {
+  "dreiecke": 880,
+  "farbe": "#737d84",
+  "materialien": [
+   "body",
+   "akzent1",
+   "dark"
+  ],
+  "size": [
+   0.505,
+   0.505,
+   2.534
+  ]
+ },
+ "gbu12": {
+  "dreiecke": 1108,
+  "farbe": "#67604a",
+  "materialien": [
+   "body",
+   "akzent3",
+   "akzent2",
+   "akzent1"
+  ],
+  "size": [
+   0.411,
+   0.41,
+   3.298
+  ]
+ },
+ "harpoon": {
+  "dreiecke": 704,
+  "farbe": "#b0aead",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent2"
+  ],
+  "size": [
+   0.687,
+   0.687,
+   3.919
+  ]
+ },
+ "hellfire": {
+  "dreiecke": 864,
+  "farbe": "#212126",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent2",
+   "akzent1",
+   "glass"
+  ],
+  "size": [
+   0.226,
+   0.235,
+   1.646
+  ]
+ },
+ "hvar": {
+  "dreiecke": 656,
+  "farbe": "#cecece",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent2"
+  ],
+  "size": [
+   0.289,
+   0.289,
+   1.795
+  ]
+ },
+ "jdam": {
+  "dreiecke": 1176,
+  "farbe": "#6b6c6b",
+  "materialien": [
+   "body",
+   "akzent1",
+   "akzent3",
+   "akzent2"
+  ],
+  "size": [
+   0.481,
+   0.481,
+   3.907
+  ]
+ },
+ "kh25": {
+  "dreiecke": 1008,
+  "farbe": "#c5c3c5",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent2",
+   "glass"
+  ],
+  "size": [
+   0.562,
+   0.589,
+   3.761
+  ]
+ },
+ "kh29t": {
+  "dreiecke": 792,
+  "farbe": "#b5b6b5",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "glass"
+  ],
+  "size": [
+   0.838,
+   0.838,
+   4.015
+  ]
+ },
+ "magic2": {
+  "dreiecke": 1124,
+  "farbe": "#dbdcd6",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent2",
+   "glass",
+   "akzent3"
+  ],
+  "size": [
+   0.488,
+   0.488,
+   2.827
+  ]
+ },
+ "mica": {
+  "dreiecke": 832,
+  "farbe": "#9fa5a5",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent2",
+   "akzent1"
+  ],
+  "size": [
+   0.36,
+   0.364,
+   3.163
+  ]
+ },
+ "mk82": {
+  "dreiecke": 704,
+  "farbe": "#4d503d",
+  "materialien": [
+   "body",
+   "akzent1",
+   "akzent2"
+  ],
+  "size": [
+   0.286,
+   0.286,
+   2.243
+  ]
+ },
+ "mk84": {
+  "dreiecke": 808,
+  "farbe": "#4d4e3c",
+  "materialien": [
+   "body",
+   "akzent1",
+   "akzent2"
+  ],
+  "size": [
+   0.473,
+   0.473,
+   3.937
+  ]
+ },
+ "python4": {
+  "dreiecke": 1440,
+  "farbe": "#6b6963",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent2",
+   "glass"
+  ],
+  "size": [
+   0.501,
+   0.47,
+   3.154
+  ]
+ },
+ "r27er": {
+  "dreiecke": 1424,
+  "farbe": "#d6d0c0",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent3",
+   "akzent2",
+   "akzent1"
+  ],
+  "size": [
+   0.709,
+   0.709,
+   4.853
+  ]
+ },
+ "r60": {
+  "dreiecke": 1016,
+  "farbe": "#949797",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent2",
+   "akzent3",
+   "glass"
+  ],
+  "size": [
+   0.322,
+   0.322,
+   2.172
+  ]
+ },
+ "r73": {
+  "dreiecke": 1360,
+  "farbe": "#e6dfce",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent3",
+   "akzent2",
+   "glass"
+  ],
+  "size": [
+   0.402,
+   0.402,
+   2.945
+  ]
+ },
+ "r77": {
+  "dreiecke": 1000,
+  "farbe": "#cecccb",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1"
+  ],
+  "size": [
+   0.634,
+   0.638,
+   3.658
+  ]
+ },
+ "rp3": {
+  "dreiecke": 952,
+  "farbe": "#3a4d34",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent2",
+   "akzent1"
+  ],
+  "size": [
+   0.249,
+   0.249,
+   1.946
+  ]
+ },
+ "rs82": {
+  "dreiecke": 888,
+  "farbe": "#606142",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent3",
+   "akzent2",
+   "akzent4"
+  ],
+  "size": [
+   0.154,
+   0.154,
+   0.651
+  ]
+ },
+ "s24": {
+  "dreiecke": 688,
+  "farbe": "#3d4547",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent2",
+   "akzent1"
+  ],
+  "size": [
+   0.441,
+   0.441,
+   2.121
+  ]
+ },
+ "s25": {
+  "dreiecke": 944,
+  "farbe": "#b2b2aa",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent2"
+  ],
+  "size": [
+   0.426,
+   0.426,
+   3.879
+  ]
+ },
+ "snakeye": {
+  "dreiecke": 960,
+  "farbe": "#4d503d",
+  "materialien": [
+   "body",
+   "akzent1",
+   "akzent2"
+  ],
+  "size": [
+   0.288,
+   0.288,
+   2.309
+  ]
+ },
+ "zuni": {
+  "dreiecke": 1048,
+  "farbe": "#919799",
+  "materialien": [
+   "body",
+   "dark",
+   "akzent1",
+   "akzent2",
+   "akzent4",
+   "akzent3"
+  ],
+  "size": [
+   0.135,
+   0.135,
+   2.494
+  ]
+ }
+}

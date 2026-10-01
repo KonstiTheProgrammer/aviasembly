@@ -41,6 +41,9 @@ Godot-Binary (macOS): `/Applications/Godot.app/Contents/MacOS/Godot`
   `HOME=/tmp/avi_home Godot --headless --fixed-fps 60 --path . --script res://tools/<t>.gd`
   (vorher `aviassembly_progress.json` dorthin kopieren, sonst erscheint die Modus-Auswahl).
   `--fixed-fps 60` = genau ein Physikschritt je Frame: schnell UND reproduzierbar.
+  UNTER WINDOWS heisst die Stellschraube `APPDATA` statt `HOME` (nachgemessen:
+  `OS.get_user_data_dir()` folgt ihr): `APPDATA=<ordner> Godot ...`, der Spielstand liegt dann
+  in `<ordner>/Godot/app_userdata/Aviassembly`.
 - **REGRESSIONS-SUITE (alle headless, alle mit Urteilszeile):** `_rundflug_alle` (Erststart-
   Flugzeug + jede Vorlage: Start, Steigflug, alle Waffengruppen, Bombe, Fahrwerk, Schacht,
   Reset, Hangar), `_undo_check`, `_datei_rundlauf` (jeder Entwurfsschluessel ueberlebt
@@ -1786,6 +1789,50 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   Heckflossen mit Rollerons, Kabelkanal), `missile_heavy` (Sparrow: Radom, Mittelflügel,
   Steuerflossen), `rocket` (Hydra: Ogive, Heckflossen). Material `body` lackierbar,
   `glass`/`radome`/`dark` bleiben.
+- **`missile_drop` (Maverick, schlicht):** `tools/build_missile_drop_model.py` baut das Modell
+  aus ZAHLEN neu (888 Dreiecke; die vermessene Vorlage hatte 10 789 und DDS-Texturen und
+  liegt NICHT im Repo): dicker Rumpf, dunkle Suchkopf-Kuppel, vier lange Deltafluegel in
+  X-Stellung, vier dunkle Ruder, zwei Schienen-Aufhaengungen, Duesenstutzen in einer
+  Heckmulde. Zwei Betriebsarten: `--background` exportiert das glb (Meter, Nase +Y), in der
+  OFFENEN Blender-Sitzung stellt es das Modell nur neben die Vorlage (deren Einheiten, Nase
+  +X) und leert nichts. Katalog-`size` deshalb 0,6 × 0,6 (Fluegel spannen 0,61 ueber Eck).
+  FALLE: einen RELATIVEN Renderpfad loest Blender gegen die Laufwerkswurzel auf — die
+  Kontrollbilder landeten in `C:\blender_lib`; `vorschau()` macht den Ordner jetzt absolut.
+  Beleg: `tools/_waffen_modelle_check.gd` (prueft dieses und die 27 unten).
+- **27 WAFFEN NACH ECHTEN VORBILDERN** — eigene Katalogteile, die wie ihr Grundtyp fliegen
+  (Feld `weapon`); eigen sind nur Aussehen, Masse und Box: `r73`, `magic2`, `hellfire`,
+  `r60`, `python4` (IR-KURZ) · `aim120`, `aim54`, `r27er`, `r77`, `mica` (RADAR-MITTEL) ·
+  `kh29t`, `agm88`, `harpoon`, `kh25` (IR-SCHWER) · `hvar`, `rp3`, `zuni`, `s24`, `s25`,
+  `rs82` (ungelenkt) · `mk82`, `mk84`, `gbu12`, `fab500`, `anm64`, `jdam`, `snakeye`
+  (Bombe). Massstab ECHT (Zoll x 0,0254), 650–1460 Dreiecke je Modell. Neue kommen dazu
+  mit: vermessen (`id=vorlagenname[:duese]`), Bild pruefen, bauen, Zeile in die Tabelle im
+  Katalog. NICHT jede Vorlage taugt: die vier Staustrahl-Einlaeufe der Kh-31 wurden zu
+  flachen Platten — das Verfahren kennt nur Rotationskoerper plus Platten.
+  ZWEISTUFIG, damit das Repo ohne die Vorlagen auskommt: `tools/_waffen_vermessen.py`
+  (Hintergrund-Blender, liest ein Waffenpaket AUSSERHALB des Repos) tastet jede Vorlage dicht
+  ab und schreibt nur ZAHLEN nach `tools/waffen_modelle.json`; `tools/build_waffen_modelle.py`
+  baut daraus die glbs und `tools/waffen_modelle_masse.json` (Box + Grundfarbe, von dort in
+  den Katalog). Gemessen wird: Laengsachse (Median der Huellmitte je Station), Rumpfradius
+  (40. Perzentil der Sektor-Maxima — Flossen belegen nur wenige Sektoren), Flossen und
+  Aufhaengungen als zusammenhaengende Felder im Raster Station x Winkel, Heckmantel (Ring
+  oder Kasten) in 24 Richtungen, Farben als Median je Station aus der Textur (haeufigste =
+  `body`, weitere `akzentN`, Suchkopf `glass`). Das Werkzeug stellt das schlichte Modell
+  neben die Vorlage und rendert beide — so wurde jede geprueft.
+  FALLEN, alle hier reingelaufen: (1) `glob` findet nichts, wenn der Ordner `... [1989]`
+  heisst — `[]` ist dort ein Zeichensatz, also `os.listdir`. (2) `Image.has_data` ist False,
+  bis jemand die Pixel liest; die Abfrage davor machte jede Waffe grau. (3) Nur nach WINKEL
+  buendeln reicht nicht: eine Schelle laeuft rundum, belegt jeden Winkel, und alle Flossen
+  verschmolzen zu einem Klotz. (4) Ein Ring- oder Kastenleitwerk belegt alle Winkel und galt
+  als Rumpf (massive Trommel); erkannt wird es am Radiussprung, und "innen liegt etwas"
+  heisst DEUTLICH innerhalb der Wand — der Kasten der AN-M64 ist hinten ganz hohl.
+  (5) Helligkeit zaehlt beim Farbvergleich nur halb, sonst zerfaellt ein weisser Rumpf durch
+  eingebackenen Schmutz in fuenf Grautoene und das Profil in 47 Baender. (6) Baender unter
+  drei Stationen gehen im Nachbarn auf: die Warnstreifen der Python 4 kosteten 53
+  Profilringe und 2500 Dreiecke.
+  Beleg: `tools/_waffen_modelle_check.gd` (alle 28 Modelle: Box, Laenge, Dreiecke, Lack nur
+  auf `body`, Waffentyp bekannt).
+  Und im Flug: `tools/_waffen_neu_flug.gd` tauscht in der Vorlage `sturmjet` die vier
+  Waffenarten gegen neue Teile (R-73, AIM-54, S-24, FAB-500), startet und feuert jede einmal.
 
 ## Modi, Geld & Upgrades (`scripts/GameState.gd`)
 - **GameState** (Node, in Main als `game` erzeugt + `load_state()`): hält `mode`
