@@ -3213,8 +3213,9 @@ var _grob_r := 0.0
 var _grob_n := 0
 var _wellen_tex: Texture2D
 var _schale_r := 8800.0
-var _dunst := 18000.0       # Ende der Dunstkurve (Main.NEBEL_ENDE), siehe setze_dunst
-var _dunst_form := 0.6      # Main.NEBEL_FORM
+var _dunst_anfang := 1000.0 # Dunstkurve (Main.NEBEL_ANFANG/ENDE/FORM), siehe setze_dunst
+var _dunst := 20000.0
+var _dunst_form := 1.0
 var _last_cc := Vector2i(2147483647, 0)   # zuletzt verarbeitete Spieler-Chunk-Zelle
 var _last_pos := Vector3.ZERO
 
@@ -6272,6 +6273,7 @@ func _water_mat(typ: int) -> ShaderMaterial:
 		m.set_shader_parameter("unendlich", true)
 		m.set_shader_parameter("wasser_y", SEA_Y + 0.15)
 		m.set_shader_parameter("schale_r", _schale_r)
+		m.set_shader_parameter("dunst_anfang", _dunst_anfang)
 		m.set_shader_parameter("dunst_ende", _dunst)
 		m.set_shader_parameter("dunst_form", _dunst_form)
 		m.set_shader_parameter("brandung", 1.0)
@@ -6351,6 +6353,9 @@ func setze_sonne(richtung: Vector3) -> void:
 	sonne_richtung = richtung
 	for m in _wasser_mats:
 		m.set_shader_parameter("sun_dir", richtung)
+	# Globale Shader-Variable (project.godot): die Boden-Shader erkennen daran das Sonnenlicht
+	# und fuellen, wo es nicht ankommt, mit Himmelslicht (palette.gdshaderinc, klares_licht).
+	RenderingServer.global_shader_parameter_set("sonne_dir", richtung.normalized())
 
 
 # =====================================================================================
@@ -6829,22 +6834,24 @@ func setze_nebel_licht(env: Environment, sonne: DirectionalLight3D) -> void:
 	for m in _wasser_mats:
 		m.set_shader_parameter("dunst_sonne", st)
 	_dunst = -1.0
-	setze_dunst(env.fog_depth_end if env.fog_enabled else 1.0e9, env.fog_depth_curve,
-		env.fog_light_color)
+	setze_dunst(env.fog_depth_begin, env.fog_depth_end if env.fog_enabled else 1.0e9,
+		env.fog_depth_curve, env.fog_light_color)
 
 
-## Aktuelle Dunstkurve (Godots fog_depth_end/fog_depth_curve, Tiefennebel — siehe
+## Aktuelle Dunstkurve (Godots fog_depth_begin/_end/_curve, Tiefennebel — siehe
 ## Main.NEBEL_ENDE) und Nebelfarbe (Main._wolken_aufenthalt, jedes Bild).
-func setze_dunst(ende: float, form: float, farbe: Color) -> void:
-	if absf(ende - _dunst) < 0.01 and absf(form - _dunst_form) < 1.0e-5 \
-			and farbe.is_equal_approx(_nebel_farbe):
+func setze_dunst(anfang: float, ende: float, form: float, farbe: Color) -> void:
+	if absf(ende - _dunst) < 0.01 and absf(anfang - _dunst_anfang) < 0.01 \
+			and absf(form - _dunst_form) < 1.0e-5 and farbe.is_equal_approx(_nebel_farbe):
 		return
+	_dunst_anfang = anfang
 	_dunst = ende
 	_dunst_form = form
 	_nebel_farbe = farbe
 	var c := farbe.srgb_to_linear().lerp(_nebel_himmel, _nebel_luft)
 	dunst_farbe = Vector3(c.r, c.g, c.b)
 	for m in _wasser_mats:
+		m.set_shader_parameter("dunst_anfang", anfang)
 		m.set_shader_parameter("dunst_ende", ende)
 		m.set_shader_parameter("dunst_form", form)
 		m.set_shader_parameter("dunst_col", Vector3(c.r, c.g, c.b))
@@ -9841,10 +9848,13 @@ func _warm_kalt(c: Color, n: Vector3, steil: float) -> Color:
 	var ab := clampf(n.dot(sonne_richtung), -1.0, 1.0)
 	var kalt := smoothstep(0.1, -0.55, ab) * steil * FELS_TEMPERATUR
 	var warm := smoothstep(0.1, 0.65, ab) * steil * FELS_TEMPERATUR
+	# SATT & KLAR (2026-10-01): die kalte Seite war HELL (0.44/0.47/0.56) — mit Himmelslicht
+	# und Gegenlicht darauf standen die Schattenseiten der Berge fahl-blau da, das war der
+	# Kern des "milchig". Jetzt dunkel-kuehl; die warme Seite etwas gedeckter.
 	if kalt > 0.004:
-		c = c.lerp(Color(0.44, 0.47, 0.56), kalt)
+		c = c.lerp(Color(0.25, 0.27, 0.32), kalt)
 	if warm > 0.004:
-		c = c.lerp(Color(0.82, 0.70, 0.50), warm)
+		c = c.lerp(Color(0.68, 0.57, 0.42), warm)
 	return c
 
 
@@ -10016,7 +10026,10 @@ func _face_color_grund(cen: Vector3, ny: float) -> Color:
 		sk = _patch.get_noise_2d(cen.x * _schnee_takt + 1700.0, cen.z * _schnee_takt - 5300.0)
 	# DUNKLER FELS: im Hochgebirge traegt der Kontrast dunkler Fels gegen weissen Schnee das
 	# ganze Bild. Mit 0.50 grau lag die Kette im Dunst als eine fahle Masse da.
-	var fels := Color(0.33, 0.31, 0.29).lerp(Color(0.40, 0.39, 0.38),
+	# SATT & KLAR (2026-10-01): noch einmal dunkler (0.33 -> 0.24) — der Gelaende-Shader
+	# spreizt die Helligkeit an steilen Waenden auf eine dunkle Skala; ohne das lagen die
+	# flachen Gipfelflaechen heller als die Waende darunter.
+	var fels := Color(0.24, 0.23, 0.22).lerp(Color(0.30, 0.295, 0.29),
 		clampf((cen.y - 600.0) / 1400.0, 0.0, 1.0))
 	var wiese := _tal_wiese(cen, ny) * _halde_frei(cen.x, cen.z)
 	var hub := TAL_WIESE_HUB * wiese + asche_hub
@@ -10052,7 +10065,10 @@ func _face_color_grund(cen: Vector3, ny: float) -> Color:
 		# Wald mehr am Boden) — der Uebergang vom Bergwald zur Felsregion.
 		var alm := smoothstep(480.0, 780.0, hh) * (1.0 - kragen)
 		if alm > 0.002:
-			boden = boden.lerp(Color(0.56, 0.60, 0.36).lerp(Color(0.62, 0.61, 0.42),
+			# SATT & KLAR (2026-10-01): kraeftiges Almgruen statt blassem Oliv (0.56/0.60/0.36)
+			# — das Oliv lag knapp ueber der Gruenerkennung des Shaders, blieb also roh und
+			# hellte jede Bergflanke ueber 480 m zu einer fahlen Flaeche auf.
+			boden = boden.lerp(Color(0.40, 0.54, 0.24).lerp(Color(0.47, 0.55, 0.28),
 				clampf(sk * 0.5 + 0.5, 0.0, 1.0)), alm * 0.55)
 		c = boden if fels_anteil < 0.002 else boden.lerp(fels, fels_anteil)
 	if kies > 0.002:

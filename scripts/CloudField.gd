@@ -1008,8 +1008,9 @@ varying float welt_y;
 // Shader rechnet deshalb Godots Formel selbst (Tiefennebel, siehe Main.NEBEL_ENDE) und
 // dunkelt die Dunstfarbe unter dem Bauch ab.
 uniform bool eigener_nebel = false;
-uniform float nebel_ende = 18000.0;
-uniform float nebel_form = 0.6;
+uniform float nebel_anfang = 1000.0;
+uniform float nebel_ende = 20000.0;
+uniform float nebel_form = 1.0;
 uniform vec3 nebel_farbe = vec3(0.24, 0.33, 0.48);   // linear, wie TerrainWorld.dunst_farbe
 // BLITZ (nur Gewitterformation): kurzes Aufleuchten von innen, unten am staerksten.
 uniform float blitz = 0.0;
@@ -1111,7 +1112,7 @@ void fragment() {
 		+ nah_dunst_farbe * nahe * 0.9 * (1.0 - dunkel * 0.6);
 	EMISSION += blitz_farbe * blitz * mix(1.0, 0.35, krone);
 	if (eigener_nebel) {
-		float nd = pow(smoothstep(0.0, nebel_ende, length(VERTEX)), nebel_form);
+		float nd = pow(smoothstep(nebel_anfang, nebel_ende, length(VERTEX)), nebel_form);
 		vec3 nf = nebel_farbe * mix(1.0, 0.40, dunkel);
 		ALBEDO *= (1.0 - nd);
 		EMISSION = mix(EMISSION, nf, nd);

@@ -29,7 +29,7 @@ func _licht() -> void:
 	var l := DirectionalLight3D.new()
 	l.rotation_degrees = Vector3(-42, 35, 0)
 	l.light_energy = 1.7
-	l.light_color = Color(1.0, 0.91, 0.74)
+	l.light_color = Color(1.0, 0.95, 0.86)   # wie Main (Sonne)
 	l.shadow_enabled = true
 	l.directional_shadow_max_distance = 200.0
 	root3.add_child(l)

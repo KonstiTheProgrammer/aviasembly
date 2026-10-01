@@ -39,16 +39,16 @@ func _licht() -> void:
 	# Tiefennebel wie im Spiel (Main.NEBEL_ENDE / NEBEL_FORM)
 	e.fog_mode = Environment.FOG_MODE_DEPTH
 	e.fog_density = 1.0
-	e.fog_depth_begin = 0.0
-	e.fog_depth_end = 18000.0
-	e.fog_depth_curve = 0.6
+	e.fog_depth_begin = 1000.0
+	e.fog_depth_end = 20000.0
+	e.fog_depth_curve = 1.0
 	e.fog_aerial_perspective = 0.74
 	env.environment = e
 	root3.add_child(env)
 	var l := DirectionalLight3D.new()
 	l.rotation_degrees = Vector3(-42, 35, 0)
 	l.light_energy = 1.7
-	l.light_color = Color(1.0, 0.91, 0.74)
+	l.light_color = Color(1.0, 0.95, 0.86)   # wie Main (Sonne)
 	l.shadow_enabled = true
 	l.directional_shadow_max_distance = 500.0
 	root3.add_child(l)

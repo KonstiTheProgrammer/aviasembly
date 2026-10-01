@@ -1,6 +1,11 @@
 // GELAENDE: Chunks (gelaende.gdshader), Fernschuerze (gelaende_fern.gdshader, FERN),
 // Felsboegen (Landmarks).
 //
+// STAND 2026-10-01: "SATT & KLAR" (Nutzer: Berge "richtig milchig", Boden-Stil "ned so
+// gut"). Glatte Farbflaechen wie unten beschrieben, aber tiefe satte Palette, dunkler Fels,
+// klares Licht nahe Lambert (klares_licht) und Dunst erst zum Horizont (Main.NEBEL_ANFANG).
+// Was unten ueber WEICHES LICHT und viel LUFT steht, ist die Vorgeschichte.
+//
 // LOOK: MODERN-STILISIERT (Richtung Zelda BotW / Ghibli), Wunsch des Nutzers. Die erste
 // glatte Fassung legte Rauschkorn, Relief und Fleckenmuster ueber das Gelaende — das wirkte
 // "billig und alt" (Flugsimulator von 2005). Dieser Stil erzaehlt Form nicht ueber
@@ -115,22 +120,25 @@ void fragment() {
 	vec3 gras = rampe(GRAS_TIEF, GRAS_MITTE, GRAS_HELL, gras_lage(lum, verlauf, w_pos.y));
 	c = mix(c, gras, gruen * 0.88);
 
-	// --- Fels: Farbton aus der Rampe, Helligkeit bleibt ----------------------------------
-	// NUR DER TON wird vereinheitlicht (dunkel = kuehles Blaugrau, hell = warmer Kalk). Die
-	// Helligkeit bleibt die der Rohfarbe — sonst hoebe die Rampe den schwarzen Basalt am
-	// Vulkan auf Mittelgrau. Dazu an steilen Flanken weiche, grosse Baenke.
+	// --- Fels: Farbton aus der Rampe, Helligkeit dunkel gespreizt ------------------------
+	// Der TON wird vereinheitlicht (dunkel = kuehles Granitgrau, hell = helles warmes Grau),
+	// die Helligkeit folgt der Rohfarbe, etwas abgedunkelt (siehe unten) — der schwarze
+	// Basalt am Vulkan bleibt dabei schwarz. Dazu an steilen Flanken weiche, grosse Baenke.
 	float fels = (1.0 - gruen) * (1.0 - schnee) * smoothstep(0.30, 0.70, steil);
 	if (fels > 0.01) {
 		vec2 wand = abs(n.x) > abs(n.z) ? w_pos.zy : w_pos.xy;
 		// Weicher Kanal (G), nicht das Korn (R) — sonst stand wieder Rauschen auf der Wand.
 		float bank = texture(boden_tex, vec2(wand.x * (1.0 / 420.0), wand.y * (1.0 / 90.0))).g - 0.5;
 		float hell = lum * (1.0 + bank * 0.45 * k * (1.0 - smoothstep(1500.0, 5000.0, d)));
-		// Mehr Tiefe im Gestein: mittlere und dunkle Lagen bis 14 % dunkler, heller Kalk
-		// bleibt — ohne das stand die besonnte Wand fast weiss-beige und flach da.
-		hell *= mix(0.86, 1.0, smoothstep(0.30, 0.80, hell));
-		vec3 ton = mix(FELS_TIEF, FELS_HELL, smoothstep(0.20, 0.75, lum) + verlauf * 0.25);
+		// SATT & KLAR: 15 % dunkler als die Rohhelligkeit (Basalt 0.10 bleibt schwarz, Grund-
+		// fels 0.29, Sonnenseite 0.6). Das Milchige kam nicht von hier, sondern von der HELL-
+		// BLAUEN Schattenseite (TerrainWorld._warm_kalt, jetzt dunkel-kuehl), dem breiten
+		// weichen Licht und dem Dunst. Eine dunkle Skala (0.10..0.50) gab mit dem klaren Licht
+		// schwarze Schattenseiten und Schokoladenberge.
+		hell = hell * 0.85 + 0.02;
+		vec3 ton = mix(FELS_TIEF, FELS_HELL, smoothstep(0.18, 0.62, hell) + verlauf * 0.25);
 		vec3 stein = ton * (hell / max(dot(ton, vec3(0.2126, 0.7152, 0.0722)), 0.001));
-		c = mix(c, stein, fels * 0.8);
+		c = mix(c, stein, fels * 0.88);
 	}
 
 	// --- Schnee blauweiss -------------------------------------------------------------------
@@ -144,5 +152,5 @@ void fragment() {
 }
 
 void light() {
-	DIFFUSE_LIGHT += weiches_licht(NORMAL, LIGHT, LIGHT_COLOR, ATTENUATION);
+	DIFFUSE_LIGHT += klares_licht(NORMAL, LIGHT, LIGHT_COLOR, ATTENUATION, mat3(INV_VIEW_MATRIX) * LIGHT);
 }

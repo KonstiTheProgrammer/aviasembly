@@ -47,3 +47,7 @@ welt_zeit={
 "type": "float",
 "value": 0.0
 }
+sonne_dir={
+"type": "vec3",
+"value": Vector3(-0.689, 0.438, 0.578)
+}

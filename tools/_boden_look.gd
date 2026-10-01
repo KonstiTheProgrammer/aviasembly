@@ -83,7 +83,6 @@ func _anwenden() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_density = 1.0
-	env.fog_depth_begin = 0.0
 	env.fog_depth_end = m.nebel_ende_bei(p.y)
 	env.fog_depth_curve = m.nebel_form_bei(p.y)
 	env.fog_light_color = basis_farbe
@@ -95,10 +94,13 @@ func _anwenden() -> void:
 		"ohne_luft":
 			env.fog_aerial_perspective = 0.0
 		_:
-			# Freie Fassung aus Bausteinen mit "+": e<faktor> Kurvenende, f<form> Kurvenform,
+			# Freie Fassung aus Bausteinen mit "+": b<m> Kurvenanfang, e<faktor> Kurvenende,
+			# f<form> Kurvenform,
 			# a<wert> Luftperspektive, s<wert> Sonnenstreuung, c<r>_<g>_<b> Dunstfarbe (sRGB)
 			for tok in aktiv.split("+"):
-				if tok.begins_with("e"):
+				if tok.begins_with("b"):
+					env.fog_depth_begin = float(tok.substr(1))
+				elif tok.begins_with("e"):
 					env.fog_depth_end *= float(tok.substr(1))
 				elif tok.begins_with("f"):
 					env.fog_depth_curve = float(tok.substr(1))
@@ -112,8 +114,8 @@ func _anwenden() -> void:
 	if aktiv != gesetzt:
 		gesetzt = aktiv
 		m.terrain.setze_nebel_licht(env, m.get("sonne_licht"))
-	m.terrain.setze_dunst(env.fog_depth_end if env.fog_enabled else 1.0e9, env.fog_depth_curve,
-		env.fog_light_color)
+	m.terrain.setze_dunst(env.fog_depth_begin, env.fog_depth_end if env.fog_enabled else 1.0e9,
+		env.fog_depth_curve, env.fog_light_color)
 
 
 ## Mittlere Saettigung (HSV), Median der Helligkeit und Helligkeitsspreizung (P90 - P10) je

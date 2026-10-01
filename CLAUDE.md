@@ -245,7 +245,7 @@ README.md                Steuerung + Feature-Überblick (Spielersicht).
   Grundwelligkeit angehoben (+55 % Amplitude): vorher 6,6 % des Binnenlands auf Strandhoehe.
   Wueste auf der Hauptinsel nur noch unter HAUPT_WUESTE_AB (−0,50) und unter 140 m.
 - DUNST wird mit der Kamerahoehe duenner (`Main.nebel_ende_bei`/`nebel_form_bei`, siehe
-  Abschnitt „Tiefennebel“); Godots fog_height hilft NICHT (legt nur Dunst unter eine Hoehe,
+  Abschnitt „Tiefennebel“ unter Welt-Look); Godots fog_height hilft NICHT (legt nur Dunst unter eine Hoehe,
   entfernungsunabhaengig).
 - STREAMING: 2 eigene Worker-Faeden (`WORKER_FAEDEN`, Messreihe dort) — die Chunks kosten
   ~50 % mehr; im WorkerThreadPool standen sie hinter der Fernschuerze (schlechter als 1 Faden).
@@ -288,9 +288,10 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Grobkarte als dunstige Silhouette (`land_col`).
 - EIGENER DUNST (`fog_disabled`): Godots Nebel saehe hinter der Kugel nur deren Radius →
   Knick im Verlauf, aus 2,5 km Hoehe ein Bogen quer durchs Meer. Der Shader rechnet
-  Godots Formel selbst mit der ECHTEN Entfernung (Tiefennebel: `pow(smoothstep(0, dunst_ende,
-  d), dunst_form)`); Farbe/Kurve aus der Umgebung (`setze_nebel_licht` einmal nach setup,
-  `setze_dunst(ende, form, farbe)` je Frame aus `Main._wolken_aufenthalt`): Nebellicht
+  Godots Formel selbst mit der ECHTEN Entfernung (Tiefennebel: `pow(smoothstep(dunst_anfang,
+  dunst_ende, d), dunst_form)`); Farbe/Kurve aus der Umgebung (`setze_nebel_licht` einmal
+  nach setup, `setze_dunst(anfang, ende, form, farbe)` je Frame aus
+  `Main._wolken_aufenthalt`): Nebellicht
   (linear) gemischt mit sky `col_deep` um `fog_aerial_perspective`, plus Sonnenstreuung.
 - WELLEN: `shaders/wasser_wellen.res` (von `tools/_wellen_textur.gd`): kachelbare Summe von
   56 Sinuswellen mit ganzzahligen Wellenvektoren, RGBA-Halbfloat = (dh/du, dh/dv, h,
@@ -333,7 +334,7 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Verfolgerkamera; `GEFUEHL_ALT=1` = ohne LUT/Glow/Blick, `GEFUEHL_OHNE_GLOW=1`),
   `_gefuehl_zeit.gd` (Kosten von Glow, Blick, Wolken in 4K).
 
-## Welt-Look (2026-09): Stil Zelda BotW / Ghibli
+## Welt-Look (2026-09): Stil Zelda BotW / Ghibli — seit 2026-10-01 „SATT & KLAR“ (siehe unten)
 Verlauf: Low-Poly (Facetten) passte laut Nutzer nicht zum Spielkonzept → erste glatte Fassung
 mit Rauschkorn-Detailtextur, Fleckenmuster und Blattrauschen wirkte "billig und alt" →
 Nutzerentscheid: MODERN-STILISIERT wie Zelda/Ghibli (Memory `stil-zelda-ghibli`). Keine
@@ -346,7 +347,8 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   Kollision rechnen damit). MULDENTOENUNG (`mulden`, `mulden_ton`): Rinnen dunkler, Grate
   heller. Chunkbau 27,8 → 19,7 ms (mit Grasmaske 22,5 ms). `_face_color`/Hoehe/Wald/Biom
   unveraendert (`_haupt_pruefsumme` bitgleich). `_skriptzeit` unveraendert (Silberfluss 1,99).
-- PALETTE + LICHT (`shaders/palette.gdshaderinc`, geteilt von Gelaende und Gras): EINE
+- PALETTE + LICHT (`shaders/palette.gdshaderinc`, geteilt von Gelaende und Gras; Werte und
+  Licht seit 2026-10-01 siehe „STIL SATT & KLAR“ unten): EINE
   Gruen-Rampe (GRAS_TIEF Blaugruen → MITTE → HELL Gelbgruen, bewusst gedeckt — hellere Werte
   gaben mit Sonne 1.7 grelles Lindgelb); Lage auf der Rampe aus der Helligkeit der Rohfarbe
   (`gras_lage`: Waldboden dunkel, trockene Wiese hell) + sehr grosse Verlaeufe (`VERLAUF`,
@@ -357,10 +359,10 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
 - GELAENDE-SHADER `shaders/gelaende_kern.gdshaderinc` (Chunks `gelaende.gdshader`, Schuerze
   `gelaende_fern.gdshader` mit FERN = Grundabsenkung, Felsboegen in Landmarks). Glut der
   Lavarinnen weiter aus COLOR.a.
-- UMGEBUNG (Main._setup_world): Tiefennebel NEBEL_ENDE 18 km / NEBEL_FORM 0.6 (siehe
-  unten), NEBEL_FARBE_FREI himmelblau (0.70/0.81/0.95), aerial 0.74, Sonnenstreuung 0.35,
-  Ambient 0.62, Sonne warm 1.7 (1.0/0.91/0.74), Gegenlicht 0.46, Saettigung 1.06 (vorher
-  1.18: Bonbonfarben).
+- UMGEBUNG (Main._setup_world): Tiefennebel NEBEL_ANFANG 1 km / NEBEL_ENDE 20 km /
+  NEBEL_FORM 1.0 (siehe unten), NEBEL_FARBE_FREI himmelblau (0.70/0.81/0.95), aerial 0.74,
+  Sonnenstreuung 0.35, Ambient 0.62, Sonne 1.7 NEUTRAL (1.0/0.95/0.86, vorher golden
+  1.0/0.91/0.74), Gegenlicht 0.46, Saettigung 1.06 (vorher 1.18: Bonbonfarben).
 - TIEFENNEBEL STATT EXPONENTIELL (2026-10, Nutzer: „Boden und Berge schauen washed aus“).
   BEFUND (`tools/_boden_look.gd`, feste Stellungen, Saettigung/Helligkeit je Bildstreifen):
   der exponentielle Dunst (0.000155) lag schon auf 1 km bei 14 %, auf 3 km bei 37 %. Er ist
@@ -368,23 +370,55 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   halbieren die Saettigung im sRGB-Bild (aus 950 m: 0.86 ohne Dunst, 0.41 mit). Aus der
   Flughoehe sieht man den Boden aber immer aus 1-3 km. Die DUNSTFARBE zu aendern brachte
   nichts (dunkleres Blau, weniger Luftperspektive: gleiche Zahlen), nur die MENGE.
-  JETZT `FOG_MODE_DEPTH`: Menge = smoothstep(0, Ende, d)^Form (Dichte 1 = Hoechstmenge),
-  am Boden 1 km 6 %, 3 km 21 %, 9 km 66 %, 18 km voll. In der Hoehe (ab 400 m, voll ab
-  2,2 km) Ende x2,2 UND Form 0.6 -> 0.45 — nur das Ende zu strecken liess entweder an der
-  Fernebene (9 km) zu wenig Dunst (Land endete aus 5 km Hoehe als scharfe Scheibe) oder
-  machte die Kurve bei 24 km zu (die fernen Kuesten verschwanden). Oben verhaelt er sich
-  jetzt wie der alte. In der Wolke wird das Ende LOGARITHMISCH auf NEBEL_WOLKE_ENDE (160 m)
-  gezogen (Weissabriss wie vorher, Bildprobe `fetzen`/`im_sturm`). Wasser (wasser_kern) und
-  Gewitterzelle (CloudField, `nebel_ende`/`nebel_form`) rechnen dieselbe Kurve.
-  Dazu Gras eine Spur tiefer/kuehler (GRAS_MITTE 0.25/0.45/0.20, GRAS_HELL 0.46/0.58/0.25 —
-  im klaren Mittelgrund stand die Wiese sonst als Limette da) und Fels in mittleren/dunklen
-  Lagen bis 14 % dunkler (heller Kalk und Schnee bleiben).
-  Werte: Saettigung der Wiese im Flugbild (`_gefuehl_bilder` berge) 0.29 -> 0.45, Wald 0.41
-  -> 0.53; `_boden_look` (Saettigung nah/mitte) berge 0.41/0.32 -> 0.57/0.46, ebene
-  0.55/0.44 -> 0.73/0.58, wiese 0.48/0.40 -> 0.65/0.58, reise (1800 m) 0.43/0.36 -> 0.50/0.44.
+  `FOG_MODE_DEPTH`: Menge = smoothstep(Anfang, Ende, d)^Form (Dichte 1 = Hoechstmenge). Erste
+  Fassung (Commit 9deb8a7) Anfang 0 / 18 km / 0.6 — dem Nutzer immer noch „richtig milchig“;
+  gewuenscht Dunst NUR AM HORIZONT. JETZT am Boden 3 km 3 %, 5 km 11 %, 9 km 38 %, 14 km
+  76 %. Ganz klar bis 10 km geht nicht, solange die Kamera bei KAMERA_FERN 9 km endet
+  (dahinter nur die Landsilhouette der Meeresscheibe). HOEHE in zwei Stufen: bis 2,2 km nur
+  Ende x1,5 (Boden aus Reiseflughoehe klar), 2-5 km Form 1 -> 0.45 und Ende noch x1,35 —
+  nur das Ende zu strecken liess an der Fernebene zu wenig Dunst (Land endete aus 5 km Hoehe
+  als scharfe Scheibe), sonst machte die Kurve vor den fernen Kuesten zu; oben verhaelt er
+  sich jetzt wie der alte (9 km 37 %, 25 km 83 %). In der Wolke: Anfang -> 0, Ende
+  LOGARITHMISCH auf NEBEL_WOLKE_ENDE (160 m), Form -> 0.6 (Weissabriss wie vorher, Bildprobe
+  `fetzen`/`im_sturm`). Wasser (wasser_kern `dunst_anfang/_ende/_form`) und Gewitterzelle
+  (CloudField `nebel_anfang/_ende/_form`) rechnen dieselbe Kurve; Main reicht sie je Frame
+  ueber `TerrainWorld.setze_dunst(anfang, ende, form, farbe)` weiter.
   WERKZEUG-FALLE: `Main._wolken_aufenthalt` setzt Nebelkurve und -farbe JEDEN Frame neu —
   wer im Werkzeug an der Umgebung dreht, muss es in `RenderingServer.frame_pre_draw` tun
   (so `_boden_look`, Fassungen ueber `BODEN_FASSUNGEN`, z. B. `basis,ohne_dunst,e1.3+f0.7`).
+- STIL „SATT & KLAR“ (2026-10-01, Nutzer nach dem ersten Dunst-Umbau: Berge „richtig
+  milchig“, Boden-Stil „ned so gut“; aus drei Optionen gewaehlt: glatte Farbflaechen OHNE
+  Texturen, aber dunkler, satter, kontrastreicher; Memory `stil-zelda-ghibli`). Ursachen des
+  Milchigen in den Bergen ausser dem Dunst: (1) `TerrainWorld._warm_kalt` gab der Schatten-
+  seite steiler Felsen eine HELL-BLAUE Albedo (0.44/0.47/0.56) — mit Himmels- und Gegenlicht
+  fahl-blaue Flanken; (2) das breite `weiches_licht` (flacher Boden 0.71 gegen Sonnenhang
+  0.92 — kaum Relief); (3) blasse Almwiese (0.56/0.60/0.36, knapp ueber der Gruenerkennung
+  des Shaders, blieb roh). JETZT:
+  * `klares_licht` (palette.gdshaderinc) fuer Gelaende, Gras und beide Strassenshader:
+    smoothstep(-0.06, 0.90, N·L)·1.08 (flach 0.57, Sonnenhang 1.08). Haeuser behalten
+    `weiches_licht`.
+  * HIMMELSFUELLUNG IM LICHT: wo die Sonne nicht ankommt (abgewandt ODER Schlagschatten),
+    addiert `klares_licht` HIMMEL_FUELL (0.36/0.43/0.55) — die Sonne erkennt es an der
+    Richtung (`step(0.995, dot(l_welt, sonne_dir))`, neue globale Shader-Variable
+    `sonne_dir` in project.godot, gesetzt in `TerrainWorld.setze_sonne`). FALLE: Godots
+    ACES drueckt alles unter ~0.02 linear fast auf null (0.01 -> 9/255) — Schattenseiten
+    waren mit dunklem Fels SCHWARZ (unterstes Zehntel 3/255). Pauschale Emission 0.12 gab
+    9/255, eine nach Flaechenrichtung gerichtete 15/255 (erreichte die Schlagschatten der
+    Grate nicht), die im Licht jetzt 26/255.
+  * Palette: GRAS_TIEF 0.08/0.23/0.15, MITTE 0.20/0.39/0.16, HELL 0.40/0.53/0.22
+    (Saettigung 0.6; 0.7 gab ohne Dunst Neonrasen 0.78-0.85 im Bild). FELS_TIEF
+    0.34/0.36/0.40 -> FELS_HELL 0.58/0.57/0.55 (neutrales Granitgrau), Felshelligkeit
+    `hell*0.85+0.02` (Basalt bleibt schwarz). Eine dunkle Skala 0.10-0.50 mit Graubraun gab
+    „Schokoladenberge“ mit schwarzen Schatten. CPU (`_face_color`): Hochgebirgsfels
+    0.24/0.23/0.22, Almwiese 0.40/0.54/0.24, `_warm_kalt` kalt 0.25/0.27/0.32 / warm
+    0.68/0.57/0.42 (Karte und `_haupt_pruefsumme` aendern sich damit).
+  * SONNE NEUTRAL (1.0/0.95/0.86): die goldene Sonne liess linear nur 51 % Blau durch und
+    machte grauen Fels braun (Median 78/67/45) und Wiesen gelb-neon. Nebeneffekt: Wolken
+    und Gewitter grau-weiss statt beige.
+  Werte (Median Fels der Hauptkette im `berge`-Flugbild): vorher 146/150/157, P10 84 (fahl)
+  -> 90/87/79, P10 26. `_boden_look` Saettigung nah/mitte: berge 0.41/0.32 -> 0.78/0.68,
+  ebene 0.55/0.44 -> 0.86/0.81, wiese 0.48/0.40 -> 0.76/0.79, reise 0.43/0.36 -> 0.72/0.68.
+  Bildprobe: `_gefuehl_bilder.gd -- berge mittel reise heimat_ost wald_sonne kueste hoch`.
 - BAEUME: Modelle (`tools/build_baeume.py`, zweite Fassung 2026-10; Datei zum Ansehen
   `blender_lib/baeume.blend`). BEFUND der ersten Fassung: in JEDER Laubkrone zeigten 144
   Flaechen nach innen (die ganze untere Kronenhaelfte, gemessen per Volumenvorzeichen) —
