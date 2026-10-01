@@ -3213,7 +3213,8 @@ var _grob_r := 0.0
 var _grob_n := 0
 var _wellen_tex: Texture2D
 var _schale_r := 8800.0
-var _dunst := 0.00013
+var _dunst := 18000.0       # Ende der Dunstkurve (Main.NEBEL_ENDE), siehe setze_dunst
+var _dunst_form := 0.6      # Main.NEBEL_FORM
 var _last_cc := Vector2i(2147483647, 0)   # zuletzt verarbeitete Spieler-Chunk-Zelle
 var _last_pos := Vector3.ZERO
 
@@ -6271,7 +6272,8 @@ func _water_mat(typ: int) -> ShaderMaterial:
 		m.set_shader_parameter("unendlich", true)
 		m.set_shader_parameter("wasser_y", SEA_Y + 0.15)
 		m.set_shader_parameter("schale_r", _schale_r)
-		m.set_shader_parameter("dunst_dichte", _dunst)
+		m.set_shader_parameter("dunst_ende", _dunst)
+		m.set_shader_parameter("dunst_form", _dunst_form)
 		m.set_shader_parameter("brandung", 1.0)
 		m.set_shader_parameter("weisskappen", 0.45)
 		m.set_shader_parameter("windfelder", 1.0)
@@ -6798,7 +6800,7 @@ func setze_grobe_tiefe(img: Image, world_r: float) -> void:
 ## NEBEL FUER DAS WASSER. Meer und Fluesse rechnen ihren Dunst selbst (EIGENER_DUNST in
 ## wasser_kern.gdshaderinc) — nach derselben Formel wie Godot und aus DENSELBEN Werten, die
 ## Main der Umgebung gibt. Einmal die festen Groessen (Luftperspektive, Sonnenstreuung,
-## Himmel unter dem Horizont), dann laufend Dichte und Nebelfarbe.
+## Himmel unter dem Horizont, Form der Tiefenkurve), dann laufend Kurvenende und Nebelfarbe.
 var _nebel_luft := 0.62
 var _nebel_himmel := Color(0.066, 0.136, 0.269)      # linear
 var _nebel_farbe := Color(0.75, 0.82, 0.92)          # sRGB, wie die Umgebung
@@ -6827,19 +6829,24 @@ func setze_nebel_licht(env: Environment, sonne: DirectionalLight3D) -> void:
 	for m in _wasser_mats:
 		m.set_shader_parameter("dunst_sonne", st)
 	_dunst = -1.0
-	setze_dunst(env.fog_density, env.fog_light_color)
+	setze_dunst(env.fog_depth_end if env.fog_enabled else 1.0e9, env.fog_depth_curve,
+		env.fog_light_color)
 
 
-## Aktuelle Nebeldichte und -farbe (Main._wolken_aufenthalt, jedes Bild).
-func setze_dunst(dichte: float, farbe: Color) -> void:
-	if absf(dichte - _dunst) < 1.0e-8 and farbe.is_equal_approx(_nebel_farbe):
+## Aktuelle Dunstkurve (Godots fog_depth_end/fog_depth_curve, Tiefennebel — siehe
+## Main.NEBEL_ENDE) und Nebelfarbe (Main._wolken_aufenthalt, jedes Bild).
+func setze_dunst(ende: float, form: float, farbe: Color) -> void:
+	if absf(ende - _dunst) < 0.01 and absf(form - _dunst_form) < 1.0e-5 \
+			and farbe.is_equal_approx(_nebel_farbe):
 		return
-	_dunst = dichte
+	_dunst = ende
+	_dunst_form = form
 	_nebel_farbe = farbe
 	var c := farbe.srgb_to_linear().lerp(_nebel_himmel, _nebel_luft)
 	dunst_farbe = Vector3(c.r, c.g, c.b)
 	for m in _wasser_mats:
-		m.set_shader_parameter("dunst_dichte", dichte)
+		m.set_shader_parameter("dunst_ende", ende)
+		m.set_shader_parameter("dunst_form", form)
 		m.set_shader_parameter("dunst_col", Vector3(c.r, c.g, c.b))
 
 

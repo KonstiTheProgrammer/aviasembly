@@ -87,16 +87,40 @@ const WOLKEN_LAGEN := ["kumulus", "turm", "schaefchen", "linse"]
 # Aufklebers, und damit liest sich nah gegen fern.
 # STIL ZELDA/GHIBLI (2026-09): etwas mehr Dunst, die Ferne soll in helles Blau kippen —
 # Tiefe ueber Luft statt ueber Texturdetail (siehe shaders/gelaende_kern.gdshaderinc).
-const NEBEL_FREI := 0.000155
-# DUNST NIMMT MIT DER FLUGHOEHE AB (siehe nebel_frei_bei): in der Hoehe laeuft die
+#
+# TIEFENNEBEL STATT EXPONENTIELL (2026-10, Nutzer: "Boden und Berge schauen washed aus").
+# Exponentiell (Dichte 0.000155) legte schon auf 1 km 14 % und auf 3 km 37 % Dunst ueber
+# das Land. Der Dunst ist in LINEARER Helligkeit vier- bis fuenfmal so hell wie besonnte
+# Wiese — schon 15 % davon halbierten die Saettigung und verdoppelten die Helligkeit im
+# sRGB-Bild (gemessen mit tools/_boden_look.gd aus 950 m: Saettigung nah 0.86 ohne Dunst,
+# 0.41 mit). Aus der Flughoehe sieht man den Boden aber IMMER aus 1-3 km — also lag genau
+# dort, wo man hinschaut, ein Milchschleier. Die Dunstfarbe zu aendern half nicht (gleiche
+# Werte), nur die Menge.
+# Jetzt Godots FOG_MODE_DEPTH: Menge = smoothstep(0, NEBEL_ENDE, d) ^ NEBEL_FORM. Die
+# Kurve beginnt flach (1 km 6 %, 3 km 21 %) und holt in der Ferne auf (6 km 44 %, 9 km
+# 66 %, 18 km voll) — Mittelgrund klar und satt, die Tiefe kommt weiter aus der Luft.
+# Wasser (wasser_kern) und Gewitterzelle (CloudField) rechnen dieselbe Formel selbst.
+const NEBEL_ENDE := 18000.0
+const NEBEL_FORM := 0.6
+# DUNST NIMMT MIT DER FLUGHOEHE AB (siehe nebel_ende_bei): in der Hoehe laeuft die
 # Sichtlinie durch duennere Luft. Ohne das stand das Hochgebirge aus 2 km Hoehe betrachtet
 # genauso verwaschen da wie das Tiefland. Godots Hoehennebel (fog_height) hilft dafuer
 # NICHT — er legt nur zusaetzlichen Dunst unter eine Hoehe, und zwar unabhaengig von der
 # Entfernung: beim Landen waere die Bahn eingetruebt gewesen.
-const NEBEL_HOCH_FAKTOR := 0.45
+# MIT DEM TIEFENNEBEL wirkt die Hoehe auf Ende UND Form der Kurve: Ende x2,2, Form 0.6 ->
+# 0.45 ab 2,2 km Hoehe. Nur das Ende zu strecken ging zweimal schief: x2,2 liess an der
+# Fernebene (9 km) 29 % Dunst — das Land endete aus 5 km Hoehe als scharfe Scheibe —, x1,33
+# machte die Kurve bei 24 km voll zu und die fernen Kuesten, die man von dort oben vorher
+# noch sah, verschwanden. Mit der weicheren Form liegt die Kurve in der Hoehe fast auf der
+# alten exponentiellen (9 km 40 %, 25 km 85 %); der Gewinn bleibt, wo man den Boden aus
+# 1-3 km sieht (aus 950 m: 1,5 km 8 % statt 19 %, 3 km 18 % statt 34 %).
+const NEBEL_HOCH_DEHNUNG := 2.2
+const NEBEL_HOCH_FORM := 0.45
 const NEBEL_HOCH_AB := 400.0
 const NEBEL_HOCH_VOLL := 2200.0
-const NEBEL_WOLKE := 0.020
+# In der Wolke: die Kurve endet schon nach so vielen Metern (Weissabriss, vorher Dichte
+# 0.020 exponentiell: 50 m 63 %, 100 m 86 %; jetzt 50 m 42 %, 100 m 79 %, 160 m voll).
+const NEBEL_WOLKE_ENDE := 160.0
 # NEBELFARBE BEI FREIER SICHT. Sie stand auf 0.66/0.79/0.94, also Blau minus Rot = 0.28.
 # Das ist die staerkste Einzelquelle des Blaustichs, der ueber der ganzen Karte liegt:
 # gemessen hat der dunkle Basalt des Vulkans b-r = +0.208, waehrend die Vorlage bei +0.067
@@ -1111,16 +1135,21 @@ func _setup_world() -> void:
 	# Luftperspektive statt Milchglas: weniger Dichte, dafuer mehr AERIAL (Ferne kippt in
 	# den Himmelston = Tiefe + Farbe, statt alles weiss zu waschen).
 	env.fog_enabled = true
-	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
+	# Tiefennebel (siehe NEBEL_ENDE): Dichte ist hier die HOECHSTMENGE, die Kurve legen
+	# Ende und Form fest.
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_density = 1.0
+	env.fog_depth_begin = 0.0
+	env.fog_depth_end = NEBEL_ENDE
+	env.fog_depth_curve = NEBEL_FORM
 	# DIESELBEN KONSTANTEN WIE DIE WOLKEN-EINTRUEBUNG. Hier standen die beiden Zahlen ein
-	# zweites Mal als Literal, waehrend _wolken_aufenthalt sie aus NEBEL_FREI und
+	# zweites Mal als Literal, waehrend _wolken_aufenthalt sie aus NEBEL_ENDE und
 	# NEBEL_FARBE_FREI nimmt. Zwei Wahrheiten fuer denselben Wert: wer eine davon aendert,
 	# aendert den Nebel im Flug oder beim Aufbau, aber nicht beides — und die Abnahmebilder
 	# (tools/_terrain_render.gd) kommen ohne Flugzeug aus, laufen also NUR ueber diesen Pfad.
 	env.fog_light_color = NEBEL_FARBE_FREI
 	# Warmer Sonnendunst in Blickrichtung Sonne (Stil Zelda/Ghibli).
 	env.fog_sun_scatter = 0.35
-	env.fog_density = NEBEL_FREI
 	# 0.62 STATT 0.30. Der Wert bestimmt, wie stark der Nebel die Farbe des HIMMELS
 	# annimmt statt einer festen Nebelfarbe — also wie sehr Ferne sich in Luft aufloest.
 	# 0.74 seit dem Stil Zelda/Ghibli: die Ferne kippt staerker in den Himmel.
@@ -2809,10 +2838,18 @@ func _blick_nachfuehren(delta: float) -> void:
 	_blick_mat.set_shader_parameter("tempo", smoothstep(150.0, 330.0, v))
 
 
-## Dunstdichte im Freien fuer eine Kamerahoehe (siehe NEBEL_HOCH_FAKTOR).
-static func nebel_frei_bei(hoehe: float) -> float:
-	return NEBEL_FREI * lerpf(1.0, NEBEL_HOCH_FAKTOR,
-		smoothstep(NEBEL_HOCH_AB, NEBEL_HOCH_VOLL, hoehe))
+## Ende und Form der Dunstkurve im Freien fuer eine Kamerahoehe (siehe NEBEL_ENDE und
+## NEBEL_HOCH_DEHNUNG): in duenner Luft streckt sich die Kurve und wird weicher.
+static func nebel_ende_bei(hoehe: float) -> float:
+	return NEBEL_ENDE * lerpf(1.0, NEBEL_HOCH_DEHNUNG, _nebel_hoehe(hoehe))
+
+
+static func nebel_form_bei(hoehe: float) -> float:
+	return lerpf(NEBEL_FORM, NEBEL_HOCH_FORM, _nebel_hoehe(hoehe))
+
+
+static func _nebel_hoehe(hoehe: float) -> float:
+	return smoothstep(NEBEL_HOCH_AB, NEBEL_HOCH_VOLL, hoehe)
 
 
 ## Steckt das Flugzeug in einer Wolke? Eine Zahl, drei Wirkungen — deshalb wird sie hier
@@ -2839,13 +2876,18 @@ func _wolken_aufenthalt(delta: float) -> void:
 	if env_sky != null:
 		var k := pow(wolken_dichte, NEBEL_KURVE)
 		var cam_y := camera.global_position.y if camera != null else pos.y
-		env_sky.fog_density = lerpf(nebel_frei_bei(cam_y), NEBEL_WOLKE, k)
+		# Logarithmisch gemischt: linear stuende die Kurve bei halber Wolkendichte noch bei
+		# 9 km und man saehe erst ganz innen etwas vom Weiss.
+		env_sky.fog_depth_end = exp(lerpf(log(nebel_ende_bei(cam_y)), log(NEBEL_WOLKE_ENDE), k))
+		env_sky.fog_depth_curve = nebel_form_bei(cam_y)
 		# Dunst jenseits der Meeresscheibe (wasser_kern: "Dunst hinter der Schale") —
-		# dieselbe Dichte, sonst truebte das ferne Meer anders als das ferne Land.
+		# dieselbe Kurve, sonst truebte das ferne Meer anders als das ferne Land.
 		if terrain != null:
-			terrain.setze_dunst(env_sky.fog_density, NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k))
+			terrain.setze_dunst(env_sky.fog_depth_end, env_sky.fog_depth_curve,
+				NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k))
 			if _gewitter_mat != null:
-				_gewitter_mat.set_shader_parameter("nebel_dichte", env_sky.fog_density)
+				_gewitter_mat.set_shader_parameter("nebel_ende", env_sky.fog_depth_end)
+				_gewitter_mat.set_shader_parameter("nebel_form", env_sky.fog_depth_curve)
 				_gewitter_mat.set_shader_parameter("nebel_farbe", terrain.dunst_farbe)
 		env_sky.fog_light_color = NEBEL_FARBE_FREI.lerp(NEBEL_FARBE_WOLKE, k)
 		# Auch der HIMMEL muss mit eintrueben, sonst steht mitten im Weiss noch ein

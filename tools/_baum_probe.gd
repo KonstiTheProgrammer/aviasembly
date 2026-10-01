@@ -36,7 +36,12 @@ func _licht() -> void:
 	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	e.fog_enabled = true
 	e.fog_light_color = Color(0.70, 0.81, 0.95)
-	e.fog_density = 0.000155
+	# Tiefennebel wie im Spiel (Main.NEBEL_ENDE / NEBEL_FORM)
+	e.fog_mode = Environment.FOG_MODE_DEPTH
+	e.fog_density = 1.0
+	e.fog_depth_begin = 0.0
+	e.fog_depth_end = 18000.0
+	e.fog_depth_curve = 0.6
 	e.fog_aerial_perspective = 0.74
 	env.environment = e
 	root3.add_child(env)

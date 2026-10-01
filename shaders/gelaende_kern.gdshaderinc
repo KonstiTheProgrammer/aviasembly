@@ -125,6 +125,9 @@ void fragment() {
 		// Weicher Kanal (G), nicht das Korn (R) — sonst stand wieder Rauschen auf der Wand.
 		float bank = texture(boden_tex, vec2(wand.x * (1.0 / 420.0), wand.y * (1.0 / 90.0))).g - 0.5;
 		float hell = lum * (1.0 + bank * 0.45 * k * (1.0 - smoothstep(1500.0, 5000.0, d)));
+		// Mehr Tiefe im Gestein: mittlere und dunkle Lagen bis 14 % dunkler, heller Kalk
+		// bleibt — ohne das stand die besonnte Wand fast weiss-beige und flach da.
+		hell *= mix(0.86, 1.0, smoothstep(0.30, 0.80, hell));
 		vec3 ton = mix(FELS_TIEF, FELS_HELL, smoothstep(0.20, 0.75, lum) + verlauf * 0.25);
 		vec3 stein = ton * (hell / max(dot(ton, vec3(0.2126, 0.7152, 0.0722)), 0.001));
 		c = mix(c, stein, fels * 0.8);

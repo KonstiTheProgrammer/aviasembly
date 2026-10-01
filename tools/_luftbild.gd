@@ -45,8 +45,9 @@ func _hin() -> void:
 	# nicht dieser)
 	var env: Environment = m.get("env_sky")
 	if env != null:
-		env.fog_density = m.nebel_frei_bei(p.y)
-		m.terrain.setze_dunst(env.fog_density, env.fog_light_color)
+		env.fog_depth_end = m.nebel_ende_bei(p.y)
+		env.fog_depth_curve = m.nebel_form_bei(p.y)
+		m.terrain.setze_dunst(env.fog_depth_end, env.fog_depth_curve, env.fog_light_color)
 
 
 func _process(_d: float) -> bool:

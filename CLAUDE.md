@@ -244,8 +244,9 @@ README.md                Steuerung + Feature-Überblick (Spielersicht).
   Wirbel!), Felder 110–190 × 1,9, Hecken an den Rainen (`_feld_wald`), nicht im Hochtal.
   Grundwelligkeit angehoben (+55 % Amplitude): vorher 6,6 % des Binnenlands auf Strandhoehe.
   Wueste auf der Hauptinsel nur noch unter HAUPT_WUESTE_AB (−0,50) und unter 140 m.
-- DUNST sinkt mit der Kamerahoehe (`Main.nebel_frei_bei`); Godots fog_height hilft NICHT
-  (legt nur Dunst unter eine Hoehe, entfernungsunabhaengig).
+- DUNST wird mit der Kamerahoehe duenner (`Main.nebel_ende_bei`/`nebel_form_bei`, siehe
+  Abschnitt „Tiefennebel“); Godots fog_height hilft NICHT (legt nur Dunst unter eine Hoehe,
+  entfernungsunabhaengig).
 - STREAMING: 2 eigene Worker-Faeden (`WORKER_FAEDEN`, Messreihe dort) — die Chunks kosten
   ~50 % mehr; im WorkerThreadPool standen sie hinter der Fernschuerze (schlechter als 1 Faden).
   Jeder Faden kostet den Hauptfaden Zeit: CPU je Flugframe jetzt ~1,8 ms (vorher ~1,2).
@@ -287,10 +288,10 @@ Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebund
   Grobkarte als dunstige Silhouette (`land_col`).
 - EIGENER DUNST (`fog_disabled`): Godots Nebel saehe hinter der Kugel nur deren Radius →
   Knick im Verlauf, aus 2,5 km Hoehe ein Bogen quer durchs Meer. Der Shader rechnet
-  Godots Formel selbst mit der ECHTEN Entfernung; Farbe/Dichte aus der Umgebung
-  (`setze_nebel_licht` einmal nach setup, `setze_dunst` je Frame aus
-  `Main._wolken_aufenthalt`): Nebellicht (linear) gemischt mit sky `col_deep` um
-  `fog_aerial_perspective`, plus Sonnenstreuung.
+  Godots Formel selbst mit der ECHTEN Entfernung (Tiefennebel: `pow(smoothstep(0, dunst_ende,
+  d), dunst_form)`); Farbe/Kurve aus der Umgebung (`setze_nebel_licht` einmal nach setup,
+  `setze_dunst(ende, form, farbe)` je Frame aus `Main._wolken_aufenthalt`): Nebellicht
+  (linear) gemischt mit sky `col_deep` um `fog_aerial_perspective`, plus Sonnenstreuung.
 - WELLEN: `shaders/wasser_wellen.res` (von `tools/_wellen_textur.gd`): kachelbare Summe von
   56 Sinuswellen mit ganzzahligen Wellenvektoren, RGBA-Halbfloat = (dh/du, dh/dv, h,
   Schaumnetz), Mipmaps. Fuenf Oktaven (Duenung doppelt → wandernde Gruppen) je EIN Abruf;
@@ -356,9 +357,34 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
 - GELAENDE-SHADER `shaders/gelaende_kern.gdshaderinc` (Chunks `gelaende.gdshader`, Schuerze
   `gelaende_fern.gdshader` mit FERN = Grundabsenkung, Felsboegen in Landmarks). Glut der
   Lavarinnen weiter aus COLOR.a.
-- UMGEBUNG (Main._setup_world): Dunst NEBEL_FREI 0.000155, NEBEL_FARBE_FREI himmelblau
-  (0.70/0.81/0.95), aerial 0.74, Sonnenstreuung 0.35, Ambient 0.62, Sonne warm 1.7
-  (1.0/0.91/0.74), Gegenlicht 0.46, Saettigung 1.06 (vorher 1.18: Bonbonfarben).
+- UMGEBUNG (Main._setup_world): Tiefennebel NEBEL_ENDE 18 km / NEBEL_FORM 0.6 (siehe
+  unten), NEBEL_FARBE_FREI himmelblau (0.70/0.81/0.95), aerial 0.74, Sonnenstreuung 0.35,
+  Ambient 0.62, Sonne warm 1.7 (1.0/0.91/0.74), Gegenlicht 0.46, Saettigung 1.06 (vorher
+  1.18: Bonbonfarben).
+- TIEFENNEBEL STATT EXPONENTIELL (2026-10, Nutzer: „Boden und Berge schauen washed aus“).
+  BEFUND (`tools/_boden_look.gd`, feste Stellungen, Saettigung/Helligkeit je Bildstreifen):
+  der exponentielle Dunst (0.000155) lag schon auf 1 km bei 14 %, auf 3 km bei 37 %. Er ist
+  in LINEARER Helligkeit vier- bis fuenfmal so hell wie besonnte Wiese — 15 % davon
+  halbieren die Saettigung im sRGB-Bild (aus 950 m: 0.86 ohne Dunst, 0.41 mit). Aus der
+  Flughoehe sieht man den Boden aber immer aus 1-3 km. Die DUNSTFARBE zu aendern brachte
+  nichts (dunkleres Blau, weniger Luftperspektive: gleiche Zahlen), nur die MENGE.
+  JETZT `FOG_MODE_DEPTH`: Menge = smoothstep(0, Ende, d)^Form (Dichte 1 = Hoechstmenge),
+  am Boden 1 km 6 %, 3 km 21 %, 9 km 66 %, 18 km voll. In der Hoehe (ab 400 m, voll ab
+  2,2 km) Ende x2,2 UND Form 0.6 -> 0.45 — nur das Ende zu strecken liess entweder an der
+  Fernebene (9 km) zu wenig Dunst (Land endete aus 5 km Hoehe als scharfe Scheibe) oder
+  machte die Kurve bei 24 km zu (die fernen Kuesten verschwanden). Oben verhaelt er sich
+  jetzt wie der alte. In der Wolke wird das Ende LOGARITHMISCH auf NEBEL_WOLKE_ENDE (160 m)
+  gezogen (Weissabriss wie vorher, Bildprobe `fetzen`/`im_sturm`). Wasser (wasser_kern) und
+  Gewitterzelle (CloudField, `nebel_ende`/`nebel_form`) rechnen dieselbe Kurve.
+  Dazu Gras eine Spur tiefer/kuehler (GRAS_MITTE 0.25/0.45/0.20, GRAS_HELL 0.46/0.58/0.25 —
+  im klaren Mittelgrund stand die Wiese sonst als Limette da) und Fels in mittleren/dunklen
+  Lagen bis 14 % dunkler (heller Kalk und Schnee bleiben).
+  Werte: Saettigung der Wiese im Flugbild (`_gefuehl_bilder` berge) 0.29 -> 0.45, Wald 0.41
+  -> 0.53; `_boden_look` (Saettigung nah/mitte) berge 0.41/0.32 -> 0.57/0.46, ebene
+  0.55/0.44 -> 0.73/0.58, wiese 0.48/0.40 -> 0.65/0.58, reise (1800 m) 0.43/0.36 -> 0.50/0.44.
+  WERKZEUG-FALLE: `Main._wolken_aufenthalt` setzt Nebelkurve und -farbe JEDEN Frame neu —
+  wer im Werkzeug an der Umgebung dreht, muss es in `RenderingServer.frame_pre_draw` tun
+  (so `_boden_look`, Fassungen ueber `BODEN_FASSUNGEN`, z. B. `basis,ohne_dunst,e1.3+f0.7`).
 - BAEUME: Modelle (`tools/build_baeume.py`, zweite Fassung 2026-10; Datei zum Ansehen
   `blender_lib/baeume.blend`). BEFUND der ersten Fassung: in JEDER Laubkrone zeigten 144
   Flaechen nach innen (die ganze untere Kronenhaelfte, gemessen per Volumenvorzeichen) —

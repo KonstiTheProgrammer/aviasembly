@@ -4,9 +4,13 @@
 
 // Bewusst gedeckt: warmes Sonnenlicht (1.7) und die Farbabstimmung legen noch viel drauf —
 // mit hellerer Rampe stand die Wiese als grelles Lindgelb da (Spielzeug statt Landschaft).
+// 2026-10 (mit dem Tiefennebel, Main.NEBEL_ENDE): Mitte und Hell eine Spur tiefer und
+// kuehler (Farbton 102 -> 108 bzw. 78 -> 82 Grad). Solange der Dunst schon auf 1 km 14 %
+// Milch darueberlegte, fiel das Gelbstichige nicht auf; mit klarem Mittelgrund stand die
+// besonnte Wiese als Limette da (Median im Bild 133/169/64).
 const vec3 GRAS_TIEF = vec3(0.11, 0.28, 0.21);
-const vec3 GRAS_MITTE = vec3(0.28, 0.46, 0.20);
-const vec3 GRAS_HELL = vec3(0.50, 0.60, 0.26);
+const vec3 GRAS_MITTE = vec3(0.25, 0.45, 0.20);
+const vec3 GRAS_HELL = vec3(0.46, 0.58, 0.25);
 const vec3 FELS_TIEF = vec3(0.38, 0.41, 0.43);
 const vec3 FELS_HELL = vec3(0.80, 0.76, 0.68);
 const vec3 SCHNEE_C = vec3(0.93, 0.96, 1.00);

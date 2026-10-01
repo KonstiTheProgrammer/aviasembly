@@ -1005,9 +1005,11 @@ varying float welt_y;
 // EIGENER NEBEL (nur Gewitterzelle, siehe _cloud_material(true)): Godots Nebel legt auf
 // 3 km rund ein Drittel HELLE Dunstfarbe ueber jede Wolke — die dunkle Basis blieb damit
 // hellgrau, egal wie dunkel sie war. Unter einem Gewitter ist auch die Luft dunkel. Der
-// Shader rechnet deshalb Godots Formel selbst und dunkelt die Dunstfarbe unter dem Bauch ab.
+// Shader rechnet deshalb Godots Formel selbst (Tiefennebel, siehe Main.NEBEL_ENDE) und
+// dunkelt die Dunstfarbe unter dem Bauch ab.
 uniform bool eigener_nebel = false;
-uniform float nebel_dichte = 0.00013;
+uniform float nebel_ende = 18000.0;
+uniform float nebel_form = 0.6;
 uniform vec3 nebel_farbe = vec3(0.24, 0.33, 0.48);   // linear, wie TerrainWorld.dunst_farbe
 // BLITZ (nur Gewitterformation): kurzes Aufleuchten von innen, unten am staerksten.
 uniform float blitz = 0.0;
@@ -1109,7 +1111,7 @@ void fragment() {
 		+ nah_dunst_farbe * nahe * 0.9 * (1.0 - dunkel * 0.6);
 	EMISSION += blitz_farbe * blitz * mix(1.0, 0.35, krone);
 	if (eigener_nebel) {
-		float nd = 1.0 - exp(-length(VERTEX) * nebel_dichte);
+		float nd = pow(smoothstep(0.0, nebel_ende, length(VERTEX)), nebel_form);
 		vec3 nf = nebel_farbe * mix(1.0, 0.40, dunkel);
 		ALBEDO *= (1.0 - nd);
 		EMISSION = mix(EMISSION, nf, nd);

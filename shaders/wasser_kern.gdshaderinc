@@ -132,11 +132,13 @@ uniform float fern_spiegel : hint_range(0.0, 1.0) = 0.62;
 uniform bool  unendlich = false;
 uniform float wasser_y = -5.85;        // Hoehe der Meeresebene (m)
 uniform float schale_r = 8800.0;       // knapp diesseits der Fernebene der Kamera
-// Godots Nebel nachgebaut (nur mit EIGENER_DUNST): Menge 1 - exp(-Dichte * Entfernung),
-// Farbe = Nebellicht gemischt mit dem Himmel unter dem Horizont (fog_aerial_perspective)
-// plus Sonnenstreuung. Alle drei setzt TerrainWorld.setze_dunst/setze_nebel_licht aus der
-// echten Umgebung, LINEAR (kein source_color).
-uniform float dunst_dichte = 0.00013;
+// Godots Nebel nachgebaut (nur mit EIGENER_DUNST): TIEFENNEBEL wie die Umgebung (Main.
+// NEBEL_ENDE), Menge smoothstep(0, Ende, Entfernung) ^ Form (Godots fog_depth_* bei
+// Dichte 1), Farbe = Nebellicht gemischt mit dem Himmel unter dem Horizont
+// (fog_aerial_perspective) plus Sonnenstreuung. Alle setzt TerrainWorld.setze_dunst/
+// setze_nebel_licht aus der echten Umgebung, Farben LINEAR (kein source_color).
+uniform float dunst_ende = 18000.0;
+uniform float dunst_form = 0.6;
 uniform vec3  dunst_col = vec3(0.24, 0.33, 0.48);
 uniform vec3  dunst_sonne = vec3(0.23, 0.20, 0.14);
 // Land JENSEITS der Fernebene: dort steht kein Gelaende mehr, nur noch die Scheibe. Wo die
@@ -370,7 +372,7 @@ void fragment() {
 
 	// --- Dunst ------------------------------------------------------------------------
 #ifdef EIGENER_DUNST
-	float dunst = 1.0 - exp(-cam_d * dunst_dichte);
+	float dunst = pow(smoothstep(0.0, dunst_ende, cam_d), dunst_form);
 	vec3 dfarbe = dunst_col + dunst_sonne * pow(max(dot(rdw, normalize(sun_dir)), 0.0), 8.0);
 #else
 	float dunst = 0.0;
