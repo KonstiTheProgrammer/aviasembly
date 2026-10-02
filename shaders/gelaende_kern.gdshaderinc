@@ -69,6 +69,9 @@ const float MORPH_S = 1.4;   // = TerrainWorld.MORPH_S
 #endif
 
 #include "res://shaders/palette.gdshaderinc"
+#ifndef FERN
+#include "res://shaders/feldflur.gdshaderinc"
+#endif
 
 // --- BODENMATERIALIEN (2026-10-01, Nutzer: "schaut alles so billig aus, rueste es auf";
 // gewaehlt: echte Texturen, selbst erzeugt). ZWEITE FASSUNG am selben Tag: die realistischen
@@ -255,6 +258,11 @@ vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, float klein, out v
 
 varying vec3 w_pos;
 varying vec3 w_nrm;
+#ifndef FERN
+varying vec4 v_feld;     // (Feldstaerke, Abstand zur Flurblock-Grenze, Band, Gewann), siehe feldflur
+varying vec4 v_feld_rect;  // Feld des Eckpunkts (feld_eckpunkt)
+varying vec2 v_feld_info;
+#endif
 
 void vertex() {
 #ifndef FERN
@@ -265,6 +273,15 @@ void vertex() {
 #endif
 	w_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	w_nrm = mat3(MODEL_MATRIX) * NORMAL;
+#ifndef FERN
+	v_feld = CUSTOM0;
+	v_feld_rect = vec4(0.0);
+	v_feld_info = vec2(0.0);
+	// Im Schattenwurf (rechtwinklige Projektion) braucht niemand das Feld.
+	if (CUSTOM0.z >= 0.5 && feld_an > 0.5 && PROJECTION_MATRIX[3][3] < 0.5) {
+		feld_eckpunkt(UV, CUSTOM0.zw, v_feld_rect, v_feld_info);
+	}
+#endif
 #ifdef FERN
 	float d = distance(w_pos.xz, CAMERA_POSITION_WORLD.xz);
 	// COLOR.a traegt, wie viel Grundabsenkung diese Stelle BRAUCHT (siehe Main._fern_kachel):
@@ -339,7 +356,8 @@ void fragment() {
 	// --- Gruen auf die Rampe (gras_lage: palette.gdshaderinc, auch das Gras nutzt sie) ------
 	vec3 gras = rampe(GRAS_TIEF, GRAS_MITTE, GRAS_HELL, gras_lage(lum, verlauf, w_pos.y));
 	c = mix(c, gras, gruen * 0.88);
-	c = mix(c, c * WIESEN_FLECKEN(boden_tex, w_pos.xz) * WIESEN_WIND(boden_tex, w_pos.xz), gruen * k);
+	float wind = WIESEN_WIND(boden_tex, w_pos.xz);   // auch fuer die Kornwogen (feldflur)
+	c = mix(c, c * WIESEN_FLECKEN(boden_tex, w_pos.xz) * wind, gruen * k);
 #ifndef FERN
 	// BODENBUCKEL (Kachel 34 m, Relief aus dem B/A-Kanal der Bodentextur): die glatten
 	// 8-m-Dreiecke lassen Wiesen aus 100-500 m wie Plastik liegen; flache Buckel geben dem
@@ -399,6 +417,7 @@ void fragment() {
 	c = mix(c, SCHNEE_C, schnee * 0.7);
 
 	float hohl = 1.0;
+	float pinsel = 1.0;      // Helligkeit der Grastextur (Pinselstrich auf den Feldern, unten)
 #ifndef FERN
 	// --- Bodenmaterialien ------------------------------------------------------------------
 	// Erkennung aus der Rohfarbe: dunkles Gruen = Waldboden, Gruen und Stroh = Wiese, warm-hell
@@ -425,7 +444,10 @@ void fragment() {
 		vec3 s_gras = vec3(0.0), s_wald = vec3(0.0), s_erde = vec3(0.0), s_sand = vec3(0.0),
 			s_fels = vec3(0.0), s_schnee = vec3(0.0);
 		float a_gras = 1.0, a_wald = 1.0, a_erde = 1.0, a_sand = 1.0, a_fels = 1.0, a_schnee = 1.0;
-		if (w_gras > 0.02) { p_gras = mat_oben(w_pos.xz, MAT_GRAS, KACHEL_GRAS, s_gras, a_gras); }
+		if (w_gras > 0.02) {
+			p_gras = mat_oben(w_pos.xz, MAT_GRAS, KACHEL_GRAS, s_gras, a_gras);
+			pinsel = dot(p_gras.rgb, vec3(0.2126, 0.7152, 0.0722));
+		}
 		if (w_wald > 0.02) { p_wald = mat_oben(w_pos.xz, MAT_WALD, KACHEL_WALD, s_wald, a_wald); }
 		if (w_erde > 0.02) { p_erde = mat_oben(w_pos.xz, MAT_ERDE, KACHEL_ERDE, s_erde, a_erde); }
 		if (w_sand > 0.02) { p_sand = mat_oben(w_pos.xz, MAT_SAND, KACHEL_SAND, s_sand, a_sand); }
@@ -484,6 +506,20 @@ void fragment() {
 				c = mix(c, moos_c, moos * 0.75);
 			}
 		}
+	}
+#endif
+
+#ifndef FERN
+	// --- FELDFLUR (feldflur.gdshaderinc): Frucht, Raine, Feldwege, Heckensaum. Die Wiese darunter
+	// ist schon fertig (Textur, Flecken, Wind). Auf dem Acker nicht deren Relief und Hohlkehle.
+	if (v_feld.x * feld_an > 0.004 && d < 4500.0) {
+		float acker;
+		c = feld_malen(c, UV, v_feld, v_feld_rect, v_feld_info, wind, acker);
+		// PINSELSTRICH auf der Frucht (nah): die Helligkeit der Grastextur, die fuer die Wiese
+		// darunter ohnehin abgetastet wurde — sonst lag das Feld aus 50 m als Plastikflaeche da.
+		c *= mix(1.0, pinsel, acker * 0.75 * (1.0 - smoothstep(500.0, 900.0, d)));
+		hohl = mix(hohl, 1.0, acker);
+		n = normalize(mix(n, normalize(w_nrm), acker));
 	}
 #endif
 

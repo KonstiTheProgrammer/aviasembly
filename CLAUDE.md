@@ -48,6 +48,7 @@ Godot-Binary (macOS): `/Applications/Godot.app/Contents/MacOS/Godot`
   `_schaden_check`, `_grafik_check`, dazu die aelteren (`_dock_test`, `_fluegelsnap_check`,
   `_lackieren_check`, `_raketen_pruefstand`, `_sam_pruefstand`, `_zielpruefung`,
   `mousefly_test`, `mf_speed`, …). Messwerkzeuge: `_skriptzeit` (CPU je Flugframe, ~1 ms),
+  `_feld_zeit` (Chunkbau in der Flur), `_feld_takt` (Feldteilung, Tabelle = Hash),
   `_karte_zeit`, `_bildzeit` (GPU, braucht Fenster).
 - **FALLE `Performance.TIME_PROCESS`/`TIME_PHYSICS_PROCESS`:** das ist das MAXIMUM der letzten
   Echtzeit-Sekunde, nur einmal je Sekunde erneuert — kein Frame-Wert. CPU je Frame misst man
@@ -244,9 +245,8 @@ README.md                Steuerung + Feature-Überblick (Spielersicht).
   sonst Rinne durchs Meer), Suedostzunge, gewundener Fjord, Hakenzunge mit Seegatten
   (`luecken`, `breit_rausch` fuer Landformen).
 - LANDSCHAFTSKAMMERN `land_kammer` (~14 km): Huegelland (+28..90 m, dicht bewaldet,
-  `kammer_wald`) gegen Ebenen mit FELDFLUR (`_feld_staerke`/`_feld_raster`/`_feld_farbe`):
-  Flurbloecke 2,2 km mit eigenem Winkel (stetiger Winkel drehte um den Weltursprung =
-  Wirbel!), Felder 110–190 × 1,9, Hecken an den Rainen (`_feld_wald`), nicht im Hochtal.
+  `kammer_wald`) gegen Ebenen mit FELDFLUR — seit 2026-10-02 gewachsene Flur mit Gewannen,
+  Kantenarten und Shader-Zeichnung, siehe Abschnitt „Felder“. Nicht im Hochtal.
   Grundwelligkeit angehoben (+55 % Amplitude): vorher 6,6 % des Binnenlands auf Strandhoehe.
   Wueste auf der Hauptinsel nur noch unter HAUPT_WUESTE_AB (−0,50) und unter 140 m.
 - DUNST wird mit der Kamerahoehe duenner (`Main.nebel_ende_bei`/`nebel_form_bei`, siehe
@@ -1141,6 +1141,65 @@ JETZT:
 - NICHT GEMACHT: die Tieflandschleifen bleiben sanft (Amplitude 55 m) — staerkere Maeander
   wuerden die Strassenquerungen verlegen (Planer neu laufen lassen). Im Oberlauf ist jede Kaskade
   nah noch ein gerades Stueck zwischen zwei Stufen.
+
+## Felder (2026-10-02, Nutzer: „verbessere die Felder“)
+BEFUND (`_luftbild.gd`, Stellungen in `tools/_feld_suche.gd` gefunden — 25 % der Hauptinsel sind
+Flur, dicht um (5000..9000, 5000..19000) und (17000, -7000)): je 2,2-km-Block ein starres Gitter
+gleich grosser Rechtecke (Tabellenblatt), an JEDEM Rain eine 20-30 m breite Baumreihe (die Flur ein
+Gitter aus Waeldchen), Getreide als Sand (der Gelaende-Shader erkannte die Rohfarbe als Sand und
+legte Rippel darauf), keine Zeichnung, Kanten um ein 8-m-Dreieck verwaschen bzw. saegezahnig,
+Baumgruppen und Felsbrocken mitten im Acker. JETZT (`TerrainWorld`, Block „FELDFLUR“, und
+`shaders/feldflur.gdshaderinc`):
+- TEILUNG (`_feld_teil`): im Flurrahmen (`_feld_lage`: Meter im gedrehten Rahmen des Blocks plus
+  Versatz 4..10 km je Block, alles >= 0) quer GEWANNE (`FELD_BAND` 300 m, jede Grenze +-36 %
+  verschoben), laengs je Band versetzte Abschnitte (`FELD_LANG` 400 m), darin 1-5 Streifen
+  ungleicher Breite, 28 % der Streifen laengs geteilt. KANTENARTEN (`FELD_HALB`): Furche (0,3 m),
+  Rain (1,1), Feldweg mit zwei Fahrspuren (2,0), Hecke (3,0; nur ein Teil der Kanten: Baender 18 %,
+  Gewannenden 13 %, Streifen 8 %). Flurblock-Grenzen (verbogen) sind Anger mit Hecke
+  (`FELD_RAND_D`). FRUECHTE (`Frucht`, `FRUCHT_BIS`): Weide, Weizen, Gerste, Raps, Mais, junge Saat,
+  gepfluegt, Stoppel mit Schwaden, Maehwiese, Kartoffeln, Sonnenblumen. EIN FELD GANZ ODER GAR NICHT:
+  jedes Feld hat eine Schwelle auf der Feldstaerke (vorher blasste am Flurrand jede Frucht halb aus;
+  jetzt duennt die Flur Feld fuer Feld aus, darunter bleibt Wiese bzw. ein Feldgehoelz). Keine Felder
+  an Fluessen (Aue), auf Flugplaetzen/Orten/Lichtungen (`_open_ground`) und an Haengen.
+- EIGENER 32-BIT-HASH `feld_hash` (Konstanten < 2^31, in GDScripts 64 Bit ohne Ueberlauf, Ergebnis
+  24 Bit = float32-exakt). Er kostet in GDScript 1,6 us — die Werte stehen deshalb vorgerechnet in
+  Tabellen (`_feld_tabellen`, ~26 ms beim Start; `_feld_teil` 14 -> 2,1 us, `_feld_teil_hash` ist die
+  langsame Referenz, `tools/_feld_takt.gd` prueft 60 000 Proben auf Gleichheit) und als Datentexturen
+  fuer den Shader (`feld_texturen_setzen` — wer ein eigenes Gelaendematerial baut, muss sie setzen).
+- DER SHADER ZEICHNET DIE FELDER (`feld_malen`, gelaende_kern nach dem Materialblock): die Chunks
+  liefern ihre Bodenfarbe OHNE Frucht (`_face_color(..., feld_vorgabe)`), dazu je Eckpunkt UV = Lage
+  im Flurrahmen und CUSTOM0 = (Feldstaerke, Abstand zur Blockgrenze, Band, Gewann)
+  (`_feld_eckpunkte`; Eckpunkte mit einem Nachbarn in einem anderen Block bekommen Abstand 0 — U/V
+  springen dort). Gezeichnet: Fahrgassen, Kornwogen (der Wind der Wiese), Saatreihen, Furchen,
+  Schwaden, Maehstreifen, Kartoffeldaemme, Sonnenblumenkoepfe, Schattensaum stehender Frucht,
+  Raine, Feldwege, Heckensaum, Pinselstrich aus der Grastextur. Muster blenden ueber fwidth in ihr
+  Mittel. Karte und Fernschuerze bekommen die MITTLERE Fruchtfarbe (`FRUCHT_FARBE`, `_feld_farbe`).
+- KOSTEN GPU (`_gelaende_zeit`, 4K, neue Stellungen „Flur 300 m“/„Flur 60 m“, Spalte „Feld“ ueber
+  `feld_an`): erste Fassung 5,4 ms. DER GELAENDE-SHADER IST LATENZGEBUNDEN (gross, wenige Faeden je
+  Kern): neun abhaengige Texturzugriffe kosteten 2,1 ms, neun unabhaengige 0,75; der Hash selbst war
+  nicht der Engpass. Daher Tabellen dicht gepackt (sieben Zugriffe in zwei Wellen), Band/Gewann vom
+  Eckpunkt und das GANZE FELD VOM ECKPUNKT (Vertex-Shader `feld_eckpunkt`, im Schattenwurf aus):
+  liegt ein Dreieck in einem Feld (~85 %), braucht der Pixel keinen Zugriff. Jetzt Feld 2,26 / 1,10 /
+  0,51 ms (300 m / 60 m / Mittel 700 m), sonst 0. Ganzes Bild alt -> neu: 16,2 -> 18,4, 12,6 -> 14,2,
+  18,4 -> 19,5 ms (die Baumgruppen im Acker fehlen jetzt, das gleicht einen Teil aus).
+  FALLE: dynamisch indizierte Arrays (const float[4][i]) im Shader kosten — als Funktion schreiben.
+- KOSTEN CPU (`tools/_feld_zeit.gd`, Chunk in der Flur, alt -> neu): fein 56 -> 68 ms (Ost 68 -> 79),
+  grob 12 -> 13, Bewuchs 15 -> 21; Huegelland unveraendert. Gate je Chunk `_feld_moeglich`
+  (land_kammer aendert sich auf 270 m um hoechstens 0,126, gemessen).
+- BEWUCHS (`_feld_wald` -> (Dichte, Hecke, Ballen)): auf dem Acker nur die Hecke, auf Weiden
+  Einzelbaeume (`FELD_WEIDE_BAUM`), Hecken aus Busch/Eiche/Birke (gleicher Zufallszug), keine
+  Felsbrocken auf Feldern (Zuege laufen weiter). RUNDBALLEN auf Stoppelfeldern (`_ballen_netz`, Art
+  „Ballen“ in `_flora`, eigener Zufall `rng_ballen` — kein Baum aendert seine Lage; Lichtnormalen nach
+  oben geneigt, sonst standen die Stirnseiten schwarz da). Grasmaske: kein Wiesengras auf dem Acker
+  (je 2x2 Zellen eine Probe).
+- Bilder `ansichten/24_felder.jpg`. BELEGE: `_bewuchs_stufen_check` OK (11 339 Pflanzen inkl.
+  Ballen), `_baum_ausfall_check` 0, `_hafenstadt_check`, `_strassen_check` (Gelaende ueber Band 0,
+  Baeume auf der Fahrbahn 0), `_flussleben_check`, `_stadtstrassen_check`, `_grafik_check`,
+  `_undo_check`, `_rundflug_alle`, `_loadcheck` OK, keine Warnungen. `_haupt_pruefsumme` aendert sich
+  in der Flur.
+- NICHT GEMACHT: keine Halme fuer Getreide (nah ist die Frucht gemalt flach; die Grasmaske hat
+  8-m-Zellen, die scharfen Feldkanten liessen sich damit nicht treffen); die Weltkarte zeigt die Flur
+  im 250-m-Farbraster weiter als Flickenteppich.
 
 ## Nachladen: Schnellflug und weiches Erscheinen (2026-09)
 Nutzer: „mit einem schnellen Flugzeug laedt die Map viel zu langsam — du bist zu schnell".

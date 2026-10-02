@@ -63,6 +63,8 @@ func _lauf() -> void:
 		["Schlucht", Vector3(-13686, 70, 11879), Vector3(-13600, 50, 12900), false],
 		["Berge 950 m", Vector3(-2600, 950, -4500), Vector3(-2350, 700, -7000), false],
 		["Mittel 700 m", Vector3(-6000, 700, 3000), Vector3(-7000, 300, 4000), false],
+		["Flur 300 m", Vector3(6000, 300, 6500), Vector3(7200, 0, 8000), true],
+		["Flur 60 m", Vector3(6800, 60, 7000), Vector3(7300, 0, 7500), true],
 	]
 	var gpu := false
 	var summe := Vector3.ZERO
@@ -105,6 +107,11 @@ func _lauf() -> void:
 		_gras(false)
 		var o_gras := await _median()
 		_gras(true)
+		# Feldflur (feldflur.gdshaderinc) aus: nur der Shader, die Chunks bleiben
+		var tmat: ShaderMaterial = main.terrain._mat
+		tmat.set_shader_parameter("feld_an", 0.0)
+		var o_feld := await _median()
+		tmat.set_shader_parameter("feld_an", 1.0)
 		# GZ_ARTEN=1: Flora-Kosten JE ART (alle MultiMeshes dieser Art aus, Unterschied messen)
 		if OS.get_environment("GZ_ARTEN") != "":
 			var tw = main.terrain
@@ -120,8 +127,9 @@ func _lauf() -> void:
 		gpu = gpu or alles.y > 0.0
 		summe += Vector3(alles.x, alles.x - o_det.x, alles.x - o_flora.x)
 		gras_summe += alles.x - o_gras.x
-		print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f ms"
-			% [st[0], alles.x, alles.x - o_det.x, alles.x - o_flora.x, alles.x - o_gras.x])
+		print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f  Feld %5.2f ms"
+			% [st[0], alles.x, alles.x - o_det.x, alles.x - o_flora.x, alles.x - o_gras.x,
+			alles.x - o_feld.x])
 	summe /= float(stellungen.size())
 	print("GELAENDEZEIT %-14s alles %6.2f | Detail %5.2f  Flora %5.2f  Gras %5.2f ms"
 		% ["MITTEL", summe.x, summe.y, summe.z, gras_summe / float(stellungen.size())])

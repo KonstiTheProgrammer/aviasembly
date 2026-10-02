@@ -3415,6 +3415,8 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	# bewegt sich nie — es gibt nichts zu interpolieren.
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	seed_value = seedv
+	feld_saat = (seedv * 2654435761 + 12345) & 0x7FFFFFFF
+	_feld_tabellen()
 	airfields = afs
 	tal = tlk
 	# Rechteck-Zonen einmal vorbereiten: Drehung des Platzes und ein Umkreis fuer den
@@ -3596,6 +3598,8 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	if _flora.has("Fels"):
 		_mesh_rock = _flora["Fels"]
 		_flora.erase("Fels")
+	# RUNDBALLEN der Stoppelfelder (Feldflur) laufen wie eine Pflanzenart mit
+	_flora["Ballen"] = _ballen_netz()
 	# FERNFASSUNGEN SOFORT BAUEN, nicht beim ersten Gebrauch im Flug: je Art kostet das
 	# (Stellvertreter/LOD + weiche Krone) bis zu ~8 ms, und die fielen sonst als 13 einzelne
 	# Ruckler in die ersten Flugminuten (tools/_ruck_check.gd, "p_flora_stufe"/"flora_nachzug").
@@ -3615,6 +3619,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mat = ShaderMaterial.new()
 	_mat.shader = load("res://shaders/gelaende.gdshader")
 	_mat.set_shader_parameter("boden_tex", boden_textur())
+	feld_texturen_setzen(_mat)
 	boden_material_setzen(_mat)
 	# FLORA-MATERIAL: gleiche Farbbehandlung, aber jede Instanz faehrt zur Sichtgrenze
 	# hin ihre GROESSE gegen null. Godots VISIBILITY_RANGE_FADE_SELF verlangt ein
@@ -3909,17 +3914,499 @@ func kammer_wald(k: float) -> float:
 	return lerpf(0.30, 1.45, smoothstep(-0.30, 0.30, k))
 
 
-## FELDFLUR: in den Ebenen ein Flickenteppich aus Feldern — Weizen, Raps, gepfluegte Erde,
-## frisches Gruen, Maehwiese — mit Hecken an den Rainen. Das gibt dem Tiefland die
-## Lesbarkeit einer Kulturlandschaft; vorher war es dieselbe Wiesen-Wald-Mischung wie
-## ueberall. Drei Funktionen, EINE Geometrie: Staerke (wo), Raster (welches Feld, wie nah
-## am Rain), Farbe. Bepflanzung, Waldanteil (Karte, Schuerze) und Boden nutzen dieselben.
+## FELDFLUR: in den Ebenen ein Flickenteppich aus Feldern mit Rainen, Feldwegen und Hecken.
+## Das gibt dem Tiefland die Lesbarkeit einer Kulturlandschaft.
+##
+## UMBAU 2026-10-02 (Nutzer: „verbessere die Felder“). BEFUND aus Flugbildern: in jedem
+## 2,2-km-Block ein starres Gitter gleich grosser Rechtecke (Tabellenblatt), an JEDEM Rain eine
+## 20-30 m breite Baumreihe (die ganze Flur ein Gitter aus Waeldchen), Getreide als Sandflaeche
+## (der Gelaende-Shader erkannte die Rohfarbe als Sand und legte Rippel darauf), keine Zeichnung
+## auf den Feldern, und die Kanten waren um ein 8-m-Dreieck verwaschen bzw. saegezahnig.
+## JETZT:
+## * TEILUNG wie eine gewachsene Flur: quer GEWANNE (Baender ~300 m, Grenzen verschoben), laengs
+##   je Gewann eigene Abschnitte (~400 m, je Band versetzt — keine durchgehenden Querlinien), in
+##   jedem Abschnitt 1-5 Streifen ungleicher Breite, manche Streifen noch einmal geteilt.
+## * KANTEN je Art: Furche (Fruchtwechsel), Rain (Grasstreifen), Feldweg (Fahrspuren mit
+##   Grasnarbe), Hecke (nur ein Teil der Kanten, schmal, Strauchwerk). Flurblock-Grenzen sind
+##   Anger mit Hecke.
+## * DER GELAENDE-SHADER ZEICHNET DIE FELDER (shaders/feldflur.gdshaderinc): dieselbe Teilung
+##   WORTGLEICH in GLSL, aus der Lage im Flurrahmen je Eckpunkt (UV) — gestochen scharfe Kanten,
+##   Fahrgassen, Furchen, Saatreihen, Schwaden, Maehstreifen, Kornwogen. Dafuer liefern die
+##   Chunks ihre Bodenfarbe OHNE Feldfrucht (_boden_farbe(..., ohne_feld)). Karte und
+##   Fernschuerze bekommen die Fruchtfarbe weiter ueber _feld_farbe (Mittelwert der Zeichnung).
+## * EIN FELD NACH DEM ANDEREN: am Rand der Flur blasst nicht mehr jede Frucht halb aus — jedes
+##   Feld hat eine Schwelle und wird ganz Acker oder Weide.
+## Die Teilung haengt nur am eigenen 32-Bit-Hash (feld_hash, gleich im Shader) und am Welt-Seed.
+const FELD_BLOCK := 2200.0      # Flurblock: eigener Winkel, Grenzen verrauscht (+-500 m)
+const FELD_BAND := 300.0        # Gewann quer, im Mittel
+const FELD_LANG := 400.0        # Gewann laengs, im Mittel
+const FELD_ZITTER := 0.36       # jede Grenze um bis zu +-36 % ihres Rasters verschoben
+const FELD_RAND_D := 10.0       # an der Flurblock-Grenze (verbogener Raum, m): Anger, kein Acker
+const FELD_HECKE_DICHTE := 0.75 # Waldanteil auf der Heckenlinie
+const FELD_WEIDE_BAUM := 0.012  # einzelne Baeume auf Weiden und Maehwiesen
+const FELD_BALLEN_JE_ZELLE := 0.07   # Rundballen je 8-m-Zelle im Stoppelfeld (~1 je 900 m^2)
+# Kantenarten (Index in FELD_HALB, gleich im Shader)
+const KANTE_FURCHE := 0
+const KANTE_RAIN := 1
+const KANTE_WEG := 2
+const KANTE_HECKE := 3
+const FELD_HALB := [0.30, 1.1, 2.0, 3.0]   # halbe Breite je Kantenart (m)
+enum Frucht { WEIDE, WEIZEN, GERSTE, RAPS, MAIS, SAAT, ACKER, STOPPEL, MAHD, KARTOFFEL, SONNENBLUME }
+# Anteile als Summengrenzen (gleich im Shader)
+const FRUCHT_BIS := [0.04, 0.22, 0.32, 0.40, 0.50, 0.62, 0.74, 0.83, 0.92, 0.97, 2.0]
+# Mittlere Farbe je Frucht samt Zeichnung (Fahrgassen, Reihen) — fuer Karte und Fernschuerze.
+# WEIDE/MAHD: die Wiese selbst.
+const FRUCHT_FARBE := [Color(0, 0, 0, 0), Color(0.82, 0.65, 0.29), Color(0.85, 0.75, 0.44),
+	Color(0.85, 0.75, 0.25), Color(0.16, 0.36, 0.17), Color(0.38, 0.49, 0.25),
+	Color(0.47, 0.35, 0.25), Color(0.80, 0.71, 0.46), Color(0, 0, 0, 0),
+	Color(0.25, 0.38, 0.19), Color(0.85, 0.63, 0.15)]
+const FELD_WEG_FARBE := Color(0.60, 0.50, 0.35)
+const _M32 := 0xFFFFFFFF
+var feld_saat := 0              # aus dem Welt-Seed (setup), geht als Uniform an den Shader
+
+
+## Gemeinsamer 32-Bit-Hash der Feldflur — WORTGLEICH in shaders/feldflur.gdshaderinc (dort uint,
+## Ueberlauf = mod 2^32). Konstanten < 2^31, Eingaben klein und >= 0: jedes Produkt passt in
+## GDScripts 64-Bit-Ganzzahl, das Maskieren danach ist genau die 32-Bit-Rechnung der GPU.
+## Ergebnis aus 24 Bit — in float32 und double exakt gleich.
+func feld_hash(a: int, b: int, k: int) -> float:
+	var h := (a * 461845907 + b * 739982445 + k * 695872825 + feld_saat) & _M32
+	h = ((h ^ (h >> 15)) * 739982445) & _M32
+	h = ((h ^ (h >> 12)) * 695872825) & _M32
+	h = h ^ (h >> 15)
+	return float(h >> 8) / 16777216.0
+
+
+## Grenze i einer unregelmaessigen Teilung mit Raster l (Kanal j/kanal fuer den Hash).
+func _feld_grenze(i: int, j: int, kanal: int, l: float) -> float:
+	return (float(i) + (feld_hash(i, j, kanal) - 0.5) * (2.0 * FELD_ZITTER)) * l
+
+
+## In welchem Abschnitt der Teilung liegt p? Die Grenze i liegt innerhalb (i +- 0.36) * l,
+## also reicht ein Schritt Korrektur.
+func _feld_suche(p: float, j: int, kanal: int, l: float) -> int:
+	var i := floori(p / l)
+	if p < _feld_grenze(i, j, kanal, l):
+		return i - 1
+	if p >= _feld_grenze(i + 1, j, kanal, l):
+		return i + 1
+	return i
+
+
+func _feld_band_kante(i: int) -> int:
+	var r := feld_hash(i, 0, 10)
+	return KANTE_WEG if r < 0.38 else (KANTE_HECKE if r < 0.56 else KANTE_RAIN)
+
+
+func _feld_gewann_kante(ib: int, j: int) -> int:
+	var r := feld_hash(ib, j, 11)
+	return KANTE_WEG if r < 0.20 else (KANTE_HECKE if r < 0.33
+		else (KANTE_RAIN if r < 0.85 else KANTE_FURCHE))
+
+
+func _feld_streifen_kante(ib: int, sid: int) -> int:
+	var r := feld_hash(ib, sid, 12)
+	return KANTE_HECKE if r < 0.08 else (KANTE_RAIN if r < 0.45 else KANTE_FURCHE)
+
+
+## Lage im FLURRAHMEN: (U, V) = Meter im gedrehten Rahmen des Flurblocks plus ein Versatz je
+## Block (4..10 km: jeder Block bekommt seine eigene Teilung, und alles bleibt positiv — der Hash
+## sieht nur Ganzzahlen >= 0; U/V liegen damit in 0..14 km, siehe FT_NB/FT_NJ). z = Abstand zur
+## Blockgrenze im verbogenen Raum (an ihr 0), w = Blocknummer. U/V sind innerhalb eines Blocks
+## LINEAR in (x, z) — darauf beruht, dass der Shader sie zwischen den Eckpunkten exakt
+## interpoliert. Winkel und Versatz je Block stehen vorgerechnet in _fb_* (_feld_tabellen).
+func _feld_lage(x: float, z: float) -> Vector4:
+	var bx := x + 500.0 * _region_n.get_noise_2d(x * 3.0 + 50.0, z * 3.0)
+	var bz := z + 500.0 * _region_n.get_noise_2d(x * 3.0, z * 3.0 - 70.0)
+	var gx := floori(bx / FELD_BLOCK)
+	var gz := floori(bz / FELD_BLOCK)
+	var rx := bx - float(gx) * FELD_BLOCK
+	var rz := bz - float(gz) * FELD_BLOCK
+	var rand := minf(minf(rx, FELD_BLOCK - rx), minf(rz, FELD_BLOCK - rz))
+	var lx := x - float(gx) * FELD_BLOCK
+	var lz := z - float(gz) * FELD_BLOCK
+	var ix := gx + FB_R
+	var iz := gz + FB_R
+	var ca: float
+	var sa: float
+	var ou: float
+	var ov: float
+	if ix >= 0 and iz >= 0 and ix < 2 * FB_R and iz < 2 * FB_R and not _fb_cos.is_empty():
+		var q := ix * 2 * FB_R + iz
+		ca = _fb_cos[q]
+		sa = _fb_sin[q]
+		ou = _fb_u[q]
+		ov = _fb_v[q]
+	else:
+		var r := _feld_rahmen(gx, gz)
+		ca = r.x
+		sa = r.y
+		ou = r.z
+		ov = r.w
+	return Vector4(lx * ca - lz * sa + ou, lx * sa + lz * ca + ov, rand,
+		float((gx + 2048) * 4096 + gz + 2048))
+
+
+## Rahmen eines Flurblocks: (cos, sin, Versatz U, Versatz V). Winkel je Block — ein stetig
+## wandernder Winkel (erster Anlauf, 2026-09) drehte das Raster um den WELTURSPRUNG, in 20 km
+## Entfernung wurde aus jeder kleinen Aenderung ein Wirbel.
+func _feld_rahmen(gx: int, gz: int) -> Vector4:
+	var a := (_hash01(gx, gz, 23) - 0.5) * 1.6
+	return Vector4(cos(a), sin(a), 4000.0 + 6000.0 * _hash01(gx, gz, 25),
+		4000.0 + 6000.0 * _hash01(gx, gz, 26))
+
+
+## VORGERECHNETE HASHWERTE der Teilung (in setup, ~0,1 s). Der 32-Bit-Hash kostet in GDScript
+## 1,6 us — eine Teilung brauchte 25 davon (14 us), je Bewuchszelle und je Grasprobe; der
+## Chunkbau in der Flur stieg damit von 56 auf 95 ms. Die Tabellen halten GENAU die Werte von
+## feld_hash (24 Bit, in float32 exakt), der Shader rechnet sie weiter selbst.
+const FB_R := 20                # Flurbloecke -20..19 je Achse (+-44 km)
+const FT_NB := 52               # Baender (U bis ~14 km / 300 m + Rand)
+const FT_NJ := 42               # Gewanne laengs je Band (V bis ~14,2 km / 400 m + Rand)
+const FT_K := 6                 # Streifen 0..4 und die Kante rechts vom letzten
+var _fb_cos := PackedFloat32Array()
+var _fb_sin := PackedFloat32Array()
+var _fb_u := PackedFloat32Array()
+var _fb_v := PackedFloat32Array()
+var _ft_b1 := PackedFloat32Array()      # hash(i, 0, 1)   Bandgrenze
+var _ft_b2 := PackedFloat32Array()      # hash(i, 0, 2)   Versatz laengs je Band
+var _ft_b10 := PackedFloat32Array()     # hash(i, 0, 10)  Bandkante
+var _ft_g := PackedFloat32Array()       # [ib, j] x 3: hash(j, ib, 3), hash(ib, j, 4), hash(ib, j, 11)
+var _ft_s := PackedFloat32Array()       # [ib, js, k] x 5: hash(ib, sid, 5/6/7/12/13), sid = js*8+k
+var _ft_f := PackedFloat32Array()       # [ib, js, k*2+teil] x 2: hash(ib, fid, 8/9)
+
+
+func _feld_tabellen() -> void:
+	var nb := 2 * FB_R
+	for a in [_fb_cos, _fb_sin, _fb_u, _fb_v]:
+		a.resize(nb * nb)
+	for ix in nb:
+		for iz in nb:
+			var r := _feld_rahmen(ix - FB_R, iz - FB_R)
+			_fb_cos[ix * nb + iz] = r.x
+			_fb_sin[ix * nb + iz] = r.y
+			_fb_u[ix * nb + iz] = r.z
+			_fb_v[ix * nb + iz] = r.w
+	_ft_b1.resize(FT_NB)
+	_ft_b2.resize(FT_NB)
+	_ft_b10.resize(FT_NB)
+	_ft_g.resize(FT_NB * FT_NJ * 3)
+	_ft_s.resize(FT_NB * FT_NJ * FT_K * 5)
+	_ft_f.resize(FT_NB * FT_NJ * 10 * 2)
+	for ib in FT_NB:
+		_ft_b1[ib] = feld_hash(ib, 0, 1)
+		_ft_b2[ib] = feld_hash(ib, 0, 2)
+		_ft_b10[ib] = feld_hash(ib, 0, 10)
+		for j in FT_NJ:
+			var g := (ib * FT_NJ + j) * 3
+			_ft_g[g] = feld_hash(j, ib, 3)
+			_ft_g[g + 1] = feld_hash(ib, j, 4)
+			_ft_g[g + 2] = feld_hash(ib, j, 11)
+			for k in FT_K:
+				var sid := j * 8 + k
+				var q := ((ib * FT_NJ + j) * FT_K + k) * 5
+				_ft_s[q] = feld_hash(ib, sid, 5)
+				_ft_s[q + 1] = feld_hash(ib, sid, 6)
+				_ft_s[q + 2] = feld_hash(ib, sid, 7)
+				_ft_s[q + 3] = feld_hash(ib, sid, 12)
+				_ft_s[q + 4] = feld_hash(ib, sid, 13)
+			for t in 10:
+				var fid := j * 16 + t
+				var q := ((ib * FT_NJ + j) * 10 + t) * 2
+				_ft_f[q] = feld_hash(ib, fid, 8)
+				_ft_f[q + 1] = feld_hash(ib, fid, 9)
+	# DIESELBEN Werte als Datentexturen fuer den Gelaende-Shader (feldflur.gdshaderinc), so
+	# gepackt, dass der Shader mit sieben Zugriffen in zwei Wellen auskommt (Begruendung dort):
+	#   band     FT_NB x 1          (Grenze, Versatz, Kante, -)            = Hashes wie oben
+	#   gewann   FT_NJ x FT_NB      (Grenze, Streifenzahl, Kante, -)
+	#   breiten  FT_NJ x FT_NB      Summenbrueche der Streifengrenzen c1..c4 (2 = kein Streifen)
+	#   streifen FT_NJ*5 x FT_NB    (geteilt, Teilung, Kantenarten links + 4 rechts + 16 Teilkante, -)
+	#   frucht   FT_NJ*5 x FT_NB    (Frucht, Schwelle) fuer Teil 0 und 1
+	var ib_n := Image.create(FT_NB, 1, false, Image.FORMAT_RGBAF)
+	var ig := Image.create(FT_NJ, FT_NB, false, Image.FORMAT_RGBAF)
+	var iw := Image.create(FT_NJ, FT_NB, false, Image.FORMAT_RGBAF)
+	var isr := Image.create(FT_NJ * 5, FT_NB, false, Image.FORMAT_RGBAF)
+	var ifr := Image.create(FT_NJ * 5, FT_NB, false, Image.FORMAT_RGBAF)
+	for ib in FT_NB:
+		ib_n.set_pixel(ib, 0, Color(_ft_b1[ib], _ft_b2[ib], _ft_b10[ib], 0.0))
+		for j in FT_NJ:
+			var g := (ib * FT_NJ + j) * 3
+			ig.set_pixel(j, ib, Color(_ft_g[g], _ft_g[g + 1], _ft_g[g + 2], 0.0))
+			var n := 1 + int(_ft_g[g + 1] * 5.0)
+			var si := (ib * FT_NJ + j) * FT_K * 5
+			var w := PackedFloat32Array()
+			var summe := 0.0
+			for k in n:
+				w.append(0.6 + 0.8 * _ft_s[si + k * 5])
+				summe += w[k]
+			var c := [2.0, 2.0, 2.0, 2.0]
+			var acc := 0.0
+			for k in n - 1:
+				acc += w[k]
+				c[k] = acc / summe
+			iw.set_pixel(j, ib, Color(c[0], c[1], c[2], c[3]))
+			for k in 5:
+				var sq := si + k * 5
+				var art_l := _kante_band(_ft_b10[ib]) if k == 0 else _kante_streifen(_ft_s[sq + 3])
+				var art_r := _kante_band(_ft_b10[mini(ib + 1, FT_NB - 1)]) if k >= n - 1 \
+					else _kante_streifen(_ft_s[sq + 5 + 3])
+				var teil_art := KANTE_RAIN if _ft_s[sq + 4] < 0.5 else KANTE_FURCHE
+				isr.set_pixel(j * 5 + k, ib, Color(_ft_s[sq + 1], _ft_s[sq + 2],
+					float(art_l + 4 * art_r + 16 * teil_art), 0.0))
+				var fq := ((ib * FT_NJ + j) * 10 + k * 2) * 2
+				ifr.set_pixel(j * 5 + k, ib, Color(_ft_f[fq], _ft_f[fq + 1], _ft_f[fq + 2], _ft_f[fq + 3]))
+	_ft_tex = [ImageTexture.create_from_image(ib_n), ImageTexture.create_from_image(ig),
+		ImageTexture.create_from_image(iw), ImageTexture.create_from_image(isr),
+		ImageTexture.create_from_image(ifr)]
+
+
+var _ft_tex: Array = []
+
+
+## Die Feldflur-Tabellen an ein Gelaende-Material haengen (Chunks; auch Werkzeuge mit eigenem
+## Material). Ohne sie zeichnet der Shader Unsinn — Material ohne CUSTOM0 zeichnet gar keine Felder.
+func feld_texturen_setzen(m: ShaderMaterial) -> void:
+	if _ft_tex.size() < 5:
+		return
+	m.set_shader_parameter("feld_band", _ft_tex[0])
+	m.set_shader_parameter("feld_gewann", _ft_tex[1])
+	m.set_shader_parameter("feld_breiten", _ft_tex[2])
+	m.set_shader_parameter("feld_streifen", _ft_tex[3])
+	m.set_shader_parameter("feld_frucht", _ft_tex[4])
+
+
+## Band und Gewann an (U, V) — wie die ersten Schritte von _feld_teil (fuer die Eckpunkte).
+func _feld_ij(u: float, v: float) -> Vector2i:
+	const ZZ := 2.0 * FELD_ZITTER
+	var ib := floori(u / FELD_BAND)
+	if ib < 1 or ib > FT_NB - 3:
+		return Vector2i(-1, -1)
+	if u < (float(ib) + (_ft_b1[ib] - 0.5) * ZZ) * FELD_BAND:
+		ib -= 1
+	elif u >= (float(ib + 1) + (_ft_b1[ib + 1] - 0.5) * ZZ) * FELD_BAND:
+		ib += 1
+	var vb := v + _ft_b2[ib] * FELD_LANG
+	var js := floori(vb / FELD_LANG)
+	if js < 1 or js > FT_NJ - 3:
+		return Vector2i(-1, -1)
+	var gi := ib * FT_NJ
+	if vb < (float(js) + (_ft_g[(gi + js) * 3] - 0.5) * ZZ) * FELD_LANG:
+		js -= 1
+	elif vb >= (float(js + 1) + (_ft_g[(gi + js + 1) * 3] - 0.5) * ZZ) * FELD_LANG:
+		js += 1
+	return Vector2i(ib, js)
+
+
+## Das FELD an (U, V): Vector4(Frucht, Schwelle, Abstand zur naechsten Hecke (m), Streifen) —
+## Streifen = Kantenart, in deren Band der Punkt liegt (-1 = im Feldinneren, -2 = auf dem Feld,
+## aber naeher als 6,5 m an einer Kante; Heckenabstand nur dort, sonst INF). Die Rechnung steht
+## WORTGLEICH in shaders/feldflur.gdshaderinc (feld_teil, dort mit dem Hash selbst); hier aus den
+## vorgerechneten Tabellen (_feld_tabellen), Ergebnis gleich _feld_teil_hash.
+func _feld_teil(u: float, v: float) -> Vector4:
+	const ZZ := 2.0 * FELD_ZITTER
+	var ib := floori(u / FELD_BAND)
+	if ib < 1 or ib > FT_NB - 3 or _ft_b1.is_empty():
+		return _feld_teil_hash(u, v)
+	var b0 := (float(ib) + (_ft_b1[ib] - 0.5) * ZZ) * FELD_BAND
+	var b1 := (float(ib + 1) + (_ft_b1[ib + 1] - 0.5) * ZZ) * FELD_BAND
+	if u < b0:
+		ib -= 1
+		b1 = b0
+		b0 = (float(ib) + (_ft_b1[ib] - 0.5) * ZZ) * FELD_BAND
+	elif u >= b1:
+		ib += 1
+		b0 = b1
+		b1 = (float(ib + 1) + (_ft_b1[ib + 1] - 0.5) * ZZ) * FELD_BAND
+	var vb := v + _ft_b2[ib] * FELD_LANG
+	var js := floori(vb / FELD_LANG)
+	if js < 1 or js > FT_NJ - 3:
+		return _feld_teil_hash(u, v)
+	var gi := ib * FT_NJ
+	var s0 := (float(js) + (_ft_g[(gi + js) * 3] - 0.5) * ZZ) * FELD_LANG
+	var s1 := (float(js + 1) + (_ft_g[(gi + js + 1) * 3] - 0.5) * ZZ) * FELD_LANG
+	if vb < s0:
+		js -= 1
+		s1 = s0
+		s0 = (float(js) + (_ft_g[(gi + js) * 3] - 0.5) * ZZ) * FELD_LANG
+	elif vb >= s1:
+		js += 1
+		s0 = s1
+		s1 = (float(js + 1) + (_ft_g[(gi + js + 1) * 3] - 0.5) * ZZ) * FELD_LANG
+	var n := 1 + int(_ft_g[(gi + js) * 3 + 1] * 5.0)
+	var si := (gi + js) * FT_K * 5
+	var summe := 0.0
+	for kk in n:
+		summe += 0.6 + 0.8 * _ft_s[si + kk * 5]
+	var x := (u - b0) / (b1 - b0) * summe
+	var k := 0
+	var acc := 0.0
+	var w := 0.6 + 0.8 * _ft_s[si]
+	while k < n - 1 and x >= acc + w:
+		acc += w
+		k += 1
+		w = 0.6 + 0.8 * _ft_s[si + k * 5]
+	var a1 := summe if k == n - 1 else acc + w
+	var sk := (b1 - b0) / summe
+	var x0 := b0 + acc * sk
+	var x1 := b0 + a1 * sk
+	var sq := si + k * 5
+	var y0 := s0
+	var y1 := s1
+	var teil := 0
+	var geteilt := _ft_s[sq + 1] < 0.28
+	if geteilt:
+		var ym := lerpf(s0, s1, 0.3 + 0.4 * _ft_s[sq + 2])
+		if vb < ym:
+			y1 = ym
+		else:
+			y0 = ym
+			teil = 1
+	var dl := u - x0
+	var dr := x1 - u
+	var du := vb - y0
+	var dob := y1 - vb
+	var fq := ((gi + js) * 10 + k * 2 + teil) * 2
+	# Kantenarten nur, wo eine Kante nah ist (Hecken wirken bis ~6 m): im Feldinneren entfallen sie.
+	var hecke := INF
+	var streifen := -1
+	if minf(minf(dl, dr), minf(du, dob)) < 6.5:
+		streifen = -2           # auf dem Feld, aber nah an einer Kante
+		var teil_art := KANTE_RAIN if _ft_s[sq + 4] < 0.5 else KANTE_FURCHE
+		var art_l := _kante_band(_ft_b10[ib]) if k == 0 else _kante_streifen(_ft_s[sq + 3])
+		var art_r := _kante_band(_ft_b10[ib + 1]) if k == n - 1 \
+			else _kante_streifen(_ft_s[sq + 5 + 3])
+		var art_u := teil_art if teil == 1 else _kante_gewann(_ft_g[(gi + js) * 3 + 2])
+		var art_o := teil_art if (geteilt and teil == 0) \
+			else _kante_gewann(_ft_g[(gi + js + 1) * 3 + 2])
+		if art_l == KANTE_HECKE:
+			hecke = dl
+		if art_r == KANTE_HECKE:
+			hecke = minf(hecke, dr)
+		if art_u == KANTE_HECKE:
+			hecke = minf(hecke, du)
+		if art_o == KANTE_HECKE:
+			hecke = minf(hecke, dob)
+		if dl < float(FELD_HALB[art_l]):
+			streifen = art_l
+		if dr < float(FELD_HALB[art_r]) and art_r > streifen:
+			streifen = art_r
+		if du < float(FELD_HALB[art_u]) and art_u > streifen:
+			streifen = art_u
+		if dob < float(FELD_HALB[art_o]) and art_o > streifen:
+			streifen = art_o
+	return Vector4(_frucht_aus(_ft_f[fq]), 0.15 + 0.7 * _ft_f[fq + 1], hecke, float(streifen))
+
+
+static func _kante_band(r: float) -> int:
+	return KANTE_WEG if r < 0.38 else (KANTE_HECKE if r < 0.56 else KANTE_RAIN)
+
+
+static func _kante_gewann(r: float) -> int:
+	return KANTE_WEG if r < 0.20 else (KANTE_HECKE if r < 0.33
+		else (KANTE_RAIN if r < 0.85 else KANTE_FURCHE))
+
+
+static func _kante_streifen(r: float) -> int:
+	return KANTE_HECKE if r < 0.08 else (KANTE_RAIN if r < 0.45 else KANTE_FURCHE)
+
+
+## LANGSAME FASSUNG direkt aus feld_hash — fuer U/V ausserhalb der Tabellen und als Referenz
+## (tools/_feld_takt.gd vergleicht beide). Sonst wie _feld_teil: Vector4(Frucht, Schwelle, Abstand
+## zur naechsten Hecke (m), Streifen) —
+## Streifen = Kantenart, in deren Band der Punkt liegt (-1 = auf dem Feld). Die Rechnung steht
+## WORTGLEICH in shaders/feldflur.gdshaderinc (feld_teil); wer hier etwas aendert, aendert dort.
+func _feld_teil_hash(u: float, v: float) -> Vector4:
+	# Gewann quer (Band)
+	var ib := _feld_suche(u, 0, 1, FELD_BAND)
+	var b0 := _feld_grenze(ib, 0, 1, FELD_BAND)
+	var b1 := _feld_grenze(ib + 1, 0, 1, FELD_BAND)
+	# Gewann laengs, je Band versetzt
+	var vb := v + feld_hash(ib, 0, 2) * FELD_LANG
+	var js := _feld_suche(vb, ib, 3, FELD_LANG)
+	var s0 := _feld_grenze(js, ib, 3, FELD_LANG)
+	var s1 := _feld_grenze(js + 1, ib, 3, FELD_LANG)
+	# Streifen ungleicher Breite
+	var n := 1 + int(feld_hash(ib, js, 4) * 5.0)
+	var summe := 0.0
+	for kk in n:
+		summe += 0.6 + 0.8 * feld_hash(ib, js * 8 + kk, 5)
+	var x := (u - b0) / (b1 - b0) * summe
+	var k := 0
+	var acc := 0.0
+	var w := 0.6 + 0.8 * feld_hash(ib, js * 8, 5)
+	while k < n - 1 and x >= acc + w:
+		acc += w
+		k += 1
+		w = 0.6 + 0.8 * feld_hash(ib, js * 8 + k, 5)
+	var a0 := acc
+	var a1 := summe if k == n - 1 else acc + w
+	var sk := (b1 - b0) / summe
+	var x0 := b0 + a0 * sk
+	var x1 := b0 + a1 * sk
+	var sid := js * 8 + k
+	# Manche Streifen sind laengs noch einmal geteilt
+	var y0 := s0
+	var y1 := s1
+	var teil := 0
+	var geteilt := feld_hash(ib, sid, 6) < 0.28
+	if geteilt:
+		var ym := lerpf(s0, s1, 0.3 + 0.4 * feld_hash(ib, sid, 7))
+		if vb < ym:
+			y1 = ym
+		else:
+			y0 = ym
+			teil = 1
+	var teil_art := KANTE_RAIN if feld_hash(ib, sid, 13) < 0.5 else KANTE_FURCHE
+	var art_l := _feld_band_kante(ib) if k == 0 else _feld_streifen_kante(ib, sid)
+	var art_r := _feld_band_kante(ib + 1) if k == n - 1 else _feld_streifen_kante(ib, sid + 1)
+	var art_u := teil_art if teil == 1 else _feld_gewann_kante(ib, js)
+	var art_o := teil_art if (geteilt and teil == 0) else _feld_gewann_kante(ib, js + 1)
+	var dl := u - x0
+	var dr := x1 - u
+	var du := vb - y0
+	var dob := y1 - vb
+	# Hecke: Abstand zur naechsten Heckenkante; Streifen: die "staerkste" Kante, in deren Band der
+	# Punkt liegt (ausgeschrieben statt Schleife ueber Arrays — das hier laeuft je Bewuchszelle).
+	var hecke := INF
+	var streifen := -1
+	if art_l == KANTE_HECKE:
+		hecke = dl
+	if art_r == KANTE_HECKE:
+		hecke = minf(hecke, dr)
+	if art_u == KANTE_HECKE:
+		hecke = minf(hecke, du)
+	if art_o == KANTE_HECKE:
+		hecke = minf(hecke, dob)
+	if dl < float(FELD_HALB[art_l]):
+		streifen = art_l
+	if dr < float(FELD_HALB[art_r]) and art_r > streifen:
+		streifen = art_r
+	if du < float(FELD_HALB[art_u]) and art_u > streifen:
+		streifen = art_u
+	if dob < float(FELD_HALB[art_o]) and art_o > streifen:
+		streifen = art_o
+	if streifen == -1 and minf(minf(dl, dr), minf(du, dob)) < 6.5:
+		streifen = -2
+	if minf(minf(dl, dr), minf(du, dob)) >= 6.5:
+		hecke = INF             # wie die schnelle Fassung: Hecken wirken nur bis ~6 m
+	var fid := js * 16 + k * 2 + teil
+	return Vector4(_frucht_aus(feld_hash(ib, fid, 8)), 0.15 + 0.7 * feld_hash(ib, fid, 9),
+		hecke, float(streifen))
+
+
+static func _frucht_aus(h: float) -> int:
+	for i in FRUCHT_BIS.size():
+		if h < float(FRUCHT_BIS[i]):
+			return i
+	return Frucht.WEIDE
+
 
 ## 0..1: wie sehr gilt hier Feldflur? `wald` = Walddichte ohne Feld (Waelder bleiben Wald),
 ## `k` = land_kammer an der Stelle (vom Aufrufer, der sie ohnehin braucht).
 ## BILLIG ZUERST: ausserhalb der Ebenen (k > 0.05, gut die Haelfte der Insel) faellt sie
-## nach einem Vergleich heraus.
-func _feld_staerke(x: float, z: float, h: float, wald: float, k: float) -> float:
+## nach einem Vergleich heraus. Kein Acker an Fluessen (Aue), auf Flugplaetzen, in Orten und
+## Lichtungen (_open_ground): dort lag vorher Getreide unter den Haeusern und auf dem Kiesufer.
+func _feld_staerke(x: float, z: float, h: float, wald: float, k: float, offen := -1.0) -> float:
 	if k >= 0.05 or h > 140.0 or h < SEA_Y + 3.0:
 		return 0.0
 	var s := smoothstep(0.05, -0.25, k) * (1.0 - smoothstep(0.15, 0.45, wald)) \
@@ -3927,64 +4414,178 @@ func _feld_staerke(x: float, z: float, h: float, wald: float, k: float) -> float
 	if s <= 0.001:
 		return 0.0
 	# Nicht im Hochtal: dort gehoeren Almwiesen hin, keine Ackerflur.
-	return s * _tal_schutz(x, z)
+	s *= _tal_schutz(x, z)
+	if s <= 0.001:
+		return 0.0
+	s *= smoothstep(0.35, 0.8, offen if offen >= 0.0 else _open_ground(x, z))
+	if s <= 0.001 or _fl_nx == 0:
+		return s
+	var fl := _fluss_naechst(x, z)
+	if fl.x < INF:
+		s *= smoothstep(absf(fl.z) + 25.0, absf(fl.z) + 70.0, fl.x)
+	return s
 
 
-## (Fruchtwurf 0..1, Rain 0..1) an der Stelle.
-##
-## AUSRICHTUNG JE FLURBLOCK (2,2 km, verwuerfelte Grenzen): innerhalb eines Blocks ein
-## gerades Raster mit festem Winkel, gerechnet vom Blockursprung aus. Ein stetig
-## wandernder Winkel (erster Anlauf) drehte das Raster um den WELTURSPRUNG — in 20 km
-## Entfernung wurde aus jeder kleinen Winkelaenderung ein Wirbel aus Kreisbogen.
-func _feld_raster(x: float, z: float) -> Vector2:
+## (Frucht, Schwelle, Hecke 0..1, Streifen) an einer Weltstelle.
+func _feld_raster(x: float, z: float) -> Vector4:
+	var l := _feld_lage(x, z)
+	var t := _feld_teil(l.x, l.y)
+	var hecke := 1.0 - smoothstep(FELD_HALB[KANTE_HECKE] - 0.5, FELD_HALB[KANTE_HECKE] + 3.0, t.z)
+	# Flurblock-Grenze: Anger mit Hecke laengs der verbogenen Linie
+	hecke = maxf(hecke, 1.0 - smoothstep(3.0, 7.0, l.z))
+	var streifen := t.w
+	if l.z < FELD_RAND_D:
+		streifen = float(KANTE_RAIN)
+	return Vector4(t.x, t.y, hecke, streifen)
+
+
+## Walddichte in der Feldflur: (Dichte, Heckenanteil, Ballen). Auf dem Acker nichts, auf Weiden
+## ein Einzelbaum hier und da, auf der Heckenlinie dichtes Strauchwerk. Ballen = 1 im Inneren
+## eines Stoppelfelds (dort liegen Rundballen, _bewuchs_rechnen).
+func _feld_wald(x: float, z: float, h: float, dens: float, k: float, offen := -1.0) -> Vector3:
+	var fs := _feld_staerke(x, z, h, dens, k, offen)
+	if fs <= 0.02:
+		return Vector3(dens, 0.0, 0.0)
+	var fr := _feld_raster(x, z)
+	var hecke := fr.z * smoothstep(0.1, 0.4, fs)
+	var ziel := fr.z * FELD_HECKE_DICHTE
+	if int(fr.w) == KANTE_WEG:
+		return Vector3(0.0, hecke, 0.0)
+	if fr.w < 0.0:
+		var fi := int(fr.x)
+		# ACKER (Schwelle erreicht, wie im Shader): nur die Hecke am Rand, kein Waldrest — sonst
+		# standen Baumgruppen mitten im Getreide.
+		if fi != Frucht.WEIDE and fi != Frucht.MAHD and fs >= fr.y:
+			var ballen := 1.0 if fi == Frucht.STOPPEL and fr.w > -1.5 else 0.0
+			return Vector3(ziel, hecke, ballen)
+		ziel = maxf(ziel, FELD_WEIDE_BAUM)
+	# Weide, Maehwiese, Rain und Flurrand: der Wald duennt mit der Feldstaerke aus — wo die Flur
+	# schwach ist, bleibt ein Feldgehoelz stehen (der Shader laesst dort Wiese).
+	return Vector3(lerpf(dens, ziel, fs), hecke, 0.0)
+
+
+## Feldfarbe fuer Karte und Fernschuerze (Mittel der Zeichnung, die der Shader in den Chunks
+## malt). fr aus _feld_raster.
+func _feld_farbe(wc: Color, feld: float, fr: Vector4) -> Color:
+	var streifen := int(fr.w)
+	if streifen == KANTE_WEG:
+		return wc.lerp(FELD_WEG_FARBE, 0.7 * feld)
+	if streifen >= KANTE_RAIN:
+		return wc
+	var fi := int(fr.x)
+	if fi == Frucht.WEIDE or fi == Frucht.MAHD:
+		return wc
+	var akt := smoothstep(fr.y - 0.12, fr.y + 0.12, feld)
+	return wc.lerp(FRUCHT_FARBE[fi], akt * 0.92)
+
+
+## Kann im Chunk (ox, oz) Feldflur liegen? Nur auf der Hauptinsel und in den Ebenen der
+## Landschaftskammer. Jeder Punkt des Chunks liegt hoechstens 271 m von einer der fuenf Proben,
+## und auf 270 m aendert sich land_kammer gemessen um hoechstens 0.126 (200 000 Proben): Feldflur
+## braucht k < 0.05, also reicht kmin < 0.20 sicher.
+func _feld_moeglich(ox: float, oz: float) -> bool:
+	var kmin := INF
+	for q: Vector2 in [Vector2(0.0, 0.0), Vector2(CHUNK, 0.0), Vector2(0.0, CHUNK),
+			Vector2(CHUNK, CHUNK), Vector2(CHUNK * 0.5, CHUNK * 0.5)]:
+		if region_at(ox + q.x, oz + q.y) != Region.HAUPT:
+			return false
+		kmin = minf(kmin, land_kammer(ox + q.x, oz + q.y))
+	return kmin < 0.20
+
+
+## Flurblock an (x, z) — dieselbe Nummer wie _feld_lage(x, z).w, ohne Drehung und Rahmen.
+func _feld_block(x: float, z: float) -> int:
 	var bx := x + 500.0 * _region_n.get_noise_2d(x * 3.0 + 50.0, z * 3.0)
 	var bz := z + 500.0 * _region_n.get_noise_2d(x * 3.0, z * 3.0 - 70.0)
-	var gx := floori(bx / 2200.0)
-	var gz := floori(bz / 2200.0)
-	var a := (_hash01(gx, gz, 23) - 0.5) * 1.6
-	var ca := cos(a)
-	var sa := sin(a)
-	var lx := x - float(gx) * 2200.0
-	var lz := z - float(gz) * 2200.0
-	var fb := lerpf(110.0, 190.0, _hash01(gx, gz, 24))    # Feldbreite je Block
-	var u := (lx * ca - lz * sa) / fb
-	var v := (lx * sa + lz * ca) / (fb * 1.9)
-	var iu := floori(u)
-	var iv := floori(v)
-	var fu := u - float(iu)
-	var fv := v - float(iv)
-	var rand_u := minf(fu, 1.0 - fu) * fb
-	var rand_v := minf(fv, 1.0 - fv) * fb * 1.9
-	return Vector2(_hash01(iu + gx * 131, iv + gz * 71, 21),
-		1.0 - smoothstep(4.0, 11.0, minf(rand_u, rand_v)))
+	return (floori(bx / FELD_BLOCK) + 2048) * 4096 + floori(bz / FELD_BLOCK) + 2048
 
 
-## Walddichte in der Feldflur: auf dem Acker nichts, am Rain eine Hecke.
-func _feld_wald(x: float, z: float, h: float, dens: float, k: float) -> float:
-	var fs := _feld_staerke(x, z, h, dens, k)
-	if fs <= 0.02:
-		return dens
-	return lerpf(dens, _feld_raster(x, z).y * 0.55, fs)
-
-
-## Feldfarbe aus Staerke und Raster (beide vom Aufrufer, siehe _boden_farbe).
-func _feld_farbe(wc: Color, feld: float, fr: Vector2) -> Color:
-	var r := fr.x
-	var frucht: Color
-	if r < 0.22:
-		frucht = Color(0.76, 0.68, 0.42)       # reifes Getreide
-	elif r < 0.30:
-		frucht = Color(0.82, 0.77, 0.34)       # Raps
-	elif r < 0.48:
-		frucht = Color(0.55, 0.43, 0.31)       # gepfluegt
-	elif r < 0.68:
-		frucht = Color(0.45, 0.58, 0.29)       # frisches Gruen
-	elif r < 0.78:
-		frucht = Color(0.66, 0.66, 0.38)       # Stoppelfeld
-	else:
-		frucht = wc                             # Maehwiese / Weide
-	frucht = frucht.lerp(Color(0.30, 0.42, 0.22), fr.y * 0.7)
-	return wc.lerp(frucht, feld * 0.85)
+## FELDDATEN JE ECKPUNKT eines Chunks (nv x nv, Raster step): [UV, CUSTOM0] — UV = Lage im
+## Flurrahmen, CUSTOM0 = (Feldstaerke, Abstand zur Flurblock-Grenze, Band, Gewann; Band und Gewann
+## erspart dem Shader die abhaengigen Suchzugriffe, siehe feldflur.gdshaderinc). Leer, wenn der Chunk keine
+## Flur hat. Die Staerke ist dieselbe wie in _boden_farbe, dazu nur auf ebenem Grund (Boeschungen,
+## Felstuerme, steile Ufer bleiben Wiese).
+## FLURBLOCK-GRENZEN: U/V springen dort (anderer Winkel, anderer Rahmen) — ein Dreieck ueber der
+## Grenze interpolierte Unsinn. Jeder Eckpunkt mit einem Nachbarn (auch schraeg) in einem anderen
+## Block bekommt Abstand 0, der Shader zeichnet dort keinen Acker (FELD_RAND_D).
+func _feld_eckpunkte(verts: PackedVector3Array, nrms: PackedVector3Array, nv: int,
+		step: float) -> Array:
+	var n := nv * nv
+	var fs := PackedFloat32Array()
+	fs.resize(n)
+	var irgend := false
+	for o in n:
+		var p := verts[o]
+		if p.y > 140.0 or p.y < SEA_Y + 3.0:
+			continue
+		var kk := land_kammer(p.x, p.z)
+		if kk >= 0.05:
+			continue
+		var wald := smoothstep(-0.28, 0.30, _forest.get_noise_2d(p.x, p.z))
+		wald = clampf(wald * wald * kammer_wald(kk), 0.0, 1.0)
+		var st := _feld_staerke(p.x, p.z, p.y, wald, kk)
+		if st > 0.0:
+			st *= smoothstep(0.90, 0.96, nrms[o].y)
+		fs[o] = st
+		if st > 0.004:
+			irgend = true
+	if not irgend:
+		return []
+	# Lage gebraucht: jeder Eckpunkt eines Dreiecks, in dem Acker liegen kann
+	var braucht := PackedByteArray()
+	braucht.resize(n)
+	for j in nv:
+		for i in nv:
+			if fs[j * nv + i] <= 0.004:
+				continue
+			for dj in range(maxi(j - 1, 0), mini(j + 2, nv)):
+				for di in range(maxi(i - 1, 0), mini(i + 2, nv)):
+					braucht[dj * nv + di] = 1
+	var fuv := PackedVector2Array()
+	fuv.resize(n)
+	var fdat := PackedFloat32Array()
+	fdat.resize(n * 4)
+	var ne := nv + 2
+	var ids := PackedInt32Array()
+	ids.resize(ne * ne)
+	ids.fill(-1)
+	for o in n:
+		fdat[o * 4] = fs[o]
+		if braucht[o] == 0:
+			continue
+		var p := verts[o]
+		var l := _feld_lage(p.x, p.z)
+		fuv[o] = Vector2(l.x, l.y)
+		fdat[o * 4 + 1] = l.z
+		var ij := _feld_ij(l.x, l.y)
+		fdat[o * 4 + 2] = float(ij.x)
+		fdat[o * 4 + 3] = float(ij.y)
+		@warning_ignore("integer_division")
+		ids[(o / nv + 1) * ne + o % nv + 1] = int(l.w)
+	var x0 := verts[0].x
+	var z0 := verts[0].z
+	for j in nv:
+		for i in nv:
+			var o := j * nv + i
+			if braucht[o] == 0:
+				continue
+			# Weit von der Grenze kann kein Nachbar im anderen Block liegen: ein Nachbar liegt
+			# hoechstens 11,3 m weg, die Verbiegung dehnt gemessen bis 3,3-fach -> 37 m im
+			# verbogenen Raum (Messung im Verlauf von tools/_feld_takt.gd, 200 000 Proben).
+			if fdat[o * 4 + 1] > 50.0:
+				continue
+			var eigen := ids[(j + 1) * ne + i + 1]
+			var grenze := false
+			for dj in 3:
+				for di in 3:
+					var q := (j + dj) * ne + i + di
+					if ids[q] < 0:
+						ids[q] = _feld_block(x0 + float(i + di - 1) * step, z0 + float(j + dj - 1) * step)
+					if ids[q] != eigen:
+						grenze = true
+			if grenze:
+				fdat[o * 4 + 1] = 0.0
+	return [fuv, fdat]
 
 
 ## Biom an einer Welt-Position (Tiefland-Charakter; Fels/Schnee kommt aus Höhe/Hang).
@@ -8310,7 +8911,8 @@ static func mulden_ton(c: Color, mulde: float) -> Color:
 
 static func netz_aus(verts: PackedVector3Array, nrms: PackedVector3Array,
 		cols: PackedColorArray, idx: PackedInt32Array,
-		uv2 := PackedVector2Array()) -> ArrayMesh:
+		uv2 := PackedVector2Array(), fuv := PackedVector2Array(),
+		fdat := PackedFloat32Array()) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	if idx.is_empty():
 		return mesh
@@ -8321,8 +8923,13 @@ static func netz_aus(verts: PackedVector3Array, nrms: PackedVector3Array,
 	arr[Mesh.ARRAY_COLOR] = cols
 	if not uv2.is_empty():
 		arr[Mesh.ARRAY_TEX_UV2] = uv2      # x = Hoehe der Fernschuerze (weiches Erscheinen)
+	var form := 0
+	if not fuv.is_empty():
+		arr[Mesh.ARRAY_TEX_UV] = fuv       # Lage im Flurrahmen (m), siehe _feld_lage
+		arr[Mesh.ARRAY_CUSTOM0] = fdat     # (Feldstaerke, Abstand zur Flurblock-Grenze, Band, Gewann)
+		form = Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
 	arr[Mesh.ARRAY_INDEX] = idx
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr, [], {}, form)
 	return mesh
 
 
@@ -8343,10 +8950,33 @@ const GRAS_AUS_UEBER := 260.0
 ## Grasmaske eines Chunks, je 8-m-Zelle: R = Dichte (gruene Bodenfarbe, flach, nicht auf
 ## Flugplatz/Plateau, ueber dem Wasser), G = Helligkeit der Bodenfarbe (Lage auf der Gruen-
 ## Rampe, wie im Gelaende-Shader). Laeuft im Worker, liest nur.
-func _gras_block(ox: float, oz: float, hs: PackedFloat32Array, cols: PackedColorArray) -> Image:
+func _gras_block(ox: float, oz: float, hs: PackedFloat32Array, cols: PackedColorArray,
+		fuv := PackedVector2Array(), fdat := PackedFloat32Array()) -> Image:
 	var nv := CELLS + 1
 	var step := CHUNK / float(CELLS)
 	var strasse_chunk := _strassen_an and _st_huelle.intersects(Rect2(ox, oz, CHUNK, CHUNK))
+	# FELDFLUR: auf dem Acker kein Wiesengras (die Bodenfarbe der Chunks ist dort Wiese, die
+	# Frucht malt der Shader). Je 2x2 Zellen EINE Probe am mittleren Eckpunkt — dort ist die Lage
+	# exakt, und ein Feld ist breiter als 16 m.
+	@warning_ignore("integer_division")
+	var nh := CELLS / 2
+	var acker := PackedFloat32Array()
+	if not fuv.is_empty():
+		acker.resize(nh * nh)
+		for bj in nh:
+			for bi in nh:
+				var o := (bj * 2 + 1) * nv + bi * 2 + 1
+				var st := fdat[o * 4]
+				if st <= 0.02 or fdat[o * 4 + 1] < FELD_RAND_D:
+					continue
+				var t := _feld_teil(fuv[o].x, fuv[o].y)
+				if t.w >= float(KANTE_RAIN):
+					acker[bj * nh + bi] = 0.5 if int(t.w) == KANTE_WEG else 0.0
+					continue
+				var fi := int(t.x)
+				if fi == Frucht.WEIDE or fi == Frucht.MAHD:
+					continue
+				acker[bj * nh + bi] = smoothstep(t.y - 0.12, t.y + 0.12, st)
 	var gm := PackedByteArray()
 	gm.resize(CELLS * CELLS * 2)
 	for j in CELLS:
@@ -8370,6 +9000,9 @@ func _gras_block(ox: float, oz: float, hs: PackedFloat32Array, cols: PackedColor
 			var gx := ox + (float(i) + 0.5) * step
 			var gz := oz + (float(j) + 0.5) * step
 			dichte *= _open_ground(gx, gz)
+			if not acker.is_empty():
+				@warning_ignore("integer_division")
+				dichte *= 1.0 - acker[(j / 2) * nh + i / 2]
 			# Kein Gras auf der Fahrbahn (die Maske hat 8-m-Zellen, also etwas Luft).
 			if strasse_chunk and strasse_abstand(gx, gz) < STRASSE_B_HAUPT + 3.0:
 				dichte = 0.0
@@ -9069,7 +9702,7 @@ func wald_anteil(x: float, z: float, h: float, ny: float) -> float:
 	var dens := smoothstep(-0.28, 0.30, _forest.get_noise_2d(x, z))
 	var kk := land_kammer(x, z)
 	dens = clampf(dens * dens * kammer_wald(kk), 0.0, 1.0)
-	dens = _feld_wald(x, z, h, dens, kk)
+	dens = _feld_wald(x, z, h, dens, kk).x
 	match biome_at(x, z):
 		Biome.HEIDE:
 			dens *= 0.30
@@ -9189,14 +9822,26 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN, vorlage: Array = [
 	var mulde := mulden(hr, zn, step)
 	var verts := PackedVector3Array()
 	verts.resize(nv * nv)
+	for j in nv:
+		for i in nv:
+			verts[j * nv + i] = Vector3(ox + float(i) * step, hs[j * nv + i], oz + float(j) * step)
+	# FELDFLUR: Lage im Flurrahmen (UV) und (Staerke, Abstand zur Blockgrenze) je Eckpunkt — die
+	# Felder selbst zeichnet der Shader (feldflur.gdshaderinc). Leer, wo keine Flur liegt.
+	var fuv := PackedVector2Array()
+	var fdat := PackedFloat32Array()
+	if _feld_moeglich(ox, oz):
+		var fe := _feld_eckpunkte(verts, nrms, nv, step)
+		if not fe.is_empty():
+			fuv = fe[0]
+			fdat = fe[1]
 	var cols := PackedColorArray()
 	cols.resize(nv * nv)
 	for j in nv:
 		for i in nv:
 			var o := j * nv + i
-			var p := Vector3(ox + float(i) * step, hs[o], oz + float(j) * step)
-			verts[o] = p
-			var farbe := _face_color(p, nrms[o].y, step, nrms[o])
+			var p := verts[o]
+			var farbe := _face_color(p, nrms[o].y, step, nrms[o],
+				fdat[o * 4] if not fdat.is_empty() else 0.0)
 			# Kiesufer nur knapp ueber dem Wasser der Fluesse in der Naehe (je Chunk bestimmt).
 			if p.y < fluss_h + 2.5:
 				farbe = _ufer_farbe(farbe, p)
@@ -9253,6 +9898,10 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN, vorlage: Array = [
 			nrms.append(nrms[o])
 			cols.append(cols[o])
 			uv2.append(uv2[o] - Vector2(RAND_TIEF, 0.0))
+			if not fuv.is_empty():
+				fuv.append(fuv[o])
+				for q in 4:
+					fdat.append(fdat[o * 4 + q])
 		for k in zn:
 			var a: int = anf + k * schritt
 			var b: int = anf + (k + 1) * schritt
@@ -9266,10 +9915,10 @@ func _make_chunk_data(key: Vector2i, auftrag := AUFTRAG_FEIN, vorlage: Array = [
 				idx.append_array([a, b2, b, a, a2, b2])
 			else:
 				idx.append_array([a, b, b2, a, b2, a2])
-	var mesh := netz_aus(verts, nrms, cols, idx, uv2)
+	var mesh := netz_aus(verts, nrms, cols, idx, uv2, fuv, fdat)
 	# Grasmaske nur fein: Gras waechst ohnehin nur 105 m um die Kamera, und ein grober Chunk
 	# ist verfeinert, bevor man ihn erreicht (dort bleibt der Ring leer, siehe _attach_chunk).
-	var gras: Image = null if grob else _gras_block(ox, oz, hs, cols)
+	var gras: Image = null if grob else _gras_block(ox, oz, hs, cols, fuv, fdat)
 	# --- FLORA (_bewuchs_rechnen). GROBE CHUNKS BEKOMMEN HIER KEINE: ihr Bewuchs ist ein
 	# eigener, nachrangiger Auftrag (AUFTRAG_BEWUCHS), damit im Schnellflug erst das Gelaende
 	# steht. Die Schleife kostet ~11 ms und machte grobe Chunks von 13 auf 25 ms teuer —
@@ -9416,6 +10065,9 @@ func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat
 	# wiederholt sich aus der Luft kein Muster.
 	var flora: Dictionary = {}      # Art -> Array[Transform3D]
 	var rocks: Array = []
+	# RUNDBALLEN auf Stoppelfeldern: eigener Zufall, damit kein Baum seine Lage aendert
+	var rng_ballen := RandomNumberGenerator.new()
+	rng_ballen.seed = hash(Vector3i(key.x, key.y, seed_value ^ 0xBA11E))
 	# DICHTE: frueher 150 Zufallsproben je Chunk (147 000 m^2) — nach allen Filtern blieben
 	# 14 Baeume uebrig, also einer je 100 m Abstand. Aus der Luft war das eine kahle Wiese.
 	# Jetzt wird jede Zelle des OHNEHIN BERECHNETEN Hoehenrasters besetzt: kein einziger
@@ -9492,9 +10144,16 @@ func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat
 					+ (0.02 if hc > 45.0 else 0.0)):
 				var rsc := Vector3(rng.randf_range(0.7, 2.6), rng.randf_range(0.5, 1.9),
 					rng.randf_range(0.7, 2.6))
-				rocks.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc),
+				var xf_fels := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(rsc),
 					Vector3(cx + rng.randf_range(-3.0, 3.0), hc_steh - 0.3,
-						cz + rng.randf_range(-3.0, 3.0))))
+						cz + rng.randf_range(-3.0, 3.0)))
+				# Kein Brocken auf dem Acker (lagen als graue Punkte auf den Feldern). Die Zuege
+				# oben laufen trotzdem, damit alle folgenden Pflanzen bleiben, wo sie sind.
+				var kk_f := land_kammer(cx, cz)
+				var wald_f := smoothstep(-0.28, 0.30, _forest.get_noise_2d(cx, cz))
+				wald_f = clampf(wald_f * wald_f * kammer_wald(kk_f), 0.0, 1.0)
+				if _feld_staerke(cx, cz, hc, wald_f, kk_f) < 0.25:
+					rocks.append(xf_fels)
 			# --- BEWUCHS ---
 			# NEUE REGIONEN: eigene Baumgrenze (Nordland tief, Dschungel bis auf die
 			# Karstkuppen), eigene Arten und Dichte — siehe _region_flora.
@@ -9553,7 +10212,20 @@ func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat
 			var dens := smoothstep(-0.28, 0.30, f)
 			var kk := land_kammer(cx, cz)
 			dens = clampf(dens * dens * kammer_wald(kk), 0.0, 1.0)
-			dens = _feld_wald(cx, cz, hc, dens, kk)
+			var fw := _feld_wald(cx, cz, hc, dens, kk, open)
+			dens = fw.x
+			if fw.z > 0.5 and slope < 1.2 and rng_ballen.randf() < FELD_BALLEN_JE_ZELLE:
+				var bu := rng_ballen.randf_range(0.15, 0.85)
+				var bv := rng_ballen.randf_range(0.15, 0.85)
+				var bh := (h00 + bu * (h10 - h00) + bv * (h11 - h10)) if bu >= bv \
+					else (h00 + bv * (h01 - h00) + bu * (h11 - h01))
+				var bs := rng_ballen.randf_range(0.92, 1.08)
+				if not flora.has("Ballen"):
+					flora["Ballen"] = []
+				flora["Ballen"].append(Transform3D(Basis(Vector3.UP, rng_ballen.randf() * TAU).scaled(
+					Vector3(bs, bs, bs)), Vector3(ox + (float(i) + bu) * FZ, bh - 0.15, oz + (float(j) + bv) * FZ)))
+			# auch der Saum der Hecke: dort stand sonst eine Fichte nach der Waldregel in der Reihe
+			var in_hecke := fw.y > 0.02
 			dens = maxf(dens, kragen)
 			# AUWALD am Fluss: Laubbaeume dicht im Talband, nicht auf dem Kies.
 			if river_chunk and hc < fluss_h + 14.0:
@@ -9636,6 +10308,11 @@ func _bewuchs_rechnen(key: Vector2i, hd: PackedFloat32Array, hp_src: PackedFloat
 							art = "Kiefer"
 						else:
 							art = "Busch"
+					# HECKEN sind Strauchwerk mit Laubbaeumen (2026-10-02) — mit den Arten des Waldes
+					# standen dort Fichtenreihen. Derselbe Zufallszug, nur anders verteilt.
+					if in_hecke:
+						art = "Busch" if r < 0.45 else ("Eiche" if r < 0.70 else ("Birke" if r < 0.88
+							else ("Kiefer" if r < 0.95 else "Fichte")))
 					if biome == Biome.HEIDE and rng.randf() < 0.45:
 						art = "Busch"   # offene Heide ist vor allem Strauchwerk
 					if art == "Busch":
@@ -10971,14 +11648,14 @@ func _vulkan_haut(vk: Dictionary, cen: Vector3, md: float, ux: float, uz: float,
 ## NUR AUF STEILEM: ny ist die y-Komponente der Flaechennormalen, 1 bei waagerecht. Ueber
 ## 0,85 ist es Plateau und bleibt unberuehrt; die Zeichnung gehoert an die Wand.
 func _face_color(cen: Vector3, ny: float, zelle: float = 8.0,
-		normale := Vector3.UP) -> Color:
+		normale := Vector3.UP, feld_vorgabe := -1.0) -> Color:
 	var reg := region_at(cen.x, cen.z)
 	if reg != Region.HAUPT:
 		return _region_farbe(reg, cen, ny, zelle, normale)
 	var sk := _sonder_farbe(cen, ny)
 	if sk.a > 0.0:
 		return sk
-	var c := _face_color_grund(cen, ny)
+	var c := _face_color_grund(cen, ny, feld_vorgabe)
 	# NUR STEILES. ny ist die y-Komponente der Flaechennormalen: 1 waagerecht, 0 senkrecht.
 	# Ueber 0,88 ist es Wiese, Plateau oder Gipfelflaeche und bleibt unberuehrt — die
 	# Zeichnung gehoert an die Flanke. Der Test ist ein Vergleich und faellt fuer die
@@ -11069,7 +11746,7 @@ func _warm_kalt(c: Color, n: Vector3, steil: float) -> Color:
 	return c
 
 
-func _face_color_grund(cen: Vector3, ny: float) -> Color:
+func _face_color_grund(cen: Vector3, ny: float, feld_vorgabe := -1.0) -> Color:
 	# GEDÄMPFTE, erdig-pastellige Low-Poly-Palette (Aviassembly-Look): Sage-Grün,
 	# warmer Sand, staubiges Rosé/Lavendel, warmer Fels — nichts grell.
 	# STRANDSAUM. Hier stand eine feste Hoehenschwelle mit EINER konstanten Farbe, und
@@ -11274,7 +11951,7 @@ func _face_color_grund(cen: Vector3, ny: float) -> Color:
 		# WUESTE auf -4 bis 21 m, und dort pflanzt _make_chunk_data Palmen. Gruener Boden mit
 		# Palmen darauf ist genau der Widerspruch zwischen Farbe und Bewuchs, den die
 		# Almwiese eigentlich aufloest.
-		var boden := _boden_farbe(cen, wiese * smoothstep(30.0, 48.0, cen.y), kragen)
+		var boden := _boden_farbe(cen, wiese * smoothstep(30.0, 48.0, cen.y), kragen, feld_vorgabe)
 		# ALMWIESE: ueber ~180 m wird das Gruen heller und gelblicher (kurzes Gras, kein
 		# Wald mehr am Boden) — der Uebergang vom Bergwald zur Felsregion.
 		var alm := smoothstep(480.0, 780.0, hh) * (1.0 - kragen)
@@ -11362,7 +12039,8 @@ func _vulkan_ueberzug(c: Color, asche: Vector3, strom: float) -> Color:
 ## tut hier GENAU DASSELBE wie "alpin" — er blendet auf die WALD/WIESE-Variante — und aus
 ## demselben Grund: dort steht ein geschlossener Bestand, und was darunter liegt, darf keine
 ## Duene sein. Ohne den Wert bleibt jede Stelle der Welt farblich exakt wie bisher.
-func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Color:
+func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0,
+		feld_vorgabe := -1.0) -> Color:
 	var t := _patch.get_noise_2d(cen.x, cen.z)
 	# WALDBODEN: exakt dieselbe Dichte-Formel wie die Bepflanzung in _make_chunk_data,
 	# also faerbt sich der Boden GENAU dort dunkel, wo auch Baeume stehen. Zwei Gewinne:
@@ -11375,11 +12053,21 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 	var kk := land_kammer(cen.x, cen.z)
 	wald = clampf(wald * wald * kammer_wald(kk), 0.0, 1.0)
 	# Feldflur EINMAL bestimmen (Staerke + Raster) und fuer Hecken und Farbe nutzen
-	var feld := _feld_staerke(cen.x, cen.z, cen.y, wald, kk) if alpin < 0.5 else 0.0
-	var fr := Vector2.ZERO
+	# CHUNKS geben die Feldstaerke vor (_feld_eckpunkte hat sie schon gerechnet, samt Hangschranke)
+	# und bekommen die Wiese OHNE Frucht — die malt der Shader.
+	var ohne_feld := feld_vorgabe >= 0.0
+	var feld := 0.0
+	if alpin < 0.5:
+		feld = feld_vorgabe if ohne_feld else _feld_staerke(cen.x, cen.z, cen.y, wald, kk)
+	var fr := Vector4(0.0, 0.0, 0.0, -1.0)
 	if feld > 0.01:
-		fr = _feld_raster(cen.x, cen.z)
-		wald = lerpf(wald, fr.y * 0.55, feld)
+		if ohne_feld:
+			# CHUNKS: Frucht, Raine, Wege und Heckensaum zeichnet der Gelaende-Shader
+			# (feldflur.gdshaderinc), darunter liegt Wiese.
+			wald = lerpf(wald, 0.0, feld)
+		else:
+			fr = _feld_raster(cen.x, cen.z)
+			wald = lerpf(wald, fr.z * FELD_HECKE_DICHTE, feld)
 	# GENAU DIESELBE ZEILE WIE IN DER BEPFLANZUNG, an derselben Stelle der Rechnung: erst der
 	# Sockel auf die Dichte, dann die Schranken darauf. Stuende sie hier hinter den Schranken
 	# und dort davor, waere der Waldboden im Kragen ein anderer als der Wald darauf.
@@ -11414,7 +12102,7 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0) -> Colo
 	elif t > 0.55:
 		wc = Color(0.62, 0.62, 0.44)   # seltener trockener Gras-Fleck
 	# FELDFLUR in den Ebenen (siehe _feld_farbe), nicht im Hochtal und nicht im Wald.
-	if feld > 0.01:
+	if feld > 0.01 and not ohne_feld:
 		wc = _feld_farbe(wc, feld, fr)
 	# DER WALDBODEN WAR ZU DUNKEL UND DER SPRUNG ZU GROSS: 0.15/0.29/0.16 bei Gewicht 0.62
 	# ergab neben heller Wiese zwei Werte ohne Zwischenstufe. Heller und schwaecher
@@ -12423,6 +13111,73 @@ func _build_leaf_mesh() -> ArrayMesh:
 		st2.add_vertex(p0)
 		st2.add_vertex(p1)
 	st.generate_normals()
+	return st.commit()
+
+
+## RUNDBALLEN (Stroh) fuer die Stoppelfelder: liegende Walze, Achse lokal X, 1,44 m hoch, 1,25 m
+## breit. Mantel mit Wickelbaendern, Stirnseiten heller mit Wickelringen. Farbe sRGB wie die
+## Baeume (der Flora-Shader wandelt um und daempft Rindentoene — daher kraeftiges Stroh).
+## Wicklung je Dreieck aus der Aussenrichtung (Front = im Uhrzeigersinn von aussen).
+static func _ballen_netz() -> ArrayMesh:
+	const R := 0.72
+	const L := 1.25
+	const N := 16
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var mitte := Vector3(0.0, R + 0.10, 0.0)    # Instanz steht wie jede Pflanze 0,15 m tiefer
+	var tri := func(a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3,
+			ca: Color, cb: Color, cc: Color, aussen: Vector3) -> void:
+		var flip := (b - a).cross(c - a).dot(aussen) > 0.0
+		var pts := [a, c, b] if flip else [a, b, c]
+		var nrm := [na, nc, nb] if flip else [na, nb, nc]
+		var col := [ca, cc, cb] if flip else [ca, cb, cc]
+		for q in 3:
+			st.set_color(col[q])
+			st.set_normal(nrm[q])
+			st.add_vertex(pts[q])
+	var stroh := Color(0.86, 0.69, 0.30)
+	var band := Color(0.74, 0.57, 0.25)
+	var stirn_hell := Color(0.93, 0.80, 0.44)
+	var stirn_ring := Color(0.80, 0.64, 0.30)
+	# Mantel: drei Ringe laengs (Kante, Mitte, Kante) -> zwei Baender je Seite
+	var xs := [-L * 0.5, -L * 0.18, L * 0.18, L * 0.5]
+	for k in N:
+		var a0 := TAU * float(k) / float(N)
+		var a1 := TAU * float(k + 1) / float(N)
+		var n0 := Vector3(0.0, cos(a0), sin(a0))
+		var n1 := Vector3(0.0, cos(a1), sin(a1))
+		# Lichtnormalen nach oben geneigt (gemalt): die Sonnen-abgewandte Seite stand sonst
+		# schwarz da — der Flora-Shader gibt nur dem Laub Himmelslicht.
+		var l0 := (n0 + Vector3.UP * 0.7).normalized()
+		var l1 := (n1 + Vector3.UP * 0.7).normalized()
+		for s in 3:
+			var c0: Color = band if s != 1 else stroh
+			var x0: float = xs[s]
+			var x1: float = xs[s + 1]
+			var p00 := mitte + Vector3(x0, 0, 0) + n0 * R
+			var p01 := mitte + Vector3(x1, 0, 0) + n0 * R
+			var p10 := mitte + Vector3(x0, 0, 0) + n1 * R
+			var p11 := mitte + Vector3(x1, 0, 0) + n1 * R
+			var auss := (n0 + n1) * 0.5
+			tri.call(p00, p01, p11, l0, l0, l1, c0, c0, c0, auss)
+			tri.call(p00, p11, p10, l0, l1, l1, c0, c0, c0, auss)
+	# Stirnseiten: Faecher in zwei Ringen (innen hell, aussen Wickelring)
+	for seite: float in [-1.0, 1.0]:
+		var aussen_x := Vector3(seite, 0.0, 0.0)
+		var nx := (aussen_x * 0.6 + Vector3.UP * 0.8).normalized()
+		var cm := mitte + Vector3(seite * L * 0.5, 0, 0)
+		for k in N:
+			var a0 := TAU * float(k) / float(N)
+			var a1 := TAU * float(k + 1) / float(N)
+			var r0 := Vector3(0.0, cos(a0), sin(a0))
+			var r1 := Vector3(0.0, cos(a1), sin(a1))
+			tri.call(cm, cm + r0 * R * 0.45, cm + r1 * R * 0.45, nx, nx, nx,
+				stirn_hell, stirn_hell, stirn_hell, aussen_x)
+			tri.call(cm + r0 * R * 0.45, cm + r0 * R, cm + r1 * R, nx, nx, nx,
+				stirn_ring, stirn_ring, stirn_ring, aussen_x)
+			tri.call(cm + r0 * R * 0.45, cm + r1 * R, cm + r1 * R * 0.45, nx, nx, nx,
+				stirn_ring, stirn_ring, stirn_ring, aussen_x)
+	st.index()
 	return st.commit()
 
 
