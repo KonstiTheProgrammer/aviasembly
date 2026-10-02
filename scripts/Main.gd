@@ -822,7 +822,7 @@ func _klammbach() -> Dictionary:
 		pts.append(Vector3(p.x, 0.0, p.y))
 	return {"name": "Klammbach", "profil": true, "ziel_h": TerrainWorld.SEA_Y, "einsatz": 1.3,
 		"w_quelle": 5.0, "w": 16.0, "depth_quelle": 1.0, "depth": 2.4,
-		"tal_quelle": 26.0, "valley": 44.0, "tal_lauf": 2000.0, "pts": pts}
+		"tal_quelle": 26.0, "valley": 44.0, "tal_lauf": 2000.0, "breite_schwank": 0.18, "pts": pts}
 
 
 ## FELSBRUECKEN ueber die Schlucht und das MEERESTOR. Nach setup(): die Fuesse brauchen
@@ -899,6 +899,10 @@ func _hauptstrom() -> Dictionary:
 		"depth_quelle": 1.2, "depth": 3.6,
 		"tal_quelle": 45.0, "valley": 230.0, "tal_lauf": 12000.0,
 		"maeander": 55.0, "maeander_welle": 850.0, "maeander_ab": 5500.0,
+		# Lauf geglaettet (der Dijkstra-Weg hat Treppenstufen), im Oberlauf gewunden statt
+		# schnurgerade, Breite schwankt — siehe TerrainWorld._lauf_formen und "breite_schwank".
+		"glatt": 160.0, "maeander_quelle": 16.0, "maeander_quelle_welle": 300.0,
+		"breite_schwank": 0.22,
 		"pts": pts}
 
 
@@ -1974,7 +1978,7 @@ func _setup_world() -> void:
 		# ueber die Wiese. Schmaler und enger gewunden, zur Muendung breiter.
 		"w_quelle": 3.5, "w": 8.0, "valley": 60.0, "tal_quelle": 30.0, "tal_lauf": 600.0,
 		"depth_quelle": 1.0, "depth": 2.2,
-		"maeander": 45.0, "maeander_welle": 380.0,
+		"maeander": 45.0, "maeander_welle": 380.0, "glatt": 70.0, "breite_schwank": 0.20,
 		"pts": [
 			Vector3(2545, 0, 1760), Vector3(2330, 0, 1600), Vector3(2110, 0, 1460),
 			Vector3(1900, 0, 1320), Vector3(1710, 0, 1210), Vector3(1560, 0, 1130),

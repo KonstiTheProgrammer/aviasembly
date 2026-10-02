@@ -766,26 +766,16 @@ func _chaikin(p: Array[Vector2]) -> Array[Vector2]:
 ## Naechstes Flusssegment: Vector4(Abstand zur Flussmitte, halbe Wasserbreite, Richtung x, z)
 ## und die Seite (Vorzeichen) ueber seitenwahl. Liest das Zellenraster des Gelaendes.
 func _fluss_bei(p: Vector2) -> Array:
-	var k0 := t._fl_zelle(p.x, p.y)
-	if k0 < 0:
+	var such: Vector4 = t._fl_finden(p.x, p.y)
+	if such.x < 0.0:
 		return [INF, 0.0, Vector2.ZERO, 0.0]
-	var best := INF
-	var raus := [INF, 0.0, Vector2.ZERO, 0.0]
-	for j in range(t._fl_start[k0], t._fl_start[k0 + 1]):
-		var si := t._fl_seg[j]
-		var a := Vector2(t._fl_a[si].x, t._fl_a[si].z)
-		var b := Vector2(t._fl_b[si].x, t._fl_b[si].z)
-		var ab := b - a
-		var l2 := ab.length_squared()
-		var tt := 0.0 if l2 < 1e-6 else clampf((p - a).dot(ab) / l2, 0.0, 1.0)
-		var q := a + ab * tt
-		var d := p.distance_to(q)
-		if d < best:
-			best = d
-			var dir := ab.normalized()
-			raus = [d, lerpf(t._fl_w[si * 2], t._fl_w[si * 2 + 1], tt) * 0.5, dir,
-				signf(dir.x * (p.y - a.y) - dir.y * (p.x - a.x))]
-	return raus
+	var si := int(such.x)
+	var tt := such.y
+	var a := Vector2(t._fl_a[si].x, t._fl_a[si].z)
+	var b := Vector2(t._fl_b[si].x, t._fl_b[si].z)
+	var dir := (b - a).normalized()
+	return [p.distance_to(Vector2(such.z, such.w)), lerpf(t._fl_w[si * 2], t._fl_w[si * 2 + 1], tt) * 0.5,
+		dir, signf(dir.x * (p.y - a.y) - dir.y * (p.x - a.x))]
 
 
 ## FLUSSQUERUNGEN BEGRADIGEN: Auf dem 100-m-Raster und nach dem Glaetten querte die Strasse

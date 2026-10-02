@@ -990,8 +990,9 @@ gratis). Lage/Masse in `Main._sondergelaende` (feste Seeds), Gelaende in Terrain
   und Kartenfaden) — in setup() stand die Quelle sonst auf 8 statt 1038 m.
 - BREITE/TIEFE JE STUETZPUNKT (`w_quelle`/`w`, `depth_quelle`/`depth`, `trichter`) →
   `rv["breite"]`, `rv["tiefe"]`; `maeander_ab` = Maeander erst ab Laufmeter.
-- ZELLENRASTER FLACH (CSR): `_fl_start`/`_fl_seg` + Segmentdaten in Packed-Arrays
-  (`_fl_a/_fl_b/_fl_w/_fl_t/_fl_d/_fl_mt`), 200-m-Zellen. `_river_carve`, `_fluss_naechst`,
+- ZELLENRASTER FLACH (CSR): `_fl_start`/`_fl_blk` (Zellen nennen BLOECKE = grobe Abschnitte,
+  Suche zweistufig in `_fl_finden`, siehe „Fluesse nicht mehr bekloppt“) + Segmentdaten in
+  Packed-Arrays (`_fl_a/_fl_b/_fl_w/_fl_t/_fl_d/_fl_mt`, Bloecke `_flb_*`), 200-m-Zellen. `_river_carve`, `_fluss_naechst`,
   `_fluss_bereich_h`, `_submerged` lesen nur ihre Zelle. FALLE: die erste Fassung hielt die
   Segmentlisten in Dictionary/Array-Variants — die Chunk-Worker zaehlen dort atomar
   Referenzen, gemessen +0,3 ms je Flugframe auf dem HAUPTfaden. Raster nach jeder
@@ -1084,6 +1085,62 @@ und Wildwassermuster war das Zellnetz der Wellentextur (Sechsecke); kein Leben a
   hoechstens 0,2 m Wasser; Enten ruecken zur Mitte, bis der Kreis nass ist (`_rundum_nass`);
   Steg endet, wo die Boeschung die Deckhoehe erreicht (Meta `steg_land`), Kleinzeug auf eigenem
   Boden. Bild `ansichten/21_bugfixes_fluss.jpg`. Urteil jetzt OK.
+
+## Fluesse nicht mehr bekloppt (2026-10-02, Nutzer: „mach die Fluesse besser, die schauen noch bekloppt aus“)
+BEFUND aus Flugbildern (`_luftbild.gd`, gleiche Stellungen vorher/nachher, `ansichten/23_fluesse_natuerlich.jpg`):
+- OBERLAUF: die ersten 5,5 km (vor `maeander_ab`) waren der rohe Dijkstra-Weg — schnurgerade
+  400-600-m-Geraden, aus der Luft eine graue Betonrinne mit Stufen.
+- KNICKE: `_maeandern` lenkte quer zum ROHEN Abschnitt aus (Haken an jedem Vorlagenpunkt), der
+  Weg selbst hat Treppen aus 45-Grad-Stufen (x 6900, z 1200..1700), und der Lauf stand nur alle
+  70 m — in den engen Schleifen (R ~110 m) bis 36 Grad je Stuetzpunkt: ein Vieleck.
+- BREITE: von der Quelle bis zur Muendung stetig gleich wachsend = Kanal.
+- NAHBILD: das Wasser lag wie gebuerstetes Blech in feinen Querstreifen da, das Wildwasser als
+  Tupfen, im Becken unter jedem Fall ein Sechseckgitter.
+JETZT:
+- `_lauf_formen` (Schluessel `glatt` = Mittelungsradius, `maeander_quelle`/`_welle`): Grundlinie
+  = Mittel der Vorlage ueber +-glatt (zu den Enden schrumpfend), Querrichtung aus der
+  geglaetteten Linie, Bergbach-Windungen bis `maeander_ab`. DIE MAEANDERPHASE LAEUFT WEITER UEBER
+  DIE LAENGE DER VORLAGE (dasselbe s/n wie `_maeandern`) — die Schleifen bleiben, wo sie waren,
+  damit die Landstrassen den Fluss weiter an den vom Planer begradigten Querungen treffen
+  (`_strassen_check`: dieselben 6 Bruecken, 100/120 m statt 120/100 m am Silberfluss).
+  Silberfluss glatt 160, Bergbach 16 m / 300 m; Muehlbach glatt 70.
+- `breite_schwank` (Silberfluss 0,22, Muehlbach 0,20, Klammbach 0,18): zwei Wellen 610/290 m
+  ueber den Lauf, an Quelle und Muendung auslaufend (mind. vier Stuetzpunkte je Welle).
+- FEINER LAUF `_fluss_verfeinern` (`FLUSS_FEIN` 20 m), NACH Profil und Kaskaden: jeder grobe
+  Abschnitt als Hermite-Kurve, Hoehe linear — Profil, Stufen, Faelle bleiben unveraendert, Faelle
+  bleiben ein gerades Stueck. Profil und Stufen rechnen weiter grob (auf 18-m-Stuecken wuerde
+  jede Rampe eine Treppe aus Mini-Faellen). `pts_grob` (die Karte zeichnet die), `grob_start`.
+  Flussleben setzt das Schilf entlang der Tangente am Stuetzpunkt — mit 70-m-Abschnitten lief die
+  in Kurven vom Ufer weg und die Hoehenpruefung verwarf still Halme: jetzt ~19 900 statt 15 200.
+- ZELLRASTER MIT BLOECKEN (`_fl_finden`): Zellen nennen grobe Abschnitte (`_flb_*`), gesucht wird
+  ueber deren Sehnen, dann in den Feinsegmenten des naechsten Blocks (nur die drei um die
+  Projektion) und der Nachbarbloecke (nur wenn der Treffer am Blockrand klebt). Gemessen
+  (`tools/_fluss_takt.gd`): Flussanteil an height_at 2,9 -> 4,3 us je Probe, nur am Fluss.
+  Alle Leser (`_river_carve`, `_fluss_naechst`, `_fluss_bereich_h`, `_dorf_planer`) gehen darueber.
+- WASSER-SHADER: URSACHE DER QUERSTREIFEN WAR ALIASING, NICHT DIE WELLENRICHTUNG. Die Fluss-
+  oktaven drehten die WELTLAGE auf die Fliessrichtung (`dot(wpos.xz, w)`); w kommt aus der
+  Vertexfarbe und aendert sich ueber jedes Dreieck minimal — mal ~9 km Abstand zum Ursprung
+  verschob das die Texturkoordinate von Pixel zu Pixel um Meter. Belegt mit Debug-Ausgaben von
+  oben: eine 2-m-Oktave zeigte Streifen alle ~6 cm, die Fliessrichtung selbst war richtig.
+  JETZT `welle_fluss` in den UV des Bandes (quer m, Laufmeter): stetig, klein, Fliessrichtung
+  schon drin; Kaemme LAENGS (die Textur schwingt entlang u, u = quer), gestreckt, ziehen mit der
+  Stroemung (Zeit ueber fract), Oktaven nur +-0,1..0,22 rad gedreht, kurze Oktaven unter sehr
+  flachem Blick gedaempft (`flach`). Wildwasser, Schlieren, Uferschaum ebenfalls in UV (Schlieren
+  aus der Hoehe B statt aus dem Zellnetz A).
+- FALLE FUER WERKZEUGE: `_luftbild` mit `LUFT_FLUSS="param=wert,..."` verstellt Fluss-Materialien
+  beim UMSETZEN der Kamera (im Speicher-Frame gesetzt wirkte es nicht — das Bild ist schon
+  gerendert). Zwei Fensterlaeufe PARALLEL verdecken sich: macOS zeichnet das verdeckte nicht,
+  dessen zweites Bild ist eine Kopie des ersten.
+- BELEGE: `_flussleben_check` OK (Seerosen 4493, Enten 52, Reiher 9, Schilf 19869, Steine 323,
+  Stege 2), `_strassen_check` unveraendert (Gelaende ueber dem Band 0), `_hafenstadt_check`,
+  `_bewuchs_stufen_check`, `_baum_ausfall_check` (0), `_stadtstrassen_check`, `_grafik_check`,
+  `_undo_check`, `_rundflug_alle`, `_loadcheck` OK, keine Warnungen; `_see_abfluss` meldet weiter
+  das alte „ZU HOCH“ (Seebaeche unberuehrt). `_fluss_zeit` (4K): Flussleben 0,07-0,16 ms (vorher
+  0,02-0,11, im Rauschen). `_haupt_pruefsumme` aendert sich entlang der Fluesse.
+  Werkzeug `tools/_fluss_punkte.gd -- <Name> [schritt]` gibt den feinen Lauf aus (Kamerapunkte!).
+- NICHT GEMACHT: die Tieflandschleifen bleiben sanft (Amplitude 55 m) — staerkere Maeander
+  wuerden die Strassenquerungen verlegen (Planer neu laufen lassen). Im Oberlauf ist jede Kaskade
+  nah noch ein gerades Stueck zwischen zwei Stufen.
 
 ## Nachladen: Schnellflug und weiches Erscheinen (2026-09)
 Nutzer: „mit einem schnellen Flugzeug laedt die Map viel zu langsam — du bist zu schnell".

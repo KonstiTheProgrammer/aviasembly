@@ -50,6 +50,16 @@ func _hin() -> void:
 		env.fog_light_color = m.nebel_farbe_bei(p.y)
 		m.terrain.setze_dunst(env.fog_depth_begin, env.fog_depth_end, env.fog_depth_curve,
 			env.fog_light_color)
+	# LUFT_FLUSS="param=wert,param=wert": Parameter der FLUSS-Materialien (fliessend) fuer die
+	# Bilder verstellen — zum Eingrenzen von Wasserfehlern. Hier beim Umsetzen, nicht beim
+	# Speichern: das gespeicherte Bild ist schon gerendert.
+	if OS.get_environment("LUFT_FLUSS") != "":
+		for mat: ShaderMaterial in m.terrain.get("_wasser_mats"):
+			if mat.get_shader_parameter("fliessend") != true:
+				continue
+			for paar in OS.get_environment("LUFT_FLUSS").split(","):
+				var kv := paar.split("=")
+				mat.set_shader_parameter(kv[0], float(kv[1]))
 
 
 func _process(_d: float) -> bool:

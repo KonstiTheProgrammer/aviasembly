@@ -3197,7 +3197,7 @@ var _wasser_mats: Array[ShaderMaterial] = []
 # Zellenraster aller Fluesse (siehe _fluss_gitter_bauen) und ihr gemeinsames Huellrechteck.
 const FLUSS_ZELLE := 200.0
 var _fluss_bb := Rect2(0, 0, 0, 0)
-# FLACH, OHNE VARIANTS (CSR): Zelle k hat die Segmente _fl_seg[_fl_start[k] .. _fl_start[k+1]).
+# FLACH, OHNE VARIANTS (CSR): Zelle k hat die Bloecke _fl_blk[_fl_start[k] .. _fl_start[k+1]).
 # Je Segment liegen Anfang/Ende und die Masse direkt in Packed-Arrays. Ein Dictionary- oder
 # verschachteltes Array im heissen Pfad kostete den HAUPTfaden Zeit: die Chunk-Worker
 # zaehlen dort atomar Referenzen hoch und runter (gemessen +0,3 ms je Flugframe am Strom).
@@ -3206,7 +3206,16 @@ var _fl_z0 := 0.0
 var _fl_nx := 0
 var _fl_nz := 0
 var _fl_start := PackedInt32Array()
-var _fl_seg := PackedInt32Array()
+var _fl_blk := PackedInt32Array()      # je Zelle die BLOECKE (nicht Segmente), siehe _fl_finden
+# BLOECKE: ein Block = ein grober Abschnitt des Laufs (~70 m) mit seinen Feinsegmenten
+# (_fluss_verfeinern). Die Zelle nennt Bloecke, gesucht wird erst ueber die Sehnen, dann in den
+# Feinsegmenten des naechsten Blocks — so kostet der feine Lauf kaum mehr als der grobe.
+var _flb_a := PackedVector2Array()     # Sehne je Block, Anfang (x, z)
+var _flb_b := PackedVector2Array()     # ... Ende
+var _flb_r := PackedFloat32Array()     # groesster Abstand der Feinpunkte von der Sehne
+var _flb_s := PackedInt32Array()       # erstes Feinsegment je Block (Bloecke + 1 Eintraege)
+var _flb_fl := PackedInt32Array()      # Fluss je Block (Nachbarbloecke nur im selben Fluss)
+var _flb_h := PackedFloat32Array()     # hoechster Spiegel je Block
 var _fl_a := PackedVector3Array()
 var _fl_b := PackedVector3Array()
 var _fl_w := PackedFloat32Array()      # je Segment: Breite an A, an B (2 Werte)
@@ -4839,41 +4848,101 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 # Spline fallende) Wasserhöhe senken, Ufer weich ins Gelände blenden.
 #
 # ZELLENRASTER STATT SEGMENTSCHLEIFE (seit dem Hauptstrom): jede Hoehenprobe schaut nur in
-# EINE Zelle (_fl_start/_fl_seg, FLUSS_ZELLE) und prueft die Segmente, die dort eingetragen
-# sind. Vorher lief sie ueber alle Segmente jedes Flusses, in dessen Huellrechteck sie lag
+# EINE Zelle (_fl_start/_fl_blk, FLUSS_ZELLE) und prueft die Bloecke, die dort eingetragen
+# sind (_fl_finden). Vorher lief sie ueber alle Segmente jedes Flusses, in dessen Huellrechteck sie lag
 # — beim 40-km-Strom sind das ueber 600 Segmente und ein Huellrechteck ueber die halbe
 # Insel. Breite, Talband und Tiefe kommen JE STUETZPUNKT (der Strom waechst zur Muendung).
-func _river_carve(x: float, z: float, h: float) -> float:
+## NAECHSTES FEINSEGMENT zu (x, z): Vector4(Segment, t, Fusspunkt x, Fusspunkt z); Segment
+## -1 = keins in dieser Zelle. ZWEISTUFIG: die Zelle nennt Bloecke (grobe Abschnitte, ~70 m);
+## erst der Block mit der naechsten Sehne, dann dessen Feinsegmente und die seiner beiden
+## Nachbarn — diese nur, wenn ihre Sehne abzueglich ihrer Ausbuchtung (_flb_r) naeher liegt als
+## der bisher beste Treffer. Ein ferner Block kaeme nur in Frage, wenn seine Sehne hoechstens
+## zweimal die Ausbuchtung (wenige Meter) weiter weg laege als die naechste — an Maeanderhaelsen,
+## wo dann ohnehin beide Laufstuecke gleich weit weg sind.
+## Gemessen (tools/_fluss_takt.gd, fuenf Felder am Silberfluss): Flussanteil an height_at
+## 2,9 -> 4,3 us je Probe (die Suche allein 3,4 us, ~10 Bloecke je Zelle wie vorher Segmente).
+## Alle Feinsegmente einzeln in die Zellen gelegt waeren es rund viermal so viele Pruefungen.
+func _fl_finden(x: float, z: float) -> Vector4:
+	var raus := Vector4(-1.0, 0.0, 0.0, 0.0)
 	var k0 := _fl_zelle(x, z)
 	if k0 < 0:
-		return h
-	var von := _fl_start[k0]
-	var bis := _fl_start[k0 + 1]
-	if von == bis:
-		return h
-	var best_d2 := INF
-	var bs := -1
-	var best_t := 0.0
-	var fx := 0.0
-	var fz := 0.0
-	for j in range(von, bis):
-		var si := _fl_seg[j]
-		var a := _fl_a[si]
-		var b := _fl_b[si]
+		return raus
+	var bb := -1
+	var bd := INF
+	var bt := 0.0
+	for j in range(_fl_start[k0], _fl_start[k0 + 1]):
+		var bi := _fl_blk[j]
+		var a := _flb_a[bi]
+		var b := _flb_b[bi]
 		var dx := b.x - a.x
-		var dz := b.z - a.z
+		var dz := b.y - a.y
 		var l2 := dx * dx + dz * dz
-		var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.z) * dz) / l2, 0.0, 1.0)
-		var px := a.x + dx * t
-		var pz := a.z + dz * t
-		var dd := (x - px) * (x - px) + (z - pz) * (z - pz)
-		if dd < best_d2:
-			best_d2 = dd
-			bs = si
-			best_t = t
-			fx = px
-			fz = pz
-	var dist := sqrt(best_d2)
+		var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.y) * dz) / l2, 0.0, 1.0)
+		var ex := a.x + dx * t - x
+		var ez := a.y + dz * t - z
+		var dd := ex * ex + ez * ez
+		if dd < bd:
+			bd = dd
+			bb = bi
+			bt = t
+	if bb < 0:
+		return raus
+	var best := INF
+	for stufe in 3:
+		var nb := bb if stufe == 0 else (bb - 1 if stufe == 1 else bb + 1)
+		if stufe > 0:
+			if nb < 0 or nb >= _flb_fl.size() or _flb_fl[nb] != _flb_fl[bb]:
+				continue
+			# Nur wenn der beste Treffer am Rand des Blocks klebt: liegt er innen, ist dort das
+			# Minimum entlang des Laufs, und die Nachbarn liegen weiter weg.
+			if stufe == 1 and not (int(raus.x) == _flb_s[bb] and raus.y <= 0.0):
+				continue
+			if stufe == 2 and not (int(raus.x) == _flb_s[bb + 1] - 1 and raus.y >= 1.0):
+				continue
+			var a := _flb_a[nb]
+			var b := _flb_b[nb]
+			var dx := b.x - a.x
+			var dz := b.y - a.y
+			var l2 := dx * dx + dz * dz
+			var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.y) * dz) / l2, 0.0, 1.0)
+			var ex := a.x + dx * t - x
+			var ez := a.y + dz * t - z
+			var unten := sqrt(ex * ex + ez * ez) - _flb_r[nb]
+			if unten > 0.0 and unten * unten >= best:
+				continue
+		var s0 := _flb_s[nb]
+		var s1 := _flb_s[nb + 1]
+		if stufe == 0 and s1 - s0 > 3:
+			# Im eigenen Block nur die Feinsegmente um die Projektion auf die Sehne (die Teile
+			# sind gleich lang, die Kurve weicht nur _flb_r von der Sehne ab).
+			var m := clampi(s0 + int(bt * float(s1 - s0)), s0, s1 - 1)
+			s0 = maxi(m - 1, _flb_s[nb])
+			s1 = mini(m + 2, _flb_s[nb + 1])
+		for si in range(s0, s1):
+			var a := _fl_a[si]
+			var b := _fl_b[si]
+			var dx := b.x - a.x
+			var dz := b.z - a.z
+			var l2 := dx * dx + dz * dz
+			var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.z) * dz) / l2, 0.0, 1.0)
+			var px := a.x + dx * t
+			var pz := a.z + dz * t
+			var dd := (x - px) * (x - px) + (z - pz) * (z - pz)
+			if dd < best:
+				best = dd
+				raus = Vector4(float(si), t, px, pz)
+	return raus
+
+
+func _river_carve(x: float, z: float, h: float) -> float:
+	var such := _fl_finden(x, z)
+	if such.x < 0.0:
+		return h
+	var bs := int(such.x)
+	var best_t := such.y
+	var fx := such.z
+	var fz := such.w
+	var dist := sqrt((x - fx) * (x - fx) + (z - fz) * (z - fz))
 	var valley := lerpf(_fl_t[bs * 2], _fl_t[bs * 2 + 1], best_t)
 	if dist >= valley:
 		return h
@@ -4954,36 +5023,16 @@ func _river_carve(x: float, z: float, h: float) -> float:
 ## des Bergsees) — dort gelten Kies- und Auwaldregeln der alten Rampe; Betrag = Breite.
 func _fluss_naechst(x: float, z: float) -> Vector4:
 	var raus := Vector4(INF, 0.0, 0.0, 0.0)
-	var k0 := _fl_zelle(x, z)
-	if k0 < 0:
+	var such := _fl_finden(x, z)
+	if such.x < 0.0:
 		return raus
-	var best_d2 := INF
-	var bs := -1
-	var bt := 0.0
-	var fx := 0.0
-	var fz := 0.0
-	for j in range(_fl_start[k0], _fl_start[k0 + 1]):
-		var si := _fl_seg[j]
-		var a := _fl_a[si]
-		var b := _fl_b[si]
-		var dx := b.x - a.x
-		var dz := b.z - a.z
-		var l2 := dx * dx + dz * dz
-		var t := 0.0 if l2 < 1e-6 else clampf(((x - a.x) * dx + (z - a.z) * dz) / l2, 0.0, 1.0)
-		var px := a.x + dx * t
-		var pz := a.z + dz * t
-		var dd := (x - px) * (x - px) + (z - pz) * (z - pz)
-		if dd < best_d2:
-			best_d2 = dd
-			bs = si
-			bt = t
-			fx = px
-			fz = pz
-	if bs < 0:
-		return raus
+	var bs := int(such.x)
+	var bt := such.y
+	var fx := such.z
+	var fz := such.w
 	var w := lerpf(_fl_w[bs * 2], _fl_w[bs * 2 + 1], bt)
 	var form := lerpf(_fl_f[bs * 2], _fl_f[bs * 2 + 1], bt)
-	var dist := sqrt(best_d2)
+	var dist := sqrt((x - fx) * (x - fx) + (z - fz) * (z - fz))
 	var ws := -w
 	if form >= 0.5:
 		var a2 := _fl_a[bs]
@@ -5012,8 +5061,7 @@ func _fluss_bereich_h(x0: float, z0: float, kante: float) -> float:
 		for zz in range(maxi(zz0, 0), mini(zz1, _fl_nz - 1) + 1):
 			var k := zz * _fl_nx + zx
 			for j in range(_fl_start[k], _fl_start[k + 1]):
-				var si := _fl_seg[j]
-				h = maxf(h, maxf(_fl_a[si].y, _fl_b[si].y))
+				h = maxf(h, _flb_h[_fl_blk[j]])
 	return h
 
 
@@ -5111,6 +5159,73 @@ func _maeandern(pts: PackedVector3Array, weite: float, welle: float,
 			+ sin(s / (welle * 0.37) * TAU) * 0.32)
 		out.append(Vector3(px + quer.x * aus, py, pz + quer.y * aus))
 	return out
+
+
+## LAUF GLAETTEN, DANN AUSLENKEN (Fluesse mit "glatt" bzw. "maeander_quelle", 2026-10-02,
+## Nutzer: „die Fluesse schauen noch bekloppt aus“). Drei Fehler von _maeandern:
+##   * die Auslenkung stand quer zum ROHEN Abschnitt — an jedem Stuetzpunkt der Vorlage sprang
+##     die Querrichtung um dessen Knickwinkel, der Lauf bekam dort einen Haken (bis 26 m);
+##   * der Silberfluss ist ein Dijkstra-Weg auf einem 75-m-Raster, stellenweise eine TREPPE aus
+##     45-Grad-Stufen (bei x 6900, z 1200..1700) — die schlaengelte sich mit;
+##   * vor "maeander_ab" blieb der rohe Weg stehen: der Oberlauf war 5,5 km lang eine Kette
+##     schnurgerader 400-600-m-Geraden, aus der Luft eine Betonrinne.
+## Jetzt: Grundlinie = Mittel der Vorlage ueber +-"glatt" Meter (zu den Enden hin schrumpfend,
+## Quelle und Muendung bleiben, wo sie sind), Querrichtung aus der GEGLAETTETEN Grundlinie.
+## Die Phase des Maeanders laeuft weiter ueber die Laenge der VORLAGE (dasselbe s, dasselbe n
+## wie _maeandern): die Schleifen bleiben, wo sie waren — nur so treffen die Landstrassen den
+## Fluss weiter dort, wo der Planer ihre Querungen begradigt hat. Im Oberlauf windet sich der
+## Bach zusaetzlich ("maeander_quelle" Meter, Welle "maeander_quelle_welle"; mindestens vier
+## Stuetzpunkte je Welle) und gibt ab "maeander_ab" an den grossen Maeander ab.
+func _lauf_formen(pts: PackedVector3Array, weite: float, welle: float, ab: float,
+		glatt: float, q_weite: float, q_welle: float) -> PackedVector3Array:
+	var laengen := PackedFloat32Array([0.0])
+	var gesamt := 0.0
+	for i in range(1, pts.size()):
+		gesamt += Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length()
+		laengen.append(gesamt)
+	if gesamt < MAEANDER_SCHRITT * 2.0:
+		return pts
+	var n := int(gesamt / MAEANDER_SCHRITT)
+	var grund := PackedVector2Array()
+	var hoehen := PackedFloat32Array()
+	for k in range(n + 1):
+		var s := gesamt * float(k) / float(n)
+		var r := minf(glatt, minf(s, gesamt - s))
+		var summe := Vector2.ZERO
+		var gw := 0.0
+		for m in range(-4, 5):
+			var wm := 5.0 - absf(float(m))
+			var q := _lauf_bei(pts, laengen, s + r * float(m) / 4.0)
+			summe += Vector2(q.x, q.z) * wm
+			gw += wm
+		grund.append(summe / gw)
+		hoehen.append(_lauf_bei(pts, laengen, s).y)
+	var out := PackedVector3Array()
+	for k in range(n + 1):
+		var s := gesamt * float(k) / float(n)
+		var d := (grund[mini(k + 1, n)] - grund[maxi(k - 1, 0)]).normalized()
+		var quer := Vector2(-d.y, d.x)
+		var rand := minf(smoothstep(ab, ab + MAEANDER_RAND, s),
+			smoothstep(0.0, MAEANDER_RAND, gesamt - s))
+		var aus := weite * rand * (sin(s / welle * TAU) * 0.68
+			+ sin(s / (welle * 0.37) * TAU) * 0.32)
+		if q_weite > 0.0:
+			var rq := smoothstep(0.0, 300.0, s) * (1.0 - smoothstep(ab, ab + MAEANDER_RAND, s)) \
+				* smoothstep(0.0, 300.0, gesamt - s)
+			aus += q_weite * rq * (sin(s / q_welle * TAU) * 0.6
+				+ sin(s / (q_welle * 1.57) * TAU + 1.3) * 0.4)
+		out.append(Vector3(grund[k].x + quer.x * aus, hoehen[k], grund[k].y + quer.y * aus))
+	return out
+
+
+## Punkt der Polylinie bei Laufmeter s (laengen = Laufmeter je Stuetzpunkt), auf den Lauf
+## begrenzt.
+static func _lauf_bei(pts: PackedVector3Array, laengen: PackedFloat32Array, s: float) -> Vector3:
+	var n := pts.size()
+	s = clampf(s, 0.0, laengen[n - 1])
+	var j := clampi(laengen.bsearch(s) - 1, 0, n - 2)
+	var span := maxf(laengen[j + 1] - laengen[j], 0.001)
+	return pts[j].lerp(pts[j + 1], clampf((s - laengen[j]) / span, 0.0, 1.0))
 
 
 ## Mittelpunkt und quadrierte Reichweite je Massiv in Packed-Arrays legen.
@@ -5288,9 +5403,16 @@ func _prepare_rivers(rvs: Array) -> void:
 		# endet im Endsee. Ein Maeander, der auch dort auslenkt, wuerde den Anfang neben
 		# die Schwelle und das Ende neben den See legen.
 		var maeander: float = rv.get("maeander", 0.0)
-		if maeander > 0.0:
+		var glatt: float = float(rv.get("glatt", 0.0))
+		var q_weite: float = float(rv.get("maeander_quelle", 0.0))
+		if glatt > 0.0 or q_weite > 0.0:
+			pts = _lauf_formen(pts, maeander, float(rv.get("maeander_welle", 900.0)),
+				float(rv.get("maeander_ab", 0.0)), glatt, q_weite,
+				float(rv.get("maeander_quelle_welle", 300.0)))
+		elif maeander > 0.0:
 			pts = _maeandern(pts, maeander, float(rv.get("maeander_welle", 900.0)),
 				float(rv.get("maeander_ab", 0.0)))
+		if maeander > 0.0 or glatt > 0.0 or q_weite > 0.0:
 			# Die Talbreiten haengen an den Stuetzpunkten und muessen mitwachsen.
 			tal_breiten = PackedFloat32Array()
 			var lauf2 := 0.0
@@ -5329,6 +5451,7 @@ func _prepare_rivers(rvs: Array) -> void:
 		var tief_end: float = float(rv.get("depth", 4.0))
 		var tief_q: float = float(rv.get("depth_quelle", tief_end))
 		var trichter: float = float(rv.get("trichter", 0.0))
+		var schwank: float = float(rv.get("breite_schwank", 0.0))
 		var breiten := PackedFloat32Array()
 		var tiefen := PackedFloat32Array()
 		var lauf3 := 0.0
@@ -5342,6 +5465,15 @@ func _prepare_rivers(rvs: Array) -> void:
 			var bw := lerpf(w_q, w_end, f)
 			if trichter > 0.0:
 				bw *= 1.0 + trichter * smoothstep(gesamt3 - 1400.0, gesamt3, lauf3)
+			# BREITE SCHWANKT ("breite_schwank"): ein Fluss, der von der Quelle bis zur Muendung
+			# stetig gleich breit waechst, liegt aus der Luft wie ein Kanal da. Zwei Wellen mit
+			# unrundem Verhaeltnis ueber die Laufstrecke — mindestens vier Stuetzpunkte
+			# (MAEANDER_SCHRITT) je Welle, sonst saehe man die Stuetzpunkte. An Quelle und
+			# Muendung laeuft es aus (Seebaeche und Trichter bleiben, wie sie vermessen sind).
+			if schwank > 0.0:
+				var v := sin(lauf3 / 610.0 * TAU + 0.7) * 0.62 + sin(lauf3 / 290.0 * TAU + 2.3) * 0.38
+				bw *= 1.0 + schwank * v * smoothstep(0.0, 250.0, lauf3) \
+					* smoothstep(0.0, 1600.0, gesamt3 - lauf3)
 			breiten.append(bw)
 			tiefen.append(lerpf(tief_q, tief_end, f))
 		# UFERFORM (siehe UFER_*): nicht an den Baechen des Bergsees — deren Schwellen, Delta
@@ -5416,10 +5548,13 @@ func _fluss_gitter_bauen() -> void:
 	_fl_w = PackedFloat32Array(); _fl_t = PackedFloat32Array(); _fl_d = PackedFloat32Array()
 	_fl_mt = PackedFloat32Array()
 	_fl_k = PackedFloat32Array(); _fl_f = PackedFloat32Array()
+	_flb_a = PackedVector2Array(); _flb_b = PackedVector2Array(); _flb_r = PackedFloat32Array()
+	_flb_s = PackedInt32Array(); _flb_fl = PackedInt32Array(); _flb_h = PackedFloat32Array()
 	var boxen: Array = []
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
-	for rv in rivers:
+	for ri in rivers.size():
+		var rv: Dictionary = rivers[ri]
 		var pts: PackedVector3Array = rv["pts"]
 		var talb: PackedFloat32Array = rv["tal"]
 		var br: PackedFloat32Array = rv["breite"]
@@ -5427,6 +5562,7 @@ func _fluss_gitter_bauen() -> void:
 		var bg: PackedFloat32Array = rv["bogen"]
 		var fm: PackedFloat32Array = rv["form"]
 		var mt: float = float(rv.get("max_tief", 0.0))
+		var seg0 := _fl_a.size()
 		for i in range(pts.size() - 1):
 			_fl_a.append(pts[i]); _fl_b.append(pts[i + 1])
 			_fl_w.append(br[i]); _fl_w.append(br[i + 1])
@@ -5435,18 +5571,42 @@ func _fluss_gitter_bauen() -> void:
 			_fl_k.append(bg[i]); _fl_k.append(bg[i + 1])
 			_fl_f.append(fm[i]); _fl_f.append(fm[i + 1])
 			_fl_mt.append(mt)
-			var vv := maxf(talb[i], talb[i + 1]) + 8.0
-			var box := Rect2(minf(pts[i].x, pts[i + 1].x) - vv, minf(pts[i].z, pts[i + 1].z) - vv, 0, 0)
-			box.end = Vector2(maxf(pts[i].x, pts[i + 1].x) + vv, maxf(pts[i].z, pts[i + 1].z) + vv)
+		# Bloecke: die groben Abschnitte (_fluss_verfeinern), sonst jedes Segment ein Block.
+		var gs: PackedInt32Array = rv.get("grob_start", PackedInt32Array())
+		if gs.is_empty() or gs[gs.size() - 1] != pts.size() - 1:
+			gs = PackedInt32Array()
+			for i in pts.size():
+				gs.append(i)
+		for bi in gs.size() - 1:
+			var i0 := gs[bi]
+			var i1 := gs[bi + 1]
+			var a := Vector2(pts[i0].x, pts[i0].z)
+			var b := Vector2(pts[i1].x, pts[i1].z)
+			var r := 0.0
+			for m in range(i0 + 1, i1):
+				var q := Vector2(pts[m].x, pts[m].z)
+				r = maxf(r, q.distance_to(Geometry2D.get_closest_point_to_segment(q, a, b)))
+			_flb_a.append(a)
+			_flb_b.append(b)
+			_flb_r.append(r)
+			_flb_s.append(seg0 + i0)
+			_flb_fl.append(ri)
+			_flb_h.append(maxf(pts[i0].y, pts[i1].y))
+			var vv := r + 8.0
+			for m in range(i0, i1 + 1):
+				vv = maxf(vv, talb[m] + r + 8.0)
+			var box := Rect2(minf(a.x, b.x) - vv, minf(a.y, b.y) - vv, 0, 0)
+			box.end = Vector2(maxf(a.x, b.x) + vv, maxf(a.y, b.y) + vv)
 			boxen.append(box)
 			lo = Vector2(minf(lo.x, box.position.x), minf(lo.y, box.position.y))
 			hi = Vector2(maxf(hi.x, box.end.x), maxf(hi.y, box.end.y))
+	_flb_s.append(_fl_a.size())
 	if boxen.is_empty():
 		_fluss_bb = Rect2(0, 0, 0, 0)
 		_fl_nx = 0
 		_fl_nz = 0
 		_fl_start = PackedInt32Array([0])
-		_fl_seg = PackedInt32Array()
+		_fl_blk = PackedInt32Array()
 		return
 	_fluss_bb = Rect2(lo, hi - lo)
 	_fl_x0 = floorf(lo.x / FLUSS_ZELLE) * FLUSS_ZELLE
@@ -5467,12 +5627,12 @@ func _fluss_gitter_bauen() -> void:
 				je[k] = a
 	_fl_start = PackedInt32Array()
 	_fl_start.resize(_fl_nx * _fl_nz + 1)
-	_fl_seg = PackedInt32Array()
+	_fl_blk = PackedInt32Array()
 	var n := 0
 	for k in _fl_nx * _fl_nz:
 		_fl_start[k] = n
 		if je[k] != null:
-			_fl_seg.append_array(je[k])
+			_fl_blk.append_array(je[k])
 			n += (je[k] as PackedInt32Array).size()
 	_fl_start[_fl_nx * _fl_nz] = n
 
@@ -5789,6 +5949,9 @@ func _strasse_carve(x: float, z: float, h: float) -> float:
 
 func fluesse_fertigstellen() -> void:
 	_fluesse_profilieren()
+	for rv in rivers:
+		if bool(rv.get("profil", false)):
+			_fluss_verfeinern(rv)
 	_fluss_gitter_bauen()
 	for rv in rivers:
 		if bool(rv.get("profil", false)):
@@ -5937,6 +6100,78 @@ func _stufen_setzen(rv: Dictionary) -> void:
 			arr2.append(lerpf(src[i], src[i + 1], t))
 			neu[k] = arr2
 		faelle.append([npts.size() - 2, npts.size() - 1, hoch])
+	rv["pts"] = npts
+	for k in namen.size():
+		rv[namen[k]] = neu[k]
+	rv["faelle"] = faelle
+
+
+## FEINER LAUF (nach Profil und Kaskaden, nur "profil"-Fluesse). Der Lauf steht in Schritten
+## von MAEANDER_SCHRITT (70 m); in den engen Schleifen des Maeanders (Radius ~110 m) knickte er
+## dort um bis zu 36 Grad, Ufer und Wasserband waren aus der Luft sichtbar ein Vieleck. Jeder
+## grobe Abschnitt wird hier in Stuecke von hoechstens FLUSS_FEIN Metern geteilt, die Lage als
+## Hermite-Kurve mit den Richtungen der Nachbarpunkte (der Lauf geht weiter durch alle groben
+## Punkte), die Hoehe LINEAR wie vorher — Profil, Kaskaden und Faelle bleiben also genau, wie
+## sie gerechnet wurden. Absturzabschnitte bleiben ein gerades Stueck.
+## Profil und Stufen rechnen weiter auf dem GROBEN Lauf: auf 18-m-Stuecken wuerde jede Rampe
+## zu einer Treppe aus vielen kleinen Faellen. Die Grobpunkte bleiben als "pts_grob" (Karte),
+## "grob_start" ordnet jedem Grobpunkt seinen Feinpunkt zu (Bloecke des Zellrasters).
+const FLUSS_FEIN := 20.0
+
+
+func _fluss_verfeinern(rv: Dictionary) -> void:
+	var pts: PackedVector3Array = rv["pts"]
+	var n := pts.size()
+	if n < 3:
+		return
+	var namen := ["breite", "tal", "tiefe", "bogen", "form"]
+	var alt: Array = []
+	var neu: Array = []
+	for nm in namen:
+		alt.append(rv[nm])
+		neu.append(PackedFloat32Array())
+	var fall := {}
+	for fl in rv.get("faelle", []):
+		fall[int(fl[0])] = true
+	var richt := PackedVector2Array()
+	for i in n:
+		var a := pts[maxi(i - 1, 0)]
+		var b := pts[mini(i + 1, n - 1)]
+		richt.append(Vector2(b.x - a.x, b.z - a.z).normalized())
+	var npts := PackedVector3Array()
+	var start := PackedInt32Array()
+	for i in n:
+		start.append(npts.size())
+		npts.append(pts[i])
+		for k in namen.size():
+			var arr: PackedFloat32Array = neu[k]
+			arr.append((alt[k] as PackedFloat32Array)[i])
+			neu[k] = arr
+		if i == n - 1:
+			break
+		var a := pts[i]
+		var b := pts[i + 1]
+		var p0 := Vector2(a.x, a.z)
+		var p1 := Vector2(b.x, b.z)
+		var lh := p0.distance_to(p1)
+		var teile := 1 if fall.has(i) else maxi(int(ceilf(lh / FLUSS_FEIN)), 1)
+		for m in range(1, teile):
+			var t := float(m) / float(teile)
+			var t2 := t * t
+			var t3 := t2 * t
+			var q := p0 * (2.0 * t3 - 3.0 * t2 + 1.0) + richt[i] * (lh * (t3 - 2.0 * t2 + t)) \
+				+ p1 * (3.0 * t2 - 2.0 * t3) + richt[i + 1] * (lh * (t3 - t2))
+			npts.append(Vector3(q.x, lerpf(a.y, b.y, t), q.y))
+			for k in namen.size():
+				var src: PackedFloat32Array = alt[k]
+				var arr2: PackedFloat32Array = neu[k]
+				arr2.append(lerpf(src[i], src[i + 1], t))
+				neu[k] = arr2
+	var faelle: Array = []
+	for fl in rv.get("faelle", []):
+		faelle.append([start[int(fl[0])], start[int(fl[1])], fl[2]])
+	rv["pts_grob"] = pts
+	rv["grob_start"] = start
 	rv["pts"] = npts
 	for k in namen.size():
 		rv[namen[k]] = neu[k]

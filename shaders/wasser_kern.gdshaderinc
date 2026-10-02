@@ -170,6 +170,34 @@ vec4 welle(vec2 p, vec2 dir, float len, float amp, float speed, float t) {
 	return vec4(g, s.b * amp, s.a);
 }
 
+// FLUSS-OKTAVE IN DEN KOORDINATEN DES BANDES: uvp = UV = (quer in m, Laufmeter), w = Fliess-
+// richtung (Vertexfarbe). ZWEI FEHLER der alten Fassung (Wellen und Schaum mit gedrehter
+// WELTlage, dot(wpos.xz, w)):
+//   * w kommt aus der Vertexfarbe und aendert sich ueber jedes Dreieck ein wenig. Mal der
+//     Weltlage (rund 9 km vom Ursprung) verschob das die Texturkoordinate von Pixel zu Pixel um
+//     Meter — das Muster zerfiel in Streifen von wenigen Zentimetern (Aliasing), nah lag der
+//     Fluss als gebuerstetes Blech da, das Wildwasser als Tupfen. Gemessen mit einer 2-m-Oktave
+//     von oben: Streifen alle ~6 cm. UV ist stetig und klein, die Fliessrichtung steckt schon
+//     darin.
+//   * die Textur traegt Kaemme quer zu ihrer ersten Achse; mit u = Fliessrichtung lagen sie
+//     quer zum Fluss. Hier ist u = quer: die Kaemme laufen LAENGS, gestreckt um `strecke`, und
+//     ziehen mit `zug` m/s flussab. `drehung` dreht die Oktave leicht aus der Laufrichtung.
+// Die Zeitverschiebung geht ueber fract() (die Textur kachelt), sonst verliert sie nach Stunden
+// Spielzeit an Genauigkeit.
+vec4 welle_fluss(vec2 uvp, vec2 w, float drehung, float len, float amp, float zug, float t,
+		float strecke) {
+	vec2 eu = dreh(vec2(1.0, 0.0), drehung);
+	vec2 ev = vec2(-eu.y, eu.x);
+	float kachel = len * ZYKLEN;
+	vec2 q = vec2(dot(uvp, eu), dot(uvp, ev) / strecke) / kachel;
+	q -= vec2(fract(zug * t * eu.y / kachel), fract(zug * t * ev.y / (kachel * strecke)));
+	vec4 s = texture(wellen_tex, q);
+	vec2 g_uv = (eu * s.r + ev * (s.g / strecke)) * (amp / kachel);
+	// UV.x waechst zur rechten Bandseite, also gegen die Normale (-w.y, w.x); UV.y laeuft mit w.
+	vec2 g = vec2(w.y, -w.x) * g_uv.x + w * g_uv.y;
+	return vec4(g, s.b * amp, s.a);
+}
+
 // Gelaendehoehe aus dem feinen Raster. EXAKT die zwei Dreiecke je Zelle, die auch das
 // Gelaendenetz hat (v00,v10,v11 und v00,v11,v01) — bilinear laege der Uferschaum bis zu
 // Dezimeter neben der Linie, an der Wasser und Gelaende sich wirklich schneiden.
@@ -276,24 +304,48 @@ void fragment() {
 			+ vnoise(wpos.xz / 900.0 - w * (t * 0.006)) * 0.35;
 		wf = mix(1.0, mix(0.45, 1.35, smoothstep(0.25, 0.75, wfn)), windfelder);
 	}
-	vec4 s1 = welle(wpos.xz, dreh(w, 0.17), swell_len, swell_amp * 0.62, swell_speed + zug, t);
-	vec4 s2 = welle(wpos.xz, dreh(w, -0.24), swell_len * 0.77, swell_amp * 0.50,
-		swell_speed * 0.877 + zug, t);
+	vec4 s1;
+	vec4 s2;
 	// Kurze Oktaven nur, wo sie noch mehr als einen Bildpunkt haben: dahinter liefern die
 	// Mipmaps ohnehin nur noch ihren Mittelwert (Steigung null). Die Grenzen laufen mit
 	// der Wellenlaenge, damit Seen und Fluesse (kurze Wellen) sie frueher abgeben.
 	vec4 c1 = vec4(0.0);
 	vec4 r1 = vec4(0.0);
 	vec4 r2 = vec4(0.0);
-	if (cam_d < chop_len * 450.0) {
-		c1 = welle(wpos.xz, dreh(w, 0.62), chop_len, chop_amp * wf * (1.0 + 2.5 * steil),
-			chop_speed + zug, t);
-	}
-	if (cam_d < ripple_len * 450.0) {
-		r1 = welle(wpos.xz, dreh(w, -0.45), ripple_len, ripple_amp * wf * (1.0 + 2.0 * steil),
-			ripple_speed + zug, t);
-		r2 = welle(wpos.xz, dreh(w, 1.10), ripple_len * 0.37, ripple_amp * 0.35 * wf,
-			ripple_speed * 0.61 + zug * 0.8, t);
+	if (fliessend) {
+		// Siehe welle_fluss: Schlieren laengs, mit der Stroemung, alle Oktaven nur wenig aus der
+		// Laufrichtung gedreht. GEMESSEN (tools/_luftbild.gd, LUFT_FLUSS="slope_gain=0"): die
+		// feinen Querlinien im Nahbild kamen aus der kuerzesten Oktave (0,5 m), die um 52 Grad
+		// gedreht war — ihre Kaemme lagen fast quer, und unter flachem Blick wurde jeder davon
+		// eine helle Linie. Die kurzen Oktaven treten unter sehr flachem Blick ausserdem zurueck
+		// (`flach`): dort aendert schon eine winzige Neigung laengs die gespiegelte Himmelshoehe.
+		float flach = mix(0.3, 1.0, smoothstep(0.03, 0.25, abs(dot(n_geo, VIEW))));
+		s1 = welle_fluss(UV, w, 0.10, swell_len, swell_amp * 0.62, zug, t, 2.6);
+		s2 = welle_fluss(UV, w, -0.16, swell_len * 0.77, swell_amp * 0.50, zug * 0.85, t, 2.2);
+		if (cam_d < chop_len * 450.0) {
+			c1 = welle_fluss(UV, w, 0.22, chop_len, chop_amp * wf * (1.0 + 2.5 * steil) * flach,
+				zug * 1.15, t, 3.4);
+		}
+		if (cam_d < ripple_len * 450.0) {
+			r1 = welle_fluss(UV, w, -0.18, ripple_len,
+				ripple_amp * wf * (1.0 + 2.0 * steil) * flach, zug * 1.3, t, 3.0);
+			r2 = welle_fluss(UV, w, 0.12, ripple_len * 0.37, ripple_amp * 0.35 * wf * flach,
+				zug, t, 2.4);
+		}
+	} else {
+		s1 = welle(wpos.xz, dreh(w, 0.17), swell_len, swell_amp * 0.62, swell_speed + zug, t);
+		s2 = welle(wpos.xz, dreh(w, -0.24), swell_len * 0.77, swell_amp * 0.50,
+			swell_speed * 0.877 + zug, t);
+		if (cam_d < chop_len * 450.0) {
+			c1 = welle(wpos.xz, dreh(w, 0.62), chop_len, chop_amp * wf * (1.0 + 2.5 * steil),
+				chop_speed + zug, t);
+		}
+		if (cam_d < ripple_len * 450.0) {
+			r1 = welle(wpos.xz, dreh(w, -0.45), ripple_len, ripple_amp * wf * (1.0 + 2.0 * steil),
+				ripple_speed + zug, t);
+			r2 = welle(wpos.xz, dreh(w, 1.10), ripple_len * 0.37, ripple_amp * 0.35 * wf,
+				ripple_speed * 0.61 + zug * 0.8, t);
+		}
 	}
 	vec2 grad = s1.xy + s2.xy + c1.xy + r1.xy + r2.xy;
 	float h0 = s1.z + s2.z + c1.z;
@@ -331,8 +383,9 @@ void fragment() {
 	float saum = (1.0 - smoothstep(0.0, foam_band, d_eff)) * (1.0 - 0.6 * fern);
 	float saum_muster = max(netz, netz2);
 	if (fliessend && fern < 1.0) {
-		// Fluesse: weiche Flecken statt des Zellnetzes (das lag am Ufer als Sechseckgitter).
-		float wb = texture(wellen_tex, wpos.xz / 9.0 + w * (t * 0.05)).b;
+		// Fluesse: weiche Flecken statt des Zellnetzes (das lag am Ufer als Sechseckgitter), in
+		// UV wie welle_fluss.
+		float wb = texture(wellen_tex, UV / 9.0 - vec2(0.0, fract(t * 0.05))).b;
 		saum_muster = smoothstep(-0.15, 0.45, wb);
 	}
 	float schaum = saum * mix(0.55, 1.0, saum_muster * (1.0 - fern) + fern * 0.5);
@@ -351,17 +404,23 @@ void fragment() {
 	// wo das Band steil wird.
 	float fluss_schaum = 0.0;
 	if (fliessend && fern < 1.0) {
-		vec2 ql = vec2(dot(wpos.xz, w), dot(wpos.xz, vec2(-w.y, w.x)));
-		float schliere = texture(wellen_tex, ql / vec2(26.0, 7.0) - vec2(t * zug / 26.0, 0.0)).a;
+		// In UV (quer, laengs) wie welle_fluss — die gedrehte Weltlage zerfiel in Tupfen (siehe
+		// dort). Die Textur schwingt entlang ihrer ersten Achse, die liegt quer: die Baender
+		// laufen LAENGS und ziehen flussab. Vorher mit dem Zellnetz (A): auf jedem Becken lag ein
+		// Sechseckgitter.
+		vec2 qa = UV;
 		float wild = smoothstep(0.10, 0.45, steil);
-		float wildnetz = texture(wellen_tex, ql / vec2(9.0, 5.0) - vec2(t * zug / 9.0, 0.3)).a;
-		schaum = max(schaum, schliere * 0.22 * (1.0 - wild) * (1.0 - fern));
+		float schliere = smoothstep(0.45, 0.95,
+			texture(wellen_tex, qa / vec2(30.0, 90.0) - vec2(0.0, fract(t * zug / 90.0))).b);
+		schaum = max(schaum, schliere * 0.30 * (1.0 - wild) * (1.0 - fern));
 		// Wildwasser in ZUEGEN statt als Decke: zwischen den Schaumbahnen bleibt das Wasser
 		// tuerkis (vorher lag ein Bergbach aus der Luft als einfarbig grauweisses Band da).
 		// Weiche Flecken aus der Wellenhoehe (B) statt der Zellkanten (A) — die lagen nah als
 		// Netz aus Sechsecken auf dem Wasser.
-		float hb1 = texture(wellen_tex, ql / vec2(17.0, 6.0) - vec2(t * zug / 17.0, 0.0)).b;
-		float hb2 = texture(wellen_tex, ql / vec2(6.5, 3.2) - vec2(t * zug / 6.5, 0.41)).b;
+		// Baender LAENGS (quer 2,6 / 1,1 m Abstand, laengs gezogen): vorher lagen sie quer und
+		// nah als gleichmaessiges Tupfenmuster da, wie Kiesel statt wie stroemender Schaum.
+		float hb1 = texture(wellen_tex, qa / vec2(26.0, 60.0) - vec2(0.0, fract(t * zug / 60.0))).b;
+		float hb2 = texture(wellen_tex, qa / vec2(11.0, 24.0) - vec2(0.41, fract(t * zug / 24.0))).b;
 		float zuege = smoothstep(0.02, 0.45, max(hb1, hb2 * 0.9));
 		// Wildwasser und Becken unter einem Absturz (kochender Schaum, flussab auslaufend)
 		// kommen NACH foam_strength dazu: Schaum ist dort, wo er ist, weiss — gedeckelt lag
@@ -431,9 +490,6 @@ void fragment() {
 
 	ALBEDO = col * (1.0 - refl) * (1.0 - dunst);
 	EMISSION = mix(sky * refl + sss, dfarbe, dunst);
-	METALLIC = 0.0;
-	SPECULAR = 0.5 * (1.0 - schaum) * (1.0 - dunst);
-	ROUGHNESS = mix(mix(0.06, 0.16, tt), 0.45, max(schaum, fern * 0.6));
 #ifdef DURCHSICHTIG
 	// Seen bleiben durchsichtig (klein im Bild, Mischen kostet dort nichts): in der Untiefe
 	// sieht man den echten Grund. Am Rand laeuft die Flaeche ueber die Tiefe aus, ganz

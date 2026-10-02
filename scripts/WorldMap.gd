@@ -482,7 +482,9 @@ func setup(map_img: Image, airfields: Array, pois: Array, player: Node3D,
 	_fluesse.clear()
 	if terrain != null:
 		for rv in terrain.rivers:
-			var pts: PackedVector3Array = rv["pts"]
+			# Der grobe Lauf (70 m) reicht fuer die Karte; der feine (TerrainWorld.
+			# _fluss_verfeinern) haette viermal so viele Strecken je Bild zu beschneiden.
+			var pts: PackedVector3Array = rv.get("pts_grob", rv["pts"])
 			var p2 := PackedVector2Array()
 			var huelle := Rect2(Vector2(pts[0].x, pts[0].z), Vector2.ZERO)
 			for q in pts:
