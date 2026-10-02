@@ -661,6 +661,27 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
     innerhalb des Umrisses anfangen, sonst schweben sie), Kiefer = leicht gezackte
     Bueschel OHNE Zweigstriche (die lagen als dunkle Linien ueber den Karten).
   Kosten unveraendert (4K Mittel 15,97 ms, Flora 2,63).
+- FELS GESCHICHTET (2026-10-02, Nutzer: „die Stein/Berg-Textur gehoert besser, die schaut noch
+  richtig billig aus“). BEFUND: die Felstextur der Zelda-Fassung waren 28 gleich grosse Zellen
+  mit Lichtkante — an jeder Wand ein gleichmaessiges Schuppenmuster (Krokodilleder, aus 200 m
+  wie gestanzt), die Kette aus der Ferne glatt. JETZT (`build_bodentexturen.py` fels):
+  GESCHICHTETER FELS wie die Klippen in BotW — sieben Baenke sehr verschiedener Staerke
+  (lognormal), Grenzen gewellt, Ton je Bank, nur ein Teil tritt vor (Lichtkante oben, weicher
+  Schatten darunter), wenige weiche Kluefte, Wasserstreifen, waagerechte Pinselstruktur.
+  Shader (`gelaende_kern`): KACHEL_FELS 34 -> 52 m; der zweite, grosse Massstab (244 m) traegt
+  jetzt auch die NORMALE (`FACETTE_GROSS`), sonst verschwand die Gliederung ab ~300 m in den
+  Mipmaps; Fels mit eigener Relieftiefe `RELIEF_FELS` 0.65 und einem Ton aus der Neigung zur
+  Sonne (`FACETTE_TON`: Simse warm/hell, abgewandt kuehl); VERBOGENE SCHICHTEN (Hoehe der
+  Triplanar-Abtastung um +-26 m auf ~1,4 km versetzt, aus boden_tex G — waagerechte Baenke
+  ueberall auf derselben Hoehe lasen sich wie mit dem Lineal); MOOS auf Simsen (Normale mit
+  Bankneigung ueber MOOS_AB und Geometrie nicht senkrecht, Gruen aus der Gras-Rampe).
+  VERWORFENE ZWISCHENSTAENDE (nicht wiederholen): Baenke mit regelmaessigen Kluefte und dunklen
+  Umrissen = Ziegelmauer; gemeisselte Facetten mit einer Ebene je Zelle = je nach Staerke
+  Flickenteppich aus blauen Schattenflecken (die Cel-Rampe kippt jede leicht abgewandte Facette
+  ganz in den Schatten), Tarnmuster oder Low-Poly; Moos nur nach der gestoerten Normale =
+  gruene Flicken an senkrechten Waenden.
+  GEMESSEN (`_gelaende_zeit`, 4K, gleicher Lauf alt/neu): Bild im Mittel 15,43 -> 15,48 ms,
+  Berge 950 m 13,53 -> 13,88. Bilder: `ansichten/19_fels_geschichtet.jpg` (vorher/nachher).
 - „BABA“-RUNDE (2026-10-01 nachts, Nutzer nach der Zelda-Fassung: „schaut schon besser aus,
   aber mach so, dass es baba ausschaut“). BEFUND aus den Flugbildern, gemessen: Wald Median
   2/51/10 (Helligkeit 0.20, Saettigung 0.96) gegen Wiese 93/152/29 (0.60) = schwarzgruener

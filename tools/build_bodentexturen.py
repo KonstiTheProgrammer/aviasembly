@@ -12,8 +12,8 @@ tools/_bodentexturen.gd packt sie danach nach shaders/boden/.
 
 STIL: keine einzelnen Halme, Kiesel oder Risse — die Flaechen bestehen aus PINSELTUPFEN in drei
 bis vier Toenen (dunkel zuerst, hell zuletzt und sparsamer), laengs eines weichen
-Stroemungsfelds ausgerichtet, so wie ein Maler eine Wiese anlegt. Fels sind FACETTEN: grosse
-ebene Flaechen mit eigenem Ton, an der Oberkante eine helle Lichtkante, wenige dunkle Fugen.
+Stroemungsfelds ausgerichtet, so wie ein Maler eine Wiese anlegt. Fels ist GESCHICHTET: Baenke
+verschiedener Staerke mit Lichtkante oben und weichem Schatten darunter (siehe fels()).
 Relief nur schwach (die Form erzaehlt das Licht, nicht die Normale). Die Farbe ist ein FAKTOR
 um 1: die Palette des Spiels bleibt die Grundfarbe.
 
@@ -277,57 +277,103 @@ def sand():
     return speichern("sand", c, h, 0.8, 6.0, 0.5)
 
 
+def rausch_streif(seed, sx, sy, beta=2.0, fmin=1.0, fmax=None):
+    """Wie rausch, aber gestreckt: sx/sy > 1 = in x bzw. y laenger (Pinselzuege)."""
+    rng = np.random.default_rng(seed)
+    F = np.fft.fft2(rng.standard_normal((N, N)))
+    fy = np.fft.fftfreq(N) * N
+    fx = np.fft.fftfreq(N) * N
+    f = np.sqrt((fx[None, :] * sx) ** 2 + (fy[:, None] * sy) ** 2)
+    f[0, 0] = 1.0
+    filt = 1.0 / f ** (beta / 2.0)
+    filt[f < fmin] = 0.0
+    if fmax is not None:
+        filt *= np.exp(-(f / fmax) ** 4)
+    filt[0, 0] = 0.0
+    r = np.real(np.fft.ifft2(F * filt))
+    return (r - r.mean()) / (r.std() + 1e-9)
+
+
 def fels():
-    """Fels im Zelda-Stil, Zeilen = Hoehe (triplanar): grosse FACETTEN (Zellen, jede eine
-    schraege Ebene mit eigenem Ton und weichem Verlauf), an der OBERKANTE jeder Facette eine
-    helle Lichtkante, an der Unterkante ein Schatten, wenige dunkle Fugen. Dazu sehr weiche
-    waagerechte Baender. Kein Korn, keine feinen Risse."""
-    # FLACHE BLOECKE: Zellen in einem Raum, dessen Hoehe doppelt zaehlt -> die Facetten sind
-    # breiter als hoch und liegen wie Baenke (rund = Pflastersteine, erste Fassung).
-    rng = np.random.default_rng(141)
-    anzahl = 28
-    pts = rng.random((anzahl, 2)) * np.array([N, 2 * N])
-    baum = cKDTree(pts, boxsize=[N, 2 * N])
+    """Fels im Zelda-Stil, ZWEITE FASSUNG (2026-10-02, Nutzer: „die Stein/Berg-Textur schaut
+    noch richtig billig aus"). Die erste Fassung: 28 gleich grosse Zellen, jede mit Verlauf,
+    Lichtkante oben und Schatten unten — an jeder Wand ein gleichmaessiges Schuppenmuster
+    (Krokodilleder), aus der Ferne Rauschen. VERWORFENE ZWISCHENSTAENDE: Baenke mit
+    regelmaessigen Kluefte und dunklen Umrissen (Ziegelmauer); gemeisselte Facetten mit einer
+    Ebene je Zelle (je nach Staerke Flickenteppich, Tarnmuster oder Low-Poly).
+    JETZT GESCHICHTETER FELS wie die Klippen in BotW: Zeilen = Hoehe (triplanar), also
+      * BAENKE sehr verschiedener Staerke (duenne Lagen zwischen dicken Baenken), Grenzen
+        gewellt; jede Bank mit eigenem Ton, oben heller, unten dunkler;
+      * nur ein Teil der Baenke tritt vor: dort oben eine schmale LICHTKANTE (Sims, der
+        Shader legt Moos darauf) und darunter ein weicher SCHATTEN — keine Umrisse ringsum;
+      * wenige weiche senkrechte Kluefte nur in dicken Baenken, WASSERSTREIFEN darunter,
+        grosse weiche Farbflecken (warm/kuehl), waagerecht gezogene Pinselstruktur.
+    Kein Korn, keine Zellen. Der zweite Massstab im Shader (x4,7) macht daraus von selbst
+    eine Schichtung in zwei Groessen."""
+    rng = np.random.default_rng(181)
     yy, xx = np.mgrid[0:N, 0:N].astype(np.float64)
-    q = np.stack([xx.ravel() + 0.5, (yy.ravel() + 0.5) * 2.0], 1)
-    dd, ii = baum.query(q, k=2)
-    f1 = dd[:, 0].reshape(N, N)
-    f2 = dd[:, 1].reshape(N, N)
-    idx = ii[:, 0].reshape(N, N)
-    pts = pts / np.array([1.0, 2.0])
-    wx = rausch(142, 2.8, 1, 8) * 14.0
-    wy = rausch(143, 2.8, 1, 8) * 6.0
-    idx = np.rint(verbiegen(idx.astype(np.float64), wx, wy, 0)).astype(int) % (idx.max() + 1)
-    f1w = verbiegen(f1, wx, wy)
-    f2w = verbiegen(f2, wx, wy)
-    n_z = idx.max() + 1
-    neig = rng.normal(0, 1, (n_z, 2)) * 0.010
-    neig[:, 1] -= 0.006                      # Facetten neigen sich eher nach oben (Licht)
-    basis = rng.random(n_z)
-    p = pts[idx]
-    ddx = (xx - p[..., 0] + N / 2) % N - N / 2
-    ddy = (yy - p[..., 1] + N / 2) % N - N / 2
-    ebene = basis[idx] * 0.4 + neig[idx, 0] * ddx + neig[idx, 1] * ddy
-    kante = np.clip(1.0 - (f2w - f1w) / 9.0, 0.0, 1.0)   # 1 an der Fuge
-    # Oben/unten an der Fuge: Richtung zur Zellmitte (dy < 0 = Zelle liegt oberhalb)
-    oben = np.clip(-ddy / 30.0, -1.0, 1.0)
-    hoehe = norm01(ebene - kante ** 2 * 0.25)
-    c = grund(ton(1.0, 1.0, 1.0))
-    c *= (0.86 + 0.26 * basis[idx])[..., None]
-    # weicher Verlauf je Facette (oben heller)
-    c *= (1.0 + 0.10 * np.clip(-ddy / 40.0, -1.0, 1.0))[..., None]
-    # Lichtkante an der Oberkante, Schatten an der Unterkante
-    licht = kante ** 1.5 * np.clip(-oben, 0, 1)
-    schatten = kante ** 1.5 * np.clip(oben, 0, 1)
-    c = c * (1.0 + 0.30 * licht)[..., None]
-    c = c * (1.0 - 0.32 * schatten)[..., None]
-    fuge = np.clip(1.0 - (f2w - f1w) / 2.0, 0.0, 1.0) * np.clip(rausch(144, 2.0, 2, 12) - 0.1, 0, 1)
-    c *= (1.0 - 0.25 * fuge)[..., None]
-    band = np.sin((yy + wy * 2.0) / N * 2 * np.pi * 5 + rausch(145, 3.0, 1, 4))
-    c *= (0.97 + 0.05 * band)[..., None]
-    c = mische(c, grund(ton(1.04, 1.0, 0.94)), np.clip(basis[idx] - 0.65, 0, 1))
-    c = weich(c, (0.8, 0.8, 0))
-    return speichern("fels", c, hoehe, 5.0, 6.0, 1.2)
+    # --- Baenke --------------------------------------------------------------------------
+    n_b = 7
+    dicken = rng.lognormal(0.0, 0.85, n_b)
+    dicken = dicken / dicken.sum() * N
+    start = rng.uniform(0, N)
+    grenzen = (start + np.concatenate([[0.0], np.cumsum(dicken)[:-1]])) % N
+    wellen = [rausch(250 + i, 2.8, 1, 5)[0] * 9.0 + rausch(260 + i, 2.2, 3, 14)[0] * 1.8
+              for i in range(n_b)]
+    unter = np.stack([(yy - (grenzen[i] + wellen[i][None, :])) % N for i in range(n_b)])
+    ueber = np.stack([((grenzen[i] + wellen[i][None, :]) - yy) % N for i in range(n_b)])
+    bank = np.argmin(unter, axis=0)
+    t_oben = np.min(unter, axis=0)
+    t_unten = np.min(ueber, axis=0)
+    dicke = t_oben + t_unten
+    rel = t_oben / np.maximum(dicke, 1.0)
+    ton_b = rng.uniform(0.93, 1.06, n_b)
+    warm_b = rng.normal(0.0, 1.0, n_b)
+    vor_b = (rng.random(n_b) < 0.6).astype(np.float64) * rng.uniform(0.6, 1.0, n_b)
+    vor = vor_b[bank]
+    # --- Kluefte: wenige, weich, nur in dicken Baenken -----------------------------------
+    kluft = np.zeros((N, N))
+    for j in range(n_b):
+        if dicken[j] < 50.0:
+            continue
+        for i in range(int(rng.integers(1, 3))):
+            cx = rng.uniform(0, N)
+            lx = cx + rng.normal(0, 0.15) * t_oben + rausch(270 + j * 3 + i, 2.4, 2, 10) * 4.0
+            d = np.abs((xx - lx + N / 2) % N - N / 2)
+            reicht = rng.uniform(0.4, 1.0)
+            kluft = np.maximum(kluft, np.exp(-(d / 2.2) ** 2) * (bank == j)
+                               * np.clip((reicht - rel) * 6.0, 0.0, 1.0))
+    # --- Hoehe -------------------------------------------------------------------------
+    sims = np.clip(t_oben / 10.0, 0.0, 1.0) ** 0.5            # runde Oberkante
+    fuss = np.clip(t_unten / 7.0, 0.0, 1.0) ** 0.7
+    hoehe = (0.45 + 0.4 * vor) * sims * fuss + (1.0 - rel) * 0.15 * vor
+    hoehe -= kluft * 0.25
+    hoehe += rausch_streif(280, 0.30, 1.0, 2.6, 2, 30) * 0.03
+    hoehe = norm01(hoehe)
+    # --- Farbe -------------------------------------------------------------------------
+    c = grund(ton(1.0, 1.0, 1.0)) * ton_b[bank][..., None]
+    w = warm_b[bank]
+    c *= (1.0 + np.stack([0.018, 0.005, -0.022], -1) * w[..., None])
+    c *= (1.04 - 0.09 * rel ** 1.3)[..., None]
+    licht = np.exp(-t_oben / 2.5) * (t_oben > 0.5) * vor
+    c *= (1.0 + 0.22 * licht)[..., None]
+    schatten = np.exp(-t_unten / 6.0) * vor_b[(bank + 1) % n_b]
+    schatten = np.maximum(schatten, np.exp(-t_unten / 2.0) * 0.08)
+    c *= (1.0 - 0.30 * schatten)[..., None]
+    c *= (1.0 + np.stack([-0.02, 0.0, 0.04], -1) * schatten[..., None])
+    c *= (1.0 - 0.28 * kluft)[..., None]
+    # grosse weiche Flecken, warm/kuehl
+    fl = rausch(290, 3.2, 1, 4)
+    c *= (1.0 + 0.05 * fl)[..., None]
+    c *= (1.0 + np.stack([0.02, 0.0, -0.025], -1) * rausch(291, 3.2, 1, 4)[..., None])
+    # Wasserstreifen, senkrecht, unter Kluefte haeufiger
+    streif = np.clip(rausch_streif(292, 1.0, 0.10, 2.4, 1, 20) - 0.5, 0.0, None)
+    streif *= 0.5 + 0.5 * weich(kluft, (12.0, 3.0))
+    c *= (1.0 - 0.09 * np.clip(streif, 0.0, 1.5))[..., None]
+    # Pinselstruktur, waagerecht gezogen
+    c *= (1.0 + 0.035 * rausch_streif(293, 0.22, 1.0, 2.4, 2, 40))[..., None]
+    c = weich(c, (0.9, 0.9, 0))
+    return speichern("fels", c, hoehe, 3.5, 6.0, 1.0)
 
 
 def schnee():

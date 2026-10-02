@@ -96,14 +96,32 @@ const float KACHEL_GRAS = 4.5;
 const float KACHEL_WALD = 5.0;
 const float KACHEL_ERDE = 5.0;
 const float KACHEL_SAND = 10.0;
-// Fels 34 m: mit 14 m lagen die Facetten (~2,5 m) an 100-m-Waenden wie Schuppenhaut.
-const float KACHEL_FELS = 34.0;
+// Fels 52 m (sieben Baenke, ~7 m im Mittel; der zweite Massstab 244 m). Mit 14 m lagen die
+// Facetten der ersten Fassung an 100-m-Waenden wie Schuppenhaut, mit 34 m die Baenke als
+// Nadelstreifen.
+const float KACHEL_FELS = 52.0;
 const float KACHEL_SCHNEE = 12.0;
 const float KACHEL_GROSS = 4.7;
 const mat2 DREH = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
 // Staerke der Normalenstoerung. Im gemalten Zelda-Stil schwach (realistische Fassung: 0.9) —
 // die Form erzaehlt das Licht, die Textur nur die Pinselstruktur.
 const float RELIEF = 0.40;
+// FELSRELIEF (2026-10-02, geschichteter Fels, tools/build_bodentexturen.py fels): das LICHT
+// bekommt eine maessige Neigung (RELIEF_FELS) — mehr kippt die Cel-Rampe (klares_licht) jede
+// Bankkante ganz in den blauen Schatten (im Versuch mit Facetten: dunkelblaue Flecken an jeder
+// Wand). Dazu malt der Shader den Ton aus der Neigung zur Sonne (FACETTE_TON): Simse zur Sonne
+// heller und warm, abgewandt dunkler und kuehl — nie schwarz, immer passend zum Sonnenstand.
+// FACETTE_GROSS = Anteil des zweiten, grossen Massstabs an der Normale (Baenke von 30-60 m,
+// sichtbar bis ~2 km, wo der kleine in den Mipmaps verschwunden ist).
+const float RELIEF_FELS = 0.65;
+const float FACETTE_TON = 0.55;
+const float FACETTE_GROSS = 0.75;
+// MOOS AUF SIMSEN: Felsflaechen, die (mit der Neigung der Baenke) nach oben zeigen, tragen
+// Gruen wie die Klippen in BotW — die Simse werden zu gruenen Baendern.
+// Nur wo auch die GEOMETRIE nicht senkrecht ist: an glatten Waenden lag sonst ein Flicken-
+// teppich aus gruenen Flecken (im Versuch mit Facetten: jede fuer sich gruen oder grau).
+const float MOOS_AB = 0.74;
+const float MOOS_VOLL = 0.92;
 
 // Von oben projiziert, zwei Massstaebe. rgb = Farbfaktor, a = Hoehe; stoer = Welt-
 // Stoerung der Normale (x, z), ao = Hohlkehle.
@@ -133,37 +151,46 @@ vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, out vec3 stoer, ou
 	float a = 0.0;
 	float summe = 0.0;
 	float g = 1.0 / (kachel * KACHEL_GROSS);
+	// GROSSE BAENKE: der zweite Massstab traegt seit der geschichteten Fassung des Felses
+	// auch die NORMALE (vorher nur die Farbe) — aus 300 m bis 2 km sind die kleinen Baenke in
+	// den Mipmaps verschwunden, dort gliedern die grossen (244 m Kachel) die Wand.
 	if (w.x > 0.03) {
 		vec2 uv = vec2(p.z, -p.y) / kachel;
+		vec2 uv2 = vec2(p.z, -p.y) * g + vec2(0.31, 0.17);
 		vec4 f = texture(mat_farbe, vec3(uv, ebene));
-		vec4 f2 = texture(mat_farbe, vec3(vec2(p.z, -p.y) * g + vec2(0.31, 0.17), ebene));
+		vec4 f2 = texture(mat_farbe, vec3(uv2, ebene));
 		vec4 m = texture(mat_normale, vec3(uv, ebene));
-		vec2 dd = m.xy * 2.0 - 1.0;
+		vec4 m2 = texture(mat_normale, vec3(uv2, ebene));
+		vec2 dd = (m.xy * 2.0 - 1.0) + (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
 		s += w.x * vec3(0.0, -dd.y, dd.x);
-		a += w.x * m.z;
-		acc += w.x * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), f.a);
+		a += w.x * m.z * mix(1.0, m2.z, 0.5);
+		acc += w.x * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
 		summe += w.x;
 	}
 	if (w.y > 0.03) {
 		vec2 uv = p.xz / kachel;
+		vec2 uv2 = DREH * p.xz * g + vec2(0.53, 0.29);
 		vec4 f = texture(mat_farbe, vec3(uv, ebene));
-		vec4 f2 = texture(mat_farbe, vec3(DREH * p.xz * g + vec2(0.53, 0.29), ebene));
+		vec4 f2 = texture(mat_farbe, vec3(uv2, ebene));
 		vec4 m = texture(mat_normale, vec3(uv, ebene));
-		vec2 dd = m.xy * 2.0 - 1.0;
+		vec4 m2 = texture(mat_normale, vec3(uv2, ebene));
+		vec2 dd = (m.xy * 2.0 - 1.0) + transpose(DREH) * (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
 		s += w.y * vec3(dd.x, 0.0, dd.y);
-		a += w.y * m.z;
-		acc += w.y * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), f.a);
+		a += w.y * m.z * mix(1.0, m2.z, 0.5);
+		acc += w.y * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
 		summe += w.y;
 	}
 	if (w.z > 0.03) {
 		vec2 uv = vec2(p.x, -p.y) / kachel;
+		vec2 uv2 = vec2(p.x, -p.y) * g + vec2(0.71, 0.43);
 		vec4 f = texture(mat_farbe, vec3(uv, ebene));
-		vec4 f2 = texture(mat_farbe, vec3(vec2(p.x, -p.y) * g + vec2(0.71, 0.43), ebene));
+		vec4 f2 = texture(mat_farbe, vec3(uv2, ebene));
 		vec4 m = texture(mat_normale, vec3(uv, ebene));
-		vec2 dd = m.xy * 2.0 - 1.0;
+		vec4 m2 = texture(mat_normale, vec3(uv2, ebene));
+		vec2 dd = (m.xy * 2.0 - 1.0) + (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
 		s += w.z * vec3(dd.x, -dd.y, 0.0);
-		a += w.z * m.z;
-		acc += w.z * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), f.a);
+		a += w.z * m.z * mix(1.0, m2.z, 0.5);
+		acc += w.z * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
 		summe += w.z;
 	}
 	stoer = s / summe;
@@ -306,7 +333,15 @@ void fragment() {
 		if (w_erde > 0.02) { p_erde = mat_oben(w_pos.xz, MAT_ERDE, KACHEL_ERDE, s_erde, a_erde); }
 		if (w_sand > 0.02) { p_sand = mat_oben(w_pos.xz, MAT_SAND, KACHEL_SAND, s_sand, a_sand); }
 		if (w_schnee > 0.02) { p_schnee = mat_oben(w_pos.xz, MAT_SCHNEE, KACHEL_SCHNEE, s_schnee, a_schnee); }
-		if (w_fels > 0.02) { p_fels = mat_dreifach(w_pos, n, MAT_FELS, KACHEL_FELS, s_fels, a_fels); }
+		if (w_fels > 0.02) {
+			// VERBOGENE SCHICHTEN: die Baenke der Felstextur liegen sonst ueberall exakt
+			// waagerecht und gleich hoch (Lineal). Ein weicher Versatz der Hoehe (+-26 m auf
+			// ~700 m) und ein leichtes Einfallen je Gegend biegen und neigen sie.
+			float biege = (texture(boden_tex, w_pos.xz * (1.0 / 1400.0) + vec2(0.61, 0.13)).g - 0.5) * 52.0
+				+ (texture(boden_tex, w_pos.xz * (1.0 / 380.0) + vec2(0.27, 0.77)).g - 0.5) * 10.0;
+			vec3 p_schicht = vec3(w_pos.x, w_pos.y + biege, w_pos.z);
+			p_fels = mat_dreifach(p_schicht, n, MAT_FELS, KACHEL_FELS, s_fels, a_fels);
+		}
 
 		// UEBERBLENDEN NACH HOEHE: wo zwei Materialien sich teilen, gewinnt das hoehere —
 		// Steine ragen aus der Wiese, Gras waechst in die Ritzen, statt dass beides als
@@ -332,8 +367,28 @@ void fragment() {
 			float ao = (a_gras * b_gras + a_wald * b_wald + a_erde * b_erde + a_sand * b_sand
 				+ a_fels * b_fels + a_schnee * b_schnee) / bsum;
 			c *= mix(vec3(1.0), f, abdeckung);
-			n = normalize(n + st * RELIEF * abdeckung);
+			// Fels mit eigener Relieftiefe (siehe RELIEF_FELS), alles andere wie bisher.
+			float anteil_fels = b_fels / bsum;
+			float n_geo_y = n.y;
+			if (anteil_fels > 0.01) {
+				float zur_sonne = dot(s_fels, sonne_dir) * FACETTE_TON;
+				float ft = clamp(zur_sonne, -0.40, 0.40) * anteil_fels * abdeckung;
+				c *= 1.0 + ft;
+				c *= mix(vec3(1.0), ft > 0.0 ? vec3(1.04, 1.01, 0.95) : vec3(0.93, 0.97, 1.06),
+					min(abs(ft) * 2.5, 1.0));
+			}
+			n = normalize(n + st * mix(RELIEF, RELIEF_FELS, anteil_fels) * abdeckung);
 			hohl = mix(1.0, ao, 0.45 * abdeckung);
+			// MOOS auf nach oben gewandten Simsen (und nur auf Fels; Schnee bleibt Schnee).
+			if (anteil_fels > 0.01) {
+				// Simse: die Geometrie plus die Neigung der Baenke nach oben
+				float moos = smoothstep(MOOS_AB, MOOS_VOLL, n_geo_y + s_fels.y * 0.8)
+					* smoothstep(0.30, 0.55, n_geo_y)
+					* anteil_fels * abdeckung * (1.0 - schnee) * (0.55 + 0.45 * p_fels.a);
+				vec3 moos_c = rampe(GRAS_TIEF, GRAS_MITTE, GRAS_HELL,
+					clamp(0.30 + verlauf * 0.6 + (p_fels.a - 0.5) * 0.4, 0.0, 1.0));
+				c = mix(c, moos_c, moos * 0.75);
+			}
 		}
 	}
 #endif
