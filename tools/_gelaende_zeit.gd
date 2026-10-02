@@ -65,6 +65,7 @@ func _lauf() -> void:
 		["Mittel 700 m", Vector3(-6000, 700, 3000), Vector3(-7000, 300, 4000), false],
 		["Flur 300 m", Vector3(6000, 300, 6500), Vector3(7200, 0, 8000), true],
 		["Flur 60 m", Vector3(6800, 60, 7000), Vector3(7300, 0, 7500), true],
+		["Vulkan 500 m", Vector3(10300, 520, -4300), Vector3(11800, 650, -5600), false],
 	]
 	var gpu := false
 	var summe := Vector3.ZERO

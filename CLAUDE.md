@@ -1673,6 +1673,37 @@ und Bergdorf) und alle Flugplaetze der Hauptinsel (ausser ADLERHORST).
 - Bildwerkzeug: `_gefuehl_bilder.gd` Szenen gewitter, gewitter_nah, im_sturm, blitz
   (erzwingt Blitz ueber `Main.blitz_test`), nebelmeer, fetzen, hoch.
 
+## Vulkan: Struktur und Material (2026-10-02, Nutzer: „der Vulkan schaut nicht gut aus, mach dass er richtig baba aussieht, vor allem Struktur und Material“)
+BEFUND (`_luftbild.gd`/`luftabs`, Stellungen Fern 7500/700/-2600, Flanke 10300/520/-4300, Oben
+12600/1500/-4300): die Flanke ein Igel aus Spitzen, darueber ein Tarnmuster aus schwarzen Flecken,
+dazu waagerechte Sedimentbaenke mit Moos (die allgemeine Felserkennung), aus der Ferne
+dunkelblau. GEMESSEN (Probe im Verlauf: mittlere |2. Ableitung| je 8 m laengs der Fallinie,
+500-1200 m): 4,9 m — davon Bloecke 1,3, Nasen 0,8, dazu das Felsrelief der Ketten.
+- STRUKTUR (Main, Vulkan-Massiv): `bloecke` 32 -> 0, `nasen` 13 -> 0, `fels` 26 -> 5,
+  `feinrippen` 15 -> 4, `apron_bloecke` 15 -> 6; dafuer `rippen` 40 -> 48, `barranco` 55 -> 85,
+  `lava_lappen` 26 -> 22. Das FELSRELIEF der Ketten (height_at, FELS_GROB/FEIN) gilt auf dem Kegel
+  nicht mehr (`TerrainWorld._vulkan_kern`, voll bis 0,95 r). Rauheit jetzt 1,4 m; die Flanke
+  traegt radiale Rippen und Barrancos bis zum Fuss.
+- MATERIAL `shaders/vulkan_gestein.gdshaderinc` (in gelaende_kern, Chunks UND Fernschuerze;
+  Uniforms `vulkan_kreis`/`vulkan_spitze`, gesetzt von `TerrainWorld.vulkan_material_setzen`):
+  Basalt kohlschwarz bis braun (grosse Flecken), rote SCHLACKE in Feldern (in der Ferne
+  schwaecher), helle ASCHENRINNEN die Fallinie hinab (Winkel x FESTER Radius 800 m, laengs der
+  Abstand; nicht im Krater), nah BLOCKLAVA (Worley 8 x 12 m an Waenden, 9 m flach, eigener Ton,
+  Kuppe, schmale Fugen; feine Koernung unter 260 m), Glut aus COLOR.a leuchtet in den Fugen
+  (Kraterboden: Netz aus gluehenden Rissen). Ersetzt dort Sedimentfels + Moos (`fels`, `grau`
+  mit `(1 - vk)`). Warmer Widerschein (Emission = Albedo x 0,30/0,17/0,08) gegen das Lila unter
+  der blauen Himmelsfuellung.
+  FALLEN: (1) quer = Winkel x ABSTAND (Bogenlaenge) wandert auf jeder Fallinie durch die Textur —
+  ueber den Kegel lagen Ringe, im Bild ein Hoehenlinien-Zebra; (2) Asche aus Neigung oder
+  Rohhelligkeit gab dasselbe Zebra (beide wechseln auf jeder kleinen Welle); (3) zwei gleich
+  starke Zellfugen-Lagen = Spinnweb, runde Zellen = Pflaster.
+- GEMESSEN (`_gelaende_zeit`, neue Stellung „Vulkan 500 m“, 4K): Bild 14,56 -> 14,28 ms.
+  `_vulkan_form` laeuft, `_loadcheck`, `_grafik_check`, `_bewuchs_stufen_check`,
+  `_baum_ausfall_check`, `_rundflug_alle` OK. `_haupt_pruefsumme` aendert sich am Vulkan.
+  Bilder `ansichten/28_vulkan.jpg`.
+- NICHT GEMACHT: die Kanten der Rippen zeichnet das 8-m-Netz an der Silhouette noch als
+  Saegezahn; die Fahne ist weiter der alte Wolkenstapel.
+
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
 Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen
 die Hauptinsel nicht veraendern — `tools/_haupt_pruefsumme.gd` belegt es (Hoehe, Farbe, Wald,

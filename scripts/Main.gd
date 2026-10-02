@@ -1898,11 +1898,20 @@ func _setup_world() -> void:
 		# Aufhellung eine Richtung geben; die Arbeit macht VULKAN_FEINRIPPE_HELL. Mehr
 		# Amplitude waere die vierte Grossformlage, und drei Runden haben gezeigt, dass
 		# davon nichts besser wird.
+		# 2026-10-02 (Nutzer: „der Vulkan schaut nicht gut aus, vor allem Struktur und Material“):
+		# die Flanke war ein Igel aus Spitzen — Bloecke (32 m Ridged auf 46 m), Felslage (26 m),
+		# Nasen und Feinrippen lagen alle in derselben Groessenordnung uebereinander und das
+		# 8-m-Netz zeichnete jede Spitze als Stachel; im klaren Licht lagen die Bloecke (46 m)
+		# und Nasen als Zebra aus Hoehenwellen quer zum Hang (gemessen: Kruemmung je 8 m 4,9 m,
+		# davon Bloecke 1,3 und Nasen 0,8; dazu das Felsrelief der Ketten, jetzt ausgenommen,
+		# TerrainWorld._vulkan_kern). Jetzt traegt die GROSSFORM: Rippen und tiefere Barrancos
+		# (55 -> 85 m); Bloecke und Nasen sind weg, die Oberflaeche macht das Material
+		# (shaders/vulkan_gestein.gdshaderinc: Blocklava, Schlacke, Asche).
 		{"pos": Vector3(11800, 0, -5600), "r": 1350.0, "peak": 860.0, "type": "vulkan",
-			"apron": 240.0, "apron_rippen": 54.0, "apron_bloecke": 15.0,
-			"flanke": 1.15, "rippen": 40.0, "fels": 26.0, "fuss": 0.11,
-			"barranco": 55.0, "ader_tief": 26.0, "lava_lappen": 26.0, "bloecke": 32.0,
-			"nasen": 13.0, "feinrippen": 15.0,
+			"apron": 240.0, "apron_rippen": 54.0, "apron_bloecke": 6.0,
+			"flanke": 1.15, "rippen": 48.0, "fels": 5.0, "fuss": 0.11,
+			"barranco": 85.0, "ader_tief": 26.0, "lava_lappen": 22.0, "bloecke": 0.0,
+			"nasen": 0.0, "feinrippen": 4.0,
 			"crater_r": 400.0, "lippe": 0.22,
 			"rand_h": 36.0, "crater_depth": 215.0, "lavasee": 62.0, "schlot": 28.0,
 			"scharte": 1.0, "scharte_ri": -2.0},
@@ -3093,6 +3102,7 @@ func _fernschuerze_starten() -> void:
 	_fern_mat.set_shader_parameter("boden_tex", TerrainWorld.boden_textur())
 	# Felstextur auch in der Schuerze (nur der grosse Massstab, gelaende_kern mat_fern).
 	TerrainWorld.boden_material_setzen(_fern_mat)
+	terrain.vulkan_material_setzen(_fern_mat)
 	_fern_mat.set_shader_parameter("senke_nah", FERN_NAH)
 	_fern_mat.set_shader_parameter("senke_fern", FERN_FERN)
 	_fern_mat.set_shader_parameter("senke_tief", FERN_TIEF)

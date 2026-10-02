@@ -3643,6 +3643,7 @@ func setup(seedv: int, afs: Array, lks: Array = [], rvs: Array = [], mss: Array 
 	_mat.shader = load("res://shaders/gelaende.gdshader")
 	_mat.set_shader_parameter("boden_tex", boden_textur())
 	feld_texturen_setzen(_mat)
+	vulkan_material_setzen(_mat)
 	boden_material_setzen(_mat)
 	# FLORA-MATERIAL: gleiche Farbbehandlung, aber jede Instanz faehrt zur Sichtgrenze
 	# hin ihre GROESSE gegen null. Godots VISIBILITY_RANGE_FADE_SELF verlangt ein
@@ -5291,6 +5292,12 @@ func height_at(x: float, z: float, zelle: float = 8.0) -> float:
 		# VIEW_DIST, wo der Unterschied 3,8 km weit weg ist.
 		var det := clampf((30.0 - zelle) / 18.0, 0.0, 1.0)
 		var fk := smoothstep(FELS_AB, FELS_VOLL, h) * det
+		# NICHT AUF DEM VULKAN (2026-10-02): dort legte das Felsrelief der Ketten einen Teppich aus
+		# Hoehenwellen ueber die Flanke, im Licht ein Zebra quer zum Hang (gemessen: es trug den
+		# Grossteil der Kruemmung, tools/_vulkan_rauheit.gd). Der Vulkan hat seine eigenen
+		# Formen (Rippen, Barrancos, Lavastroeme), das Gestein macht das Material.
+		if fk > 0.004 and not _vulkane.is_empty():
+			fk *= 1.0 - _vulkan_kern(x, z)
 		if fk > 0.004:
 			h += fk * (FELS_GROB * _fels.get_noise_2d(x, z)
 				+ FELS_FEIN * _patch.get_noise_2d(x * 1.2, z * 1.2))
@@ -9497,6 +9504,22 @@ static func boden_material() -> Array:
 
 
 ## Gibt einem Material des Gelaende-Shaders die Bodenmaterialien (Chunks, Felsboegen).
+## Vulkangestein (shaders/vulkan_gestein.gdshaderinc) an ein Gelaendematerial: Kreis des ersten
+## Vulkans (voll bis zur Haut, auslaufend ueber den Aschenfuss). Chunks UND Fernschuerze.
+func vulkan_material_setzen(m: ShaderMaterial) -> void:
+	if _vulkane.is_empty():
+		return
+	var vk: Dictionary = _vulkane[0]
+	var mr: float = vk["r"]
+	m.set_shader_parameter("vulkan_kreis", Vector4(vk["x"], vk["z"], mr * 1.02, mr * 1.22))
+	var spitze := 0.0
+	for ms in massifs:
+		if String(ms.get("type", "")) == "vulkan":
+			spitze = float(ms["peak"])
+			break
+	m.set_shader_parameter("vulkan_spitze", spitze)
+
+
 static func boden_material_setzen(m: ShaderMaterial) -> void:
 	var bm := boden_material()
 	m.set_shader_parameter("mat_farbe", bm[0])
@@ -10795,6 +10818,19 @@ func _tal_wiese(cen: Vector3, ny: float) -> float:
 
 
 ## Legt die Vulkane fuer Farbe und Bewuchs zurecht (siehe _vulkane).
+## 0..1: wie sehr liegt (x, z) auf einem Vulkankegel (voll bis 0,95 r, aus bis 1,15 r).
+func _vulkan_kern(x: float, z: float) -> float:
+	var k := 0.0
+	for vk in _vulkane:
+		var dx := x - float(vk["x"])
+		var dz := z - float(vk["z"])
+		var mr: float = vk["r"]
+		var d2 := dx * dx + dz * dz
+		if d2 < mr * mr * 1.3225:
+			k = maxf(k, 1.0 - smoothstep(mr * 0.95, mr * 1.15, sqrt(d2)))
+	return k
+
+
 func _vulkane_bauen() -> void:
 	_vulkane = []
 	for ms in massifs:

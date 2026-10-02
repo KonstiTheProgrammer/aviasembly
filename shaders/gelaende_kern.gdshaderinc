@@ -69,6 +69,7 @@ const float MORPH_S = 1.4;   // = TerrainWorld.MORPH_S
 #endif
 
 #include "res://shaders/palette.gdshaderinc"
+#include "res://shaders/vulkan_gestein.gdshaderinc"
 #ifndef FERN
 #include "res://shaders/feldflur.gdshaderinc"
 #endif
@@ -320,6 +321,8 @@ void fragment() {
 	float gruen = clamp((roh.g - max(roh.r, roh.b)) * 7.0, 0.0, 1.0);
 	float schnee = smoothstep(0.70, 0.86, mn);
 	float steil = 1.0 - smoothstep(0.58, 0.86, n.y);
+	// Vulkangestein (vulkan_gestein.gdshaderinc) ersetzt dort den Sedimentfels samt Moos
+	float vk = vk_anteil(w_pos);
 
 	// SCHARFE GRASKANTEN AM FELS (2026-10-02): die Rohfarbe wechselt je Eckpunkt des 8-m-
 	// Netzes zwischen Wiese und Fels; interpoliert lag dazwischen ein olivgrauer Schmier, an
@@ -372,7 +375,7 @@ void fragment() {
 	// Der TON wird vereinheitlicht (dunkel = kuehles Granitgrau, hell = helles warmes Grau),
 	// die Helligkeit folgt der Rohfarbe, etwas abgedunkelt (siehe unten) — der schwarze
 	// Basalt am Vulkan bleibt dabei schwarz. Dazu an steilen Flanken weiche, grosse Baenke.
-	float fels = (1.0 - gruen) * (1.0 - schnee) * smoothstep(0.30, 0.70, steil);
+	float fels = (1.0 - gruen) * (1.0 - schnee) * smoothstep(0.30, 0.70, steil) * (1.0 - vk);
 	if (fels > 0.01) {
 		vec2 wand = abs(n.x) > abs(n.z) ? w_pos.zy : w_pos.xy;
 		// Weicher Kanal (G), nicht das Korn (R) — sonst stand wieder Rauschen auf der Wand.
@@ -432,7 +435,7 @@ void fragment() {
 		float grau = (1.0 - smoothstep(0.08, 0.20, sat)) * smoothstep(0.08, 0.15, lum)
 			* (1.0 - smoothstep(0.62, 0.72, lum)) * (1.0 - gruen);
 		float w_schnee = schnee;
-		float w_fels = max(fels, grau) * (1.0 - schnee);
+		float w_fels = max(fels, grau * (1.0 - vk)) * (1.0 - schnee);
 		float w_wald = gruen * (1.0 - smoothstep(0.16, 0.30, lum)) * (1.0 - w_fels);
 		float w_gras = max(gruen - w_wald, stroh) * (1.0 - w_fels) * (1.0 - schnee);
 		float rest_w = (1.0 - w_fels) * (1.0 - schnee) * (1.0 - gruen) * (1.0 - stroh);
@@ -523,6 +526,20 @@ void fragment() {
 	}
 #endif
 
+	// --- VULKAN (vulkan_gestein.gdshaderinc): ueber allem, was nicht gruen ist ---------------
+	vec3 vk_glow = vec3(0.0);
+	if (vk > 0.001) {
+		float vk_fuge;
+		vec3 vc = vk_farbe(roh, w_pos, normalize(w_nrm), d, 1.0 - COLOR.a, vk_glow, vk_fuge);
+		float vw = vk * (1.0 - gruen) * (1.0 - schnee);
+		c = mix(c, vc, vw);
+		hohl = mix(hohl, 1.0 - 0.25 * vk_fuge, vw);
+		// WARMER WIDERSCHEIN: dunkles Rotbraun unter der blauen Himmelsfuellung (klares_licht) stand
+		// aus der Ferne lila da. Ein Hauch warmes Eigenlicht (Restwaerme, Glut im Krater) haelt den
+		// Kegel braun — auch auf der Schattenseite.
+		vk_glow = vk_glow * vw + srgb_linear(vc) * vec3(0.30, 0.17, 0.08) * vw;
+	}
+
 	ALBEDO = srgb_linear(clamp(c, vec3(0.0), vec3(1.0))) * hohl;
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 	// Matter Boden: Godots Standard (Rauheit 0.5) legte unter flachem Blickwinkel eine
@@ -530,7 +547,7 @@ void fragment() {
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.2;
 #ifndef FERN
-	EMISSION = srgb_linear(roh) * (1.0 - COLOR.a) * GLUT;
+	EMISSION = srgb_linear(roh) * (1.0 - COLOR.a) * GLUT + vk_glow;
 #endif
 }
 
