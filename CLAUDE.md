@@ -1333,6 +1333,18 @@ Vergleich im Stand, Profil der Hauptfaden-Abschnitte am Ende). Headless taugt da
   140 m ueber Wald, 280 m/s: 28-31 % ueber 20 ms, alter Stand 30-31 % — dort ist die GPU die
   Grenze. `_haupt_pruefsumme` bitgleich. Die ~240 verworfenen Chunks im Werkzeug fallen alle
   in der Startphase an (vor dem Messflug), im Flug keine.
+- BAEUME NACH DEM ZURUECKSETZEN (2026-10-02, Nutzer: „wenn man neu laedt, sind da keine Baeume
+  mehr“). Nach einem SPRUNG (Enter von weit weg zurueck an den Platz) entsteht der ganze Sichtkreis
+  (366 Chunks) zuerst grob ohne Bewuchs; `_bewuchs_bestellen` haengte den Bewuchsauftrag beim
+  Einhaengen HINTEN an — die Baeume am Platz kamen erst, wenn der Ring bis 3,8 km stand: gemessen
+  5 s lang KEIN Baum im Umkreis 1,5 km, alle erst nach 8 s (auch auf dem Stand vor den Feldern).
+  Jetzt: Auftraege tragen ihren Vorrang (`_jobs_rang`, parallel zu `_jobs`), Bewuchs wird
+  EINSORTIERT; der Nachrang des Bewuchses (`_bewuchs_nachrang`) ist im Stand/Rollen 250 m statt
+  BEWUCHS_NACHRANG; und ist die Liste leer, nachdem grob eingehaengt wurde, plant
+  `update_center` neu (`_neu_planen`) — sonst wurden die Chunks am Platz im Stand nie fein.
+  Gemessen (`tools/_neuladen_zeit.gd`, Echtzeit): nach 1 s 30 %, nach 4 s alle Baeume.
+  `tools/_neuladen_check.gd` (Enter, Sprung, Hangar, Vorlage) und `tools/_bewuchs_luecken.gd`
+  (Echtzeitflug, Chunks mit offenem Bewuchs im Umkreis) als Belege.
 - OFFEN: Grasmaske nur bei Annaeherung — bewusst NICHT gemacht (feine Chunks sind nach den
   Detailstufen ein kleiner Teil der Arbeit, Ersparnis ~3 % der Worker-Zeit, dafuer eigener
   Auftragstyp und Raster im Speicher).

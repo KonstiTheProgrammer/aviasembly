@@ -3300,6 +3300,12 @@ var _faeden: Array[Thread] = []   # Chunk-Worker, siehe WORKER_FAEDEN
 var _sem: Semaphore
 var _mutex: Mutex
 var _jobs: Array = []           # Keys für den Worker (nahe zuerst)
+# Vorrang je Auftrag (parallel zu _jobs, unter _mutex): Bewuchsauftraege werden danach EINSORTIERT
+# statt hinten angehaengt, siehe _bewuchs_bestellen.
+var _jobs_rang := PackedFloat32Array()
+# Seit der letzten Planung grob eingehaengt: ist die Liste leer, wird neu geplant (Verfeinern),
+# auch wenn das Flugzeug in derselben Zelle steht (nach dem Zuruecksetzen am Platz).
+var _neu_planen := false
 var _done: Array = []           # fertige {key, mesh, shape}
 var _exit := false
 
@@ -8274,9 +8280,10 @@ func update_center(world_pos: Vector3) -> void:
 	# Die Meeresscheibe legt der Vertex-Shader selbst um die Kamera — hier nichts zu tun.
 	_wasser_klima(world_pos)
 	var cc := Vector2i(int(floor(world_pos.x / CHUNK)), int(floor(world_pos.z / CHUNK)))
-	if cc == _last_cc:
+	if cc == _last_cc and not (_neu_planen and _jobs.is_empty()):
 		return   # gleiche Zelle -> Lade-Plan unverändert (kein Scan pro Frame)
 	_last_cc = cc
+	_neu_planen = false
 	# Mitte der geladenen Chunks: bis fein_r darum gilt das feine Tiefenraster.
 	var fm := Vector2(world_pos.x, world_pos.z)
 	for m in _wasser_mats:
@@ -8317,6 +8324,7 @@ func update_center(world_pos: Vector3) -> void:
 		fertig[e["key"]] = true
 	var alt_n := _jobs.size()
 	_jobs.clear()
+	_jobs_rang.clear()
 	# NATIV SORTIEREN: Vorrang einmal je Chunk rechnen und mit dem Index in EINE Ganzzahl
 	# packen (Vorrang in 1/16 m oben, Index unten), dann PackedInt64Array.sort(). Mit
 	# sort_custom und _vorrang im Vergleicher waren das bei ~370 Chunks einige tausend
@@ -8358,7 +8366,7 @@ func update_center(world_pos: Vector3) -> void:
 				nachrang = FEIN_NACHRANG
 			elif (_chunks[key] as Node).has_meta("bewuchs_offen"):
 				auftrag = AUFTRAG_BEWUCHS
-				nachrang = BEWUCHS_NACHRANG
+				nachrang = _bewuchs_nachrang()
 		if auftrag < 0:
 			continue
 		if auftrag == AUFTRAG_BEWUCHS and _chunk_center(key).distance_squared_to(pc) < vorlage2:
@@ -8368,6 +8376,7 @@ func update_center(world_pos: Vector3) -> void:
 	schluessel.sort()
 	for sk in schluessel:
 		_jobs.append(kandidaten[sk & 0xFFFFF])
+		_jobs_rang.append(float(sk >> 20) / 16.0)
 	# Vorlagen ausser Reichweite verwerfen (der Chunk ist weg; kommt er wieder, entsteht er
 	# neu). Eine liegengebliebene ist nie falsch — der Bewuchs haengt nur am Schluessel.
 	for key in _bewuchs_vorlage.keys():
@@ -8442,6 +8451,8 @@ func _worker_loop() -> void:
 			return
 		_mutex.lock()
 		var job_v: Variant = _jobs.pop_front() if not _jobs.is_empty() else null
+		if not _jobs_rang.is_empty():
+			_jobs_rang.remove_at(0)
 		if job_v != null:
 			_in_arbeit[Vector2i(job_v.x, job_v.y)] = true
 		_mutex.unlock()
@@ -8457,6 +8468,8 @@ func _zusatz_loop() -> void:
 	while not _exit:
 		_mutex.lock()
 		var job_v: Variant = _jobs.pop_front() if _jobs.size() > ZUSATZ_AB else null
+		if job_v != null and not _jobs_rang.is_empty():
+			_jobs_rang.remove_at(0)
 		if job_v != null:
 			_in_arbeit[Vector2i(job_v.x, job_v.y)] = true
 		_mutex.unlock()
@@ -8811,6 +8824,12 @@ func _flora_alles_nachziehen() -> void:
 ## Ein grober Chunk ohne Bewuchs steht: Bewuchs-Auftrag hinten anstellen (der naechste
 ## Plan beim Zellwechsel sortiert ihn ein). Ohne diesen Anstoss kaeme er erst nach 384 m Flug
 ## — im Stand oder im Kreisen nie.
+## Nachrang des Bewuchses hinter dem Abdecken (m Vorrang-Abstand): voll im Flug (erst Gelaende
+## voraus), klein im Stand und beim Rollen — dort zaehlt, dass rund um den Platz Baeume stehen.
+func _bewuchs_nachrang() -> float:
+	return lerpf(250.0, BEWUCHS_NACHRANG, smoothstep(0.2, FEIN_HINTEN_AB, _flug_schritt))
+
+
 func _bewuchs_bestellen(key: Vector2i) -> void:
 	var node: Node3D = _chunks[key]
 	node.set_meta("bewuchs_offen", true)
@@ -8818,10 +8837,21 @@ func _bewuchs_bestellen(key: Vector2i) -> void:
 	if _chunk_center(key).distance_squared_to(Vector2(_last_pos.x, _last_pos.z)) \
 			< (FEIN_DIST + VORLAGE_RAND) * (FEIN_DIST + VORLAGE_RAND):
 		z |= AUFTRAG_MERKEN
+	# EINSORTIEREN nach Vorrang (wie in update_center: Abstand + BEWUCHS_NACHRANG), nicht hinten
+	# anhaengen. Hinten stand der Auftrag nach einem Sprung (Zuruecksetzen von weit weg) hinter dem
+	# ganzen groben Sichtkreis bis 3,8 km: am Platz gemessen 5 s lang KEIN Baum
+	# (tools/_neuladen_zeit.gd). Nach der Planung grob eingehaengt -> spaeter neu planen.
+	var pc := Vector2(_last_pos.x, _last_pos.z)
+	var vor := _flug_dir.normalized() if _flug_dir.length() > 0.3 else Vector2.ZERO
+	var rang := _vorrang(key, pc, vor) + _bewuchs_nachrang()
 	_mutex.lock()
+	_neu_planen = true
 	var neu := not _in_arbeit.has(key)
 	if neu:
-		_jobs.append(Vector3i(key.x, key.y, z))
+		var i := _jobs_rang.bsearch(rang, false) if _jobs_rang.size() == _jobs.size() else _jobs.size()
+		_jobs.insert(i, Vector3i(key.x, key.y, z))
+		if _jobs_rang.size() == _jobs.size() - 1:
+			_jobs_rang.insert(i, rang)
 		_pending[key] = true
 	_mutex.unlock()
 	if neu:
