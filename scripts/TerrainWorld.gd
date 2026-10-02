@@ -4424,6 +4424,9 @@ func _feld_staerke(x: float, z: float, h: float, wald: float, k: float, offen :=
 	if s <= 0.001:
 		return 0.0
 	s *= smoothstep(0.35, 0.8, offen if offen >= 0.0 else _open_ground(x, z))
+	# Kein Acker bis an die Fahrbahn: Bankett und Wegrain (vorher lag Getreide am Asphalt)
+	if s > 0.001 and _strassen_an:
+		s *= smoothstep(STRASSE_B_HAUPT + 5.0, STRASSE_B_HAUPT + 12.0, strasse_abstand(x, z))
 	if s <= 0.001 or _fl_nx == 0:
 		return s
 	var fl := _fluss_naechst(x, z)

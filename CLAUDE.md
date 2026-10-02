@@ -1552,6 +1552,24 @@ und Bergdorf) und alle Flugplaetze der Hauptinsel (ausser ADLERHORST).
 - KOSTEN: height_at nahe Strassen +7 us (~26 → ~34 us), sonst ein Rechteck-Test.
   `_skriptzeit` alt → neu: Startbahn 1,90 → 2,25 ms, Flakzone 2,13 → 2,32, Silberfluss
   1,99 → 1,72, uebrige ±0,3 ms (Rauschen der Messung); +~700 Knoten (Baender, Doerfer).
+- STRASSEN UND BRUECKEN AUFGEWERTET (2026-10-02, Nutzer: „die Strassen und Bruecken schauen gar
+  nicht gut aus“). BEFUND: Bruecken je 20-m-Abschnitt ein eigener Kasten, gegeneinander geknickt
+  und versetzt, schwarze Balken als Gelaender, weisse Unterseite; Strassen ein duenner grauer
+  Strich direkt in der Wiese, Acker bis an den Asphalt. JETZT:
+  * BRUECKEN (`Strassen._bruecke`, `BrWeg`, `_br_*`, Shader `shaders/bruecke.gdshader`):
+    gemauerte Bogenbruecken bzw. Viadukte. Durchgehende Platte entlang des Laufs, Felder 12-28 m
+    nach der Hoehe ueber Grund, je Feld ein elliptischer Bogen (Kaempfer >= 1,2 m ueber Grund,
+    Scheitel 0,45 m unter der Platte) mit Bogenring und Zwickelmauern, sonst gerade Untersicht;
+    Pfeiler mit Eisbrechern und Kaempfergesims, Widerlager, Gesims, Bruestung mit Abdeckplatte.
+    Quadermauerwerk im Shader aus der Weltlage (COLOR.a = Mauerwerksanteil), Licht wie das Gelaende.
+    Kollision: Platte je Abschnitt (wie vorher), dazu Pfeiler und Widerlager — unter den Boegen
+    kann man durchfliegen. Knoten heissen `Brueckenbau_<x>_<z>` (gleiche Namen benennt Godot um).
+  * FAHRBAHN (`_band`, `shaders/strasse.gdshader`): UV.x jetzt in METERN ab der Achse, UV2.x =
+    halbe Fahrbahn. Schotterbankett 1,0 m (Nebenstrassen 0,6 m Grasrand), Asphalt mit langen
+    Tonwellen, Flickstellen, abgefahrenen Spuren und dunklerem Rand, Linien 0,12 m.
+    LEITPFOSTEN alle 50 m beidseits (`_leitpfosten_netz`, MultiMesh je Bandstueck, bis 700 m).
+  * Kein Acker naeher als ~9-16 m an einer Strasse (`TerrainWorld._feld_staerke`).
+  `_strassen_check` zaehlt Brueckenbauten jetzt am Namen.
 - DORFSTRASSE (`_dorfstrasse`): Schotterband laengs der Dorfachse, wo keine Landstrasse
   liegt — die Netzstrassen ENDEN meist in der Dorfmitte, die Haeuser der Gegenseite standen
   sonst an keiner Strasse. 3 cm unter dem Landstrassenband.

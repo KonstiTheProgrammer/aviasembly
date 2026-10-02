@@ -98,7 +98,7 @@ func _pruefen() -> void:
 	var koerper := 0
 	if ls != null:
 		for c in ls.get_children():
-			if c is MeshInstance3D and (c as MeshInstance3D).material_override is StandardMaterial3D:
+			if c is MeshInstance3D and String(c.name).begins_with("Brueckenbau"):
 				bruecken_n += 1
 			elif c is MeshInstance3D:
 				baender += 1
