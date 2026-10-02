@@ -844,6 +844,51 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   `_bewuchs_stufen_check` OK (0 Abweichungen grob/fein), `_baum_ausfall_check` 0 Ausfaelle.
   VORGESCHICHTE beachten: 150 Zufallsproben je Chunk waren dem Nutzer frueher „zu wenig
   Baeume“ — nicht weiter ausduennen, ohne zu fragen.
+- BAEUME IN DER FERNE: IMPOSTOREN (2026-10-02, Nutzer: „die Baeume in der Ferne schauen zu wenig
+  aus wie die von nahe“). BEFUND (`_baum_probe`, Gruppen nah | mittel | fern): die Mittelstufe
+  (ab KARTEN_BIS) waren die glatten Knoedelkronen der dritten Fassung, die Fernstufe (ab
+  _flora_grob_ab) Rauten/Schirme auf langem Stiel bzw. glatte Pyramiden; aus 700 m stand der
+  ferne Nadelwald fast schwarzgruen da. JETZT zeigen beide Stufen aller elf KARTENBAEUME eine
+  Bildtafel des NAHMODELLS:
+  * BACKEN `tools/_impostoren_backen.gd` (Fenster, ~5 s): je Art IMPOSTOR_N x IMPOSTOR_N (8 x 8)
+    Richtungen, halb-oktaedrisch ueber der oberen Halbkugel (`impostor_richtung`, Bildebene
+    `impostor_basis`: rechts = Y x Blick), rechtwinklig mit 1024 px gerendert, auf 128 px (Farbe)
+    bzw. 64 px (Normale) gemittelt (TRILINEAR auf schwarzem Grund = vormultipliziert, danach
+    entmultipliziert, leere Texel mit Umgebungsfarbe gefuellt) -> `shaders/impostor/<Art>_farbe.res`,
+    `_normale.res`, `_rahmen.res` (je Bild das Rechteck mit Inhalt). Gerendert wird mit dem ECHTEN
+    Flora-Shader im Backmodus (`#define BAKE`: unshaded, ROHE Farbe c vor Ton je Baum, Tonkurve und
+    Licht bzw. Weltnormale). `bake_lod` 4: die Laubkarten so deckend wie am Uebergang bei 420 m
+    (die Deckung waechst mit der Mipstufe) — aus 30 m gebacken schien der dunkle Kronenkern durch.
+    Rahmen (Mitte, Radius) aus `impostor_rahmen(mesh)` — Backen und Spiel rufen DIESELBE Funktion.
+    NEU BACKEN nach jeder Aenderung an build_baeume.py, build_laubtextur.py, _weiche_krone/
+    _karten_aufbereiten oder am Vertex-/Fragmentteil des Flora-Shaders.
+  * SHADER (`IMPOSTOR_SHADER`, Konstanten, Farbbehandlung und `light()` WORTGLEICH aus dem
+    Flora-Code ausgeschnitten — `_impostor_shader_code`): Tafel zur Kamera, aufrecht zur Weltachse
+    (die Kamera rollt mit), je Tafelpunkt auf die Bildebenen der vier Nachbarbilder projiziert und
+    bilinear gemischt (stimmt auch nahe dem Zenit). Tafel auf das Inhaltsrechteck der vier Bilder
+    zugeschnitten, ein Stueck zur Kamera vorgerueckt und um denselben Anteil verkleinert. Ton je
+    Baum, Ausblenden, weiches Erscheinen wie der Flora-Shader. Im Schattenwurf zeigt die Tafel die
+    Silhouette aus Sonnenrichtung und rueckt von der Sonne weg.
+  * ZWEI MATERIALIEN je Art (`_impostoren_laden`, zwei Tafelnetze -> `_massiv_von` und
+    `_grob_cache`, Material in `_impostor_mat`, `_flora_mmi` setzt es): Mittelstufe mischt vier
+    Bilder, Fernstufe (`#define EIN_BILD`) nimmt das naechste.
+  * SCHATTEN: die Tafeln WERFEN Schatten, EMPFANGEN keinen (`shadows_disabled`). Gemessen
+    (`_baum_probe -- <ordner> vergleich`: derselbe Wald nah und als Impostor, Helligkeit der
+    Baumpixel): mit Empfang 93 gegen 127 nah — die Tafel fragte den Schatten mitten im Baum ab, im
+    dichten Wald fast immer im Schatten des Nachbarn; LIGHT_VERTEX auf eine gebackene
+    Kronenoberflaeche aenderte NICHTS (verworfen). Ohne Empfang 126 gegen 127, Saettigung gleich.
+  * KOSTEN (`_gelaende_zeit`, 4K, gleicher Lauf mit/ohne `shaders/impostor`): Bild im Mittel
+    15,68 -> 15,51 ms, Flora 1,66 -> 1,52 (Wald 22 m 3,12 -> 1,61; Mittel 700 m 2,48 -> 2,27).
+    Irrwege: vier Bilder auch in der Ferne +0,8 ms (Probe mit einfarbigem Fragment: fast alles
+    Abtasten im Tiefen-Vorpass), ungeschnittene Tafeln +1,2 ms; Schattenwurf misst nichts.
+    Speicher: 11 Arten x (1024^2 + 512^2) RGBA8 mit Mipmaps ~77 MB, Dateien 16 MB.
+  * FALLE BEIM BACKEN: die Physik-Interpolation des Projekts liess die Kamera ihre neue Lage erst
+    im naechsten Physikschritt uebernehmen — alle 64 Bilder zeigten dieselbe Ansicht. Die
+    Backszene laeuft ohne (`physics_interpolation_mode = OFF`).
+  * Kaktus, Totholz, Fels (keine Karten) behalten Stellvertreter. Die geschlossenen Kronen
+    (`<Art>_massiv`) bleiben nur Ersatz, falls die Impostor-Dateien fehlen. Bilder:
+    `ansichten/22_baeume_ferne.jpg`. NICHT GEMACHT: in der Fernstufe (ein Bild) springt das Bild
+    eines Baums beim Wechsel der Blickrichtung um ~22 Grad — dort ist ein Baum < ~25 px hoch.
 - GRASWIESEN (`_gras_aufbauen`, `shaders/gras_bahn.gdshader` platziert, `gras.gdshader`
   zeichnet): GPUParticles3D auf WELTFESTEM Raster um die Kamera (Hash je Zelle → nichts
   schwimmt), zwei Ringe (150² a 0,7 m bis 52 m, 112² a 1,9 m bis 105 m), Hoehe aus der

@@ -4,7 +4,10 @@
 ## TerrainWorld._weiche_krone und dem Flora-Shader: ein Durchlauf dauert Sekunden statt der
 ## Minuten, die tools/_gefuehl_bilder.gd fuer ein echtes Flugbild braucht.
 ## Aufruf (FENSTER, nicht headless):
-##   Godot --path . --script res://tools/_baum_probe.gd -- <ausgabeordner> [nah] [wald]
+##   Godot --path . --script res://tools/_baum_probe.gd -- <ausgabeordner> [nah] [wald] [vergleich]
+## `vergleich`: derselbe Wald einmal mit Nahmodellen, einmal mit der Fernstufe (Impostoren) aus
+## 450 m, 900 m und flach — Helligkeit der Baumpixel vergleichen (so wurde der Schattenempfang
+## der Impostoren als Ursache gefunden).
 extends SceneTree
 
 const MAIN := preload("res://scripts/Main.gd")
@@ -29,6 +32,8 @@ var ansichten := []
 var nah_root: Node3D
 var wald_root: Node3D
 var fern_root: Node3D
+var vg_nah: Node3D
+var vg_fern: Node3D
 
 
 func _licht() -> void:
@@ -135,7 +140,9 @@ func _wald(wurzel: Node3D, grob: bool, mitte: Vector3, halb: float, anzahl: int,
 			mm.set_instance_transform(i, l[i])
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
-		if not TerrainWorld.hat_karten(mm.mesh):   # Karten tragen ihre Materialien selbst
+		if tw._impostor_mat.has(mm.mesh):
+			mmi.material_override = tw._impostor_mat[mm.mesh]
+		elif not TerrainWorld.hat_karten(mm.mesh):   # Karten tragen ihre Materialien selbst
 			mmi.material_override = tw._flora_mat
 		wurzel.add_child(mmi)
 
@@ -148,6 +155,9 @@ func _process(_d: float) -> bool:
 			ziel = args[0]
 		var mit_nah := args.size() < 2 or args.has("nah")
 		var mit_wald := args.size() < 2 or args.has("wald")
+		# VERGLEICH: derselbe Wald (gleicher Zufall) einmal mit den Nahmodellen, einmal mit der
+		# Fernstufe, aus gleicher Lage — zeigt, ob die Ferne wie die Naehe aussieht.
+		var mit_vergleich := args.has("vergleich")
 		get_root().size = Vector2i(1800, 1100)
 		root3 = Node3D.new()
 		get_root().add_child(root3)
@@ -158,7 +168,7 @@ func _process(_d: float) -> bool:
 		cam.current = true
 		tw = TerrainWorld.new()
 		tw.setup(12345, [], [], [], [])
-		for fm in [tw._flora_mat, tw._flora_karten_mat]:
+		for fm in [tw._flora_mat, tw._flora_karten_mat] + tw._impostor_mat.values():
 			fm.set_shader_parameter("fade_start", 9000.0)
 			fm.set_shader_parameter("fade_end", 10000.0)
 		_boden(6000.0, Color(0.22, 0.41, 0.15))
@@ -179,8 +189,9 @@ func _process(_d: float) -> bool:
 						mi.scale = Vector3(2.4, 1.5, 1.9)
 						mi.position = Vector3((k - 1) * 9.5, -0.3, 2000.0 + g * 200.0 + 6.0)
 					elif String(gruppe[k]).begins_with("mittel:"):
-						# MITTLERE STUFE (geschlossene Krone jenseits von KARTEN_BIS)
-						mi.mesh = tw._flora_massiv[String(gruppe[k]).trim_prefix("mittel:")]
+						# MITTLERE STUFE (jenseits von KARTEN_BIS: Impostor, sonst geschlossene Krone)
+						var quelle: Mesh = tw._flora[String(gruppe[k]).trim_prefix("mittel:")]
+						mi.mesh = tw._massiv_von.get(quelle, tw._flora_massiv.get(String(gruppe[k]).trim_prefix("mittel:"), quelle))
 						mi.scale = Vector3.ONE * 1.4
 						mi.position = Vector3((k - 1) * 9.5, 0.0, 2000.0 + g * 200.0)
 					elif String(gruppe[k]).begins_with("fern:"):
@@ -194,7 +205,9 @@ func _process(_d: float) -> bool:
 						mi.position = Vector3((k - 1) * 9.5, 0.0, 2000.0 + g * 200.0)
 					else:
 						continue
-					if not TerrainWorld.hat_karten(mi.mesh):
+					if tw._impostor_mat.has(mi.mesh):
+						mi.material_override = tw._impostor_mat[mi.mesh]
+					elif not TerrainWorld.hat_karten(mi.mesh):
 						mi.material_override = tw._flora_mat
 					nah_root.add_child(mi)
 				var m := Vector3(0, 6.5, 2000.0 + g * 200.0)
@@ -210,6 +223,18 @@ func _process(_d: float) -> bool:
 			ansichten.append(["wald_gegen", wald_root, Vector3(-60, 60, -360), Vector3(0, 4, -60), 64.0])
 			ansichten.append(["wald_hoch", wald_root, Vector3(-120, 300, 620), Vector3(0, 0, 0), 64.0])
 			ansichten.append(["wald_fern", fern_root, Vector3(0, 200, -900), Vector3(0, 0, -1900), 30.0])
+		if mit_vergleich:
+			vg_nah = Node3D.new()
+			vg_fern = Node3D.new()
+			for w in [vg_nah, vg_fern]:
+				root3.add_child(w)
+				(w as Node3D).visible = false
+			_wald(vg_nah, false, Vector3(0, 0, -6000), 320.0, 9000, 21)
+			_wald(vg_fern, true, Vector3(0, 0, -6000), 320.0, 9000, 21)
+			for st: Array in [["450", Vector3(0, 160, -5600), 40.0], ["900", Vector3(0, 300, -5150), 30.0],
+					["flach", Vector3(-380, 45, -5700), 40.0]]:
+				for paar: Array in [["nah", vg_nah], ["fern", vg_fern]]:
+					ansichten.append(["vg%s_%s" % [st[0], paar[0]], paar[1], st[1], Vector3(0, 0, -6000), st[2]])
 		_ansicht()
 		return false
 	if f == 14 + schuss * 8:
@@ -231,7 +256,8 @@ func _process(_d: float) -> bool:
 
 func _ansicht() -> void:
 	var a: Array = ansichten[schuss]
-	for w in [nah_root, wald_root, fern_root]:
-		(w as Node3D).visible = w == a[1]
+	for w in [nah_root, wald_root, fern_root, vg_nah, vg_fern]:
+		if w != null:
+			(w as Node3D).visible = w == a[1]
 	cam.look_at_from_position(a[2], a[3], Vector3.UP)
 	cam.fov = a[4]

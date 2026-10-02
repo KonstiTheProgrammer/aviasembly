@@ -66,7 +66,9 @@ func _process(_d: float) -> bool:
 			for reihe in 2:
 				var mi := MeshInstance3D.new()
 				mi.mesh = mesh if reihe == 0 else tw._grob_cache.get(mesh, mesh)
-				if not TerrainWorld.hat_karten(mi.mesh):
+				if tw._impostor_mat.has(mi.mesh):
+					mi.material_override = tw._impostor_mat[mi.mesh]
+				elif not TerrainWorld.hat_karten(mi.mesh):
 					mi.material_override = tw._flora_mat
 				mi.position = Vector3(x, 0, -reihe * 30.0)
 				root3.add_child(mi)

@@ -311,6 +311,13 @@ const FLORA_HYSTERESE := 50.0
 # Karten bis 1,2 km kosteten in 4K Flora 2,0 -> 7,1 ms; aus 420 m ist ein Baum ~25 px hoch,
 # die Blaetter sieht man dort nicht mehr. Gemessen ab der Huelle der Chunk-MultiMesh.
 const KARTEN_BIS := 420.0
+# IMPOSTOREN: Bilder je Art im Raster IMPOSTOR_N x IMPOSTOR_N (halb-oktaedrisch ueber der oberen
+# Halbkugel), Farbe IMPOSTOR_PX, Normale IMPOSTOR_PX_N je Bild. Aus 420 m ist ein grosser Baum
+# auf einem 1900 Zeilen hohen Bild ~110 px hoch — 128 px je Bild reichen fuer den Uebergang.
+const IMPOSTOR_N := 8
+const IMPOSTOR_PX := 128
+const IMPOSTOR_PX_N := 64
+const IMPOSTOR_PFAD := "res://shaders/impostor/"
 # DETAILSTUFEN. Chunks, deren Mitte weiter als FEIN_DIST vom Spieler liegt, entstehen GROB
 # (16-m-Raster: ein Viertel der Hoehen- und Farbproben, keine Grasmaske; der Bewuchs ist
 # derselbe wie fein). Kommt man naeher, wird der grobe Chunk durch einen feinen
@@ -3159,6 +3166,12 @@ var _massiv_von: Dictionary = {}
 var _mesh_palm: ArrayMesh       # Low-Poly-Palme (Wüste)
 var _flora_mat: ShaderMaterial  # wie _mat, zusätzlich Entfernungs-Schrumpfen
 var _flora_karten_mat: ShaderMaterial  # Blattkarten: Alpha-Schnitt, zweiseitig (#define KARTE)
+## IMPOSTOREN (2026-10-02, Nutzer: „die Baeume in der Ferne schauen zu wenig aus wie die von
+## nahe“): Mittel- und Fernstufe der Kartenbaeume sind eine Bildtafel, die das NAHMODELL aus
+## IMPOSTOR_N x IMPOSTOR_N Richtungen ueber der Halbkugel zeigt (tools/_impostoren_backen.gd ->
+## shaders/impostor/<Art>_farbe.res / _normale.res). Tafelnetz -> Material.
+var _impostor_mat: Dictionary = {}
+var _impostor_code := ""
 
 const ARTEN := ["Fichte", "Kiefer", "Birke", "Eiche", "Palme", "Totholz", "Busch",
 	"Schneetanne", "Urwaldbaum", "Baumfarn", "Akazie", "Mangrove", "Kaktus"]
@@ -3607,8 +3620,23 @@ shader_type spatial;
 // Rueckseiten weg) und _flora_karten_mat (#define KARTE: Blattkarten, Alpha-Schnitt,
 // zweiseitig). Erste Fassung mit EINEM Material fuer alles: Flora in 4K im Mittel 2,0 ->
 // 9,4 ms — Alpha-Schnitt und Zweiseitigkeit kosteten auch jeden Stamm und jede Fernform.
+#ifdef BAKE
+// IMPOSTOR-BACKEN (tools/_impostoren_backen.gd): unbeleuchtet, ALBEDO traegt die rohe Farbe
+// bzw. die Normale — der Impostor rechnet Ton, Licht und Fuellung selbst (wie unten).
+#ifdef KARTE
+render_mode cull_disabled, unshaded;
+#else
+render_mode unshaded;
+#endif
+uniform int bake_modus = 1;   // 1 = rohe Farbe, 2 = Normale (Welt, *0.5+0.5)
+// Mipstufen-Zuschlag der Laubkarten: so deckend und weich wie am Uebergang (KARTEN_BIS) statt
+// wie aus 30 m — sonst schien zwischen den Bueschel der dunkle Kern durch, der Impostor-Wald
+// lag 25-45 Helligkeitsstufen unter dem Nahwald an derselben Stelle.
+uniform float bake_lod = 0.0;
+#else
 #ifdef KARTE
 render_mode cull_disabled;
+#endif
 #endif
 uniform float fade_start;
 #ifdef KARTE
@@ -3641,8 +3669,10 @@ void vertex() {
 	float laub_v = clamp((COLOR.g - max(COLOR.r, COLOR.b)) * 8.0, 0.0, 1.0);
 	// Helligkeit (z1) UND Farbton (z2): die einen gelbgruen, die anderen blaugruen — ein Wald
 	// aus einem einzigen Gruen (nur heller/dunkler) stand aus der Naehe als Salat da.
+#ifndef BAKE
 	COLOR.rgb *= mix(vec3(1.0), vec3(0.80 + 0.14 * z1 + 0.26 * z2, 0.90 + 0.18 * z1,
 		0.78 + 0.10 * z1 + 0.30 * (1.0 - z2)), laub_v);
+#endif
 	float wachsen = smoothstep(0.0, 1.0,
 		clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0));
 	float gross = (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
@@ -3678,7 +3708,11 @@ void vertex() {
 	// gedrehte Schattenfassung darf die eigene Mitte nicht beschatten.
 	float perspektive = step(0.5, -PROJECTION_MATRIX[2][3]);
 	float halb = max(abs(ecke.x), abs(ecke.y)) * mass;
+#ifdef BAKE
+	vp.z += 0.45 * halb;   // die Backkamera ist rechtwinklig, aber kein Schattenwurf
+#else
 	vp.xyz += mix(vec3(0.0, 0.0, -0.9 * halb), normalize(-vp.xyz) * (0.45 * halb), perspektive);
+#endif
 	// FALLE: POSITION muss IMMER geschrieben werden. Steht die Zuweisung in einem Zweig,
 	// nimmt Godot fuer alle anderen Eckpunkte einen leeren Wert — die festen Flaechen
 	// (Nadelschuerzen) waren unsichtbar.
@@ -3710,6 +3744,10 @@ void fragment() {
 	// DIE MIPMAPS MITTELN DIE KONTUR WEG: ohne Ausgleich wurde jede Krone mit der
 	// Entfernung durchsichtiger. Die Deckung waechst deshalb mit der Mipstufe.
 	float lod = textureQueryLod(laub_atlas, UV).x;
+#ifdef BAKE
+	lod += bake_lod;
+	t = textureLod(laub_atlas, UV, lod);
+#endif
 	ALPHA = t.a * (1.0 + max(lod, 0.0) * 0.45);
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
 	c *= t.rgb * 2.0;
@@ -3721,6 +3759,14 @@ void fragment() {
 		c *= 0.62;
 	}
 #endif
+#ifdef BAKE
+	vec3 bake_wert = c;
+	if (bake_modus == 2) {
+		bake_wert = normalize((INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).xyz) * 0.5 + 0.5;
+	}
+	// unshaded + lineare Ausgabe: der Wert landet als sRGB-Kodierung im Bild, also hier zurueck
+	ALBEDO = mix(bake_wert / 12.92, pow((bake_wert + 0.055) / 1.055, vec3(2.4)), step(0.04045, bake_wert));
+#else
 	float laub_f = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
 	// LAUB HELLER UND FRISCHER (2026-10-01, "mach dass es baba ausschaut"). GEMESSEN im
 	// Flugbild: Wald Median 2/51/10 (Helligkeit 0.20, Saettigung 0.96) gegen Wiese 93/152/29
@@ -3738,6 +3784,7 @@ void fragment() {
 	ALBEDO = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 	float auf = 0.5 + 0.5 * (INV_VIEW_MATRIX * vec4(NORMAL, 0.0)).y;
 	EMISSION = ALBEDO * FUELL_TON * (FUELL_GRUND + FUELL_OBEN * auf) * laub_f;
+#endif
 }
 // WEICHES LICHT (Stil Zelda/Ghibli, wie das Gelaende): breiter, gemalter Uebergang, und
 // Laub SCHEINT DURCH, wenn die Sonne dahinter steht — die Kronenraender gluehen warm auf.
@@ -3772,6 +3819,8 @@ void light() {
 	_flora_karten_mat = ShaderMaterial.new()
 	_flora_karten_mat.shader = ksh
 	_flora_karten_mat.set_shader_parameter("laub_atlas", laub_atlas())
+	_impostor_code = _impostor_shader_code(flora_code)
+	_impostoren_laden()
 	_flora_fade_setzen()
 	# Die Kartenflaechen der Modelle (_weiche_krone: Name "karten") tragen ihr Material
 	# selbst; MultiMeshes mit solchen Netzen bekommen KEIN material_override (_flora_mmi).
@@ -5191,7 +5240,7 @@ func _flora_fade_setzen() -> void:
 	if _flora_mat == null:
 		return
 	var ende := maxf(_flora_dist - FLORA_FADE_RAND, 200.0)
-	for m in [_flora_mat, _flora_karten_mat]:
+	for m in [_flora_mat, _flora_karten_mat] + _impostor_mat.values():
 		if m != null:
 			m.set_shader_parameter("fade_end", ende)
 			m.set_shader_parameter("fade_start", maxf(ende - FLORA_FADE, 100.0))
@@ -8204,6 +8253,303 @@ static var _laub_tex: ImageTexture
 
 
 ## Laub-Atlas der Blattkarten (tools/build_laubtextur.py -> tools/_laubtextur.gd).
+## RAHMEN EINES IMPOSTORS (Mitte xyz im Modellraum, Radius w): Kugel um die Mitte der Huelle,
+## die jeden Eckpunkt einschliesst — bei Bueschelkarten samt ihrer Ausdehnung (die Ecken
+## liegen auf der Kartenmitte, der Versatz steht in UV2, siehe _karten_aufbereiten). Backen
+## und Spiel rechnen ihn mit DIESER Funktion: dieselbe Tafel, derselbe Bildausschnitt.
+static func impostor_rahmen(mesh: Mesh) -> Vector4:
+	var lo := Vector3(INF, INF, INF)
+	var hi := -lo
+	var punkte: Array[Vector4] = []
+	for si in mesh.get_surface_count():
+		var arr: Array = mesh.surface_get_arrays(si)
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var uv2 := PackedVector2Array()
+		if arr[Mesh.ARRAY_TEX_UV2] != null:
+			uv2 = arr[Mesh.ARRAY_TEX_UV2]
+		for i in vs.size():
+			var spann := 0.0
+			if uv2.size() == vs.size():
+				spann = ((uv2[i] - Vector2(0.5, 0.5)) * 8.0).length()
+			punkte.append(Vector4(vs[i].x, vs[i].y, vs[i].z, spann))
+			lo = lo.min(vs[i] - Vector3.ONE * spann)
+			hi = hi.max(vs[i] + Vector3.ONE * spann)
+	var mitte := (lo + hi) * 0.5
+	var r := 0.0
+	for p in punkte:
+		r = maxf(r, Vector3(p.x, p.y, p.z).distance_to(mitte) + p.w)
+	return Vector4(mitte.x, mitte.y, mitte.z, r * 1.02)
+
+
+## Richtung zum Bild (i, j) — halb-oktaedrisch: (e.x, e.y) in [-1, 1]^2 auf die obere Halbkugel.
+## Dieselbe Rechnung steht im Shader (impostor_richtung).
+static func impostor_richtung(i: int, j: int) -> Vector3:
+	var e := Vector2((float(i) + 0.5) / IMPOSTOR_N * 2.0 - 1.0, (float(j) + 0.5) / IMPOSTOR_N * 2.0 - 1.0)
+	var px := (e.x + e.y) * 0.5
+	var pz := (e.x - e.y) * 0.5
+	return Vector3(px, 1.0 - absf(px) - absf(pz), pz).normalized()
+
+
+## Bildebene zur Richtung d: (rechts, oben) — wie im Shader (bild_uv) und beim Backen.
+static func impostor_basis(d: Vector3) -> Basis:
+	var r := Vector3(d.z, 0.0, -d.x).normalized()
+	return Basis(r, d.cross(r), d)
+
+
+## Laedt die gebackenen Bilder je Kartenbaum und stellt Mittel- und Fernstufe auf die Tafel um.
+## Fehlen sie (Art nie gebacken), bleibt die alte Fassung (geschlossene Krone / Stellvertreter).
+func _impostoren_laden() -> void:
+	var t0 := Time.get_ticks_msec()
+	var arten := 0
+	var sh := Shader.new()
+	sh.code = _impostor_code
+	var sh_fern := Shader.new()
+	sh_fern.code = _impostor_code.replace("shader_type spatial;", "shader_type spatial;\n#define EIN_BILD")
+	for art in _flora:
+		var quelle: Mesh = _flora[art]
+		if not hat_karten(quelle):
+			continue
+		var pf := IMPOSTOR_PFAD + String(art) + "_farbe.res"
+		var pn := IMPOSTOR_PFAD + String(art) + "_normale.res"
+		var pr := IMPOSTOR_PFAD + String(art) + "_rahmen.res"
+		if not ResourceLoader.exists(pf) or not ResourceLoader.exists(pn) or not ResourceLoader.exists(pr):
+			continue
+		var bf: Image = (load(pf) as Image).duplicate()
+		var bn: Image = (load(pn) as Image).duplicate()
+		bf.generate_mipmaps()
+		bn.generate_mipmaps()
+		var rahmen := impostor_rahmen(quelle)
+		var tex_f := ImageTexture.create_from_image(bf)
+		var tex_n := ImageTexture.create_from_image(bn)
+		var tex_r := ImageTexture.create_from_image(load(pr) as Image)
+		# ZWEI TAFELN, ZWEI MATERIALIEN: die Mittelstufe mischt vier Bilder (beim Vorbeifliegen
+		# springt nichts), die Fernstufe nimmt das naechste — gemessen in 4K: vier Bilder auch
+		# in der Ferne kosteten im Mittel +0,7 ms (aus 700 m +1,2 ms), fast alles Abtasten.
+		for stufe in 2:
+			var mat := ShaderMaterial.new()
+			mat.shader = sh if stufe == 0 else sh_fern
+			mat.set_shader_parameter("farbe_atlas", tex_f)
+			mat.set_shader_parameter("normal_atlas", tex_n)
+			mat.set_shader_parameter("rahmen", rahmen)
+			mat.set_shader_parameter("rahmen_bild", tex_r)
+			# Die Tafel: vier Ecken (+-1, +-1), der Shader stellt sie auf. Huelle = Baumkugel,
+			# damit Godot sie wie den Baum kullt.
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			for v: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+				st.set_normal(Vector3(0, 0, 1))
+				st.add_vertex(Vector3(v.x, v.y, 0.0))
+			var tafel := st.commit()
+			var m := Vector3(rahmen.x, rahmen.y, rahmen.z)
+			tafel.custom_aabb = AABB(m - Vector3.ONE * rahmen.w, Vector3.ONE * rahmen.w * 2.0)
+			_impostor_mat[tafel] = mat
+			if stufe == 0:
+				_massiv_von[quelle] = tafel
+			else:
+				_grob_cache[quelle] = tafel
+		arten += 1
+	if arten > 0:
+		print("Impostoren: %d Baumarten, %d ms" % [arten, Time.get_ticks_msec() - t0])
+
+
+## Impostor-Shader: eigene Tafel (vertex) und Abtastung (fragment); Konstanten, Farbbehandlung
+## und LICHT WORTGLEICH aus dem Flora-Shader ausgeschnitten — aendert jemand dort Ton oder
+## Licht, folgt die Ferne von selbst.
+static func _impostor_shader_code(flora_code: String) -> String:
+	var konst_a := flora_code.find("const vec3 FUELL_TON")
+	var konst_b := flora_code.find("void fragment()")
+	var ton_a := flora_code.find("\tfloat laub_f = clamp((c.g")
+	var ton_b := flora_code.find("#endif", ton_a)
+	var licht_a := flora_code.find("// WEICHES LICHT")
+	assert(konst_a > 0 and konst_b > konst_a and ton_a > 0 and ton_b > ton_a and licht_a > 0)
+	var konstanten := flora_code.substr(konst_a, konst_b - konst_a)
+	var ton := flora_code.substr(ton_a, ton_b - ton_a)
+	var licht := flora_code.substr(licht_a)
+	return IMPOSTOR_SHADER.replace("%N%", str(IMPOSTOR_N)).replace("%KONSTANTEN%", konstanten) \
+		.replace("%TON%", ton).replace("%LICHT%", licht)
+
+
+const IMPOSTOR_SHADER := """
+shader_type spatial;
+// IMPOSTOR eines Kartenbaums (TerrainWorld.IMPOSTOR_*): Tafel zur Kamera, aufrecht zur Welt
+// (die Kamera rollt mit dem Flugzeug). Je Tafelpunkt wird die Lage auf die Bildebenen der vier
+// naechsten Backrichtungen projiziert (rechtwinklig wie beim Backen) und bilinear gemischt —
+// so stimmt auch die Drehung der Bilder nahe dem Zenit, und beim Vorbeifliegen springt nichts.
+// SCHATTEN: die Tafel WIRFT Schatten (Silhouette aus Sonnenrichtung, Boden im Wald bleibt
+// dunkel), EMPFAENGT aber keinen. Gemessen (tools/_baum_probe.gd vergleich, derselbe Wald nah
+// und als Impostor aus 450 m): mit Empfang Helligkeit 93 gegen 127 nah — die Tafel fragte den
+// Schatten an einem Punkt mitten im Baum ab, im dichten Wald fast immer im Schatten des
+// Nachbarn; auch mit gebackener Tiefe (LIGHT_VERTEX auf der Kronenoberflaeche) unveraendert.
+// Ohne Empfang 126 — die Bueschel des Nahmodells liegen ohnehin fast alle im Licht.
+render_mode cull_disabled, shadows_disabled;
+uniform sampler2D farbe_atlas : filter_linear_mipmap, repeat_disable;
+uniform sampler2D normal_atlas : filter_linear_mipmap, repeat_disable;
+uniform vec4 rahmen;          // Mitte (Modellraum), Radius
+uniform sampler2D rahmen_bild : filter_nearest;   // je Bild (u0, u1, v0, v1) mit Inhalt
+uniform float fade_start;
+uniform float fade_end;
+global uniform float welt_zeit;
+instance uniform float erschienen = -1000.0;
+const float WACHSEN_S = 1.6;
+const float N = %N%.0;
+varying vec2 v_g;
+varying vec4 v_uv01;
+varying vec4 v_uv23;
+
+vec3 impostor_richtung(vec2 f) {
+	vec2 e = (f + 0.5) / N * 2.0 - 1.0;
+	float px = (e.x + e.y) * 0.5;
+	float pz = (e.x - e.y) * 0.5;
+	return normalize(vec3(px, 1.0 - abs(px) - abs(pz), pz));
+}
+
+vec2 bild_uv(vec3 q, vec2 f) {
+	vec3 d = impostor_richtung(f);
+	vec3 r = normalize(vec3(d.z, 0.0, -d.x));
+	vec3 u = cross(d, r);
+	return vec2(dot(q, r), -dot(q, u)) / (2.0 * rahmen.w) + 0.5;
+}
+
+void vertex() {
+	vec3 wo = MODEL_MATRIX[3].xyz;
+	float d_kam = distance(wo, CAMERA_POSITION_WORLD);
+	float z1 = fract(sin(dot(wo.xz, vec2(12.9898, 78.233))) * 43758.5453);
+	float z2 = fract(z1 * 91.7 + 0.31);
+	// Ton je Baum wie im Flora-Shader — dort auf COLOR im Eckpunkt, hier als Faktor fuer die
+	// Abtastung (COLOR ist ohnehin eine Varying).
+	COLOR = vec4(0.80 + 0.14 * z1 + 0.26 * z2, 0.90 + 0.18 * z1, 0.78 + 0.10 * z1 + 0.30 * (1.0 - z2), 1.0);
+	float wachsen = smoothstep(0.0, 1.0, clamp((welt_zeit - erschienen - z1 * 0.5) / WACHSEN_S, 0.0, 1.0));
+	float gross = (1.0 - smoothstep(fade_start, fade_end, d_kam)) * wachsen;
+	mat3 m = mat3(MODEL_MATRIX);
+	vec3 s2 = vec3(dot(m[0], m[0]), dot(m[1], m[1]), dot(m[2], m[2]));
+	float smax = sqrt(max(max(s2.x, s2.y), s2.z));
+	vec3 mitte_w = (MODEL_MATRIX * vec4(rahmen.xyz, 1.0)).xyz;
+	float perspektive = step(0.5, -PROJECTION_MATRIX[2][3]);
+	vec3 zur_kam_w = perspektive > 0.5 ? normalize(CAMERA_POSITION_WORLD - mitte_w)
+		: normalize(INV_VIEW_MATRIX[2].xyz);
+	// Welt -> Modellraum (Drehung um Y mal Skalierung je Achse): transpose(m) / s^2
+	vec3 d_o = normalize((transpose(m) * zur_kam_w) / s2);
+	d_o.y = max(d_o.y, 0.0);
+	vec2 p = d_o.xz / (abs(d_o.x) + d_o.y + abs(d_o.z) + 1e-5);
+	vec2 e = vec2(p.x + p.y, p.x - p.y);
+	vec2 g = clamp((e * 0.5 + 0.5) * N - 0.5, 0.0, N - 1.0);
+#ifdef EIN_BILD
+	// FERNSTUFE (jenseits _flora_grob_ab, ein Baum < ~25 px): nur das naechste Bild.
+	vec2 f0 = clamp(floor(g + 0.5), 0.0, N - 1.0);
+	v_g = f0;
+#else
+	v_g = g;
+	vec2 f0 = min(floor(g), N - 2.0);
+#endif
+	// Tafel im Blickraum, aufrecht zur Weltachse
+	vec3 mitte_v = (VIEW_MATRIX * vec4(mitte_w, 1.0)).xyz;
+	vec3 zur_kam_v = perspektive > 0.5 ? normalize(-mitte_v) : vec3(0.0, 0.0, 1.0);
+	vec3 auf_v = mat3(VIEW_MATRIX) * vec3(0.0, 1.0, 0.0);
+	vec3 re_v = cross(auf_v, zur_kam_v);
+	re_v = dot(re_v, re_v) > 1e-6 ? normalize(re_v) : vec3(1.0, 0.0, 0.0);
+	vec3 hoch_v = cross(zur_kam_v, re_v);
+	// ZUGESCHNITTEN auf das Rechteck, in dem die vier gemischten Bilder Inhalt haben (Fichte
+	// von der Seite: halb so breit wie hoch) — jedes verworfene Pixel kostet acht Abfragen.
+	// Bildachsen und Tafelachsen folgen derselben Regel (rechts = Y x Blick), nur nahe dem
+	// Zenit sind die Nachbarbilder gegeneinander verdreht: dort symmetrisch.
+	vec4 b0 = texelFetch(rahmen_bild, ivec2(f0), 0);
+#ifdef EIN_BILD
+	vec4 b1 = b0;
+	vec4 b2 = b0;
+	vec4 b3 = b0;
+#else
+	vec4 b1 = texelFetch(rahmen_bild, ivec2(f0 + vec2(1.0, 0.0)), 0);
+	vec4 b2 = texelFetch(rahmen_bild, ivec2(f0 + vec2(0.0, 1.0)), 0);
+	vec4 b3 = texelFetch(rahmen_bild, ivec2(f0 + vec2(1.0, 1.0)), 0);
+#endif
+	vec2 lo = vec2((min(min(b0.x, b1.x), min(b2.x, b3.x)) - 0.5) * 2.0,
+		(0.5 - max(max(b0.w, b1.w), max(b2.w, b3.w))) * 2.0) - 0.06;
+	vec2 hi = vec2((max(max(b0.y, b1.y), max(b2.y, b3.y)) - 0.5) * 2.0,
+		(0.5 - min(min(b0.z, b1.z), min(b2.z, b3.z))) * 2.0) + 0.06;
+	float am_zenit = step(0.70, d_o.y);
+	float sym = max(max(abs(lo.x), abs(lo.y)), max(abs(hi.x), abs(hi.y)));
+	lo = clamp(mix(lo, vec2(-sym), am_zenit), -1.0, 1.0);
+	hi = clamp(mix(hi, vec2(sym), am_zenit), -1.0, 1.0);
+	vec2 ecke = mix(lo, hi, VERTEX.xy * 0.5 + 0.5);
+	vec3 versatz_v = (re_v * ecke.x + hoch_v * ecke.y) * (rahmen.w * smax);
+	// Im Bild ein Stueck zur Kamera (die Tafel liegt vor dem Baumvolumen, der Boden schneidet sie
+	// nicht an) und um denselben Anteil kleiner — sonst wuchs der Baum aus der Naehe sichtbar.
+	// Im Schattenwurf VON der Sonne weg (keine Selbstbeschattung der Tafel).
+	float schub = mix(-0.6, 0.5, perspektive) * rahmen.w * smax * gross;
+	float abst = max(length(mitte_v), 0.1);
+	float k = perspektive > 0.5 ? max(abst - schub, 0.1) / abst : 1.0;
+	vec3 pos_v = mitte_v + versatz_v * (gross * k)
+		+ (perspektive > 0.5 ? zur_kam_v * schub : vec3(0.0, 0.0, schub));
+	POSITION = PROJECTION_MATRIX * vec4(pos_v, 1.0);
+	// Lage des Tafelpunkts im Modellraum -> Bildkoordinaten der vier Nachbarbilder
+	vec3 q_o = (transpose(m) * (mat3(INV_VIEW_MATRIX) * versatz_v)) / s2;
+#ifdef EIN_BILD
+	v_uv01 = vec4(bild_uv(q_o, f0), 0.0, 0.0);
+	v_uv23 = vec4(0.0);
+#else
+	v_uv01 = vec4(bild_uv(q_o, f0), bild_uv(q_o, f0 + vec2(1.0, 0.0)));
+	v_uv23 = vec4(bild_uv(q_o, f0 + vec2(0.0, 1.0)), bild_uv(q_o, f0 + vec2(1.0, 1.0)));
+#endif
+}
+
+vec4 bild(sampler2D t, vec2 uv, vec2 f) {
+	vec2 innen = step(vec2(0.0), uv) * step(uv, vec2(1.0));
+	return texture(t, (f + clamp(uv, 0.0, 1.0)) / N) * (innen.x * innen.y);
+}
+
+%KONSTANTEN%
+void fragment() {
+#ifdef EIN_BILD
+	vec4 a0 = bild(farbe_atlas, v_uv01.xy, v_g);
+	float deck = a0.a;
+	float lod = textureQueryLod(farbe_atlas, v_uv01.xy / N).x;
+	ALPHA = deck * (1.0 + max(lod, 0.0) * 0.45);
+	ALPHA_SCISSOR_THRESHOLD = 0.5;
+	if (ALPHA < 0.5) {
+		discard;
+	}
+	vec3 c = a0.rgb;
+	vec3 n_o = bild(normal_atlas, v_uv01.xy, v_g).rgb * 2.0 - 1.0;
+#else
+	vec2 f0 = min(floor(v_g), N - 2.0);
+	vec2 w = clamp(v_g - f0, 0.0, 1.0);
+	vec4 gw = vec4((1.0 - w.x) * (1.0 - w.y), w.x * (1.0 - w.y), (1.0 - w.x) * w.y, w.x * w.y);
+	vec4 a0 = bild(farbe_atlas, v_uv01.xy, f0);
+	vec4 a1 = bild(farbe_atlas, v_uv01.zw, f0 + vec2(1.0, 0.0));
+	vec4 a2 = bild(farbe_atlas, v_uv23.xy, f0 + vec2(0.0, 1.0));
+	vec4 a3 = bild(farbe_atlas, v_uv23.zw, f0 + vec2(1.0, 1.0));
+	vec4 aw = gw * vec4(a0.a, a1.a, a2.a, a3.a);
+	float deck = aw.x + aw.y + aw.z + aw.w;
+	// Wie die Blattkarten: die Mipmaps mitteln die Kontur weg, die Deckung waechst mit der Stufe.
+	float lod = textureQueryLod(farbe_atlas, v_uv01.xy / N).x;
+	ALPHA = deck * (1.0 + max(lod, 0.0) * 0.45);
+	ALPHA_SCISSOR_THRESHOLD = 0.5;
+	// Leere Tafelpixel sofort weg (im dichten Wald liegen viele Tafeln uebereinander).
+	if (ALPHA < 0.5) {
+		discard;
+	}
+	vec3 c = (a0.rgb * aw.x + a1.rgb * aw.y + a2.rgb * aw.z + a3.rgb * aw.w) / max(deck, 1e-4);
+	// NORMALE nur aus dem staerksten Bild: im Modellraum zeigt dieselbe Stelle in jedem Bild
+	// dieselbe Normale — drei Abfragen gespart.
+	vec2 fn = f0;
+	vec2 uvn = v_uv01.xy;
+	float best = aw.x;
+	if (aw.y > best) { best = aw.y; fn = f0 + vec2(1.0, 0.0); uvn = v_uv01.zw; }
+	if (aw.z > best) { best = aw.z; fn = f0 + vec2(0.0, 1.0); uvn = v_uv23.xy; }
+	if (aw.w > best) { fn = f0 + vec2(1.0, 1.0); uvn = v_uv23.zw; }
+	vec3 n_o = bild(normal_atlas, uvn, fn).rgb * 2.0 - 1.0;
+#endif
+	// Modellraum -> Welt fuer Normalen: m / s^2 (inverse Transponierte von Drehung x Skalierung)
+	mat3 m = mat3(MODEL_MATRIX);
+	vec3 s2 = vec3(dot(m[0], m[0]), dot(m[1], m[1]), dot(m[2], m[2]));
+	NORMAL = normalize(mat3(VIEW_MATRIX) * (m * (n_o / s2)));
+	// Ton je Baum (im Flora-Shader im Eckpunkt, nur aufs Laub)
+	float laub_v = clamp((c.g - max(c.r, c.b)) * 8.0, 0.0, 1.0);
+	c *= mix(vec3(1.0), COLOR.rgb, laub_v);
+%TON%}
+%LICHT%"""
+
+
 static func laub_atlas() -> ImageTexture:
 	if _laub_tex == null:
 		_laub_tex = ImageTexture.create_from_image(load("res://shaders/flora_laub.res"))
@@ -8417,7 +8763,9 @@ func _flora_mmi(mesh: Mesh, n: int, puf: PackedFloat32Array, box: AABB) -> Multi
 	mm.custom_aabb = box
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
-	if not hat_karten(mesh):
+	if _impostor_mat.has(mesh):
+		mmi.material_override = _impostor_mat[mesh]
+	elif not hat_karten(mesh):
 		mmi.material_override = _flora_mat
 	mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_DISABLED
 	return mmi

@@ -110,7 +110,8 @@ func _lauf() -> void:
 			var tw = main.terrain
 			var arten: Dictionary = {"Fels": [tw._mesh_rock, tw._grob_cache.get(tw._mesh_rock)]}
 			for art in tw._flora:
-				arten[art] = [tw._flora[art], tw._grob_cache.get(tw._flora[art])]
+				arten[art] = [tw._flora[art], tw._grob_cache.get(tw._flora[art]),
+					tw._massiv_von.get(tw._flora[art])]
 			for art in arten:
 				_art(arten[art], false)
 				var o_art := await _median()
