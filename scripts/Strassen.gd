@@ -41,7 +41,8 @@ static func flachzonen() -> Array:
 	for d in StrassenDaten.DOERFER:
 		var p: Vector2 = d[1]
 		var z: Array = ZONE[int(d[2])]
-		raus.append({"pos": Vector3(p.x, 0.0, p.y), "r_flat": z[0], "r_blend": z[1], "y": 0.0})
+		raus.append({"pos": Vector3(p.x, 0.0, p.y), "r_flat": z[0], "r_blend": z[1], "y": 0.0,
+			"ort": true})
 	return raus
 
 
@@ -78,6 +79,7 @@ static func karten_orte() -> Array:
 
 ## Alles Sichtbare bauen (nach strassen_fertigstellen). zonen = flachzonen() mit Hoehe.
 static func bauen(parent: Node3D, terrain: TerrainWorld, zonen: Array) -> void:
+	Ortsgruen.bilanz = [0, 0, 0, 0]
 	var knoten := Node3D.new()
 	knoten.name = "Landstrassen"
 	knoten.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # statisch
@@ -741,7 +743,9 @@ static func _dorf(parent: Node3D, knoten: Node3D, terrain: TerrainWorld, d: Arra
 	if not terrain.rivers.is_empty():
 		fluss = terrain._fluss_naechst(p.x, p.y).x < 900.0
 	var plan := plan_strassendorf(name, gr, kueste, fluss)
-	_dorfstrasse(knoten, terrain, p, dir, LAENGE[gr] + 10.0, mat_neben)
+	var h0 := CityBuilder.karte_haeuser.size()
+	var s0 := CityBuilder.karte_strassen.size()
+	var dorfstr := _dorfstrasse(knoten, terrain, p, dir, LAENGE[gr] + 10.0, mat_neben)
 	# Nichts auf eine Strasse stellen: an Kreuzungen laufen weitere Strassen durchs Dorf,
 	# und die Dorfstrasse selbst kruemmt sich.
 	var frei: Array = []
@@ -753,13 +757,16 @@ static func _dorf(parent: Node3D, knoten: Node3D, terrain: TerrainWorld, d: Arra
 			continue
 		frei.append(e)
 	CityBuilder.build(parent, terrain, mitte, frei, "Dorf_" + name, dreh)
+	# Baeume, Obstwiesen, Dorflinde, Hofzufahrten (scripts/Ortsgruen.gd)
+	Ortsgruen.strassendorf(parent, terrain, name, p, dir, gr, LAENGE[gr], h0, s0, dorfstr, frei, dreh)
 
 
 ## DORFSTRASSE entlang der Dorfachse, wo nicht schon eine Landstrasse liegt. Die Strassen des
 ## Netzes ENDEN meist in der Dorfmitte — ohne dieses Stueck stuenden die Haeuser auf der
 ## anderen Seite an keiner Strasse. Knapp unter dem Landstrassenband (keine Tiefenkaempfe).
 static func _dorfstrasse(knoten: Node3D, terrain: TerrainWorld, p: Vector2, dir: Vector2,
-		halb: float, mat: Material) -> void:
+		halb: float, mat: Material) -> Array:
+	var stuecke: Array = []     # [a, b, halbe Breite] fuer Ortsgruen
 	var lauf := PackedVector2Array()
 	var s := -halb
 	while s <= halb + 0.01:
@@ -774,9 +781,11 @@ static func _dorfstrasse(knoten: Node3D, terrain: TerrainWorld, p: Vector2, dir:
 			var br := PackedByteArray()
 			br.resize(lauf.size())
 			_band(knoten, [lauf, hh, br, TerrainWorld.STRASSE_B_NEBEN], mat)
+			stuecke.append([lauf[0], lauf[lauf.size() - 1], TerrainWorld.STRASSE_B_NEBEN + BANKETT_NEBEN])
 		if not frei:
 			lauf = PackedVector2Array()
 		s += 10.0
+	return stuecke
 
 
 ## STRASSENDORF: Haeuser beidseits der Dorfstrasse (lokal x), Fronten zur Fahrbahn,

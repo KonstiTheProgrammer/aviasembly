@@ -1415,6 +1415,37 @@ Landdorf standen die (zufaellig gestreuten) Haeuser AUF den Strassen. Die Landst
   verweisen auf seine Wicklungs-Lektion). Die 20 Strassendoerfer (Strassen._dorf) haben
   weiter ihr Schotterband.
 
+## Ortsgruen: Doerfer und Staedte mit Liebe (2026-10-02, Nutzer: „erhoehe die Liebe und den Detailgrad von den Doerfern/Staedten“)
+BEFUND (`_luftbild.gd`, Eichhofen, Landdorf, Grossstadt): jedes Strassendorf, das Landdorf und die
+Nordhaelfte der Grossstadt lagen auf einer KAHLEN SANDSCHEIBE — die Flachzone haelt den Wald frei
+(`_open_ground` 0), und ohne Wald schien in der Heide (`biome_wert` > 0.40) deren Beige durch.
+Zwischen den Haeusern stand kein Baum, die Haeuser standen ohne Weg neben der Strasse, die Stadt war
+Rasen und Asphalt. JETZT:
+- BODEN: Flachzonen mit `"ort": true` (Strassendoerfer in `Strassen.flachzonen`, Grossstadt und
+  Landdorf in Main) — `TerrainWorld._ort_anteil` nimmt dort Heide/Wueste aus `_boden_farbe`
+  zurueck (wie die Einebnung: voll bis r_flat, auslaufend bis r_blend). Gilt auch fuer Karte und
+  Fernschuerze (dieselbe Farbfunktion).
+- `scripts/Ortsgruen.gd` (statisch, deterministisch je Ortsname), aufgerufen in `Strassen._dorf`
+  (nach CityBuilder.build) und in Main nach Grossstadt/Landdorf. Hindernisse aus den Kartenlisten
+  `CityBuilder.karte_haeuser`/`karte_strassen` AB DEM INDEX, den der Ort vor seinem Bau hatte, dazu
+  Dorfstrassenstuecke und `strasse_abstand`, alles im 32-m-Raster (`Hindernisse`):
+  HOFBAEUME (hinter dem Haus = Gegenseite der Front +z, sonst seitlich — hinter Bauernhaeusern steht
+  die Scheune), VORGAERTEN (Bueschel neben der Front), DORFBAEUME an der Strasse (~26 m im
+  Wechsel), DORFLINDE bei Kirche/Kapelle, STREUOBSTWIESEN (Reihen kleiner Eichenkronen, 9 x 10 m)
+  hinter den Hoefen bzw. um das Landdorf, STROHBALLEN an Scheunen und Staellen (Art „Ballen“),
+  HOFZUFAHRTEN aus Kies (strasse.gdshader, neben) von der Haustuer zur Fahrbahn (Abstand-Iteration
+  statt Meterschritten: 0,56 -> 0,33 s). Grossstadt: Eichenallee auf den Boulevards, schlanke
+  Birken alle 20 m auf den Stadtstrassen (wo die Hauswand >= 2,6 m weg ist), Baeume in Hoefen.
+  Baeume = Weltbaeume ueber `TerrainWorld._attach_multi` (Karten, Mittelstufe, Impostor) an einem
+  eigenen Knoten `Ortsgruen_<Ort>` im Ursprung.
+- ZAHLEN (Startmeldung „Ortsgruen: …“): 3211 Pflanzen, 187 Hofzufahrten in 22 Orten, 0,33 s beim
+  Start. GPU (`_hafen_zeit`, HZ_ORT=grossstadt HZ_NUR_GRUEN=1, 4K): 0,08-0,33 ms.
+- BELEGE: `_stadtstrassen_check`, `_hafenstadt_check`, `_strassen_check`, `_bewuchs_stufen_check`,
+  `_baum_ausfall_check`, `_grafik_check`, `_undo_check`, `_rundflug_alle`, `_loadcheck` OK, keine
+  Warnungen. Bilder `ansichten/26_doerfer_staedte.jpg`.
+- NICHT GEMACHT: keine neuen Haustypen oder dichtere Bebauung; Industriehafen, Burgberg, Hafenstadt
+  (hat eigene Baeume) und die Orte der Regionen haben kein Ortsgruen.
+
 ## Hafenstadt FREIHAFEN mit Freiheitsstatue (2026-10)
 Nutzerwunsch: „baue eine hafenstadt mit freiheitstatue". Alles in `scripts/Hafenstadt.gd`
 (statisch, feste RNG-Seeds), eingehaengt in Main an vier Stellen: `flat_zones`

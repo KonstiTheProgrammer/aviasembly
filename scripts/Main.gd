@@ -1616,7 +1616,8 @@ func _setup_world() -> void:
 	# Industriehafen 2,5 km entfernt, die Grossstadt liegt 6,6 km weg. Es soll ein ORT
 	# sein, zu dem man hinfliegt, und keine Erweiterung eines vorhandenen.
 	var sky_pos := Vector3(2600, 0, -3800)      # Hochhausviertel zum Durchfliegen
-	flat_zones.append({"pos": city_pos, "r_flat": 480.0, "r_blend": 980.0})
+	# "ort": Siedlung — der Boden wird dort Wiese statt Heide/Wueste (TerrainWorld._ort_anteil)
+	flat_zones.append({"pos": city_pos, "r_flat": 480.0, "r_blend": 980.0, "ort": true})
 	# GROSSZUEGIG EINGEEBNET, und das ist hier keine Bequemlichkeit: die Tuerme stehen auf
 	# einem 1664 m breiten Raster und tragen KOLLISION. Auf welligem Grund staende ein Teil
 	# von ihnen im Hang und die Gassen waeren an manchen Stellen unpassierbar, ohne dass man
@@ -1628,7 +1629,7 @@ func _setup_world() -> void:
 	flat_zones.append({"pos": sky_pos, "r_flat": 1150.0, "r_blend": 1900.0,
 		"heading": 0.0, "rects": [[0.0, 0.0, 880.0, 880.0]]})
 	flat_zones.append({"pos": indu_pos, "r_flat": 300.0, "r_blend": 700.0})
-	flat_zones.append({"pos": dorf_pos, "r_flat": 260.0, "r_blend": 620.0})
+	flat_zones.append({"pos": dorf_pos, "r_flat": 260.0, "r_blend": 620.0, "ort": true})
 	flat_zones.append({"pos": burg_pos, "r_flat": 160.0, "r_blend": 420.0, "y": 78.0})
 	flat_zones.append({"pos": mil_pos, "r_flat": 200.0, "r_blend": 480.0})
 	# HAFENSTADT FREIHAFEN am Ostgolf und die Insel der Freiheitsstatue (scripts/Hafenstadt.gd):
@@ -2479,15 +2480,26 @@ func _setup_world() -> void:
 		# Landstrasse endet dort (Strassen.stadt_kreise, VOR Strassen.bauen gesetzt).
 		var zu_stadt := CityBuilder.zufahrten(terrain, city_pos, 360.0)
 		var zu_dorf := CityBuilder.zufahrten(terrain, dorf_pos, 180.0)
+		var h_stadt := CityBuilder.karte_haeuser.size()
+		var s_stadt := CityBuilder.karte_strassen.size()
 		CityBuilder.build(fly_world, terrain, city_pos, CityBuilder.plan_grossstadt(zu_stadt), "Grossstadt")
 		# STRASSEN ZUR STADT. Sie sind aus der Luft die eigentliche Stadtform — die
 		# Haeuser sind aus 1500 m nur noch Koernung (Begruendung bei
 		# CityBuilder.strassennetz). Das Dorf bekommt ein kleines Netz mit derselben
 		# Funktion, damit es nicht als zweite lose Haeuserhaufen danebenliegt.
 		CityBuilder.strassennetz(fly_world, terrain, city_pos, 250.0, 300.0, 900.0, zu_stadt)
+		var s_dorf := CityBuilder.karte_strassen.size()
 		CityBuilder.strassennetz(fly_world, terrain, dorf_pos, 90.0, 120.0, 420.0, zu_dorf)
 		CityBuilder.build(fly_world, terrain, indu_pos, CityBuilder.plan_industrie(), "Industriehafen")
+		var h_dorf := CityBuilder.karte_haeuser.size()
 		CityBuilder.build(fly_world, terrain, dorf_pos, CityBuilder.plan_dorf(zu_dorf), "Landdorf")
+		# Baeume, Alleen, Hoefe, Obstwiesen (scripts/Ortsgruen.gd)
+		Ortsgruen.ort(fly_world, terrain, "Grossstadt", Vector2(city_pos.x, city_pos.z), 330.0,
+			h_stadt, s_stadt, true)
+		Ortsgruen.ort(fly_world, terrain, "Landdorf", Vector2(dorf_pos.x, dorf_pos.z), 150.0,
+			h_dorf, s_dorf, false)
+		print("Ortsgruen: %d Pflanzen, %d Hofzufahrten in %d Orten, %.0f ms" % [Ortsgruen.bilanz[0],
+			Ortsgruen.bilanz[1], Ortsgruen.bilanz[2], float(Ortsgruen.bilanz[3]) / 1000.0])
 		CityBuilder.build(fly_world, terrain, burg_pos, CityBuilder.plan_burg(), "Burgberg")
 		CityBuilder.build(fly_world, terrain, mil_pos, CityBuilder.plan_militaer(), "Militaerposten")
 		for e in _region_ort_zonen:

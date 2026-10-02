@@ -2,7 +2,8 @@
 ## Wandzeit, weil Metal keine GPU-Zeitstempel liefert) an vier Stellungen, jeweils mit und
 ## ohne den Knoten "Hafenstadt" (Haeuser, Statue, Kai, Schiffe, Stadtbaeume).
 ##   HOME=<test-home> Godot --path . --script res://tools/_hafen_zeit.gd
-## HZ_ORT=grossstadt misst stattdessen die GROSSSTADT (Knoten "Grossstadt" + ihr Strassennetz).
+## HZ_ORT=grossstadt misst stattdessen die GROSSSTADT (Knoten "Grossstadt" + ihr Strassennetz),
+## mit HZ_NUR_GRUEN=1 nur deren Baeume (Ortsgruen_Grossstadt).
 extends SceneTree
 const BREITE := 3840
 const HOCH := 2160
@@ -67,6 +68,9 @@ func _lauf() -> void:
 	var teile: Array = [fw.get_node_or_null("Hafenstadt")]
 	if gross:
 		teile = [fw.get_node_or_null("Grossstadt"), fw.get_node_or_null("Strassen_4300_2500")]
+		# HZ_NUR_GRUEN=1: nur das Ortsgruen der Grossstadt (Baeume, scripts/Ortsgruen.gd)
+		if OS.get_environment("HZ_NUR_GRUEN") != "":
+			teile = [fw.get_node_or_null("Ortsgruen_Grossstadt")]
 		stellungen = [
 			["Kern 45 m", mi + Vector3(-50, 45, 140), mi + Vector3(30, 20, 0)],
 			["Stadt 150 m", mi + Vector3(-560, 150, -200), mi + Vector3(100, 0, 20)],

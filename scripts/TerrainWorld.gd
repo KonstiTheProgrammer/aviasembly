@@ -3399,6 +3399,23 @@ func zonen_gitter_bauen() -> void:
 
 
 ## Zelle des Flachzonen-Rasters, -1 ausserhalb (dort liegt keine Zone).
+## 0..1: wie sehr liegt (x, z) in einer Siedlung (Flachzone mit "ort": true)? Wie die Einebnung:
+## voll bis r_flat, auslaufend bis r_blend.
+func _ort_anteil(x: float, z: float) -> float:
+	var zk := _zn_zelle(x, z)
+	if zk < 0:
+		return 0.0
+	var a := 0.0
+	for zj in range(_zn_start[zk], _zn_start[zk + 1]):
+		var af: Dictionary = airfields[_zn_idx[zj]]
+		if not af.get("ort", false):
+			continue
+		var ap: Vector3 = af["pos"]
+		var d := Vector2(x - ap.x, z - ap.z).length()
+		a = maxf(a, 1.0 - smoothstep(float(af["r_flat"]), float(af["r_blend"]), d))
+	return a
+
+
 func _zn_zelle(x: float, z: float) -> int:
 	if _zn_nx == 0 or x < _zn_x0 or z < _zn_z0 or airfields.size() != _zn_anzahl:
 		return -1
@@ -12220,6 +12237,10 @@ func _boden_farbe(cen: Vector3, alpin: float = 0.0, kragen: float = 0.0,
 	# HIER WIRD DER RAND WEICH. "kern" ist 1 tief im Biom und 0 an seiner Schwelle; am
 	# Rand gilt also die Wiese, und dazwischen wird gemischt. Ohne diese Zeile bleibt die
 	# Kernberechnung oben wirkungslos — das Biom wuerde weiter hart umschalten.
+	# SIEDLUNGEN (Flachzonen mit "ort"): Wiese statt Heide/Wueste — die Zone haelt den Wald frei,
+	# und ohne Wald lag dort die Heidefarbe als kahle Sandscheibe unter jedem Dorf.
+	if kern > 0.0:
+		kern *= 1.0 - _ort_anteil(cen.x, cen.z)
 	if kern < 0.999:
 		bc = wc.lerp(bc, kern)
 	# Der Vulkankragen blendet auf dieselbe WALD/WIESE-Variante wie der Almkorridor (siehe
