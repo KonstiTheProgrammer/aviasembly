@@ -56,14 +56,20 @@ const L_KALT := Color(0.80, 0.90, 1.0)
 const L_LED := Color(1.0, 0.93, 0.80)
 
 static var _licht_mat: ShaderMaterial
+static var _lauf_mat: ShaderMaterial
+static var _blink_mat: ShaderMaterial
 static var _font: Font
 
 var node: Node3D
 var st: SurfaceTool        # feste Teile, Vertexfarbe
 var sl: SurfaceTool        # Leuchtteile
+var sw: SurfaceTool        # Lauflicht (Alpha = Lage laengs)
+var sb: SurfaceTool        # Blinklichter (Alpha = Phase)
+var sa: SurfaceTool        # feste Teile DRAUSSEN vor dem Portal (bleiben in der Sonne)
 var sr: SurfaceTool        # Rohre (glatt)
 var koll: StaticBody3D
 var rng := RandomNumberGenerator.new()
+var tueren: Array = []      # [Lage vor der Tuer, Richtung zur Bahn (x)]
 
 
 static func bauen(basis: Node3D) -> void:
@@ -76,6 +82,9 @@ func _los() -> void:
 	rng.seed = 0xAD1E
 	st = _neu(-1)
 	sl = _neu(-1)
+	sw = _neu(-1)
+	sb = _neu(-1)
+	sa = _neu(-1)
 	sr = _neu(0)
 	koll = StaticBody3D.new()
 	koll.name = "AusbauKollision"
@@ -93,10 +102,24 @@ func _los() -> void:
 	_fahrzeugpark()
 	_bodenmarken()
 	_schilder()
+	_lauflicht()
+	_rundumleuchten()
+	_wappen()
+	_dunst()
+	_portalschrift()
+	_banner()
+	_rollschilder()
+	_portalbau()
+	_figuren()
 
 	_fertig(st, _fest_mat(), "AusbauFest")
+	# Eigenes Netz fuer alles vor dem Portal: Main legt das Innere auf die Kavernen-Ebene
+	# (ohne Sonne) — im selben Netz standen Fluegelmauern und Sturz schwarz im Tageslicht.
+	_fertig(sa, _fest_mat(), "AusbauAussen")
 	_fertig(sr, _fest_mat(), "AusbauRohre")
 	_fertig(sl, _leucht_mat(), "AusbauLicht")
+	_fertig(sw, _signal_mat(true), "AusbauLauflicht")
+	_fertig(sb, _signal_mat(false), "AusbauBlinklicht")
 
 
 # --- Netze und Materialien ------------------------------------------------------------------
@@ -113,7 +136,7 @@ func _fertig(s: SurfaceTool, m: Material, name: String) -> void:
 	mi.name = name
 	mi.mesh = s.commit()
 	mi.material_override = m
-	if m == _licht_mat:
+	if m is ShaderMaterial:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(mi)
 
@@ -152,6 +175,51 @@ void fragment() {
 		_licht_mat = ShaderMaterial.new()
 		_licht_mat.shader = sh
 	return _licht_mat
+
+
+## SIGNALLICHTER mit Zeitverhalten, beide unbeleuchtet und mit Staerke weit ueber 1 (sie
+## sollen im Lichtglanz gluehen, Schwelle 2,4 — in der Halle 1,15, Main._kavernen_stimmung):
+##   lauf = true  LAUFLICHT: ein kurzer Blitz wandert die Bahn entlang IN DEN BERG (Alpha der
+##                Vertexfarbe = Lage laengs, z / 1100). Takt 0,55/s, 520 m zwischen zwei
+##                Blitzen, also 286 m/s — wie die Anflugblitzer eines echten Platzes.
+##   lauf = false BLINKLICHT: Rundumleuchten, Alpha = Phase (jede Leuchte eigener Takt).
+static func _signal_mat(lauf: bool) -> ShaderMaterial:
+	if lauf and _lauf_mat != null:
+		return _lauf_mat
+	if not lauf and _blink_mat != null:
+		return _blink_mat
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, shadows_disabled;
+uniform float grund = 0.35;
+uniform float staerke = 9.0;
+void fragment() {
+	vec3 c = COLOR.rgb;
+	c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+#ifdef LAUF
+	float k = fract(TIME * 0.55 - COLOR.a * 1100.0 / 520.0);
+	float blitz = pow(max(0.0, 1.0 - k * 7.0), 2.0);
+#else
+	float k = fract(TIME * 0.9 + COLOR.a * 7.0);
+	float blitz = smoothstep(0.0, 0.08, k) * (1.0 - smoothstep(0.30, 0.42, k));
+#endif
+	ALBEDO = c * (grund + staerke * blitz);
+}
+"""
+	if lauf:
+		sh.code = sh.code.replace("shader_type spatial;", "shader_type spatial;\n#define LAUF")
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	if lauf:
+		_lauf_mat = m
+	else:
+		_blink_mat = m
+	return m
+
+
+func _phase(c: Color) -> Color:
+	return Color(c.r, c.g, c.b, rng.randf())
 
 
 func _kol(c: Vector3, s: Vector3, gier := 0.0) -> void:
@@ -404,6 +472,7 @@ func _haus(sx: float, za: float, ze: float, nr: int) -> void:
 	_q(st, Vector3(x0 - sx * 0.8, y0 + 2.9, tuer_z), Vector3(1.6, 0.14, 2.6), C_STAHL)
 	Landmarks._box_geo(sl, Vector3(x0 - sx * 0.12, y0 + 2.7, tuer_z), Vector3(0.12, 0.18, 0.5),
 		L_WARM)
+	tueren.append([Vector3(x0 - sx * 1.8, y0, tuer_z), -sx])
 	# Laubengang mit Treppe (dreigeschossig): Gang vor dem oberen Geschoss, Gelaender,
 	# Treppe am Hausende hinauf.
 	if stock == 3:
@@ -707,7 +776,7 @@ func _schlepper(xf: Transform3D) -> void:
 		for ez: float in [-2.05, -0.55]:
 			_ob(st, xf, Vector3(ex, 1.85, ez + 0.0), Vector3(0.1, 1.3, 0.1), C_GELB)
 	_ob(st, xf, Vector3(0, 0.55, 2.5), Vector3(0.5, 0.25, 0.6), C_STAHL)
-	_zyl(sl, xf * Vector3(0, 2.62, -1.3), xf * Vector3(0, 2.85, -1.3), 0.12, 8, Color(1.0, 0.55, 0.05))
+	_zyl(sb, xf * Vector3(0, 2.62, -1.3), xf * Vector3(0, 2.85, -1.3), 0.12, 8, _phase(Color(1.0, 0.55, 0.05)))
 	for ex: float in [-0.7, 0.7]:
 		Landmarks._box_geo(sl, xf * Vector3(ex, 0.9, 2.31), Vector3(0.25, 0.15, 0.04), L_KALT)
 	for wx: float in [-1.15, 1.15]:
@@ -830,12 +899,439 @@ func _feuerwehr(xf: Transform3D) -> void:
 	_ob(st, xf, Vector3(0, 3.25, -1.0), Vector3(2.0, 0.1, 5.8), C_STAHL)
 	_zyl(st, xf * Vector3(0, 3.5, 0.5), xf * Vector3(0, 3.5, -3.8), 0.18, 8, C_STAHL)
 	for ex: float in [-0.7, 0.7]:
-		_zyl(sl, xf * Vector3(ex, 3.5, 3.6), xf * Vector3(ex, 3.75, 3.6), 0.13, 8, Color(0.25, 0.45, 1.0))
+		_zyl(sb, xf * Vector3(ex, 3.5, 3.6), xf * Vector3(ex, 3.75, 3.6), 0.13, 8, _phase(Color(0.25, 0.45, 1.0)))
 		Landmarks._box_geo(sl, xf * Vector3(ex, 1.2, 4.24), Vector3(0.3, 0.18, 0.04), L_KALT)
 	for wz: float in [-3.2, -1.9, 3.0]:
 		for wx: float in [-1.15, 1.15]:
 			_rad(st, xf, Vector3(wx, 0.58, wz), 0.58, 0.42)
 	_kol(xf * Vector3(0, 1.8, 0), Vector3(2.5, 3.6, 8.6), xf.basis.get_euler().y)
+
+
+# --- Aura: Lauflicht, Rundumleuchten, Wappen, Dunst, Portalschrift ---------------------------
+## LAUFLICHT entlang der Bahn: beidseits knapp neben der Bahnkante alle 15 m, draussen im Tal
+## auf der Achse alle 24 m bis 480 m vor das Portal (der Talboden liegt dort eben auf 90,0 m,
+## also 0,7 m unter dem Hallenboden). Ein Blitz nach dem anderen laeuft in den Berg hinein.
+func _lauflicht() -> void:
+	var c := Color(1.0, 0.97, 0.90)
+	var z := -480.0
+	while z < -8.0:
+		var col := Color(c.r, c.g, c.b, clampf((z + 500.0) / 1100.0, 0.0, 1.0))
+		_q(sa, Vector3(0, -0.55, z), Vector3(0.9, 0.3, 0.9), C_STAHL)
+		Landmarks._box_geo(sw, Vector3(0, -0.32, z), Vector3(0.55, 0.18, 0.55), col)
+		z += 24.0
+	z = 20.0
+	while z < Landmarks.HB_BAHN_D1 + 1.0:
+		for sx: float in [-1.0, 1.0]:
+			var col := Color(c.r, c.g, c.b, clampf((z + 500.0) / 1100.0, 0.0, 1.0))
+			_q(st, Vector3(sx * 16.5, 0.2, z), Vector3(0.7, 0.25, 0.7), C_STAHL)
+			Landmarks._box_geo(sw, Vector3(sx * 16.5, 0.38, z), Vector3(0.45, 0.14, 0.45), col)
+		z += 15.0
+
+
+## RUNDUMLEUCHTEN: gelb an den Ecken der Wartungsgerueste, rot am Portal und an der
+## Rueckwand, gelb auf den Gittertuermen.
+func _rundumleuchten() -> void:
+	for wi: int in WARTUNG:
+		var s: Array = STAENDE[wi]
+		var px: float = s[1]
+		var pz: float = s[2]
+		for cx: float in [-1.0, 1.0]:
+			for cz: float in [-1.0, 1.0]:
+				var p := Vector3(px + cx * 13.0, BODEN + 13.0 + 1.0, pz + cz * 12.0)
+				_zyl(st, p - Vector3(0, 0.15, 0), p, 0.32, 8, C_STAHL)
+				_zyl(sb, p, p + Vector3(0, 0.45, 0), 0.24, 8, _phase(Color(1.0, 0.62, 0.08)))
+	for sx: float in [-1.0, 1.0]:
+		for y: float in [3.0, 12.0]:
+			var p := Vector3(sx * (Landmarks.HB_W_MUND - 1.0), y, 2.0)
+			_zyl(sb, p, p + Vector3(0, 0.6, 0), 0.35, 8, _phase(Color(1.0, 0.14, 0.08)))
+		for tz: float in [240.0, 560.0, 880.0]:
+			var p := Vector3(sx * (Landmarks.HB_W_HALLE - 13.0), 40.4, tz)
+			_zyl(sb, p, p + Vector3(0, 0.5, 0), 0.3, 8, _phase(Color(1.0, 0.62, 0.08)))
+
+
+## DAS WAPPEN an der Rueckwand: ein Adler mit gestuften Schwingen in einem leuchtenden Ring,
+## 30 m hoch — vom Portal aus am Ende der Halle zu sehen, 1 km tief im Berg. Aus Vierecken
+## und Dreiecken gebaut (Schwungfedern als schraege Lamellen), leuchtend vor einer dunklen
+## Stahlscheibe.
+func _wappen() -> void:
+	var z := Landmarks.HB_LAENGE - 7.0
+	var m := Vector3(0, 37.0, z)
+	var gold := Color(1.0, 0.80, 0.42)
+	var weiss := Color(1.0, 0.95, 0.86)
+	# Scheibe und Ring
+	var n := 48
+	for i in n:
+		var a0 := TAU * float(i) / float(n)
+		var a1 := TAU * float(i + 1) / float(n)
+		var d0 := Vector3(cos(a0), sin(a0), 0)
+		var d1 := Vector3(cos(a1), sin(a1), 0)
+		Landmarks._tri(st, m + Vector3(0, 0, 0.3), m + d0 * 15.6 + Vector3(0, 0, 0.3),
+			m + d1 * 15.6 + Vector3(0, 0, 0.3), Color(0.07, 0.075, 0.085))
+		Landmarks._quad(sl, m + d0 * 14.2, m + d0 * 15.2, m + d1 * 15.2, m + d1 * 14.2, gold)
+		Landmarks._quad(sl, m + d0 * 12.6, m + d0 * 13.0, m + d1 * 13.0, m + d1 * 12.6, gold)
+	# Rumpf (Raute), Kopf mit Schnabel, Schwanzfedern
+	var f := m - Vector3(0, 0, 0.05)
+	Landmarks._quad(sl, f + Vector3(0, 6.2, 0), f + Vector3(1.9, 1.5, 0), f + Vector3(0, -6.0, 0),
+		f + Vector3(-1.9, 1.5, 0), weiss)
+	Landmarks._quad(sl, f + Vector3(0, 9.6, 0), f + Vector3(1.3, 7.8, 0), f + Vector3(0, 5.8, 0),
+		f + Vector3(-1.3, 7.8, 0), weiss)
+	Landmarks._tri(sl, f + Vector3(-1.1, 8.6, 0), f + Vector3(-3.0, 8.0, 0), f + Vector3(-1.2, 7.4, 0),
+		gold)
+	for t in 3:
+		var x := (float(t) - 1.0) * 1.3
+		Landmarks._quad(sl, f + Vector3(x - 0.55, -5.6, 0), f + Vector3(x + 0.55, -5.6, 0),
+			f + Vector3(x * 1.6 + 0.35, -10.6, 0), f + Vector3(x * 1.6 - 0.35, -10.6, 0), weiss)
+	# Schwingen: je Seite sechs Federlamellen, nach aussen steigend, unten kuerzer
+	for sx: float in [-1.0, 1.0]:
+		for i in 6:
+			var y0 := 4.6 - float(i) * 1.55
+			var x0 := 1.7
+			var lang := 10.6 - float(i) * 1.15
+			var steig := 0.42 - float(i) * 0.03
+			var dicke := 1.05
+			var a := f + Vector3(sx * x0, y0, 0)
+			var b := f + Vector3(sx * (x0 + lang), y0 + lang * steig, 0)
+			var spitze := f + Vector3(sx * (x0 + lang + 1.2), y0 + lang * steig - 0.2, 0)
+			var bu := b - Vector3(0, dicke, 0)
+			var au := a - Vector3(0, dicke, 0)
+			Landmarks._quad(sl, a, b, bu, au, weiss if i % 2 == 0 else Color(0.96, 0.88, 0.70))
+			Landmarks._tri(sl, b, spitze, bu, weiss)
+	# Licht auf die Wand
+	var l := SpotLight3D.new()
+	l.transform = Transform3D(Basis.looking_at(Vector3(0, 0.55, 1.0)), Vector3(0, 6.0, z - 40.0))
+	l.light_color = Color(1.0, 0.82, 0.56)
+	l.light_energy = 18.0
+	l.spot_range = 80.0
+	l.spot_angle = 26.0
+	l.shadow_enabled = false
+	node.add_child(l)
+
+
+## DUNST IN DER HALLE (Godots volumetrischer Nebel, nur in diesem Volumen): darin werden die
+## Lichtkegel der Pendelleuchten und Fluter sichtbar, und die Tiefe der Halle versinkt.
+## Eingeschaltet wird der volumetrische Nebel nur, wenn die Kamera bei der Basis ist
+## (Main._kavernen_stimmung) — er kostet sonst ueberall.
+func _dunst() -> void:
+	var fv := FogVolume.new()
+	fv.name = "AusbauDunst"
+	fv.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
+	fv.size = Vector3(Landmarks.HB_W_HALLE * 2.0 + 6.0, Landmarks.HB_H_HALLE + 6.0,
+		Landmarks.HB_LAENGE + 40.0)
+	fv.position = Vector3(0, (Landmarks.HB_H_HALLE + 6.0) * 0.5 - 2.0, Landmarks.HB_LAENGE * 0.5 - 10.0)
+	var fm := FogMaterial.new()
+	fm.density = 0.0045
+	fm.albedo = Color(0.86, 0.80, 0.72)
+	fm.edge_fade = 0.08
+	fv.material = fm
+	node.add_child(fv)
+	# NUR DIE SCHEINWERFER ZIEHEN LICHTBAHNEN. Die vielen Fuell-Omnis (Landmarks: je Pendel
+	# eine, Reichweite 26 m) leuchteten den ganzen Dunst gleichmaessig aus — die Halle stand
+	# milchig da statt mit Lichtkegeln im Dunkeln.
+	for l in node.find_children("*", "Light3D", true, false):
+		if l is SpotLight3D:
+			(l as Light3D).light_volumetric_fog_energy = 2.2
+		else:
+			(l as Light3D).light_volumetric_fog_energy = 0.0
+
+
+## SCHRIFTZUG UEBER DEM PORTAL: ein Betonsturz vor der Felsstirn mit dem Namen der Basis,
+## im Anflug schon von weitem lesbar.
+func _portalschrift() -> void:
+	var y := 57.0
+	var z := -11.0
+	_q(sa, Vector3(0, y, z), Vector3(64.0, 9.0, 6.0), Color(0.13, 0.13, 0.14))
+	_q(sa, Vector3(0, y - 4.7, z - 0.5), Vector3(65.0, 0.5, 7.0), Color(0.34, 0.33, 0.32))
+	_q(sa, Vector3(0, y + 4.7, z - 0.5), Vector3(65.0, 0.5, 7.0), Color(0.34, 0.33, 0.32))
+	# Leuchtschrift: Farbe ueber 1, damit sie auch im Tageslicht im Lichtglanz glueht
+	_schild("ADLERHORST", Vector3(0, y + 0.2, z - 3.05), Vector3(0, 0, -1), 0.062,
+		Color(3.2, 2.9, 2.4))
+	for sx: float in [-1.0, 1.0]:
+		Landmarks._box_geo(sl, Vector3(sx * 29.5, y, z - 3.1), Vector3(1.4, 1.4, 0.1),
+			Color(1.0, 0.2, 0.12))
+
+
+# --- Liebe zum Detail: Banner, Rollwegschilder, Portalbau, Figuren ---------------------------
+const BANNER_FARBEN := [Color(0.50, 0.07, 0.06), Color(0.07, 0.12, 0.32), Color(0.20, 0.27, 0.14)]
+const C_GOLD := Color(0.86, 0.66, 0.22)
+
+
+## STAFFELBANNER: an fuenf Rippen je Seite ein 14 m langes Tuch mit Schwalbenschwanz, gold
+## gesaeumt, mit Winkel-Abzeichen — von unten von einem kleinen Strahler angeleuchtet. Das
+## gibt der Halle Farbe und Zugehoerigkeit; vorher war sie grau in grau.
+func _banner() -> void:
+	var rippen := [300.0, 444.0, 588.0, 732.0, 876.0]
+	var n := 0
+	for rz: float in rippen:
+		for sx: float in [-1.0, 1.0]:
+			var farbe: Color = BANNER_FARBEN[n % BANNER_FARBEN.size()]
+			n += 1
+			var x := sx * 44.0
+			var z := rz - RIPPE_HALB - 0.6
+			var oben := 46.0
+			var unten := 32.0
+			var b := 2.5
+			# Stange und Seile
+			_q(st, Vector3(x, oben + 0.25, z), Vector3(b * 2.0 + 0.6, 0.18, 0.18), C_STAHL)
+			for ex: float in [-b, b]:
+				_q(st, Vector3(x + ex, oben + 1.3, z), Vector3(0.05, 2.1, 0.05), C_STAHL)
+			# Tuch in Streifen, leicht gewellt
+			var streifen := 7
+			for i in streifen:
+				var y0 := oben - (oben - unten - 2.0) * float(i) / float(streifen)
+				var y1 := oben - (oben - unten - 2.0) * float(i + 1) / float(streifen)
+				var w0 := 0.18 * sin(float(i) * 1.7 + float(n))
+				var w1 := 0.18 * sin(float(i + 1) * 1.7 + float(n))
+				var ton := 0.92 + 0.10 * float(i % 2)
+				Landmarks._quad(st, Vector3(x - b, y0, z + w0), Vector3(x + b, y0, z + w0),
+					Vector3(x + b, y1, z + w1), Vector3(x - b, y1, z + w1), Landmarks._shade(farbe, ton))
+				# Goldsaum an den Kanten (beidseitig sichtbar)
+				for kx: float in [-b, b - 0.3]:
+					for dz: float in [-0.03, 0.03]:
+						Landmarks._quad(st, Vector3(x + kx, y0, z + w0 + dz), Vector3(x + kx + 0.3, y0, z + w0 + dz),
+							Vector3(x + kx + 0.3, y1, z + w1 + dz), Vector3(x + kx, y1, z + w1 + dz), C_GOLD)
+			var yf := unten + 2.0
+			Landmarks._tri(st, Vector3(x - b, yf, z), Vector3(x, yf, z), Vector3(x - b, unten, z), farbe)
+			Landmarks._tri(st, Vector3(x, yf, z), Vector3(x + b, yf, z), Vector3(x + b, unten, z), farbe)
+			# Abzeichen: goldener Doppelwinkel und ein Stern, auf beiden Seiten
+			for dz: float in [-0.06, 0.06]:
+				for w in 2:
+					var cy := 41.0 - float(w) * 1.6
+					Landmarks._quad(st, Vector3(x - 1.6, cy + 1.0, z + dz), Vector3(x, cy, z + dz),
+						Vector3(x, cy - 0.7, z + dz), Vector3(x - 1.6, cy + 0.3, z + dz), C_GOLD)
+					Landmarks._quad(st, Vector3(x, cy, z + dz), Vector3(x + 1.6, cy + 1.0, z + dz),
+						Vector3(x + 1.6, cy + 0.3, z + dz), Vector3(x, cy - 0.7, z + dz), C_GOLD)
+				for k in 5:
+					var a0 := PI * 0.5 + TAU * float(k) / 5.0
+					var a1 := a0 + TAU / 10.0
+					var a2 := a0 - TAU / 10.0
+					var m := Vector3(x, 43.6, z + dz)
+					Landmarks._tri(st, m + Vector3(cos(a0), sin(a0), 0) * 0.9,
+						m + Vector3(cos(a1), sin(a1), 0) * 0.36, m + Vector3(cos(a2), sin(a2), 0) * 0.36, C_GOLD)
+					Landmarks._tri(st, m, m + Vector3(cos(a1), sin(a1), 0) * 0.36,
+						m + Vector3(cos(a2), sin(a2), 0) * 0.36, C_GOLD)
+			var l := SpotLight3D.new()
+			l.transform = Transform3D(Basis.looking_at(Vector3(0, 1.0, 0.45).normalized()),
+				Vector3(x, 24.0, z - 7.0))
+			l.light_color = Color(1.0, 0.86, 0.66)
+			l.light_energy = 7.0
+			l.spot_range = 28.0
+			l.spot_angle = 16.0
+			l.shadow_enabled = false
+			node.add_child(l)
+
+
+## ROLLWEGSCHILDER an der Bahnschulter vor jedem Stand: gelbe Leuchttafel mit Standnummer und
+## Pfeil zur Standseite, zum Portal hin lesbar (wer einrollt, liest sie).
+func _rollschilder() -> void:
+	for i in STAENDE.size():
+		var s: Array = STAENDE[i]
+		var px: float = s[1]
+		var pz: float = s[2]
+		var sx := signf(px)
+		var x := sx * 23.4
+		var z := pz - 15.0
+		for lx: float in [-2.2, 2.2]:
+			_q(st, Vector3(x + lx, BODEN + 0.7, z), Vector3(0.14, 1.4, 0.14), C_STAHL)
+		_q(st, Vector3(x, BODEN + 1.95, z), Vector3(5.6, 1.3, 0.3), Color(0.05, 0.05, 0.05))
+		Landmarks._box_geo(sl, Vector3(x, BODEN + 1.95, z - 0.17), Vector3(5.4, 1.1, 0.02),
+			Color(1.0, 0.80, 0.10))
+		# Pfeil zur Standseite (Welt +x*sx; wer in den Berg rollt, hat +x links), schwarz vor
+		# dem Leuchtgelb, am stand-seitigen Ende; die Schrift am anderen.
+		var py := BODEN + 1.95
+		var zz := z - 0.2
+		var spitze := x + sx * 2.5
+		Landmarks._tri(st, Vector3(spitze, py, zz), Vector3(spitze - sx * 0.6, py + 0.42, zz),
+			Vector3(spitze - sx * 0.6, py - 0.42, zz), Color(0.03, 0.03, 0.03))
+		_q(st, Vector3(spitze - sx * 1.05, py, zz), Vector3(0.9, 0.22, 0.02), Color(0.03, 0.03, 0.03))
+		var l := Label3D.new()
+		l.text = "STAND %d" % (i + 1)
+		l.font = _schrift()
+		l.font_size = 96
+		l.pixel_size = 0.0068
+		l.modulate = Color(0.02, 0.02, 0.02)
+		l.outline_size = 0
+		l.shaded = false
+		l.double_sided = false
+		l.position = Vector3(x - sx * 0.75, py, z - 0.21)
+		l.rotation.y = PI
+		node.add_child(l)
+		_kol(Vector3(x, BODEN + 1.4, z), Vector3(5.6, 2.8, 0.4))
+
+
+## PORTAL ALS BAUWERK: zwei gestufte Fluegelmauern aus Beton zu beiden Seiten des Rings,
+## mit Pfeilern, Abdeckung und Flutern; die Panzertore im Mund mit Rippen, Warnkante und
+## Torbezeichnung; draussen Wachhaeuschen und Flaggenmast.
+func _portalbau() -> void:
+	var c_beton := Color(0.30, 0.295, 0.285)
+	var talboden := -0.7
+	for sx: float in [-1.0, 1.0]:
+		# VOR der Felsstirn (ihr Fuss liegt bei z -26 bis |x| 80): die Mauern rahmen das
+		# Vorfeld wie ein Tor und stecken nicht im Fels.
+		var a := Vector2(sx * 36.0, -28.0)
+		var b := Vector2(sx * 82.0, -50.0)
+		var d := (b - a)
+		var lang := d.length()
+		var dir := d / lang
+		var gier := atan2(dir.x, dir.y) - PI * 0.5
+		var stufen := 6
+		for k in stufen:
+			var t := (float(k) + 0.5) / float(stufen)
+			var m := a + d * t
+			var h := lerpf(27.0, 7.0, float(k) / float(stufen - 1))
+			var xf := Transform3D(Basis(Vector3.UP, gier), Vector3(m.x, talboden, m.y))
+			_ob(sa, xf, Vector3(0, h * 0.5, 0), Vector3(lang / float(stufen) + 0.05, h, 2.6), c_beton)
+			_ob(sa, xf, Vector3(0, h + 0.25, 0), Vector3(lang / float(stufen) + 0.4, 0.5, 3.2),
+				Landmarks._shade(c_beton, 0.8))
+			# Pfeiler an der Stufe
+			_ob(sa, xf, Vector3(-lang / float(stufen) * 0.5, h * 0.5, -1.5), Vector3(0.9, h, 0.6),
+				Landmarks._shade(c_beton, 0.9))
+			# Fugenbaender
+			var fy := 3.0
+			while fy < h - 1.0:
+				_ob(sa, xf, Vector3(0, fy, -1.32), Vector3(lang / float(stufen), 0.08, 0.06),
+					Landmarks._shade(c_beton, 0.7))
+				fy += 3.0
+			_kol(xf * Vector3(0, h * 0.5, 0), Vector3(lang / float(stufen), h, 2.6), gier)
+		# Fluter auf der hoechsten Stufe, auf den Ring gerichtet
+		var fx := Transform3D(Basis(Vector3.UP, gier), Vector3(a.x + d.x * 0.08, talboden, a.y + d.y * 0.08))
+		_ob(sa, fx, Vector3(0, 28.0, -0.6), Vector3(1.4, 0.9, 0.9), C_STAHL)
+		Landmarks._box_geo(sl, fx * Vector3(0, 28.0, -1.1), Vector3(1.0, 0.6, 0.1), L_KALT)
+		# Panzertore: Rippen innen, Warnkante vorn, Bezeichnung
+		var tx := sx * (Landmarks.HB_W_MUND - 3.2)
+		var innen := tx - sx * 2.5
+		var y := 2.0
+		while y < 31.0:
+			_q(st, Vector3(innen - sx * 0.2, y, 5.0), Vector3(0.4, 0.5, 15.2), C_STAHL)
+			y += 3.2
+		for k in 16:
+			_q(st, Vector3(tx, 1.0 + float(k) * 2.0, -3.05), Vector3(5.0, 2.0, 0.08),
+				C_GELB if k % 2 == 0 else Color(0.04, 0.04, 0.04))
+		_q(st, Vector3(tx, 0.15, 5.0), Vector3(5.6, 0.3, 17.0), Color(0.12, 0.12, 0.13))
+		var l := Label3D.new()
+		l.text = "TOR %d" % (1 if sx < 0.0 else 2)
+		l.font = _schrift()
+		l.font_size = 96
+		l.pixel_size = 0.03
+		l.modulate = Color(0.85, 0.80, 0.70)
+		l.shaded = true
+		l.double_sided = false
+		l.position = Vector3(innen - sx * 0.42, 18.0, 5.0)
+		l.rotation.y = -sx * PI * 0.5
+		node.add_child(l)
+	# Wachhaeuschen mit Flaggenmast, links vor dem Portal
+	var wx := -56.0
+	var wz := -44.0
+	_q(sa, Vector3(wx, talboden + 1.4, wz), Vector3(3.2, 2.8, 3.2), Color(0.62, 0.60, 0.55))
+	_q(sa, Vector3(wx, talboden + 2.95, wz), Vector3(4.0, 0.3, 4.0), C_STAHL)
+	Landmarks._box_geo(sl, Vector3(wx + 1.62, talboden + 1.75, wz), Vector3(0.04, 0.9, 2.4), L_WARM)
+	Landmarks._box_geo(sl, Vector3(wx, talboden + 1.75, wz - 1.62), Vector3(2.4, 0.9, 0.04), L_WARM)
+	_kol(Vector3(wx, talboden + 1.5, wz), Vector3(3.2, 3.0, 3.2))
+	var mx := wx - 5.0
+	_zyl(sa, Vector3(mx, talboden, wz), Vector3(mx, talboden + 15.0, wz), 0.14, 8, Color(0.8, 0.8, 0.78))
+	_zyl(sa, Vector3(mx, talboden + 15.0, wz), Vector3(mx, talboden + 15.3, wz), 0.25, 8, C_GOLD)
+	var fahne := BANNER_FARBEN[1] as Color
+	for i in 4:
+		var x0 := mx + float(i) * 0.9
+		var x1 := x0 + 0.9
+		var w0 := 0.25 * sin(float(i) * 1.4)
+		var w1 := 0.25 * sin(float(i + 1) * 1.4)
+		Landmarks._quad(sa, Vector3(x0, talboden + 14.6, wz + w0), Vector3(x1, talboden + 14.6, wz + w1),
+			Vector3(x1, talboden + 12.4, wz + w1), Vector3(x0, talboden + 12.4, wz + w0), fahne)
+	for dz: float in [-0.05, 0.05]:
+		Landmarks._quad(sa, Vector3(mx + 1.2, talboden + 13.9, wz + dz), Vector3(mx + 1.8, talboden + 13.5, wz + dz),
+			Vector3(mx + 1.8, talboden + 13.1, wz + dz), Vector3(mx + 1.2, talboden + 13.5, wz + dz), C_GOLD)
+		Landmarks._quad(sa, Vector3(mx + 1.8, talboden + 13.5, wz + dz), Vector3(mx + 2.4, talboden + 13.9, wz + dz),
+			Vector3(mx + 2.4, talboden + 13.5, wz + dz), Vector3(mx + 1.8, talboden + 13.1, wz + dz), C_GOLD)
+
+
+## FIGUREN: Bodenpersonal mit Helm und Warnweste, Techniker, Piloten, Einweiser mit
+## Leuchtstaeben, Wachen — an jedem Stand, vor den Haustueren, auf dem Gehweg.
+func _figur(xf: Transform3D, rolle: String, ziel: SurfaceTool = null) -> void:
+	var fs := st if ziel == null else ziel
+	var hose := Color(0.12, 0.14, 0.22)
+	var jacke := Color(0.14, 0.16, 0.26)
+	var weste := Color(0.95, 0.78, 0.05)
+	var helm := Color(0.95, 0.80, 0.10)
+	var haut := Color(0.70, 0.52, 0.40) if rng.randf() < 0.6 else Color(0.48, 0.34, 0.25)
+	match rolle:
+		"techniker":
+			hose = Color(0.30, 0.31, 0.33)
+			jacke = hose
+			weste = Color(0.98, 0.45, 0.06)
+			helm = Color(0.16, 0.17, 0.20)
+		"pilot":
+			hose = Color(0.30, 0.34, 0.22)
+			jacke = hose
+			weste = hose
+			helm = Color(0.92, 0.92, 0.90)
+		"einweiser":
+			weste = Color(0.98, 0.45, 0.06)
+			helm = Color(0.95, 0.95, 0.92)
+		"wache":
+			hose = Color(0.20, 0.24, 0.16)
+			jacke = hose
+			weste = hose
+			helm = Color(0.10, 0.10, 0.10)
+	for bx: float in [-0.11, 0.11]:
+		_ob(fs, xf, Vector3(bx, 0.06, 0.04), Vector3(0.15, 0.12, 0.28), Color(0.05, 0.05, 0.05))
+		_ob(fs, xf, Vector3(bx, 0.52, 0), Vector3(0.16, 0.8, 0.19), hose)
+	_ob(fs, xf, Vector3(0, 1.24, 0), Vector3(0.44, 0.62, 0.26), jacke)
+	if weste != jacke:
+		_ob(fs, xf, Vector3(0, 1.22, 0), Vector3(0.47, 0.46, 0.29), weste)
+		_ob(fs, xf, Vector3(0, 1.10, 0), Vector3(0.48, 0.05, 0.30), Color(0.85, 0.86, 0.88))
+	_ob(fs, xf, Vector3(0, 1.67, 0), Vector3(0.2, 0.24, 0.22), haut)
+	_ob(fs, xf, Vector3(0, 1.82, 0.01), Vector3(0.25, 0.1, 0.28), helm)
+	if rolle == "pilot":
+		_ob(fs, xf, Vector3(0, 1.70, 0.12), Vector3(0.2, 0.07, 0.04), Color(0.1, 0.1, 0.1))
+	for ax: float in [-1.0, 1.0]:
+		var arm := Basis(Vector3.FORWARD, ax * 0.12)
+		if rolle == "einweiser":
+			arm = Basis(Vector3.FORWARD, ax * 2.5)
+		var schulter := Vector3(ax * 0.28, 1.5, 0)
+		var a_xf := Transform3D(xf.basis * arm, xf * schulter)
+		_ob(fs, a_xf, Vector3(0, -0.3, 0), Vector3(0.12, 0.6, 0.13), jacke)
+		if rolle == "einweiser":
+			_zyl(sl, a_xf * Vector3(0, -0.6, 0), a_xf * Vector3(0, -1.15, 0), 0.05, 6,
+				Color(1.0, 0.45, 0.05))
+
+
+func _figuren() -> void:
+	for i in STAENDE.size():
+		var s: Array = STAENDE[i]
+		var px: float = s[1]
+		var pz: float = s[2]
+		var sx := signf(px)
+		var u := -sx
+		_figur(Transform3D(Basis(Vector3.UP, PI * 0.5 * sx), Vector3(px - u * 1.4, BODEN, pz + 5.6)),
+			"techniker")
+		_figur(Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3(px + 1.2, BODEN, pz - 6.8)),
+			"boden")
+		if i % 3 == 0:
+			_figur(Transform3D(Basis(Vector3.UP, -u * PI * 0.5 + 0.3),
+				Vector3(px + u * 7.5, BODEN, pz + 2.5)), "pilot")
+		if i == 0 or i == 5:
+			# Einweiser auf der Fuehrungslinie, Blick zur Bahn, Staebe hoch
+			_figur(Transform3D(Basis(Vector3.UP, -sx * PI * 0.5), Vector3(sx * 26.0, BODEN, pz)),
+				"einweiser")
+	# Vor den Haustueren: zu zweit
+	var n := 0
+	for t: Array in tueren:
+		n += 1
+		if n % 3 != 0:
+			continue
+		var p: Vector3 = t[0]
+		var r: float = t[1]
+		_figur(Transform3D(Basis(Vector3.UP, 0.4), p + Vector3(r * 0.3, 0, -0.5)), "boden")
+		_figur(Transform3D(Basis(Vector3.UP, PI + 0.4), p + Vector3(r * 0.3, 0, 0.6)), "techniker")
+	# Auf dem Gehweg
+	for k in 10:
+		var sx2: float = 1.0 if k % 2 == 0 else -1.0
+		var z := 260.0 + float(k) * 68.0 + rng.randf_range(-10.0, 10.0)
+		_figur(Transform3D(Basis(Vector3.UP, 0.0 if rng.randf() < 0.5 else PI),
+			Vector3(sx2 * 60.4, BODEN, z)), "boden" if k % 3 else "pilot")
+	# Wache am Portal
+	_figur(Transform3D(Basis(Vector3.UP, PI), Vector3(-53.6, -0.7, -46.5)), "wache", sa)
+	_figur(Transform3D(Basis(Vector3.UP, PI + 0.5), Vector3(-58.0, -0.7, -47.5)), "wache", sa)
 
 
 # --- Boden und Schilder -----------------------------------------------------------------------
@@ -868,18 +1364,18 @@ func _bodenmarken() -> void:
 func _schilder() -> void:
 	var tz := RIPPE_AB + 4.0
 	var c_tafel := Color(0.09, 0.10, 0.11)
-	_q(st, Vector3(0, 39.5, tz), Vector3(48.0, 12.0, 0.4), c_tafel)
-	_q(st, Vector3(0, 45.6, tz), Vector3(48.6, 0.3, 0.6), C_GELB)
-	_q(st, Vector3(0, 33.4, tz), Vector3(48.6, 0.3, 0.6), C_GELB)
+	_q(st, Vector3(0, 44.5, tz), Vector3(48.0, 12.0, 0.4), c_tafel)
+	_q(st, Vector3(0, 50.6, tz), Vector3(48.6, 0.3, 0.6), C_GELB)
+	_q(st, Vector3(0, 38.4, tz), Vector3(48.6, 0.3, 0.6), C_GELB)
 	for sx: float in [-1.0, 1.0]:
-		_q(st, Vector3(sx * 20.0, 51.0, tz), Vector3(0.12, 11.0, 0.12), C_STAHL)
-	_schild("ADLERHORST", Vector3(0, 41.2, tz - 0.25), Vector3(0, 0, -1), 0.07,
+		_q(st, Vector3(sx * 20.0, 53.4, tz), Vector3(0.12, 5.4, 0.12), C_STAHL)
+	_schild("ADLERHORST", Vector3(0, 46.2, tz - 0.25), Vector3(0, 0, -1), 0.07,
 		Color(0.96, 0.92, 0.84))
-	_schild("HALLE 1  ·  STANDPLÄTZE 1 – 10", Vector3(0, 35.4, tz - 0.25), Vector3(0, 0, -1),
+	_schild("HALLE 1  ·  STANDPLÄTZE 1 – 10", Vector3(0, 40.4, tz - 0.25), Vector3(0, 0, -1),
 		0.022, Color(0.95, 0.78, 0.25))
-	_schild("AUSFAHRT", Vector3(0, 39.5, tz + 0.25), Vector3(0, 0, 1), 0.06,
+	_schild("AUSFAHRT", Vector3(0, 44.5, tz + 0.25), Vector3(0, 0, 1), 0.06,
 		Color(0.40, 0.95, 0.55))
-	_kol(Vector3(0, 39.5, tz), Vector3(48.0, 12.0, 0.4))
+	_kol(Vector3(0, 44.5, tz), Vector3(48.0, 12.0, 0.4))
 
 
 func _schild(text: String, pos: Vector3, zu: Vector3, pixel: float, farbe: Color) -> void:

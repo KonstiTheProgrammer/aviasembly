@@ -2150,7 +2150,9 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	# Halle, und die addiert sich draussen auf die Wand, unabhaengig vom Albedo. Der
 	# gemessene Zusammenhang ist deshalb flach: 0,47 gab 204, 0,30 gab 182. 0,19 landet
 	# nach derselben Steigung bei rund 165 und damit MITTEN im Wandton statt darueber.
-	var stirn_c := Color(0.19, 0.17, 0.145)
+	# GRAU STATT BEIGE (Ausbau 2026-10): neben der gemalten grauen Felswand stand die Stirn
+	# als helle Plastikkuppel da.
+	var stirn_c := Color(0.135, 0.132, 0.128)
 	# Der Boden ist DUNKLER Asphaltbeton (0.30) statt hellem Estrich (0.46): auf einem
 	# hellen Boden kann keine Lampe mehr einen Lichtkreis zeichnen, und die nassen
 	# Spiegelungen der Vorlage brauchen einen dunklen Grund, auf dem sie stehen.
@@ -2556,11 +2558,23 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	_hb_ringbau(st, quer0)
 
 	st.generate_normals()
+	var gesamt := st.commit()
+	# ZWEI NETZE: die STIRN (alles vor der Portalebene) steht draussen in der Sonne, die
+	# SCHALE dahinter liegt im Berg. Main legt die Schale und alles Innere auf eine eigene
+	# Sichtebene (Main.KAVERNE_EBENE), die Sonne leuchtet sie nicht an — mit shadow_opacity
+	# 0,62 kam sie sonst zu 38 % durch 500 m Fels, und die Halle stand gleichmaessig grau da
+	# statt im Dunkeln mit Lichtkegeln (Ausbau 2026-10, „mehr Aura“).
+	var teile := _hb_teilen(gesamt, -0.5)
 	var mi := MeshInstance3D.new()
 	mi.name = "Schale"
-	mi.mesh = st.commit()
+	mi.mesh = teile[1]
 	mi.material_override = _hb_mat()
 	node.add_child(mi)
+	var mi_s := MeshInstance3D.new()
+	mi_s.name = "Stirn"
+	mi_s.mesh = teile[0]
+	mi_s.material_override = _hb_mat()
+	node.add_child(mi_s)
 
 	var body := StaticBody3D.new()
 	body.name = "Kollision"
@@ -2568,7 +2582,7 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	body.collision_mask = 0
 	var cs := CollisionShape3D.new()
 	var shape := ConcavePolygonShape3D.new()
-	shape.set_faces(mi.mesh.get_faces())
+	shape.set_faces(gesamt.get_faces())
 	# RUECKSEITEN MUESSEN MITKOLLIDIEREN, und das ist hier kein Feinschliff, sondern die
 	# Bedingung dafuer, dass die Halle begehbar ist: ConcavePolygonShape3D prueft von Haus
 	# aus nur Vorderseiten. Bei einer Schale, die man von INNEN benutzt, zeigen die
@@ -2598,6 +2612,46 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 ##
 ## quer ist der GLATTE Portalquerschnitt (_hb_ring), nicht der gebrochene Ring 0 der
 ## Roehre — begruendet oben bei der Rauheit.
+## Teilt ein Dreiecksnetz nach der Lage laengs: [vor z_grenze, dahinter] (Schwerpunkt je
+## Dreieck). Normalen und Farben bleiben, wie sie sind.
+static func _hb_teilen(mesh: ArrayMesh, z_grenze: float) -> Array:
+	var arr := mesh.surface_get_arrays(0)
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+	var ix_v: Variant = arr[Mesh.ARRAY_INDEX]
+	var ix := PackedInt32Array()
+	if ix_v != null:
+		ix = ix_v
+	else:
+		ix.resize(vs.size())
+		for i in vs.size():
+			ix[i] = i
+	var raus: Array = []
+	for teil in 2:
+		var v2 := PackedVector3Array()
+		var n2 := PackedVector3Array()
+		var c2 := PackedColorArray()
+		for t in range(0, ix.size() - 2, 3):
+			var zm := (vs[ix[t]].z + vs[ix[t + 1]].z + vs[ix[t + 2]].z) / 3.0
+			if (zm < z_grenze) != (teil == 0):
+				continue
+			for k in 3:
+				v2.append(vs[ix[t + k]])
+				n2.append(ns[ix[t + k]])
+				c2.append(cs[ix[t + k]])
+		var a2 := []
+		a2.resize(Mesh.ARRAY_MAX)
+		a2[Mesh.ARRAY_VERTEX] = v2
+		a2[Mesh.ARRAY_NORMAL] = n2
+		a2[Mesh.ARRAY_COLOR] = c2
+		var m := ArrayMesh.new()
+		if not v2.is_empty():
+			m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a2)
+		raus.append(m)
+	return raus
+
+
 static func _hb_ringbau(st: SurfaceTool, quer: PackedVector2Array) -> void:
 	var beton := Color(0.52, 0.52, 0.50)
 	var beton_d := Color(0.34, 0.34, 0.34)
@@ -2743,7 +2797,10 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# auf sRGB 131 und 33, ein Sprung von 3,5, und das Vorfeld las sich als Schachbrett.
 	# Die groessere Rauheit zieht denselben Glanz ueber mehrere Buchten und macht daraus
 	# einen Verlauf — nass bleibt es, gefliest ist es nicht mehr.
-	nass.roughness = 0.58
+	# 0.16 STATT 0.58 (Ausbau 2026-10): in der Halle laufen Spiegelungen im Bild (SSR,
+	# Main._kavernen_stimmung) — Lampen, Fenster und Blitzer stehen als Lichtstreifen auf
+	# dem nassen Beton. Mit 0.58 verschmierten sie zu einem hellen Fleck.
+	nass.roughness = 0.16
 	nass.metallic = 0.0
 	# EINE EINZIGE PLATTE WAR DER FEHLER. 152 x 1070 m in einem Ton, und weil kein Licht
 	# sie von nahem erreicht, stand die untere Bildhaelfte in JEDER Innenaufnahme als
@@ -3063,7 +3120,9 @@ static func _hb_einrichtung(node: Node3D) -> void:
 			# Schatten steht in der Halle nichts auf dem Boden, sondern alles schwebt —
 			# der haeufigste Befund der Abnahme. Zwei Karten mit 95 m Reichweite kosten
 			# wenig und legen genau dort Schatten hin, wo die Maschinen stehen.
-			fl.shadow_enabled = absf(tz - 560.0) < 1.0
+			# Kein Schatten mehr (Ausbau 2026-10): die eine schattenwerfende Leuchte legte
+			# gezackte schwarze Flecken quer ueber den halben Hallenboden.
+			fl.shadow_enabled = false
 			# GROSSZUEGIGER BIAS. Mit 0.06 stand auf dem Vorfeld Schattenakne: harte
 			# dunkle Vielecke mit Treppenkanten, die zu keinem Gegenstand gehoerten.
 			# Der Hallenboden ist die flachste und groesste Flaeche der Szene und
@@ -3188,8 +3247,10 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	# in weissen Streifen aus, die Halle sah vereist aus und das warme Lampenlicht war
 	# verloren. Der Keil soll den BODEN zeichnen, nicht das Gewoelbe — daher der engere
 	# Kegel, und der Abfall 0.5 laesst ihn ueber die Bahnlaenge ausbluten.
-	tag.light_energy = 4.0
-	tag.spot_range = 560.0
+	# 1,6 statt 4 und 320 statt 560 m (Ausbau 2026-10): das Tageslicht leuchtete die Bahn
+	# bis tief in die Halle gleichmaessig grau aus — innen sollen die Lampen den Ton angeben.
+	tag.light_energy = 1.6
+	tag.spot_range = 320.0
 	tag.spot_angle = 24.0
 	tag.spot_attenuation = 0.5
 	# SCHATTEN MIT GROSSZUEGIGEM BIAS. Mit den Vorgabewerten war die ganze Halle
@@ -3535,35 +3596,8 @@ static func _hb_betrieb(node: Node3D) -> void:
 	# ---- MANNSCHAFT: der einzige Massstab, den das Auge ohne Nachdenken liest -------
 	# 1,80 m. Vier Kaesten je Person reichen — auf 50 m Entfernung ist die Silhouette
 	# alles, was ankommt, und die Warnweste macht sie auch im Halbdunkel sichtbar.
-	var st_m := SurfaceTool.new()
-	st_m.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st_m.set_smooth_group(-1)
-	var c_hose := Color(0.20, 0.21, 0.24)
-	var c_haut := Color(0.62, 0.48, 0.38)
-	# IN GRUPPEN, NICHT EINZELN VERSTREUT. Achtzehn Einzelgaenger ueber 900 m ergaben
-	# im Bild zwei sichtbare Punkte — die Abnahme hat genau zwei gefunden. Menschen
-	# stehen beieinander, und drei nebeneinander liest man auch auf 200 m noch als
-	# Menschen; einer allein ist ein Fleck.
-	for g in 12:
-		var gz: float = 110.0 + float(g) * 66.0 + 20.0 * _hb_rau(float(g), 5.0)
-		var sx: float = 1.0 if _hb_rau(float(g), 23.0) > 0.0 else -1.0
-		var gx: float = (24.0 + 28.0 * absf(_hb_rau(float(g), 29.0))) * sx
-		for m in 3:
-			var k := g * 3 + m
-			var x: float = gx + (float(m) - 1.0) * (1.1 + 0.7 * _hb_rau(float(k), 31.0))
-			var z: float = gz + 1.4 * _hb_rau(float(k), 37.0)
-			var weste: bool = k % 3 != 0
-			var c_rumpf: Color = Color(0.90, 0.62, 0.08) if weste else Color(0.26, 0.30, 0.22)
-			_box_geo(st_m, Vector3(x - 0.16, 0.42, z), Vector3(0.24, 0.84, 0.26), c_hose)
-			_box_geo(st_m, Vector3(x + 0.16, 0.42, z), Vector3(0.24, 0.84, 0.26), c_hose)
-			_box_geo(st_m, Vector3(x, 1.15, z), Vector3(0.62, 0.68, 0.34), c_rumpf)
-			_box_geo(st_m, Vector3(x, 1.62, z), Vector3(0.26, 0.28, 0.26), c_haut)
-	var mannschaft := MeshInstance3D.new()
-	mannschaft.mesh = st_m.commit()
-	var m_m := _mat(Color(1, 1, 1), 0.85)
-	m_m.vertex_color_use_as_albedo = true
-	mannschaft.material_override = m_m
-	node.add_child(mannschaft)
+	# MANNSCHAFT: seit dem Ausbau (2026-10) in scripts/Bergbasis.gd (_figuren) — mit Armen,
+	# Helm, Warnweste und Einweisern statt drei Quadern je Person.
 
 ## EIN FELSBROCKEN AUS ACHT DREIECKEN.
 ##

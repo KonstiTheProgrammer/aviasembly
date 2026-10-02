@@ -488,6 +488,13 @@ var _dorf_zonen: Array = []     # Flachzonen der Doerfer (Strassen.flachzonen), 
 var world_env: WorldEnvironment
 var terrain: TerrainWorld           # seed-basierte Landschaft (Chunks um den Spieler)
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
+var _sonne: DirectionalLight3D
+var _unterlicht: DirectionalLight3D
+# Sichtebene fuer alles IM BERG (Felsenbasis-Schale, Ausbau, Bahn in der Halle): die beiden
+# Richtungslichter (Sonne, Unterlicht) leuchten sie nicht an. Siehe _kaverne_ebene_setzen.
+const KAVERNE_EBENE := 1 << 1
+var _kaverne_knoten: Node3D         # Felsenbasis ADLERHORST (fuer _kavernen_stimmung)
+var _kav_k := 0.0                   # 0 draussen .. 1 in der Halle (weich nachgefuehrt)
 var sonne_licht: DirectionalLight3D # die Flugsonne — Grafikeinstellungen greifen darauf zu
 var env_sky: Environment
 var env_blueprint: Environment
@@ -1194,6 +1201,19 @@ func _setup_world() -> void:
 	# liegt deshalb UEBER Weiss (1.56 = sRGB 255, siehe oben): das Motiv selbst bleibt
 	# unberuehrt, nur was ohnehin ausbrennt, bekommt einen Hof. Nur die mittleren Stufen
 	# (weiche, mittelgrosse Hoefe), additiv.
+	# VOLUMETRISCHER NEBEL nur fuer die Kaverne (FogVolume in Bergbasis._dunst): global
+	# Dichte 0, eingeschaltet von _kavernen_stimmung, wenn die Kamera bei der Basis ist.
+	env.volumetric_fog_enabled = false
+	env.volumetric_fog_density = 0.0
+	env.volumetric_fog_albedo = Color(0.86, 0.80, 0.72)
+	env.volumetric_fog_length = 420.0
+	env.volumetric_fog_detail_spread = 1.4
+	env.volumetric_fog_ambient_inject = 0.0
+	env.volumetric_fog_sky_affect = 0.0
+	env.ssr_max_steps = 48
+	env.ssr_fade_in = 0.12
+	env.ssr_fade_out = 2.5
+	env.ssr_depth_tolerance = 0.5
 	env.glow_enabled = true
 	# Erster Anlauf (Schwelle 1.6, Intensitaet 0.55) liess den Glitzerpfad zu einem weissen
 	# Fleck aufbluehen: dort liegen tausende Funken ueber 2. Jetzt hoeher und schwaecher.
@@ -1232,7 +1252,12 @@ func _setup_world() -> void:
 	# Luftperspektive. Bias/Normal-Bias sind fuer die grossen Low-Poly-Facetten
 	# eingestellt (8-m-Raster, sehr flache Winkel am Nachmittagsstand der Sonne).
 	var sun := DirectionalLight3D.new()
+	_sonne = sun
+	sun.light_cull_mask = 0xFFFFF & ~KAVERNE_EBENE
 	sun.rotation_degrees = SONNE_WINKEL
+	# Die Sonne leuchtet den Hallendunst der Kaverne NICHT aus: mit shadow_opacity 0,62
+	# kommt sie zu 38 % durch den Berg und liesse das ganze Volumen milchig gluehen.
+	sun.light_volumetric_fog_energy = 0.0
 	# 1.55 UND WAERMER. Mit halbiertem Ambient muss die Sonne mehr tragen, und eine tief
 	# stehende Sonne ist waermer — 26 Grad Hoehe sind spaeter Nachmittag, nicht Mittag.
 	# STIL ZELDA/GHIBLI: waermer und etwas kraeftiger — warm gegen kuehl (Himmelslicht in den
@@ -1275,6 +1300,8 @@ func _setup_world() -> void:
 	# solange die Sonne schattenlos war, musste es die Formen retten — jetzt uebernimmt
 	# das der Sonnenschatten, und zu viel Gegenlicht wuerde ihn wieder zuschmieren.
 	var underfill := DirectionalLight3D.new()
+	_unterlicht = underfill
+	underfill.light_cull_mask = 0xFFFFF & ~KAVERNE_EBENE
 	# 22 GRAD HOEHE STATT 58 — UND DAS WAR DER EIGENTLICHE FEHLER, NICHT DIE ENERGIE.
 	# Aus 58 Grad faellt das Licht steil ein und trifft eine fast SENKRECHTE Steilwand
 	# kaum: gemessen brachte eine Verdreifachung der Energie im Canyonbild ganze 1,1
@@ -2570,6 +2597,12 @@ func _setup_world() -> void:
 	var kaverne := Landmarks.build_felsenbasis(fly_world,
 		Vector3(kav_p.x, ADLERHORST_HOEHE + ADLERHORST_KAVERNE_HUB, kav_p.y),
 		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
+	_kaverne_knoten = kaverne
+	if kaverne != null:
+		# Lichtbahnen im Hallendunst nur von Scheinwerfern (auch denen am Portal, die nach
+		# Bergbasis.bauen entstehen) — siehe Bergbasis._dunst.
+		for l in kaverne.find_children("*", "Light3D", true, false):
+			(l as Light3D).light_volumetric_fog_energy = 2.2 if l is SpotLight3D else 0.0
 	# MASCHINEN AUF DEN STANDPLAETZEN. Ohne sie ist die Kaverne ein beleuchteter Korridor
 	# mit Markierungen auf dem Boden — ein Flugplatz wird sie erst durch das, was dort
 	# steht. Die Standplaetze sind in Landmarks._hb_einrichtung bei x = +-46 und z = 320
@@ -2589,6 +2622,7 @@ func _setup_world() -> void:
 			_add_parked_plane(kaverne, String(e[0]),
 				Vector3(float(e[1]), Bergbasis.BODEN - 0.14, float(e[2])), float(e[3]),
 				Bergbasis.FLIEGER_MASSSTAB)
+		_kaverne_ebene_setzen(kaverne)
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
 	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.
@@ -2942,6 +2976,73 @@ func _wolken_aufenthalt(delta: float) -> void:
 # halbe Bergeshoehe unter dem Boden und ist unsichtbar; erst dort, wo die Chunks enden,
 # taucht sie auf. Das ist ein STETIGER Verlauf an der Kamera — kein Ein-/Ausblenden,
 # kein Popping im Flug, keine wandernde Naht, wie sie ein nachgezogener Kachelring haette.
+## ALLES IM BERG AUF DIE KAVERNEN-EBENE: jede Geometrie unter der Felsenbasis und die des
+## Flugplatzes ADLERHORST, deren Mitte im Grundriss der Halle liegt (hinter der Portalebene).
+## Die Stirn, der Sturz mit dem Schriftzug und alles im Tal bleiben in der Sonne.
+func _kaverne_ebene_setzen(kaverne: Node3D) -> void:
+	var inv := kaverne.global_transform.affine_inverse()
+	var wurzeln: Array[Node] = [kaverne]
+	var platz := fly_world.find_child("Flugplatz_ADLERHORST", true, false)
+	if platz != null:
+		wurzeln.append(platz)
+	for w in wurzeln:
+		for g in w.find_children("*", "GeometryInstance3D", true, false):
+			var gi := g as GeometryInstance3D
+			if gi.name == "Stirn":
+				continue
+			var ab := gi.get_aabb()
+			var m := inv * (gi.global_transform * ab.get_center())
+			if m.z > 2.0 and m.z < Landmarks.HB_LAENGE + 10.0 \
+					and absf(m.x) < Landmarks.HB_W_HALLE + 6.0 and m.y < Landmarks.HB_H_HALLE + 8.0:
+				gi.layers = KAVERNE_EBENE
+
+
+## STIMMUNG IN DER FELSENBASIS (2026-10, Nutzer: „mach, dass die Base mehr Aura hat“).
+## Godot kennt nur EIN Environment fuer die ganze Welt; unter 500 m Fels ist dessen Himmels-
+## licht Unsinn — es machte die Halle gleichmaessig hell und flach, der nasse Boden spiegelte
+## den blauen Himmel als beigen Schleier. Steht die Kamera in der Halle (_kav_k -> 1), wird
+## deshalb umgestellt: Umgebungslicht warm und dunkel statt Himmel, keine Himmelsspiegelung,
+## dafuer Spiegelungen im Bild (SSR) auf dem nassen Boden, Tiefennebel dunkel und nah (die
+## Halle versinkt nach hinten in Dunkelheit), Sonne gedaempft, Lichtglanz schon ab 1,15 (die
+## Lichtbaender, Fenster und Blitzer gluehen). Der volumetrische Nebel (Lichtkegel im Dunst,
+## FogVolume in Bergbasis._dunst) laeuft, solange die Kamera bei der Basis ist — auch vor dem
+## Portal, dann sieht man die Lichtbahnen im Eingang. Alles wird mit _kav_k ueberblendet; bei
+## _kav_k = 0 bleiben die Werte draussen exakt wie gesetzt.
+func _kavernen_stimmung(delta: float) -> void:
+	if _kaverne_knoten == null or env_sky == null or not is_instance_valid(_kaverne_knoten):
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var p := _kaverne_knoten.global_transform.affine_inverse() * cam.global_position
+	var ziel := 0.0
+	if absf(p.x) < Landmarks.HB_W_HALLE + 4.0 and p.y < Landmarks.HB_H_HALLE + 4.0 \
+			and p.y > -10.0 and p.z < Landmarks.HB_LAENGE:
+		ziel = smoothstep(-10.0, 110.0, p.z)
+	var nah := absf(p.x) < 300.0 and p.z > -800.0 and p.z < Landmarks.HB_LAENGE + 100.0 \
+			and p.y < 400.0
+	var alt := _kav_k
+	_kav_k = move_toward(_kav_k, ziel, delta * 1.6)
+	env_sky.volumetric_fog_enabled = nah
+	if _kav_k <= 0.0 and alt <= 0.0:
+		return
+	var k := _kav_k
+	env_sky.ambient_light_color = Color(0.36, 0.31, 0.25)
+	env_sky.ambient_light_sky_contribution = 1.0 - k
+	env_sky.ambient_light_energy = lerpf(0.62, 0.28, k)
+	env_sky.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED if k > 0.5 \
+		else Environment.REFLECTION_SOURCE_BG
+	env_sky.ssr_enabled = k > 0.3
+	env_sky.glow_hdr_threshold = lerpf(2.4, 1.15, k)
+	env_sky.glow_intensity = lerpf(0.24, 0.42, k)
+	env_sky.fog_light_color = env_sky.fog_light_color.lerp(Color(0.030, 0.026, 0.022), k)
+	env_sky.fog_depth_begin = lerpf(env_sky.fog_depth_begin, 160.0, k)
+	env_sky.fog_depth_end = lerpf(env_sky.fog_depth_end, 1500.0, k)
+	env_sky.fog_depth_curve = lerpf(env_sky.fog_depth_curve, 1.1, k)
+	env_sky.fog_aerial_perspective = lerpf(0.25, 0.0, k)
+	env_sky.fog_sun_scatter = lerpf(0.25, 0.0, k)
+
+
 func _fernschuerze_starten() -> void:
 	fern_root = Node3D.new()
 	fern_root.name = "Fernschuerze"
@@ -7709,6 +7810,7 @@ func _process(delta: float) -> void:
 			and is_instance_valid(flight_ctrl.aircraft):
 		terrain.update_center(flight_ctrl.aircraft.global_position)
 		_wolken_aufenthalt(delta)
+		_kavernen_stimmung(delta)
 		_blick_nachfuehren(delta)
 		# Die Decke wird um die KAMERA zentriert, nicht um das Flugzeug: die Spitze des
 		# Sichtvolumens sitzt in der Kamera, und die haengt je nach Zoom, Free-Look und

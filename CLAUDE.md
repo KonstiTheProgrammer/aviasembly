@@ -313,8 +313,37 @@ StaticBody mit Boxen.
   `_loadcheck` OK, keine Warnungen. Bilder: `_luftbild.gd` OHNE `LUFT_REL` (die Kamera steht
   unter dem Berg); Umrechnung Bauwerk -> Welt: Portal = TAL_START + TAL_RICHTUNG·9310,
   lokal +z = TAL_RICHTUNG, lokal +x = (TAL_RICHTUNG.y, −TAL_RICHTUNG.x), y = 90,7 + y.
-- NICHT GEMACHT: die Felsstirn aussen (glatte helle Kuppel um das Portal) und die Panzertore
-  sind unveraendert; man kann die Kanzel nicht betreten (Glas ist undurchsichtiges Leuchten).
+- AURA UND LIEBE (zweite Runde, Nutzer: „mach, dass die Base mehr Aura hat“, „steck mehr Liebe
+  rein“). Die Halle war hell, grau und flach — Ursache vor allem das LICHT:
+  * SONNE AUS DEM BERG: `Landmarks._hb_teilen` teilt die Schale in „Stirn“ (vor der
+    Portalebene, bleibt in der Sonne) und „Schale“; `Main._kaverne_ebene_setzen` legt Schale,
+    Ausbau, Parkflieger und die Bahn-Teile des Flugplatzes, deren Mitte im Grundriss liegt, auf
+    `Main.KAVERNE_EBENE` (Sichtebene 2), Sonne und Unterlicht haben sie nicht in der
+    `light_cull_mask`. Vorher kam die Sonne mit `shadow_opacity` 0,62 zu 38 % durch 500 m Fels.
+    FALLE: alles, was DRAUSSEN steht, braucht ein eigenes Netz (`Bergbasis.sa`, „AusbauAussen“)
+    — im gemeinsamen Netz standen Fluegelmauern und Sturz schwarz im Tageslicht.
+  * STIMMUNG JE KAMERA (`Main._kavernen_stimmung`, nach `_wolken_aufenthalt`): `_kav_k` 0..1
+    (weich, 1,6/s) aus der Kameralage in Bauwerksmassen. Innen: Umgebungslicht warm/dunkel
+    (`ambient_light_sky_contribution` -> 0, Energie 0,28), keine Himmelsspiegelung, SSR auf dem
+    nassen Boden (Rauheit 0,16), Tiefennebel dunkel ab 160 m (die Halle versinkt), Lichtglanz ab
+    1,15 statt 2,4. VOLUMETRISCHER NEBEL nur bei der Basis (global Dichte 0, `FogVolume`
+    „AusbauDunst“ 0,0045): Lichtbahnen ziehen NUR die Spots (`light_volumetric_fog_energy` 2,2,
+    Omnis 0 — sie leuchteten den Dunst milchig aus), die Sonne nie (0).
+  * Lauflicht (Blitz laeuft mit 286 m/s die Bahn entlang in den Berg, auch 480 m im Tal),
+    Rundumleuchten (eigener Shader, Phase in Vertex-Alpha), Adler-Wappen 30 m an der Rueckwand
+    mit Strahler, Staffelbanner mit Schwalbenschwanz, Goldsaum, Winkel und Stern (je Banner ein
+    Strahler), Rollwegschilder „STAND n“ mit Pfeil, Figuren mit Helm/Weste/Armen (Einweiser mit
+    Leuchtstaeben, Piloten, Techniker, Wachen; ersetzen die Quader-Mannschaft), Portal mit
+    Leuchtschrift-Sturz, gestuften Fluegelmauern, Panzertoren mit Rippen/Warnkante/„TOR 1/2“,
+    Wachhaeuschen und Flagge. Stirn grau statt beige. Haengetafel ueber der Kranbahn
+    (Unterkante 38,4 m — auf 30 m stoesst man wie vorher erst an den Kran bei z 300).
+  * Entfernt: Schatten der Turmleuchte bei z 560 (gezackte schwarze Flecken), Tageslicht-Spot
+    1,6 statt 4 und 320 statt 560 m (er leuchtete die Bahn gleichmaessig grau aus).
+  * GEMESSEN (`_kaverne_zeit`, 4K): Halle 13,5-14,5 ms (vorher 14,0-14,6 — die Sonne muss die
+    Halle nicht mehr rechnen), Ausbau 0,23-0,48 ms. `_kaverne_einflug` frei bis 990 m auf
+    8/15/22 m, keine Warnungen.
+- NICHT GEMACHT: man kann die Kanzel nicht betreten (Glas ist undurchsichtiges Leuchten); die
+  Stirn bleibt eine glatte Kuppel (jetzt grau, mit Mauern davor).
 
 ## Wasser (Umbau 2026-09: undurchsichtig, Tiefentextur, Meer bis zum Horizont)
 Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebunden von
