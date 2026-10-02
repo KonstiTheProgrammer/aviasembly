@@ -186,6 +186,9 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          Messen: tools/_karte_zeit.gd (misst MAINS Erzeugung, Stufenzeiten), Bilder:
                          tools/_flug_bilder.gd (flug_karte.png, _zoom.png 3x, _zoom8.png, flug_hud_
                          wegpunkt.png) — wartet per `kacheln_bereit()` auf die scharfen Kacheln.
+scripts/Bergbasis.gd     class_name Bergbasis (statisch). Ausbau der Felsenbasis ADLERHORST: Rippen,
+                         Hallenhaeuser, Flugleitung, Wartungsplaetze, Geraet, Schilder, Standplaetze
+                         (STAENDE). Siehe Abschnitt „Felsenbasis ADLERHORST: Ausbau der Halle“.
 scripts/TerrainWorld.gd  class_name TerrainWorld. SEED-basiertes Chunk-Terrain, 384-m-Chunks,
                          8-m-Raster, GLATT schattiert (Normale+Farbe je Eckpunkt, siehe Abschnitt
                          „Welt-Look"), Shader shaders/gelaende_kern.gdshaderinc, Graswiesen.
@@ -259,6 +262,59 @@ README.md                Steuerung + Feature-Überblick (Spielersicht).
 - Belege: `_luftbild.gd`, `_welt_uebersicht.gd`, `_ruck_check.gd` (Rueckstand in Baumreichweite
   ~30 wie vorher), Hochtal-Checks (`_gebirge_check`, `_kaverne_*`, `_tor_check`) unveraendert.
   `_haupt_pruefsumme.gd` gilt ab jetzt fuer den NEUEN Stand (Eingriffe an Regionen pruefen).
+
+## Felsenbasis ADLERHORST: Ausbau der Halle (2026-10-02)
+Nutzer: „baue die Aircraft-Basis in den Bergen innen besser und viel detaillierter“. Die Kaverne
+selbst (Schale, Portal, Lampen, Laufstege, Kraene) steht in `Landmarks.build_felsenbasis`/
+`_hb_einrichtung`; der AUSBAU in `scripts/Bergbasis.gd` (class_name Bergbasis, aufgerufen am Ende
+von `_hb_einrichtung`). Alles in Bauwerksmassen (x quer, y ueber Hallenboden, z ab Portal), in
+drei Netze gesammelt (fest/Vertexfarbe beidseitig, Rohre glatt, Leuchtteile mit eigenem
+unbeleuchteten Shader, Staerke 2,2), Schilder als Label3D (Titillium Bold), Kollision als EIN
+StaticBody mit Boxen.
+- BEFUND vorher: rohes dunkles Facettengewoelbe, Steinbrocken aus `_gruenguertel(kaverne)` auf
+  dem Betonboden (lasen sich als Krater), dunkle Mini-Tonnenhallen, Fahrzeuge/Kisten als
+  Einzelquader, Leere zwischen Bahn und Wand. Und ZWEI ALTE FEHLER der Fernschuerze (beide
+  `shaders/gelaende_kern.gdshaderinc` + `Main._fern_farbe`): (1) im Kavernengrundriss parkten
+  Zellen ueber 220 m auf 220, die darunter sanken voll — das Dreieck dazwischen kreuzte die
+  Halle als graue Wand gleich hinter dem Portal (vom Vorfeld sah man nicht hinein); (2) der
+  Grundriss endete bei 790 m Tiefe, dahinter sank die Schuerze vom 600-m-Berg um FERN_TIEF
+  mitten in die Halle (gruene Wand im hinteren Drittel). JETZT: im Grundriss (bis HB_LAENGE+60)
+  sinkt die Schuerze in der Naehe um FERN_TIEF+2500 m, ohne `chunk_da`; in der Ferne (nah = 0)
+  traegt sie wie ueberall die Silhouette (Bild aus 3 km: Berg geschlossen).
+- SCHALE: im Hallenteil (t > 0,2) Ausbruch auf 6 % (vorher bis 20 % des Radius = 15 m Buckel,
+  die jede Rippe verschluckten) und Spritzbetongrau statt Felsbraun; der Stollen davor bleibt
+  roh gebrochen.
+- AUSBAU: Betonrippen alle 24 m ab z 228 mit LICHTBAND im Bogen, Sockel; Wandsockel (dunkle
+  Platten bis 4,2 m, gelbe Kante, Fugen, Abschnittsnummern A01..); zwei Lueftungsrohre unter
+  dem Scheitel (x ±30, y 50, Flansche, Abhaenger, Auslaesse); HALLENHAEUSER an beiden Waenden
+  (x 63,2..71, zwei/drei Geschosse, Fenster zu 70 % erleuchtet warm/kalt, Tueren mit Vordach
+  und Lampe, Laubengaenge und Treppen bei dreigeschossigen, Klimageraete, Schilder, Haus-
+  nummern) — die Luecken folgen dem Bestand (Gittertuerme, Treppentuerme, Seitenstollen);
+  FLUGLEITUNG hinten links mit auskragender Glaskanzel, Antennen, Radar, Aussentreppe (ersetzt
+  den schwarzen Betonkasten); zwei WARTUNGSPLAETZE (Stahlgeruest, Lichtbalken, Hebezeug,
+  Arbeitsbuehne, Bodenrahmen, je zwei Omni-Lichter); an JEDEM Stand Aggregat mit Kabel,
+  Loescher, Leiter, Bremskloetze, dazu Schlepper/Tankwagen/Munitionswagen; Lager mit
+  Paletten, Staplern, Containern; Loeschfahrzeug am Hallenanfang; gelbe Fuehrungslinien mit
+  schwarzem Rand, Haltebalken und Standnummern auf dem Boden; Haengetafel „ADLERHORST · HALLE 1“
+  zum Portal, „AUSFAHRT“ zur Halle.
+- STANDPLAETZE stehen jetzt in `Bergbasis.STAENDE` (Main liest sie), Flieger 1,25-fach
+  (`FLIEGER_MASSSTAB`; die Vorlagen haben 8-10 m Spannweite, Spitfire echt 11,2) — neben
+  Schlepper und Tankwagen standen sie sonst wie Modelle da. `_add_parked_plane` hat dafuer
+  den Parameter `massstab`. Geraet bleibt laengs >= 7,4 m von der Standmitte weg.
+- ENTFERNT: Tonnenhallen und Betriebshaus aus `Main._kavernen_vorfeld`, Fahrzeuge/Kisten/
+  Huetchen aus `Landmarks._hb_betrieb`, die alte Kanzel und die gelben Querbalken der alten
+  Abstellflaechen aus `_hb_einrichtung`, Felsbrocken unter Tage.
+- LICHT IM BERG: die Sonne hat `shadow_opacity` 0,62 (Stil), sie hellt also auch das Innere
+  auf (Rippen und Haeuser sind auf ihrer Sonnenseite heller). Bewusst so gelassen — ohne sie
+  stehen die Details schwarz da (Probe `LUFT_OHNE_SONNE=1` in `_luftbild.gd`).
+- GEMESSEN (`tools/_kaverne_zeit.gd`, neu, 4K): Ausbau 0,27 / 0,31 / 0,39 ms (Achse, Seite,
+  Mitte hoch), vor dem Portal 0,08; die ganze Basis 1,3-4,5 ms.
+- BELEGE: `_kaverne_einflug` (frei bis 990 m auf 8/15/22 m, 0 Durchbrueche von oben),
+  `_loadcheck` OK, keine Warnungen. Bilder: `_luftbild.gd` OHNE `LUFT_REL` (die Kamera steht
+  unter dem Berg); Umrechnung Bauwerk -> Welt: Portal = TAL_START + TAL_RICHTUNG·9310,
+  lokal +z = TAL_RICHTUNG, lokal +x = (TAL_RICHTUNG.y, −TAL_RICHTUNG.x), y = 90,7 + y.
+- NICHT GEMACHT: die Felsstirn aussen (glatte helle Kuppel um das Portal) und die Panzertore
+  sind unveraendert; man kann die Kanzel nicht betreten (Glas ist undurchsichtiges Leuchten).
 
 ## Wasser (Umbau 2026-09: undurchsichtig, Tiefentextur, Meer bis zum Horizont)
 Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebunden von

@@ -188,13 +188,22 @@ void vertex() {
 	float d = distance(w_pos.xz, CAMERA_POSITION_WORLD.xz);
 	// COLOR.a traegt, wie viel Grundabsenkung diese Stelle BRAUCHT (siehe Main._fern_kachel):
 	// im Gebirge die volle, an flachen Kuesten fast keine.
-	float s = (senke_tief * (1.0 - smoothstep(senke_nah, senke_fern, d))
-		+ senke_bias * COLOR.a * (1.0 - smoothstep(bias_aus_a, bias_aus_b, d)))
-		* chunk_da(w_pos.xz);
-	// COLOR.a == 0 markiert den Grundriss des Kavernenflugplatzes: dort wird die Absenkung
-	// GEDECKELT, damit keine Zelle in der Halle landet (Main._fern_kachel).
-	if (COLOR.a < 0.05 && w_pos.y > 220.0) {
-		s = min(s, w_pos.y - 220.0);
+	float nah = 1.0 - smoothstep(senke_nah, senke_fern, d);
+	float s = senke_tief * nah
+		+ senke_bias * COLOR.a * (1.0 - smoothstep(bias_aus_a, bias_aus_b, d));
+	// COLOR.a == 0 markiert den Grundriss des Kavernenflugplatzes (Main._fern_farbe). Dort
+	// geht die Schuerze in der Naehe GANZ unter den Berg, unabhaengig von ihrer Hoehe.
+	// FRUEHER: Zellen ueber 220 m parkten auf 220, die darunter sanken voll — und das
+	// Dreieck zwischen einer geparkten und einer versenkten Ecke lief von 220 m steil auf
+	// rund -300 m hinunter und kreuzte dabei die Halle. Am Talschluss steigt der Hang
+	// gleich hinter dem Portal durch die 220 m, also stand dort eine graue Wand quer im
+	// Stollen: vom Vorfeld sah man nicht in den Berg, von innen nicht hinaus. Ueber der
+	// Roehre liegen die echten Chunks (bis VIEW_DIST 3,8 km), die Schuerze hat dort in der
+	// Naehe nichts zu tun; in der Ferne (nah = 0) traegt sie wie ueberall die Silhouette.
+	if (COLOR.a < 0.05) {
+		s = (senke_tief + 2500.0) * nah;
+	} else {
+		s *= chunk_da(w_pos.xz);
 	}
 	VERTEX.y -= s;
 	w_pos.y -= s;

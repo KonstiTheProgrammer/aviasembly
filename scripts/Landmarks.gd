@@ -2208,6 +2208,11 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 				# sondern eine Girlande. Erst ab rund 15 Prozent der Tiefe, wo der Ring
 				# aufhoert, bricht der Fels wieder auf.
 				var glatt := smoothstep(0.006, 0.045, t)
+				# IN DER HALLE FAST GLATT (Ausbau 2026-10, scripts/Bergbasis.gd): dort steht
+				# der Ausbau mit Betonrippen, Wandsockel und Haeusern, und ein Ausbruch von
+				# bis zu 20 % des Radius (15 m!) verschluckte jede Rippe in einem Felsbuckel.
+				# Gespritzter Beton auf dem Fels — der Stollen davor bleibt roh gebrochen.
+				glatt *= lerpf(1.0, 0.06, smoothstep(0.17, 0.23, t))
 				# Groessere Beiwerte als beim Hash: die Interpolation kappt die Extreme,
 				# ein _hb_welle-Wert erreicht selten mehr als 0,6 statt der 1,0 von _hb_rau.
 				var f := 1.0 + (0.125 * grob + 0.058 * fein + 0.030 * kante) * glatt
@@ -2254,6 +2259,12 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 				var achsnah: float = 1.0 - clampf(absf(m.x) / (wm.x * 0.55), 0.0, 1.0)
 				col = col.lerp(Color(0.10, 0.088, 0.082, col.a),
 					0.55 * scheitel * achsnah * (0.7 + 0.3 * _hb_welle(m.z, m.x, 120.0)))
+				# Spritzbeton in der Halle: kuehleres, etwas helleres Grau statt Felsbraun,
+				# leise gewolkt (der Fels darunter schlaegt durch).
+				var spritz := smoothstep(0.17, 0.23, m.z / HB_LAENGE)
+				if spritz > 0.0:
+					var sb := Color(0.215, 0.212, 0.205) * (1.0 + 0.10 * t_ton)
+					col = col.lerp(sb, spritz * 0.85)
 				col.a = fels.a
 			_tri(st, a[i], b[i], b[j], col)
 			_tri(st, a[i], b[j], a[j], col)
@@ -3234,21 +3245,12 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	node.add_child(fleck)
 
 	# --- KANZEL: der verglaste Leitstand, tief in der Halle ---------------------------
-	var kzx := -HB_W_HALLE + 11.0
-	_box(node, Vector3(kzx, 8.0, 900.0), Vector3(18.0, 16.0, 28.0), beton)
-	for k in 5:
-		_box(node, Vector3(kzx + 8.8, 12.0, 888.0 + float(k) * 6.2), Vector3(0.5, 3.6, 4.6), glas)
-	_box(node, Vector3(kzx + 3.0, 16.5, 900.0), Vector3(12.0, 0.9, 24.0), stahl)
-	for k in 8:
-		_box(node, Vector3(kzx + 10.4, 1.0 + float(k) * 1.9, 882.0 - float(k) * 1.7),
-			Vector3(4.0, 0.4, 1.8), stahl)
+	# (Die Kanzel steht seit dem Ausbau 2026-10 als Flugleitung mit Glaskanzel in
+	# scripts/Bergbasis.gd — der schwarze Betonkasten las sich als Bunkertuer.)
 
 	# --- ABSTELLFLAECHEN, FAESSER, KISTEN, TANKWAGEN ----------------------------------
-	for sx in [-1.0, 1.0]:
-		for k in 4:
-			var zs := 300.0 + float(k) * 130.0
-			_box(node, Vector3(28.0 * sx, 0.18, zs), Vector3(22.0, 0.04, 0.8), gelb)
-			_box(node, Vector3(28.0 * sx, 0.18, zs + 20.0), Vector3(22.0, 0.04, 0.8), gelb)
+	# (Die gelben Querbalken der alten Abstellflaechen sind durch die Fuehrungslinien und
+	# Standnummern in scripts/Bergbasis.gd ersetzt.)
 	for k in 22:
 		var fx := -HB_W_HALLE + 7.0 + float(k % 11) * 2.6
 		_cylinder(node, Vector3(fx, 1.5, 1000.0 + floorf(k / 11.0) * 3.2), 1.1, 1.1, 3.0, 10, rost)
@@ -3333,6 +3335,9 @@ static func _hb_einrichtung(node: Node3D) -> void:
 	tief.omni_range = 46.0
 	tief.shadow_enabled = false
 	node.add_child(tief)
+
+	# AUSBAU: Rippen, Wandsockel, Hallenhaeuser, Wartungsplaetze, Geraet, Schilder
+	Bergbasis.bauen(node)
 
 	_hb_portallichter(node)
 
@@ -3523,78 +3528,9 @@ static func _hb_betrieb(node: Node3D) -> void:
 	# Verteilt ueber die ganze Halle, nicht an einem Haufen: bisher lag aller Kram bei
 	# z 980 an der Rueckwand, und die 900 m davor — genau die, durch die man fliegt —
 	# waren leer.
-	var st_k := SurfaceTool.new()
-	st_k.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st_k.set_smooth_group(-1)
-	var c_oliv := Color(0.30, 0.33, 0.24)
-	var c_gelb := Color(0.72, 0.58, 0.12)
-	var c_rot := Color(0.62, 0.24, 0.14)
-	var c_reifen := Color(0.10, 0.10, 0.11)
-	# 16 STATT 9 UND AB TIEFE 90 STATT 150. Die Abnahme hat es zweimal in Folge
-	# geschrieben: die naechsten 100 bis 150 m vor der Kamera — das untere Drittel jedes
-	# Bildes — enthielten keinen einzigen Gegenstand. Kram gehoert dorthin, wo das Auge
-	# zuerst hinsieht, nicht nur in die Tiefe.
-	for k in 16:
-		# Ueber die Tiefe gestreut, Seite und Querlage aus dem Rauschen — deterministisch.
-		var z: float = 90.0 + float(k) * 58.0
-		var sx: float = 1.0 if _hb_rau(float(k), 3.0) > 0.0 else -1.0
-		var x: float = (34.0 + 22.0 * absf(_hb_rau(float(k), 7.0))) * sx
-		var gier: float = _hb_rau(float(k), 11.0) * 0.9
-		var bx := cos(gier)
-		var bz := sin(gier)
-		var art := k % 3
-		if art == 0:
-			# Schlepper: niedriger Kasten, Kabine, vier Raeder.
-			_box_geo(st_k, Vector3(x, 0.75, z), Vector3(1.9 + bx * 0.2, 1.1, 3.4), c_gelb)
-			_box_geo(st_k, Vector3(x, 1.85, z - 0.6 * bz), Vector3(1.5, 1.2, 1.5),
-				_shade(c_gelb, 0.8))
-			for wx in [-0.95, 0.95]:
-				for wz in [-1.2, 1.2]:
-					_box_geo(st_k, Vector3(x + wx, 0.45, z + wz), Vector3(0.35, 0.9, 0.9),
-						c_reifen)
-		elif art == 1:
-			# Bodenstromgeraet auf zwei Raedern, mit Kabeltrommel.
-			_box_geo(st_k, Vector3(x, 1.0, z), Vector3(1.7, 1.6, 2.6), c_oliv)
-			_box_geo(st_k, Vector3(x, 1.95, z), Vector3(1.2, 0.4, 1.8), _shade(c_oliv, 1.1))
-			for wx in [-0.85, 0.85]:
-				_box_geo(st_k, Vector3(x + wx, 0.4, z + 0.7), Vector3(0.3, 0.8, 0.8), c_reifen)
-		else:
-			# Tankwagen: Fahrgestell mit langem Kessel.
-			_box_geo(st_k, Vector3(x, 0.8, z), Vector3(2.4, 1.0, 6.4), _shade(c_oliv, 0.85))
-			_box_geo(st_k, Vector3(x, 2.0, z + 0.6), Vector3(2.2, 2.2, 4.6), c_oliv)
-			_box_geo(st_k, Vector3(x, 2.3, z - 2.6), Vector3(1.9, 1.8, 1.6), _shade(c_oliv, 0.7))
-			for wx in [-1.15, 1.15]:
-				for wz in [-2.4, 1.4, 2.4]:
-					_box_geo(st_k, Vector3(x + wx, 0.5, z + wz), Vector3(0.4, 1.0, 1.0),
-						c_reifen)
-	# Kistenstapel und Faesser an den Wandfuessen, ueber die Laenge verteilt.
-	for k in 26:
-		var z: float = 180.0 + float(k) * 30.0
-		var wh := _hb_masse(z / HB_LAENGE)
-		var sx: float = 1.0 if k % 2 == 0 else -1.0
-		var x: float = (wh.x - 8.0 - 4.0 * absf(_hb_rau(float(k), 19.0))) * sx
-		if k % 3 == 0:
-			for st_i in 3:
-				var kg: float = 1.4 + 0.3 * _hb_rau(float(k), float(st_i))
-				_box_geo(st_k, Vector3(x + float(st_i) * 1.7, 0.7 + float(st_i % 2) * 1.5, z),
-					Vector3(kg, 1.4, kg), _shade(c_oliv, 0.9 + 0.15 * float(st_i)))
-		else:
-			for st_i in 5:
-				_box_geo(st_k, Vector3(x + float(st_i % 3) * 1.0, 0.45,
-					z + floorf(st_i / 3.0) * 1.0), Vector3(0.8, 0.9, 0.8),
-					_shade(c_rot, 0.85 + 0.2 * _hb_rau(float(st_i), float(k))))
-	# Huetchen entlang der Standplatzkanten — klein, orange, und genau deshalb lesbar.
-	for k in 40:
-		var z: float = 300.0 + floorf(k / 4.0) * 62.0
-		var sx: float = 1.0 if int(floorf(k / 2.0)) % 2 == 0 else -1.0
-		_box_geo(st_k, Vector3((24.0 + float(k % 4) * 9.0) * sx, 0.35, z),
-			Vector3(0.5, 0.7, 0.5), Color(0.86, 0.36, 0.10))
-	var kram := MeshInstance3D.new()
-	kram.mesh = st_k.commit()
-	var m_k := _mat(Color(1, 1, 1), 0.8)
-	m_k.vertex_color_use_as_albedo = true
-	kram.material_override = m_k
-	node.add_child(kram)
+	# FAHRZEUGE, KISTENHAUFEN UND HUETCHEN stehen seit dem Ausbau (2026-10) in
+	# scripts/Bergbasis.gd: als Einzelquader lasen sie sich als Bauklotz-Haufen, und die
+	# Kistenstapel bei |x| 66..70 standen genau dort, wo jetzt die Hallenhaeuser stehen.
 
 	# ---- MANNSCHAFT: der einzige Massstab, den das Auge ohne Nachdenken liest -------
 	# 1,80 m. Vier Kaesten je Person reichen — auf 50 m Entfernung ist die Silhouette

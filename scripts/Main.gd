@@ -2581,22 +2581,14 @@ func _setup_world() -> void:
 	# DIE MISCHUNG IST ABSICHT: zwei Kolben, zwei Korea-Jets, zwei Ueberschall. Eine
 	# Bergbasis, in der sechs gleiche Flieger stehen, sieht aus wie ein Katalogbild.
 	if kaverne != null:
-		var stand := [
-			["spitfire", -30.0, 320.0, 90.0], ["me262", 30.0, 320.0, -90.0],
-			["f86", -30.0, 450.0, 90.0], ["mig15", 30.0, 450.0, -90.0],
-			["mig21", -30.0, 580.0, 90.0], ["mustang_p51", 30.0, 580.0, -90.0],
-			# VIER WEITERE, UND ZWAR AUF DEN AUSSENSTAENDEN VOR DEN HALLEN. Die ersten
-			# sechs stehen alle im mittleren Drittel bei x = +-30; in den Abnahmebildern
-			# war deshalb je Aufnahme hoechstens EINE Maschine zu sehen, und ein Platz
-			# mit einem Flugzeug liest sich als Modellbau. Diese vier sitzen weiter
-			# aussen und ueber die ganze Tiefe verteilt, damit aus jeder Kamerastellung
-			# mehrere im Bild stehen.
-			["f86", -46.0, 190.0, 90.0], ["spitfire", 46.0, 190.0, -90.0],
-			["mig15", -46.0, 700.0, 90.0], ["me262", 46.0, 830.0, -90.0],
-		]
+		# Die Standplaetze stehen in Bergbasis.STAENDE — dort steht auch das Geraet daneben.
+		var stand: Array = Bergbasis.STAENDE
 		for e in stand:
+			# MASSSTAB 1,25: die Vorlagen haben 8-10 m Spannweite (Spitfire echt 11,2, Me 262
+			# 12,5) und standen neben Schlepper und Tankwagen (Bergbasis) wie Modelle da.
 			_add_parked_plane(kaverne, String(e[0]),
-				Vector3(float(e[1]), 0.2, float(e[2])), float(e[3]))
+				Vector3(float(e[1]), Bergbasis.BODEN - 0.14, float(e[2])), float(e[3]),
+				Bergbasis.FLIEGER_MASSSTAB)
 	# Alle Wahrzeichen auf denselben Sichthorizont deckeln wie die Haeuser: sie sind feste
 	# Meshes und wurden vorher bis zur Kamera-Fernebene (9 km) gezeichnet, das Terrain aber
 	# nur bis VIEW_DIST — Stadt, Leuchtturm und Dorf standen dadurch sichtbar im Leeren.
@@ -3174,8 +3166,11 @@ func _fern_farbe(cen: Vector3, nn: Vector3, zelle: float) -> Color:
 	var k_dx := cen.x - TAL_START.x
 	var k_dz := cen.z - TAL_START.y
 	var k_l := k_dx * TAL_RICHTUNG.x + k_dz * TAL_RICHTUNG.y
+	# BIS HINTER DIE RUECKWAND (1080 m + Rand), nicht nur bis 790: dahinter sank die
+	# Schuerze wie ueberall um FERN_TIEF ab — vom 600-m-Berg also mitten in die Halle, als
+	# gruene Wand quer im hinteren Drittel (2026-10, Bild aus der Halle).
 	if k_l > ADLERHORST_KAVERNE_LAENGS - 40.0 \
-			and k_l < ADLERHORST_KAVERNE_LAENGS + 790.0 \
+			and k_l < ADLERHORST_KAVERNE_LAENGS + Landmarks.HB_LAENGE + 60.0 \
 			and absf(k_dx * TAL_RICHTUNG.y - k_dz * TAL_RICHTUNG.x) < 175.0:
 		col.a = 0.0
 	return col
@@ -4110,7 +4105,8 @@ func _deco_truck(parent: Node3D, pos: Vector3, yaw_deg: float, body_mat: Materia
 	t.add_child(cb)
 
 
-func _add_parked_plane(parent: Node3D, preset: String, pos: Vector3, yaw_deg: float) -> void:
+func _add_parked_plane(parent: Node3D, preset: String, pos: Vector3, yaw_deg: float,
+		massstab := 1.0) -> void:
 	var f := FileAccess.open("res://designs/%s.json" % preset, FileAccess.READ)
 	if f == null:
 		return
@@ -4122,6 +4118,7 @@ func _add_parked_plane(parent: Node3D, preset: String, pos: Vector3, yaw_deg: fl
 	root.name = "Parkflieger_" + preset       # im Szenenbaum wiederfindbar
 	root.position = pos
 	root.rotation_degrees = Vector3(0, yaw_deg, 0)
+	root.scale = Vector3.ONE * massstab
 	parent.add_child(root)
 	for item in arr:
 		var id: String = item.get("id", "")
@@ -4145,7 +4142,7 @@ func _add_parked_plane(parent: Node3D, preset: String, pos: Vector3, yaw_deg: fl
 		holder.add_child(vis)
 		root.add_child(holder)
 	# grober Kollisionsblock, damit man nicht durch geparkte Flieger hindurchfliegt
-	_collider_box(parent, pos + Vector3(0, 1.4, 0), Vector3(9.0, 3.0, 8.0))
+	_collider_box(parent, pos + Vector3(0, 1.4 * massstab, 0), Vector3(9.0, 3.0, 8.0) * massstab)
 
 
 # Bahnnummer aus dem Heading (dekorativ, wie echte Runway-Designatoren 01-36).
@@ -4423,7 +4420,7 @@ func _add_windsock(parent: Node3D, pos: Vector3) -> void:
 ## sitzt 510 m hinter dem Portal. Die Tiefe ab Portal ist damit 510 - z; die Reihe von
 ## z = 180 bis z = -140 liegt also 330 bis 650 m im Berg, wo die Halle ihre volle Weite
 ## erreicht hat (sie weitet sich ueber die ersten 30 Prozent).
-func _kavernen_vorfeld(wurzel: Node3D, farbe: Color) -> void:
+func _kavernen_vorfeld(wurzel: Node3D, _farbe: Color) -> void:
 	var node := Node3D.new()
 	node.name = "KavernenVorfeld"
 	wurzel.add_child(node)
@@ -4435,28 +4432,10 @@ func _kavernen_vorfeld(wurzel: Node3D, farbe: Color) -> void:
 		_deco_box(node, Vector3(49.0 * sx, 0.05, 20.0), Vector3(50.0, 0.10, 620.0), beton)
 		# Gelbe Fuehrungslinie auf der Streifenachse — dieselbe Sprache wie draussen.
 		_deco_box(node, Vector3(49.0 * sx, 0.11, 20.0), Vector3(0.5, 0.02, 600.0), paint_y)
-		# TORSEITE. _tonnenhalle setzt ihre Oeffnung auf lokal +Z; yaw dreht die ganze
-		# Halle. Hier stand fest 90 Grad fuer BEIDE Reihen — damit zeigten die Tore der
-		# einen Reihe zur Bahn und die der anderen in den Fels, und die Haelfte der
-		# Hangars stand als fensterlose gruene Roehre da. -90 * sx dreht jede Reihe zur
-		# Bahn hin.
-		# VERSETZT UND VERSCHIEDEN LANG. Fuenf gleiche Hallen im gleichen Abstand liest
-		# das Auge als Kopie und zaehlt sie ab. Der Versatz von 40 m zwischen den Reihen
-		# und drei Tiefen im Wechsel brechen das Raster, ohne dass eine Halle aus der
-		# Flucht faellt.
-		var versatz := 40.0 if sx > 0.0 else 0.0
-		for k in 5:
-			var z := 180.0 - float(k) * 80.0 - versatz
-			var tiefe: float = [20.0, 26.0, 20.0, 30.0, 24.0][k]
-			# BETONGRAU, NICHT OLIVGRUEN. Olive Wellblechhallen sind Feldunterstaende
-			# gegen Wetter und Sicht — unter 500 m Fels gibt es weder das eine noch das
-			# andere, und im Bild lasen sich neun blassgruene Roehren als Plastik. Ein
-			# Ton, der zum Beton der Sohle passt, sagt stattdessen: hier hineingebaut.
-			_tonnenhalle(node, Vector3(61.0 * sx, 0.0, z), 8.0, tiefe, -90.0 * sx,
-				Color(0.37, 0.375, 0.36).lerp(farbe, 0.08), true)
-			# Abstellmarkierung vor jedem Tor, zur Bahn hin.
-			_deco_box(node, Vector3(38.0 * sx, 0.11, z), Vector3(22.0, 0.02, 0.4), paint_y)
-	_add_ops_haus(node, Vector3(58.0, 0.0, -240.0))
+	# KEINE TONNENHALLEN UND KEIN BETRIEBSHAUS MEHR (Ausbau 2026-10): die kleinen dunklen
+	# Boegen standen in der 156 m breiten Halle als Iglus herum. An den Waenden stehen jetzt
+	# Hallenhaeuser mit Fenstern, an den Standplaetzen Geraet und Fuehrungslinien — alles in
+	# scripts/Bergbasis.gd, in Bauwerksmassen.
 
 
 func _add_hangar(parent: Node3D, pos: Vector3, col: Color) -> void:
@@ -4988,7 +4967,8 @@ func _gruenguertel(wurzel: Node3D, kaverne := false) -> void:
 		var d := _fp_abstand(x, z)
 		if d < 1.5 or d > 150.0:
 			continue
-		if rng.randf() < 0.55 * (1.0 - smoothstep(8.0, 95.0, d)):
+		# Unter Tage keine Felsbrocken: auf dem Betonboden der Halle lasen sie sich als Krater.
+		if not kaverne and rng.randf() < 0.55 * (1.0 - smoothstep(8.0, 95.0, d)):
 			# Findlinge, 1,5 bis 3,8 m breit (Vorgabe 1 bis 4 m). Der alte Saum warf sie mit
 			# 3,0 bis 5,3 m zu GROSS — neben der 30-m-Bahn las sich das als Felsblock.
 			var s := rng.randf_range(0.45, 1.15)

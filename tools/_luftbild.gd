@@ -108,6 +108,9 @@ func _process(_d: float) -> bool:
 					print("AABB mmi ", mmi.get_aabb(), " mesh ", mm.mesh.get_aabb().size, " n ", mm.instance_count)
 					n += 1
 				(mmi as MultiMeshInstance3D).custom_aabb = AABB(Vector3(-5000, -500, -5000), Vector3(10000, 2000, 10000))
+		if OS.get_environment("LUFT_OHNE_SONNE") != "":
+			for l in m.find_children("*", "DirectionalLight3D", true, false):
+				(l as DirectionalLight3D).visible = false
 		if OS.get_environment("LUFT_OHNE_SCHATTEN") != "":
 			for l in m.find_children("*", "DirectionalLight3D", true, false):
 				(l as DirectionalLight3D).shadow_enabled = false
