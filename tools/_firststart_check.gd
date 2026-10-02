@@ -17,6 +17,10 @@ func _process(_d: float) -> bool:
 				n += 1
 				ids[String(c.get_meta("part_id"))] = true
 		print("TEILE=", n, "  ids=", ids.keys())
-		get_root().get_viewport().get_texture().get_image().save_png("user://ui_firststart.png")
+		# Bild nur im Fenster — headless liefert der Dummy-Renderer kein Bild, und der Fehler
+		# beim save_png liess das Werkzeug sonst ohne quit() endlos weiterlaufen.
+		if DisplayServer.get_name() != "headless":
+			get_root().get_viewport().get_texture().get_image().save_png("user://ui_firststart.png")
+		print("ERSTSTART ", "OK" if n == 20 and ids.has("cockpit") else "FEHLER")
 		quit()
 	return false

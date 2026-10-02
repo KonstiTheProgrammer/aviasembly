@@ -387,7 +387,8 @@ static func _steine_sammeln(rv: Dictionary, terrain: TerrainWorld, rng: RandomNu
 				var vor := rng.randf_range(-2.5, 3.5)
 				var p: Vector3 = (u["c"] as Vector3) + (u["n"] as Vector3) * d + (u["dir"] as Vector3) * vor
 				var s := clampf(float(u["w"]) * 0.22, 0.9, 3.2) * rng.randf_range(0.7, 1.3)
-				_stein(steine, p, (u["c"] as Vector3).y + s * rng.randf_range(0.15, 0.55), s, gr, bb, rng)
+				_stein(steine, p, (u["c"] as Vector3).y + s * rng.randf_range(0.15, 0.55), s, gr, bb, rng,
+					terrain)
 	# Im Bett steiler Abschnitte: Brocken, die aus dem Wasser ragen, und Geroell am Ufer.
 	var l := 0.0
 	var naechst := 0.0
@@ -410,19 +411,37 @@ static func _steine_sammeln(rv: Dictionary, terrain: TerrainWorld, rng: RandomNu
 		var p := c + (u["n"] as Vector3) * (w * quer)
 		var s := clampf(w * 0.16, 0.5, 2.4) * rng.randf_range(0.6, 1.4)
 		var top: float
+		var wasser := -INF
 		if quer < 0.9:
 			top = c.y + s * rng.randf_range(-0.10, 0.45)      # im Wasser, ragt heraus
+			wasser = c.y + 0.15                               # Spiegel des Wasserbands
 		else:
 			top = terrain.height_at(p.x, p.z) + s * rng.randf_range(0.25, 0.6)   # am Ufer
-		_stein(steine, p, top, s, gr, bb, rng)
+		_stein(steine, p, top, s, gr, bb, rng, terrain, wasser)
 
 
+## Stein mit der Oberkante `top` — aber immer AUF dem Gelaende: haengt die Unterkante ueber dem
+## Boden (vor der Lippe eines Falls liegt das Gelaende schon Meter tiefer, im Becken der Grund),
+## sinkt er, bis sie ein Siebtel seiner Hoehe im tiefsten Punkt unter ihm steckt. Vorher
+## schwebten 144 von 314 Brocken, an der Quellwand bis 18 m hoch. Mit `wasser` entfaellt ein
+## Stein, der danach ganz unter dem Spiegel laege (man saehe ihn nicht).
 static func _stein(steine: Dictionary, p: Vector3, top: float, s: float, gr: float, bb: AABB,
-		rng: RandomNumberGenerator) -> void:
+		rng: RandomNumberGenerator, terrain: TerrainWorld, wasser := -INF) -> void:
 	var k := s / maxf(gr, 0.01)
 	var bas := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.25, 0.25))
 	bas = bas.scaled(Vector3(k, k * rng.randf_range(0.6, 0.95), k))
-	var y := top - bb.end.y * bas.get_scale().y
+	var sy := bas.get_scale().y
+	var y := top - bb.end.y * sy
+	var boden := terrain.height_at(p.x, p.z)
+	var r := s * 0.4
+	for o: Vector2 in [Vector2(r, 0), Vector2(-r, 0), Vector2(0, r), Vector2(0, -r)]:
+		boden = minf(boden, terrain.height_at(p.x + o.x, p.z + o.y))
+	var unten := y + bb.position.y * sy
+	var soll := boden - bb.size.y * sy / 7.0
+	if unten > soll:
+		y -= unten - soll
+	if y + bb.end.y * sy < wasser + 0.05:
+		return
 	_in_kachel(steine, p, Transform3D(bas, Vector3(p.x, y, p.z)))
 
 
@@ -478,29 +497,65 @@ static func _ufer_sammeln(rv: Dictionary, terrain: TerrainWorld, rng: RandomNumb
 					var q2 := d0 - rng.randf_range(1.0, 4.5)
 					var p2 := c + dir * (s - lh * 0.5) + nor * q2
 					var h2 := terrain.height_at(p2.x, p2.z)
-					if c.y - h2 > 0.25 and c.y - h2 < 2.2:
+					# Spiegel AN DER ROSE, nicht am Stuetzpunkt: ein halber Abschnitt weiter
+					# liegt er schon Dezimeter tiefer (an der Klammbach-Muendung lagen Rosen
+					# auf dem Trockenen).
+					var fn := terrain._fluss_naechst(p2.x, p2.z)
+					var wy: float = fn.y if fn.x < INF else c.y
+					if wy - h2 > 0.25 and wy - h2 < 2.2:
 						var k2 := rng.randf_range(0.8, 1.3)
 						var x2 := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(k2, 1.0, k2)),
-							Vector3(p2.x, c.y + 0.17, p2.z))
+							Vector3(p2.x, wy + 0.17, p2.z))
 						_in_kachel(bluete if rng.randf() < 0.18 else rosen, p2, x2)
 				s += ds
 			# REIHER auf der Sandbank (Innenseite), Blick zum Wasser.
 			if gb > 0.3 and l > naechster_reiher and rng.randf() < 0.6:
 				naechster_reiher = l + rng.randf_range(700.0, 1600.0)
-				var p3 := c + nor * (d0 + rng.randf_range(0.3, 1.6))
-				var h3 := terrain.height_at(p3.x, p3.z)
+				# Die echte Wasserlinie wandert (TerrainWorld UFER_WANDERN), d0 ist nur die
+				# geplante: vom Wunschplatz landwaerts suchen, bis der Grund hoechstens knoechel-
+				# tief unter dem Spiegel liegt. Vorher stand ein Reiher auf 1,8 m tiefem Wasser.
+				var q3 := d0 + rng.randf_range(0.3, 1.6)
 				var blick := (-nor).rotated(Vector3.UP, rng.randf_range(-0.9, 0.9))
-				var bas3 := Basis.looking_at(-blick, Vector3.UP)
-				_in_kachel(reiher, p3, Transform3D(bas3, Vector3(p3.x, maxf(h3, c.y + 0.02), p3.z)))
+				var wy3 := c.y + 0.15
+				var p3 := c + nor * q3
+				var h3 := terrain.height_at(p3.x, p3.z)
+				while h3 < wy3 - 0.2 and q3 < float(u["e"]) + 6.0:
+					q3 += 0.6
+					p3 = c + nor * q3
+					h3 = terrain.height_at(p3.x, p3.z)
+				if h3 >= wy3 - 0.2 and h3 < wy3 + 1.2:
+					var bas3 := Basis.looking_at(-blick, Vector3.UP)
+					_in_kachel(reiher, p3, Transform3D(bas3, Vector3(p3.x, h3, p3.z)))
 			# ENTEN: paddeln in ruhigem Wasser im Kreis (Drehpunkt im Netz, ENTEN_R).
 			if l > naechste_ente and go < 0.3 and rng.randf() < 0.3:
 				naechste_ente = l + rng.randf_range(700.0, 1600.0)
-				var p4 := c + nor * maxf(d0 - ENTEN_R - 2.5, ENTEN_R + 1.0)
+				# Der ganze Kreis muss Wasser sein — sonst zur Flussmitte ruecken (die echte
+				# Wasserlinie wandert gegen die geplante d0), notfalls keine Familie hier.
+				var q4 := maxf(d0 - ENTEN_R - 2.5, ENTEN_R + 1.0)
+				var p4 := c + nor * q4
+				var nass := false
+				for _versuch in 4:
+					p4 = c + nor * q4
+					if _rundum_nass(terrain, p4, c.y + 0.15, ENTEN_R + 0.6):
+						nass = true
+						break
+					q4 *= 0.55
 				var bas4 := Basis(Vector3.UP, rng.randf() * TAU)
+				if not nass:
+					continue
 				# Der Drehpunkt liegt im Netz bei (ENTEN_R, 0, 0): die Instanz so verschieben,
 				# dass er auf p4 faellt.
 				var o4 := Vector3(p4.x, c.y + 0.15, p4.z) - bas4 * Vector3(ENTEN_R, 0.0, 0.0)
 				_in_kachel(enten, p4, Transform3D(bas4, o4))
+
+
+## Liegt rund um p (Radius r) ueberall mindestens 0,25 m Wasser ueber dem Grund?
+static func _rundum_nass(terrain: TerrainWorld, p: Vector3, spiegel: float, r: float) -> bool:
+	for k in 12:
+		var a := TAU * float(k) / 12.0
+		if spiegel - terrain.height_at(p.x + cos(a) * r, p.z + sin(a) * r) < 0.25:
+			return false
+	return spiegel - terrain.height_at(p.x, p.z) >= 0.25
 
 
 # --- Netze ----------------------------------------------------------------------------------
@@ -787,7 +842,18 @@ static func _stege_bauen(wurzel: Node3D, terrain: TerrainWorld, stege: Array,
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		var deck_y := 0.85
-		var land := 7.0          # so weit ins Land beginnt der Steg
+		# Boden relativ zu c.y an einer Stelle im Steg-System (x quer, z landwaerts)
+		var boden_bei := func(q: Vector3) -> float:
+			var w := ursprung + b * q
+			return terrain.height_at(w.x, w.z) - c.y
+		# So weit ins Land beginnt der Steg — hoechstens 7 m, aber nur bis dorthin, wo die
+		# Boeschung die Deckhoehe erreicht: mit festen 7 m steckte der Stegkopf an beiden Stegen
+		# im Uferhang (Boden 0,1 bzw. 0,4 m ueber dem Deck).
+		var land := 0.5
+		while land < 7.0 and float(boden_bei.call(Vector3(0, 0, land + 0.5))) < deck_y - 0.10:
+			land += 0.5
+		land = maxf(land, 1.5)
+		knoten.set_meta("steg_land", land)      # fuer tools/_flussleben_check.gd
 		var lang := 11.0 + rng.randf_range(0.0, 4.0)
 		var breit := 1.1
 		# Laufbretter quer, abwechselnd hell/dunkel, mit Fugen
@@ -822,11 +888,15 @@ static func _stege_bauen(wurzel: Node3D, terrain: TerrainWorld, stege: Array,
 			var neig := Basis(Vector3(0, 0, 1), seite * -0.62)
 			_quader(st, sp + Vector3(seite * 1.35, dy + 0.75, 0), Vector3(1.6, 0.06, 3.3), neig, dach)
 		_quader(st, sp + Vector3(0, sh + 0.9, -3.02), Vector3(1.0, 0.9, 0.04), Basis(), holz_dunkel)  # Tor
-		# Fass und zwei Kisten
-		_saeule(st, Vector3(1.6, sh * 0.3, land + 1.2), Vector3(1.6, sh * 0.3 + 0.9, land + 1.2), 0.32, 8, holz_dunkel)
-		_quader(st, Vector3(2.4, sh * 0.3 + 0.3, land + 2.0), Vector3(0.3, 0.3, 0.3), Basis(Vector3.UP, 0.4), holz_hell)
+		# Fass und zwei Kisten — jedes auf seinem eigenen Boden (vorher ein Bruchteil der
+		# Schuppenhoehe: am Hang schwebten sie oder steckten im Boden)
+		var fy: float = boden_bei.call(Vector3(1.6, 0, land + 1.2)) - 0.05
+		_saeule(st, Vector3(1.6, fy, land + 1.2), Vector3(1.6, fy + 0.9, land + 1.2), 0.32, 8, holz_dunkel)
+		var ky: float = boden_bei.call(Vector3(2.4, 0, land + 2.0)) - 0.05
+		_quader(st, Vector3(2.4, ky + 0.3, land + 2.0), Vector3(0.3, 0.3, 0.3), Basis(Vector3.UP, 0.4), holz_hell)
 		# Ein zweites Boot kieloben am Ufer
-		_boot(st, Vector3(-3.5, sh * 0.5 + 0.35, land - 1.0), Basis(Vector3.UP, 0.3) * Basis(Vector3(0, 0, 1), PI), weiss, gruen, 0.9)
+		var by: float = maxf(boden_bei.call(Vector3(-3.5, 0, land - 1.0)), 0.15)
+		_boot(st, Vector3(-3.5, by + 0.35, land - 1.0), Basis(Vector3.UP, 0.3) * Basis(Vector3(0, 0, 1), PI), weiss, gruen, 0.9)
 		# Angler auf der Bank, Rute uebers Wasser
 		_angler(st, Vector3(-0.6, deck_y, -lang + 0.5), rng)
 		st.generate_normals()

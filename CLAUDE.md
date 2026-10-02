@@ -869,6 +869,11 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   Kartenfaden (WorldMap._grobfarben) meldet "propagate_notification ... caller thread" in
   `match reg:` der Nordregion und stuerzt ab. Auch auf 4f8a9da nachgewiesen. Werkzeug zum
   Nachstellen: `tools/_start_stress.gd` (mehrfach parallel, je eigenes HOME).
+  VERMUTLICH NUR HEADLESS (2026-10-02): nachgewiesen wurde er nur mit `--headless`. Dort laeuft
+  Godots Dummy-Renderer, und dessen RID-Verwaltung fuer Netze/Materialien ist NICHT threadsicher
+  (`RID_Owner<DummyMesh>` ohne THREAD_SAFE, Quelle 4.6.2), die echte (RD) schon. Chunk-Worker und
+  Fernschuerze legen Netze in Faeden an -> headless Wettlauf, sichtbar als „Attempting to
+  initialize the wrong RID“ beim Start. Im Fenster nie beobachtet. Siehe Stolpersteine.
 
 ## Lebendige Welt (2026-09): Wolkenstrassen, Baumwind, Voegel
 - WOLKENSTRASSEN (`CloudField._strassen_wert`, `STRASSEN_JE_TYP`): die Deckung der
@@ -1018,6 +1023,22 @@ und Wildwassermuster war das Zellnetz der Wellentextur (Sechsecke); kein Leben a
 - NICHT GEMACHT: die Quellwand des Silberflusses (150 m) ist ein schmaler Fall auf einer Rampe —
   ein freier Fall vor der Wand braeuchte ein Gelaende mit Ueberhang. Klammbach und Canyon haben
   keine Stufen (flach).
+- FEHLERRUNDE (2026-10-02, Nutzer: „fixe bugs“). Neues Werkzeug `tools/_flussleben_check.gd`
+  haelt jede Instanz gegen das ECHTE Gelaende (height_at) und den Spiegel (_fluss_naechst + 0,15):
+  Seerose auf Wasser, Entenkreis ganz nass, Reiher am Ufer/knoecheltief, Schilf am Boden, Stein
+  nicht schwebend, Steg nicht im Hang. Die Lagen rechnet es wie `Flussleben.bauen` nach
+  (Zufallsstart 0x5F1055) — headless liefert eine MultiMesh ueberall die Nulllage (siehe
+  Stolpersteine). BEFUND alter Stand: 144 von 314 Steinen schwebten (an Fall-Lippen auf
+  Lippenhoehe, obwohl das Gelaende davor faellt; an der Quellwand bis 18 m), beide Stegkoepfe
+  steckten im Uferhang (feste 7 m an Land), Fass/Kiste am Steg im Boden, 7 Seerosen auf dem
+  Trockenen (Spiegel des Stuetzpunkts statt am Ort), ein Reiher auf 1,8 m tiefem Wasser und
+  eine Entenfamilie am Ufer — Ursache der letzten beiden: die echte Uferlinie WANDERT
+  (UFER_WANDERN), `_ufer` kennt nur die geplante d0. JETZT: `_stein` sinkt bis die Unterkante
+  ein Siebtel im tiefsten Punkt unter ihm steckt und entfaellt, wenn er dann ganz unter dem
+  Spiegel laege (265 Steine); Seerosen am oertlichen Spiegel; Reiher sucht landwaerts bis
+  hoechstens 0,2 m Wasser; Enten ruecken zur Mitte, bis der Kreis nass ist (`_rundum_nass`);
+  Steg endet, wo die Boeschung die Deckhoehe erreicht (Meta `steg_land`), Kleinzeug auf eigenem
+  Boden. Bild `ansichten/21_bugfixes_fluss.jpg`. Urteil jetzt OK.
 
 ## Nachladen: Schnellflug und weiches Erscheinen (2026-09)
 Nutzer: „mit einem schnellen Flugzeug laedt die Map viel zu langsam — du bist zu schnell".
@@ -1326,6 +1347,14 @@ und Bergdorf) und alle Flugplaetze der Hauptinsel (ausser ADLERHORST).
   jedes Dreieck des 8-m-Netzes, das das Band beruehrt, hat dann ALLE Ecken auf Fahrbahnhoehe
   (mit 7 m ragte das Netz in Kurven/Haengen ueber das Band). Bruecken lassen das Gelaende
   unberuehrt. Baeume/Gras halten ueber `strasse_abstand` Abstand.
+  BETTHOEHE WIE DAS BAND (2026-10-02): `Strassen._band` legt die Fahrbahn je Stuetzpunkt quer auf
+  eine GEHRUNGSLINIE (senkrecht zu pts[i-1] -> pts[i+1]); `_strasse_naechst` rechnete die Hoehe
+  aus der senkrechten Projektion aufs naechste Segment — am Aussenrand einer Kurve am Hang lag das
+  Bett so bis 15 cm UEBER dem Band (10 Stellen in `_strassen_check`). Jetzt Anteil zwischen den
+  Gehrungslinien (`_st_ta`/`_st_tb`), jenseits einer Gehrungslinie der Nachbarabschnitt: 0
+  Stellen. Die 4 Einmuendungen, an denen das Bett der ANDEREN Strasse folgt, zaehlt die Pruefung
+  getrennt (dort liegt deren Band obenauf, man sieht nichts; Diagnose `tools/_strassen_ueber.gd`). `_haupt_pruefsumme` aendert sich
+  entlang der Strassen um Zentimeter.
 - SICHTBAR (`scripts/Strassen.gd`): Band je 50 Abschnitte (1 km) als MeshInstance3D, Shader
   `shaders/strasse.gdshader` (Asphalt mit Rand-/Mittellinien, Schotterweg mit Spuren; Linien
   per fwidth ausgeblendet), Bruecken mit Platte, Gelaender, Pfeilern und Kastenkollision (man
@@ -1936,9 +1965,20 @@ Jet zusammen (2× `jet_square`, Symmetrie via BuildController) und schreibt ihn 
   einstellung „Wolkenlagen" blendet das ganze CloudField aus, `CloudField.dichte_bei` prüfte
   nur `mi.visible` der einzelnen Wolke — unsichtbare Wolken machten weiter Nebel, Turbulenz
   und Flak-Deckung. Beleg: `tools/_grafik_check.gd`.
+- **Headless ist nicht das Spiel (Dummy-Renderer).** Drei Dinge, die NUR mit `--headless`
+  auftreten und keine Spielfehler sind: (1) `Parameter "material" is null` in
+  `material_get_instance_shader_parameters` beim Freigeben von Teilen — der Dummy meldet geloeschte
+  Materialien nicht an die Instanzen (`material_free` ohne `deleted_notify`), RD schon;
+  (2) „Attempting to initialize the wrong RID“ / „Parameter "m" is null“ beim Start — Dummy-RID-
+  Verwaltung nicht threadsicher (siehe Startabsturz unter Welt-Look); (3) `MultiMesh.
+  get_instance_transform` liefert ueberall die Nulllage, und `get_texture().get_image()` null.
+  Pruefwerkzeuge rechnen Lagen deshalb selbst nach (`_flussleben_check`) und machen Bilder nur im
+  Fenster (`_firststart_check` hing headless sonst endlos am save_png).
 - **Packed-Arrays sind Werttypen.** `(arr[k] as PackedInt32Array).append(x)` ändert eine Kopie;
   das Original im Array bleibt leer — ohne Fehlermeldung. Direkt in Packed-Arrays arbeiten
-  (CSR: zählen, dann füllen). Und eine Prüfung, die über dieselbe kaputte Struktur fragt,
+  (CSR: zählen, dann füllen). GENAUER (gemessen 2026-10-02): die Kopie entsteht beim CAST bzw.
+  beim Zuweisen an eine typisierte Variable; `arr[k].append(x)` und `for a in [_x, _y]: a.clear()`
+  (untypisiert) ändern das ORIGINAL. Im Zweifel mit einem Fünfzeiler prüfen, nicht raten. Und eine Prüfung, die über dieselbe kaputte Struktur fragt,
   meldet „alles gut“: gegen eine unabhängige Brute-Force-Rechnung prüfen (Landstraßen).
 - **Physik-Interpolation + MultiMesh = Warten auf den Renderfaden.** Im Projekt ist
   `physics_interpolation` an. Wird eine MultiMeshInstance3D eingehaengt oder an einer

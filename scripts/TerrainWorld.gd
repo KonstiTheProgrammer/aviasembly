@@ -5484,6 +5484,8 @@ var _st_ha := PackedFloat32Array()
 var _st_hb := PackedFloat32Array()
 var _st_w := PackedFloat32Array()
 var _st_br := PackedByteArray()
+var _st_ta := PackedVector2Array()   # Gehrungsrichtung (Laufrichtung) am Anfang je Segment
+var _st_tb := PackedVector2Array()   # ... und am Ende — wie das Band (Strassen._rand)
 var _st_start := PackedInt32Array()
 var _st_seg := PackedInt32Array()
 var _st_x0 := 0.0
@@ -5497,7 +5499,7 @@ var _st_huelle := Rect2()
 func strassen_fertigstellen() -> void:
 	_strassen_an = false
 	strassen_profile.clear()
-	for arr in [_st_a, _st_b, _st_ha, _st_hb, _st_w, _st_br]:
+	for arr in [_st_a, _st_b, _st_ha, _st_hb, _st_w, _st_br, _st_ta, _st_tb]:
 		arr.clear()
 	for st in strassen:
 		var w := STRASSE_B_NEBEN if st.get("neben", false) else STRASSE_B_HAUPT
@@ -5510,6 +5512,8 @@ func strassen_fertigstellen() -> void:
 		for i in range(n - 1):
 			_st_a.append(pts[i])
 			_st_b.append(pts[i + 1])
+			_st_ta.append((pts[mini(i + 1, n - 1)] - pts[maxi(i - 1, 0)]).normalized())
+			_st_tb.append((pts[mini(i + 2, n - 1)] - pts[i]).normalized())
 			_st_ha.append(hh[i])
 			_st_hb.append(hh[i + 1])
 			_st_w.append(w)
@@ -5686,7 +5690,29 @@ func _strasse_naechst(x: float, z: float) -> Vector4:
 			best = dd
 			bs = si
 			bt = t
-	return Vector4(sqrt(best), lerpf(_st_ha[bs], _st_hb[bs], bt), _st_w[bs], float(_st_br[bs]))
+	# HOEHE WIE DAS BAND: Strassen._band legt die Fahrbahn je Stuetzpunkt QUER auf eine
+	# Gehrungslinie (senkrecht zur Richtung pts[i-1] -> pts[i+1]) mit der Hoehe des Punkts.
+	# Die senkrechte Projektion aufs Segment (bt) weicht davon am Aussenrand jeder Kurve ab —
+	# am Hang lag das Bett dort bis 15 cm UEBER dem Band (_strassen_check, "Gelaende ueber
+	# dem Band"). Jetzt der Anteil zwischen den beiden Gehrungslinien.
+	# Liegt die Stelle schon jenseits einer Gehrungslinie, gehoert sie zum Nachbarabschnitt
+	# derselben Strasse (die Abschnitte einer Strasse stehen hintereinander in _st_*).
+	var hs := bs
+	for _schritt in 2:
+		var sa := (x - _st_a[hs].x) * _st_ta[hs].x + (z - _st_a[hs].y) * _st_ta[hs].y
+		var sb := (x - _st_b[hs].x) * _st_tb[hs].x + (z - _st_b[hs].y) * _st_tb[hs].y
+		if sb > 0.0 and hs + 1 < _st_a.size() and _st_a[hs + 1] == _st_b[hs]:
+			hs += 1
+		elif sa < 0.0 and hs > 0 and _st_b[hs - 1] == _st_a[hs]:
+			hs -= 1
+		else:
+			break
+	var sa2 := (x - _st_a[hs].x) * _st_ta[hs].x + (z - _st_a[hs].y) * _st_ta[hs].y
+	var sb2 := (x - _st_b[hs].x) * _st_tb[hs].x + (z - _st_b[hs].y) * _st_tb[hs].y
+	var hoehe := lerpf(_st_ha[bs], _st_hb[bs], bt)
+	if sa2 - sb2 > 1e-4:
+		hoehe = lerpf(_st_ha[hs], _st_hb[hs], clampf(sa2 / (sa2 - sb2), 0.0, 1.0))
+	return Vector4(sqrt(best), hoehe, _st_w[bs], float(_st_br[bs]))
 
 
 ## Abstand zur naechsten Strasse (Mitte), INF wenn keine in der Naehe. Fuer Bewuchs, Gras

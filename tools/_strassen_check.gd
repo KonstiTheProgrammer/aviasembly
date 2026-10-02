@@ -132,6 +132,7 @@ func _pruefen() -> void:
 	# lieferte: "0 Baeume auf der Fahrbahn" war wertlos.)
 	var nicht_gefunden := 0
 	var ueber := 0
+	var verdeckt := 0
 	var proben_n := 0
 	for pr in t.strassen_profile:
 		var pts: PackedVector2Array = pr[0]
@@ -148,13 +149,20 @@ func _pruefen() -> void:
 				proben_n += 1
 				if t.strasse_abstand(p.x, p.y) > w + 0.5:
 					nicht_gefunden += 1
-				if t.height_at(p.x, p.y) > hh[i] + 0.05:
+				var hg := t.height_at(p.x, p.y)
+				if hg > hh[i] + 0.05:
+					# An Einmuendungen liegt hier oft das Band der ANDEREN Strasse (das Bett folgt
+					# der naechsten Strasse): ist es selbst sichtbar, sieht man nichts davon.
+					var sn: Vector4 = t._strasse_naechst(p.x, p.y)
+					if sn.x <= sn.z and sn.y + Strassen.BAND_Y > hg + 0.02:
+						verdeckt += 1
+						continue
 					ueber += 1
 					if ueber <= 12:
 						print("  Gelaende ueber dem Band bei (%d, %d): %.2f m ueber Fahrbahn %.2f" % [
-							roundi(p.x), roundi(p.y), t.height_at(p.x, p.y) - hh[i], hh[i]])
-	print("STRASSEN Raster: %d Eintraege; Fahrbahnproben ohne Strasse %d, Gelaende ueber Band %d von %d" % [
-		t._st_seg.size(), nicht_gefunden, ueber, proben_n])
+							roundi(p.x), roundi(p.y), hg - hh[i], hh[i]])
+	print("STRASSEN Raster: %d Eintraege; Fahrbahnproben ohne Strasse %d, Gelaende ueber Band %d von %d (an Einmuendungen unter dem anderen Band: %d)" % [
+		t._st_seg.size(), nicht_gefunden, ueber, proben_n, verdeckt])
 	# Baeume auf der Fahrbahn? Chunks um drei Strassenpunkte bauen und zaehlen.
 	var zu_nah := 0
 	var geprueft := 0
