@@ -70,7 +70,6 @@ const float MORPH_S = 1.4;   // = TerrainWorld.MORPH_S
 
 #include "res://shaders/palette.gdshaderinc"
 
-#ifndef FERN
 // --- BODENMATERIALIEN (2026-10-01, Nutzer: "schaut alles so billig aus, rueste es auf";
 // gewaehlt: echte Texturen, selbst erzeugt). ZWEITE FASSUNG am selben Tag: die realistischen
 // Texturen (Halme, Kiesel, Gesteinsschichten) passten nicht — gewuenscht ist "zelda-maessig"
@@ -123,6 +122,59 @@ const float FACETTE_GROSS = 0.75;
 const float MOOS_AB = 0.74;
 const float MOOS_VOLL = 0.92;
 
+// VERBOGENE SCHICHTEN: die Baenke der Felstextur laegen sonst ueberall exakt waagerecht und
+// gleich hoch (Lineal). Ein weicher Versatz der Hoehe (+-26 m auf ~1,4 km, dazu +-5 m auf
+// 380 m) biegt und neigt sie. Chunks und Fernschuerze rechnen ihn gleich (keine Naht).
+// Dazu eine feine Welle (+-3 m auf ~90 m): die Baenke der Textur sind seit der Nahtkorrektur
+// gerade (siehe build_bodentexturen fels), ihr Schwung kommt jetzt von hier — in Weltlage
+// gerechnet, also ohne Naht dort, wo die Triplanar-Projektion von x auf z wechselt.
+float schicht_biege(vec2 xz) {
+	return (texture(boden_tex, xz * (1.0 / 1400.0) + vec2(0.61, 0.13)).g - 0.5) * 52.0
+		+ (texture(boden_tex, xz * (1.0 / 380.0) + vec2(0.27, 0.77)).g - 0.5) * 10.0
+		+ (texture(boden_tex, xz * (1.0 / 90.0) + vec2(0.83, 0.37)).g - 0.5) * 6.0;
+}
+
+#ifdef FERN
+// FELS IN DER FERNSCHUERZE (2026-10-02, „geht noch besser"): jenseits der Chunks (ab ~3,8 km)
+// waren die Berge glatte Plastikflaechen — genau dort, wo man aus Flughoehe die Ketten sieht.
+// Nur der GROSSE Massstab der Felstextur (244-m-Kachel, Baenke von 30-60 m), triplanar wie
+// in den Chunks und mit derselben Biegung: die Schichtung laeuft ohne Naht ueber die Grenze.
+vec4 mat_fern(vec3 p, vec3 nn, out vec3 stoer) {
+	vec3 w = pow(abs(nn), vec3(4.0));
+	w /= (w.x + w.y + w.z);
+	float g = 1.0 / (KACHEL_FELS * KACHEL_GROSS);
+	vec4 acc = vec4(0.0);
+	vec3 s = vec3(0.0);
+	float summe = 0.0;
+	if (w.x > 0.05) {
+		vec2 uv = vec2(p.z, -p.y) * g + vec2(0.31, 0.17);
+		vec4 f = texture(mat_farbe, vec3(uv, MAT_FELS));
+		vec2 dd = texture(mat_normale, vec3(uv, MAT_FELS)).xy * 2.0 - 1.0;
+		s += w.x * vec3(0.0, -dd.y, dd.x);
+		acc += w.x * f;
+		summe += w.x;
+	}
+	if (w.y > 0.05) {
+		vec2 uv = DREH * p.xz * g + vec2(0.53, 0.29);
+		vec4 f = texture(mat_farbe, vec3(uv, MAT_FELS));
+		vec2 dd = transpose(DREH) * (texture(mat_normale, vec3(uv, MAT_FELS)).xy * 2.0 - 1.0);
+		s += w.y * vec3(dd.x, 0.0, dd.y);
+		acc += w.y * f;
+		summe += w.y;
+	}
+	if (w.z > 0.05) {
+		vec2 uv = vec2(p.x, -p.y) * g + vec2(0.71, 0.43);
+		vec4 f = texture(mat_farbe, vec3(uv, MAT_FELS));
+		vec2 dd = texture(mat_normale, vec3(uv, MAT_FELS)).xy * 2.0 - 1.0;
+		s += w.z * vec3(dd.x, -dd.y, 0.0);
+		acc += w.z * f;
+		summe += w.z;
+	}
+	stoer = s / max(summe, 1.0e-4) * FACETTE_GROSS;
+	acc /= max(summe, 1.0e-4);
+	return vec4(acc.rgb * 2.0, acc.a);
+}
+#else
 // Von oben projiziert, zwei Massstaebe. rgb = Farbfaktor, a = Hoehe; stoer = Welt-
 // Stoerung der Normale (x, z), ao = Hohlkehle.
 vec4 mat_oben(vec2 xz, float ebene, float kachel, out vec3 stoer, out float ao) {
@@ -143,7 +195,9 @@ vec4 mat_oben(vec2 xz, float ebene, float kachel, out vec3 stoer, out float ao) 
 // Textur laufen auf den Seitenflaechen mit der Hoehe — die Schichten liegen waagerecht. Die
 // alte Felszeichnung kam aus Vertexfarben, die nur von (x, z) abhingen: an jeder Wand liefen
 // sie als senkrechte Streifen durch ("gestreckt"). Zweiter, grosser Massstab nur in der Farbe.
-vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, out vec3 stoer, out float ao) {
+// klein: Anteil des kleinen Massstabs (1 nah, 0.45 ab ~600 m) — aus der Mitteldistanz sollen
+// die grossen Baenke die Wand gliedern, nicht ein Nadelstreifen aus den kleinen.
+vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, float klein, out vec3 stoer, out float ao) {
 	vec3 w = pow(abs(nn), vec3(4.0));
 	w /= (w.x + w.y + w.z);
 	vec4 acc = vec4(0.0);
@@ -161,10 +215,10 @@ vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, out vec3 stoer, ou
 		vec4 f2 = texture(mat_farbe, vec3(uv2, ebene));
 		vec4 m = texture(mat_normale, vec3(uv, ebene));
 		vec4 m2 = texture(mat_normale, vec3(uv2, ebene));
-		vec2 dd = (m.xy * 2.0 - 1.0) + (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
+		vec2 dd = (m.xy * 2.0 - 1.0) * klein + (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
 		s += w.x * vec3(0.0, -dd.y, dd.x);
 		a += w.x * m.z * mix(1.0, m2.z, 0.5);
-		acc += w.x * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
+		acc += w.x * vec4(mix(vec3(1.0), f.rgb * 2.0, klein) * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
 		summe += w.x;
 	}
 	if (w.y > 0.03) {
@@ -174,10 +228,10 @@ vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, out vec3 stoer, ou
 		vec4 f2 = texture(mat_farbe, vec3(uv2, ebene));
 		vec4 m = texture(mat_normale, vec3(uv, ebene));
 		vec4 m2 = texture(mat_normale, vec3(uv2, ebene));
-		vec2 dd = (m.xy * 2.0 - 1.0) + transpose(DREH) * (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
+		vec2 dd = (m.xy * 2.0 - 1.0) * klein + transpose(DREH) * (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
 		s += w.y * vec3(dd.x, 0.0, dd.y);
 		a += w.y * m.z * mix(1.0, m2.z, 0.5);
-		acc += w.y * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
+		acc += w.y * vec4(mix(vec3(1.0), f.rgb * 2.0, klein) * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
 		summe += w.y;
 	}
 	if (w.z > 0.03) {
@@ -187,10 +241,10 @@ vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, out vec3 stoer, ou
 		vec4 f2 = texture(mat_farbe, vec3(uv2, ebene));
 		vec4 m = texture(mat_normale, vec3(uv, ebene));
 		vec4 m2 = texture(mat_normale, vec3(uv2, ebene));
-		vec2 dd = (m.xy * 2.0 - 1.0) + (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
+		vec2 dd = (m.xy * 2.0 - 1.0) * klein + (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
 		s += w.z * vec3(dd.x, -dd.y, 0.0);
 		a += w.z * m.z * mix(1.0, m2.z, 0.5);
-		acc += w.z * vec4(f.rgb * 2.0 * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
+		acc += w.z * vec4(mix(vec3(1.0), f.rgb * 2.0, klein) * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
 		summe += w.z;
 	}
 	stoer = s / summe;
@@ -250,6 +304,34 @@ void fragment() {
 	float schnee = smoothstep(0.70, 0.86, mn);
 	float steil = 1.0 - smoothstep(0.58, 0.86, n.y);
 
+	// SCHARFE GRASKANTEN AM FELS (2026-10-02): die Rohfarbe wechselt je Eckpunkt des 8-m-
+	// Netzes zwischen Wiese und Fels; interpoliert lag dazwischen ein olivgrauer Schmier, an
+	// jeder Wand ein paar Meter breit. Jetzt endet das Gras an einer KANTE: wo Fels moeglich
+	// ist (steil), wird der Gruenanteil mit einem waagerecht gestreckten Rauschen verschoben
+	// und hart geschnitten — das Gras liegt in gewellten Baendern auf den Simsen wie in BotW.
+	// Unter der Kante ein schmaler Schattensaum (der Rasen steht ueber).
+	float saum = 0.0;
+	// Erst an wirklich steilen Stellen, und im Zweifel GRAS (+0.12): an maessigen Haengen lag
+	// sonst ein Tarnmuster aus grauen Flecken auf der Wiese (halbgruene Zellen hart geteilt).
+	float fels_moeglich = smoothstep(0.50, 0.85, steil) * (1.0 - schnee) * k;
+	if (fels_moeglich > 0.01 && gruen > 0.005 && gruen < 0.995) {
+		vec2 wk = abs(n.x) > abs(n.z) ? w_pos.zy : w_pos.xy;
+		// Grob gewellt (70 x 16 m) mit nur einem Hauch Feinem — mit kraeftigem Feinanteil lag
+		// die Kante nah als Leopardenmuster aus Grasinseln da.
+		float rk = texture(boden_tex, vec2(wk.x * (1.0 / 70.0), wk.y * (1.0 / 16.0)) + vec2(0.17, 0.41)).g
+			+ texture(boden_tex, vec2(wk.x * (1.0 / 26.0), wk.y * (1.0 / 9.0)) + vec2(0.63, 0.09)).g * 0.22 - 0.61;
+		float v = gruen + rk * 0.55 + 0.12;
+		float scharf = smoothstep(0.46, 0.54, v);
+		// Saum in WELTMETERN (Abstand zur Kante = Rest bis 0.5 / Gefaelle von v je Meter): als
+		// Band in v war er dort, wo das Gruen ueber eine ganze Zelle bei ~0.4 lag, viele Meter
+		// breit — dunkle Schmutzflecken um jede Grasinsel.
+		float je_m = length(vec2(dFdx(v), dFdy(v)))
+			/ max(length(vec2(length(dFdx(w_pos)), length(dFdy(w_pos)))), 1.0e-3);
+		float abstand = (0.5 - v) / max(je_m, 1.0e-3);
+		saum = (1.0 - smoothstep(0.0, 1.4, abstand)) * step(0.0, abstand) * fels_moeglich;
+		gruen = mix(gruen, scharf, fels_moeglich);
+	}
+
 	// Sehr grosse, weiche Verlaeufe (5 km / 1,3 km) — Landschaftsmassstab, keine Flecken.
 	float verlauf = VERLAUF(boden_tex, w_pos.xz) * k;
 
@@ -297,6 +379,21 @@ void fragment() {
 		vec3 stein = ton * (hell / max(dot(ton, vec3(0.2126, 0.7152, 0.0722)), 0.001));
 		c = mix(c, stein, fels * 0.88);
 	}
+	c *= 1.0 - 0.20 * saum;
+#ifdef FERN
+	// Fels in der Fernschuerze: grosse Baenke (mat_fern), Ton aus der Neigung zur Sonne, Licht
+	// mit maessiger Neigung — wie die Chunks (siehe Materialblock unten).
+	if (mat_da && fels > 0.02) {
+		vec3 st_f;
+		vec4 ff = mat_fern(vec3(w_pos.x, w_pos.y + schicht_biege(w_pos.xz), w_pos.z), n, st_f);
+		float a_f = fels * k;
+		c *= mix(vec3(1.0), mix(vec3(1.0), ff.rgb, 0.6), a_f);
+		float ft = clamp(dot(st_f, sonne_dir) * FACETTE_TON, -0.40, 0.40) * a_f;
+		c *= (1.0 + ft) * mix(vec3(1.0), ft > 0.0 ? vec3(1.04, 1.01, 0.95) : vec3(0.93, 0.97, 1.06),
+			min(abs(ft) * 2.5, 1.0));
+		n = normalize(n + st_f * RELIEF_FELS * a_f);
+	}
+#endif
 
 	// --- Schnee blauweiss -------------------------------------------------------------------
 	c = mix(c, SCHNEE_C, schnee * 0.7);
@@ -334,13 +431,10 @@ void fragment() {
 		if (w_sand > 0.02) { p_sand = mat_oben(w_pos.xz, MAT_SAND, KACHEL_SAND, s_sand, a_sand); }
 		if (w_schnee > 0.02) { p_schnee = mat_oben(w_pos.xz, MAT_SCHNEE, KACHEL_SCHNEE, s_schnee, a_schnee); }
 		if (w_fels > 0.02) {
-			// VERBOGENE SCHICHTEN: die Baenke der Felstextur liegen sonst ueberall exakt
-			// waagerecht und gleich hoch (Lineal). Ein weicher Versatz der Hoehe (+-26 m auf
-			// ~700 m) und ein leichtes Einfallen je Gegend biegen und neigen sie.
-			float biege = (texture(boden_tex, w_pos.xz * (1.0 / 1400.0) + vec2(0.61, 0.13)).g - 0.5) * 52.0
-				+ (texture(boden_tex, w_pos.xz * (1.0 / 380.0) + vec2(0.27, 0.77)).g - 0.5) * 10.0;
-			vec3 p_schicht = vec3(w_pos.x, w_pos.y + biege, w_pos.z);
-			p_fels = mat_dreifach(p_schicht, n, MAT_FELS, KACHEL_FELS, s_fels, a_fels);
+			// VERBOGENE SCHICHTEN (schicht_biege, oben).
+			vec3 p_schicht = vec3(w_pos.x, w_pos.y + schicht_biege(w_pos.xz), w_pos.z);
+			p_fels = mat_dreifach(p_schicht, n, MAT_FELS, KACHEL_FELS,
+				1.0 - 0.55 * smoothstep(120.0, 600.0, d), s_fels, a_fels);
 		}
 
 		// UEBERBLENDEN NACH HOEHE: wo zwei Materialien sich teilen, gewinnt das hoehere —

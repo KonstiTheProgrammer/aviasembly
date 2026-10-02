@@ -682,6 +682,29 @@ hochfrequenten Rauschtexturen mehr; Form ueber Palette, weiches Licht und Dunst.
   gruene Flicken an senkrechten Waenden.
   GEMESSEN (`_gelaende_zeit`, 4K, gleicher Lauf alt/neu): Bild im Mittel 15,43 -> 15,48 ms,
   Berge 950 m 13,53 -> 13,88. Bilder: `ansichten/19_fels_geschichtet.jpg` (vorher/nachher).
+- FELS, ZWEITE RUNDE (2026-10-02, Nutzer: „ja geht noch besser“). Drei Schwaechen aus den
+  Bildern: (1) zwischen Wiese und Fels ein olivgrauer Schmier (Rohfarbe je 8-m-Eckpunkt
+  interpoliert), (2) jenseits der Chunks (ab ~3,8 km) glatte Plastikberge, (3) Schichten nur
+  in Grauwerten und als feiner Nadelstreifen. JETZT:
+  * SCHARFE GRASKANTE (`gelaende_kern`, vor dem Materialblock): wo Fels moeglich ist (steil
+    0.50..0.85), wird der Gruenanteil mit grob gewelltem Rauschen (70 x 16 m, in Wandkoordinaten)
+    verschoben und hart geschnitten, im Zweifel Gras (+0.12); darunter ein Schattensaum von
+    ~1,4 m — in WELTMETERN aus dem Gefaelle von v (als Band in v war er an flachen Stellen viele
+    Meter breit: Schmutzflecken). FALLE: kraeftiger Feinanteil im Rauschen = Leopardenmuster;
+    Schwelle bei steil 0.30 = graues Tarnmuster auf maessigen Haengen.
+  * FELS IN DER FERNSCHUERZE (`mat_fern`, FERN): nur der grosse Massstab, triplanar, gleiche
+    Biegung, gleicher Sonnenton und Relief — Main gibt `_fern_mat` die Bodenmaterialien
+    (`boden_material_setzen`). Die Ketten zeigen bis zum Horizont Schichten, ohne Naht an der
+    Chunkgrenze.
+  * TEXTUR: Farbbaender (eine Bank ocker, eine blaugrau), Grenzen GERADE — die Wellung kommt
+    aus `schicht_biege` in Weltlage (+ feine Welle 6 m / 90 m). FALLE: gewellte Grenzen in der
+    Textur sprangen dort, wo die Triplanar-Projektion von x auf z wechselt, an einer senkrechten
+    Naht. Nur VORTRETENDE Baenke haben Kanten (sonst an jeder Grenze eine Linie). Der kleine
+    Massstab tritt ab 120..600 m auf 45 % zurueck (`klein` in `mat_dreifach`), die grossen
+    Baenke gliedern die Wand.
+  GEMESSEN (`_gelaende_zeit`, 4K): Bild im Mittel 15,48 -> 15,75 ms (Berge 950 m 13,88 -> 14,11;
+  die Fernschuerze tastet jetzt ab). Bilder `ansichten/20_fels_besser.jpg`. `_loadcheck` OK,
+  `_grafik_check` 0, keine Warnungen.
 - „BABA“-RUNDE (2026-10-01 nachts, Nutzer nach der Zelda-Fassung: „schaut schon besser aus,
   aber mach so, dass es baba ausschaut“). BEFUND aus den Flugbildern, gemessen: Wald Median
   2/51/10 (Helligkeit 0.20, Saettigung 0.96) gegen Wiese 93/152/29 (0.60) = schwarzgruener

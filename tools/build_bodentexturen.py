@@ -315,11 +315,15 @@ def fels():
     # --- Baenke --------------------------------------------------------------------------
     n_b = 7
     dicken = rng.lognormal(0.0, 0.85, n_b)
+    dicken = np.maximum(dicken / dicken.sum() * N, 18.0)
     dicken = dicken / dicken.sum() * N
     start = rng.uniform(0, N)
     grenzen = (start + np.concatenate([[0.0], np.cumsum(dicken)[:-1]])) % N
-    wellen = [rausch(250 + i, 2.8, 1, 5)[0] * 9.0 + rausch(260 + i, 2.2, 3, 14)[0] * 1.8
-              for i in range(n_b)]
+    # GERADE GRENZEN (nur ein Hauch eigener Welle): der Shader biegt die Schichten in Weltlage
+    # (gelaende_kern schicht_biege). Mit gewellten Grenzen in der Textur sprangen die Baenke
+    # dort, wo die Triplanar-Projektion von x auf z wechselt, an einer senkrechten Naht — die
+    # beiden Projektionen lesen dieselbe Hoehe, aber verschiedene u.
+    wellen = [rausch(260 + i, 2.2, 3, 14)[0] * 0.8 for i in range(n_b)]
     unter = np.stack([(yy - (grenzen[i] + wellen[i][None, :])) % N for i in range(n_b)])
     ueber = np.stack([((grenzen[i] + wellen[i][None, :]) - yy) % N for i in range(n_b)])
     bank = np.argmin(unter, axis=0)
@@ -329,6 +333,12 @@ def fels():
     rel = t_oben / np.maximum(dicke, 1.0)
     ton_b = rng.uniform(0.93, 1.06, n_b)
     warm_b = rng.normal(0.0, 1.0, n_b)
+    # FARBBAENDER: eine Bank ocker (eisenhaltig), eine kuehl blaugrau — gemalte Klippen haben
+    # Farbe in den Schichten, nicht nur Helligkeit (BotW: Hebra blaugrau, Akkala rostig).
+    reihe = rng.permutation(n_b)
+    farb_b = np.ones((n_b, 3))
+    farb_b[reihe[0]] = [1.05, 1.00, 0.91]
+    farb_b[reihe[1]] = [0.96, 0.985, 1.045]
     vor_b = (rng.random(n_b) < 0.6).astype(np.float64) * rng.uniform(0.6, 1.0, n_b)
     vor = vor_b[bank]
     # --- Kluefte: wenige, weich, nur in dicken Baenken -----------------------------------
@@ -344,8 +354,12 @@ def fels():
             kluft = np.maximum(kluft, np.exp(-(d / 2.2) ** 2) * (bank == j)
                                * np.clip((reicht - rel) * 6.0, 0.0, 1.0))
     # --- Hoehe -------------------------------------------------------------------------
-    sims = np.clip(t_oben / 10.0, 0.0, 1.0) ** 0.5            # runde Oberkante
-    fuss = np.clip(t_unten / 7.0, 0.0, 1.0) ** 0.7
+    # Nur VORTRETENDE Baenke haben eine Kante (Sims oben, Fuss unten); zwischen zwei
+    # zurueckliegenden laeuft die Wand glatt durch — sonst stand an JEDER Grenze eine Linie,
+    # aus 300 m ein Nadelstreifen.
+    vor_unten = vor_b[(bank + 1) % n_b]
+    sims = 1.0 - vor * (1.0 - np.clip(t_oben / 10.0, 0.0, 1.0) ** 0.5)
+    fuss = 1.0 - np.maximum(vor, vor_unten) * (1.0 - np.clip(t_unten / 7.0, 0.0, 1.0) ** 0.7)
     hoehe = (0.45 + 0.4 * vor) * sims * fuss + (1.0 - rel) * 0.15 * vor
     hoehe -= kluft * 0.25
     hoehe += rausch_streif(280, 0.30, 1.0, 2.6, 2, 30) * 0.03
@@ -354,11 +368,12 @@ def fels():
     c = grund(ton(1.0, 1.0, 1.0)) * ton_b[bank][..., None]
     w = warm_b[bank]
     c *= (1.0 + np.stack([0.018, 0.005, -0.022], -1) * w[..., None])
+    c *= farb_b[bank]
     c *= (1.04 - 0.09 * rel ** 1.3)[..., None]
     licht = np.exp(-t_oben / 2.5) * (t_oben > 0.5) * vor
     c *= (1.0 + 0.22 * licht)[..., None]
     schatten = np.exp(-t_unten / 6.0) * vor_b[(bank + 1) % n_b]
-    schatten = np.maximum(schatten, np.exp(-t_unten / 2.0) * 0.08)
+    schatten = np.maximum(schatten, np.exp(-t_unten / 2.0) * 0.05)
     c *= (1.0 - 0.30 * schatten)[..., None]
     c *= (1.0 + np.stack([-0.02, 0.0, 0.04], -1) * schatten[..., None])
     c *= (1.0 - 0.28 * kluft)[..., None]

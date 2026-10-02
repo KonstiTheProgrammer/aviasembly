@@ -3073,6 +3073,8 @@ func _fernschuerze_starten() -> void:
 	_fern_mat = ShaderMaterial.new()
 	_fern_mat.shader = load("res://shaders/gelaende_fern.gdshader")
 	_fern_mat.set_shader_parameter("boden_tex", TerrainWorld.boden_textur())
+	# Felstextur auch in der Schuerze (nur der grosse Massstab, gelaende_kern mat_fern).
+	TerrainWorld.boden_material_setzen(_fern_mat)
 	_fern_mat.set_shader_parameter("senke_nah", FERN_NAH)
 	_fern_mat.set_shader_parameter("senke_fern", FERN_FERN)
 	_fern_mat.set_shader_parameter("senke_tief", FERN_TIEF)
