@@ -1446,6 +1446,41 @@ Rasen und Asphalt. JETZT:
 - NICHT GEMACHT: keine neuen Haustypen oder dichtere Bebauung; Industriehafen, Burgberg, Hafenstadt
   (hat eigene Baeume) und die Orte der Regionen haben kein Ortsgruen.
 
+## Haeuser-Materialien und Ortsleben (2026-10-02, Nutzer: „mach die Stadt und die Doerfer viel besser (kannst auch eigene Material machen)“)
+BEFUND (Nahbilder auf Strassenhoehe): die Haeuser waren aus der Naehe reine Farbflaechen (Plastik),
+die Fenster schwarze Loecher; in Stadt und Doerfern kein Auto, kein Tier, keine Bank.
+- EIGENE MATERIALIEN im Haus-Shader (`shaders/haus.gdshader`, Uniform `art`, gesetzt in
+  `CityBuilder._malen` ueber `material_art(Materialname)`): Ziegeldach (H_dach_rot/_terra: Reihen
+  die Fallinie hinauf, versetzt, Pfannenwoelbung, Schatten unter jeder Reihe, Flechten), Schiefer
+  (H_dach_schiefer), Reet/Stroh (H_dach_stroh), Kupfer/Patina mit Stehfalz (H_dach_kupfer/
+  _patina), Putz (H_wand_*: grosse Flecken, Korn, Spritzwasser am Sockel, Regenspuren),
+  Backstein (H_ziegel, Laeuferverband), Holzbretter (H_holz_*), Naturstein (H_stein), Beton,
+  Glas/Fenster (Fresnel-Himmelsspiegelung, warmer Raum dahinter). Die Modelle haben KEINE UVs:
+  alles aus der Weltlage im Rahmen der Flaeche (t waagerecht, b in der Flaeche nach oben),
+  `fuss_y` = Hausfuss aus MODEL_MATRIX. Muster blenden ueber fwidth JE RICHTUNG (fwu/fwv) in ihr
+  Mittel — mit dem groesseren Wert fuer beide verschwand das Muster jeder Dachflaeche unter
+  flachem Blick; ab 0,6 m je Bildpunkt wird gar nicht gerechnet (`a = 0`).
+  FALLEN: ein festes Fensterraster (Vorhaenge je 1,3 x 1,5 m) lag auf den Fensterbaendern der
+  Hochhaeuser als Pixelmuster — die Fensterflaechen der Modelle sind mal ein Fenster, mal ein Band;
+  die Himmelsspiegelung muss gedaempft sein, sonst stehen Fensterbaender weiss da.
+- `scripts/Ortsleben.gd` (statisch, deterministisch, Material = `Strassen._stein_material()`,
+  also bruecke.gdshader mit COLOR.a = 0): AUTOS (Quader-Netz, Farbe je Instanz) am Bordstein der
+  Stadtstrassen/Gassen/Dorfstrassen (`stadt`, Grossstadt 0,45, Landdorf 0,2) und neben jedem
+  dritten Dorfhaus; WEIDEN am Rand der Strassendoerfer (Zaunfelder als MultiMesh, das 1-m-Feld je
+  Instanz per Basis auf Laenge und Gefaelle gestreckt; 5-9 Kuehe oder 9-16 Schafe); BAENKE an der
+  Kirche (erste freie von sechs Stellen — die Kirchhofmauer steht nicht im Hausgrundriss).
+  Aufgerufen aus `Ortsgruen.strassendorf`/`Ortsgruen.ort` mit denselben Hindernissen.
+  FALLE (eine Stunde gesucht): `visibility_range` misst Godot von der MITTE DER HUELLE — eine
+  MultiMesh mit allen Autos der Stadt (und durch einen falschen Strassenbereich auch des 6,6 km
+  entfernten Landdorfs) hatte ihre Mitte 3 km weg und wurde nie gezeichnet. `_einhaengen` teilt
+  jetzt in 250-m-Kacheln; `Ortsgruen.ort` bekommt das Ende des Strassenbereichs (`s1`).
+- ZAHLEN: 1348 Autos, 317 Tiere auf 35 Weiden; Start + ~0,23 s (Ortsgruen samt Ortsleben ~0,6 s).
+  GPU (`_hafen_zeit`, HZ_ORT=grossstadt, 4K, ganzes Bild alt -> neu): Kern 45 m 13,7 -> 14,3,
+  Stadt 150 m 16,8 -> 17,3, Anflug 400 m 20,8 -> 20,5, Fern 900 m 18,8 -> 18,9 ms.
+- BELEGE wie beim Ortsgruen (alle OK, keine Warnungen). Bilder `ansichten/27_stadt_doerfer_besser.jpg`.
+- NICHT GEMACHT: fahrende Autos, Menschen; Autos stehen auch auf den Dorfstrassen halb auf der
+  Fahrbahn; die Hafenstadt bekommt die neuen Materialien (gleicher Shader), aber kein Ortsleben.
+
 ## Hafenstadt FREIHAFEN mit Freiheitsstatue (2026-10)
 Nutzerwunsch: „baue eine hafenstadt mit freiheitstatue". Alles in `scripts/Hafenstadt.gd`
 (statisch, feste RNG-Seeds), eingehaengt in Main an vier Stellen: `flat_zones`

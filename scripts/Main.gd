@@ -2495,11 +2495,13 @@ func _setup_world() -> void:
 		CityBuilder.build(fly_world, terrain, dorf_pos, CityBuilder.plan_dorf(zu_dorf), "Landdorf")
 		# Baeume, Alleen, Hoefe, Obstwiesen (scripts/Ortsgruen.gd)
 		Ortsgruen.ort(fly_world, terrain, "Grossstadt", Vector2(city_pos.x, city_pos.z), 330.0,
-			h_stadt, s_stadt, true)
+			h_stadt, s_stadt, true, s_dorf)
 		Ortsgruen.ort(fly_world, terrain, "Landdorf", Vector2(dorf_pos.x, dorf_pos.z), 150.0,
 			h_dorf, s_dorf, false)
 		print("Ortsgruen: %d Pflanzen, %d Hofzufahrten in %d Orten, %.0f ms" % [Ortsgruen.bilanz[0],
 			Ortsgruen.bilanz[1], Ortsgruen.bilanz[2], float(Ortsgruen.bilanz[3]) / 1000.0])
+		print("Ortsleben: %d Autos, %d Tiere auf %d Weiden, %.0f ms" % [Ortsleben.bilanz[0],
+			Ortsleben.bilanz[1], Ortsleben.bilanz[2], float(Ortsleben.bilanz[3]) / 1000.0])
 		CityBuilder.build(fly_world, terrain, burg_pos, CityBuilder.plan_burg(), "Burgberg")
 		CityBuilder.build(fly_world, terrain, mil_pos, CityBuilder.plan_militaer(), "Militaerposten")
 		for e in _region_ort_zonen:

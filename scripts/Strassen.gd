@@ -80,6 +80,7 @@ static func karten_orte() -> Array:
 ## Alles Sichtbare bauen (nach strassen_fertigstellen). zonen = flachzonen() mit Hoehe.
 static func bauen(parent: Node3D, terrain: TerrainWorld, zonen: Array) -> void:
 	Ortsgruen.bilanz = [0, 0, 0, 0]
+	Ortsleben.bilanz = [0, 0, 0, 0]
 	var knoten := Node3D.new()
 	knoten.name = "Landstrassen"
 	knoten.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF   # statisch

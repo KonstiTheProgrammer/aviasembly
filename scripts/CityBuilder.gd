@@ -74,6 +74,34 @@ static func _sammeln(pfad: String, ziel: Dictionary) -> void:
 ## Die importierten Standardmaterialien eines Haus-Meshes gegen den Haus-Shader tauschen
 ## (Farbe, Rauheit, Metall uebernommen). Die Meshes sind geteilte Ressourcen — der Tausch
 ## gilt fuer die Sitzung, die glb-Dateien bleiben unberuehrt.
+## EIGENE MATERIALIEN (shaders/haus.gdshader, `art`) nach dem Materialnamen aus
+## tools/build_haeuser_blend.py: Dach (Ziegel, Schiefer, Stroh, Kupfer/Patina), Putz (H_wand_*),
+## Backstein (H_ziegel), Holz (H_holz_*), Glas/Fenster, Naturstein, Beton. Rest glatt.
+static func material_art(name: String) -> int:
+	var nm := name.to_lower()
+	if nm.contains("dach_rot") or nm.contains("dach_terra"):
+		return 1
+	if nm.contains("dach_schiefer"):
+		return 2
+	if nm.contains("dach_stroh"):
+		return 3
+	if nm.contains("dach_kupfer") or nm.contains("dach_patina"):
+		return 4
+	if nm.contains("wand_"):
+		return 5
+	if nm.contains("ziegel"):
+		return 6
+	if nm.contains("holz_"):
+		return 7
+	if nm.contains("fenster") or nm.contains("glas"):
+		return 8
+	if nm.contains("stein"):
+		return 9
+	if nm.contains("beton"):
+		return 10
+	return 0
+
+
 static func _malen(mesh: Mesh) -> void:
 	if _haus_shader == null:
 		_haus_shader = load("res://shaders/haus.gdshader")
@@ -90,6 +118,7 @@ static func _malen(mesh: Mesh) -> void:
 			sm.set_shader_parameter("haus_farbe", bm.albedo_color)
 			sm.set_shader_parameter("rauheit", bm.roughness)
 			sm.set_shader_parameter("metall", bm.metallic)
+			sm.set_shader_parameter("art", material_art(bm.resource_name))
 			_mat_cache[bm] = sm
 		mesh.surface_set_material(si, _mat_cache[bm])
 

@@ -378,6 +378,8 @@ static func strassendorf(parent: Node3D, terrain: TerrainWorld, name: String, p:
 					+ pf.rng.randf_range(-0.15, 0.15)), Vector3(q.x, y, q.y)))
 	var n_zu := _zufahrten(wurzel, hi, terrain)
 	var n := _einhaengen(wurzel, terrain, pf)
+	# Autos, Weiden mit Tieren, Baenke (scripts/Ortsleben.gd) — mit denselben Hindernissen
+	Ortsleben.dorf(parent, terrain, name, p, dir, gr, laenge, hi)
 	bilanz = [int(bilanz[0]) + n, int(bilanz[1]) + n_zu, int(bilanz[2]) + 1,
 		int(bilanz[3]) + Time.get_ticks_usec() - t0]
 	return [n, n_zu]
@@ -386,7 +388,7 @@ static func strassendorf(parent: Node3D, terrain: TerrainWorld, name: String, p:
 ## ORT MIT STRASSENNETZ (Grossstadt, Landdorf): Hofbaeume, Alleen auf den Boulevards, Baeume in
 ## freien Hoefen und Gruenflaechen, um das Dorf Obstwiesen. r = Radius des bebauten Gebiets.
 static func ort(parent: Node3D, terrain: TerrainWorld, name: String, mitte: Vector2, r: float,
-		h0: int, s0: int, stadt: bool) -> int:
+		h0: int, s0: int, stadt: bool, s1 := -1) -> int:
 	var t0 := Time.get_ticks_usec()
 	var hi := hindernisse(terrain, h0, s0)
 	var pf := Pflanzung.new()
@@ -450,4 +452,7 @@ static func ort(parent: Node3D, terrain: TerrainWorld, name: String, mitte: Vect
 				pf.rng.randf_range(24.0, 34.0))
 	var n := _einhaengen(wurzel, terrain, pf)
 	bilanz = [int(bilanz[0]) + n, int(bilanz[1]), int(bilanz[2]) + 1, int(bilanz[3]) + Time.get_ticks_usec() - t0]
+	# geparkte Autos an den Strassen (scripts/Ortsleben.gd)
+	Ortsleben.stadt(parent, terrain, name, s0, s1 if s1 >= 0 else CityBuilder.karte_strassen.size(), hi,
+		0.45 if stadt else 0.2)
 	return n
