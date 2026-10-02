@@ -1743,8 +1743,8 @@ Widerstand~x·y, Traglast~Volumen. Resize-Mathe: `_ray_axis_t` (Linie-Strahl).
 schwenkt bei Ruhe sanft zurück; `look_yaw`/`look_pitch` + `_cam_offset` in FlightController) ·
 `Shift`/`Strg` Schub (unter 0 % = bremsen) · `W`/`S` Nase ·
 `A`/`D` rollen (**vertauscht:** A=rechts, D=links; **lange halten → Fass-Roll**) · `Q`/`E` gieren = **rechts/links**
-(Seitenleitwerk; auch `C`/`Z`) · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
-`V` (HALTEN) **Zielzoom** · `N` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `M` **Karte** (Vollbild-Inselkarte, Mausrad = Zoomstufen 1/2.5/6; Corner-Minimap läuft immer mit) · `H` **Bombenschacht** auf/zu (siehe unten) · `O` **G-Schutz** (lag frueher auf H; Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
+(Seitenleitwerk) · `C` (HALTEN) **Free-Look** · `I` Steuerung umkehren · `G` Einziehfahrwerk · `T` Assist ·
+`Z` oder `V` (HALTEN) **Zielzoom** · `N` **Maus-/Tastatur-Flug** umschalten (Maus-Flug = STANDARD beim Flugstart) · `M` **Karte** (Vollbild-Inselkarte, Mausrad = Zoomstufen 1/2.5/6; Corner-Minimap läuft immer mit) · `H` **Bombenschacht** auf/zu (siehe unten) · `O` **G-Schutz** (lag frueher auf H; Default AN, persistiert: `AircraftBody.g_protect` kappt den Auftrieb hart bei 95 % der Flügel-Belastbarkeit -> Flügel können NICHT abreißen, Mush am Limit; AUS = volle Physik + Flügelbruch, HUD-Badge) · `Enter` Reset/Reparatur · `Tab` Hangar (gibt Maus frei).
 **Maus-Flug (GROSSKREIS-INSTRUCTOR, STANDARD; `N` = Tastatur-Modus):** Maus zeigt eine
 WELTRICHTUNG (`look_yaw/pitch`, ROH — kein Glättungs-Lag); Pitch-Klemme `AIM_PITCH_CLAMP≈87°`.
 `mouse_fly=true` als Default; `set_active(true)` ruft `_reset_mouse_state()` (Aim an der
@@ -1799,12 +1799,28 @@ war der Engpass. Headless-Harness: `tools/mousefly_test.gd` (Konvergenz/Pendeln)
   Falle:** `state.transform.basis = …` schreibt NICHT zurück → ganzen `state.transform`
   neu zuweisen. FlightController setzt `aircraft.arcade`/`aircraft.aim_world` (roh) je Frame;
   `_toggle_arcade` (J) schaltet ggf. den Maus-Flug mit ein. HUD zeigt „ARCADE 🎮".
-- **ZIELZOOM (`V` halten, War-Thunder-Art):** OPTISCH KORREKT umgesetzt — `FOV_ZOOM=22`
+- **FREE-LOOK (`C` halten) = DIE FLUGKAMERA, UM DEN FLIEGER GEDREHT** (2026-10-02, Nutzer: „wenn
+  man rauszoomt und dann C drueckt, wird man wieder nah rangezogen“). Vorher kreiste C mit
+  festen 14 m x Mausrad um den Schwerpunkt — die Flugkamera steht durch den Tempo-Nachlauf
+  weiter weg (bei 150 m/s und Mausrad 2,6: 43,8 m statt 36), die Position sprang beim Druecken
+  hart und der Blick schnappte beim Loslassen zurueck. JETZT (`FlightController._process`):
+  die Flugkamera wird normal gerechnet (`_rig`, Zustand `_flug_pos` — NICHT camera.global_position,
+  sonst steckte die Drehung im Glaettungszustand), dann um den Flieger gedreht: von ihrer
+  Blickrichtung auf die Free-Look-Richtung (`_blick_rahmen`, aufrecht zur Welt). Abstand,
+  Hoehe, Bildaufbau und Zoom bleiben also genau wie im Flug. Einstieg ab der aktuellen
+  Blickrichtung (`_flook_einstieg`), Rueckweg weich (`FREE_LOOK_BLEND` 0,35 s). Beleg:
+  `tools/_umschau_check.gd` (headless; im Fenster mit `--fixed-fps 60` auch drei Bilder):
+  Abstand 43,8 = 43,8 m, kein Sprung, Blick 92 Grad seitlich bei unveraenderter Flugrichtung,
+  Zoom im Free-Look, Z gibt kein Seitenruder. FALLE: im Fenster ohne feste Bildrate meldet die
+  Pruefung „Sprung“, weil die Bildaufnahme einen Frame lang haelt — kein Kamerafehler.
+- **ZIELZOOM (`Z` oder `V` halten, War-Thunder-Art; Z lag frueher zusaetzlich auf dem Seitenruder
+  links, das jetzt nur noch auf E liegt):** wirkt auch im Free-Look und zoomt dorthin, wo man
+  hinschaut. OPTISCH KORREKT umgesetzt — `FOV_ZOOM=22`
   verengt das vertikale FOV UND `ZOOM_DIST=2.2` setzt die Kamera im gleichen Verhaeltnis
   zurueck. NUR das FOV zu verengen brächte nichts: es vergroessert das eigene Flugzeug
   genauso mit. Erst der groessere Abstand laesst die eigene Zelle gleich gross erscheinen,
   waehrend ferne Ziele um FOV_BASE/FOV_ZOOM (~2.9x) wachsen. `zoom_t` wird GEPOLLT
-  (`Input.is_physical_key_pressed(KEY_V)` im Kamera-Update), damit HALTEN zaehlt — ueber
+  (`Input.is_physical_key_pressed(KEY_Z/V)` im Kamera-Update), damit HALTEN zaehlt — ueber
   `_unhandled_input` gaebe es nur den Tastendruck. Die Maus-Empfindlichkeit skaliert mit
   (`ZOOM_SENS=0.42`), sonst ist Zielen unmoeglich; das HUD zeigt den Faktor als Badge.
   Gemessen/belegt mit `tools/_zoom_check.gd` (zwei Bilder derselben Szene). Der Abstands-

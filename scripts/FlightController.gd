@@ -13,7 +13,7 @@ const SPAWN := Vector3(0, 2.2, 35.0)
 
 const LOOK_SENS := 0.006        # Maus-Empfindlichkeit fürs Umschauen
 const FREE_LOOK_SENS := 0.014   # Free-Look (C): flotter -> voll 360° mit normalem Swipe
-const FREE_LOOK_DIST := 14.0    # Free-Look: konstanter Orbit-Radius um die Flugzeug-Mitte
+const FREE_LOOK_BLEND := 0.35   # s: Blick beim Loslassen von C zurueck in die Flugrichtung
 const LOOK_RECENTER := 0.6      # s ohne Mausbewegung -> Kamera schwenkt sanft zurück
 const CAM_HEIGHT := 4.5         # Maus-Flug: Kamerahöhe ÜBER dem Flieger = Blickpunkthöhe -> Kamera blickt
                                 # exakt entlang der Zielrichtung (Aim-Kreis mittig), Flieger sitzt tief im Bild
@@ -27,7 +27,8 @@ const CAM_SHAKE_ROLL := 0.1     # Shake-Rollausschlag (rad)
 const FOV_BASE := 64.0          # Grund-FOV der Verfolgerkamera
 const FOV_MAX := 74.0           # bei Highspeed weitet sich das Bild -> spürbares Speed-Gefühl
 const FOV_SPEED := 170.0        # Speed (m/s), bei der FOV_MAX erreicht ist
-# ZIELZOOM (V halten, wie in War Thunder): OPTISCH KORREKT — das FOV wird verengt UND die
+# ZIELZOOM (Z oder V halten, wie in War Thunder; zoomt auch beim Umschauen mit C dorthin, wo
+# man hinschaut): OPTISCH KORREKT — das FOV wird verengt UND die
 # Kamera im gleichen Verhaeltnis zurueckgesetzt. Nur das FOV zu verengen wuerde das eigene
 # Flugzeug genauso mitvergroessern und nichts bringen; erst der groessere Abstand laesst es
 # gleich gross erscheinen, waehrend ferne Ziele um FOV_BASE/FOV_ZOOM wachsen.
@@ -192,7 +193,7 @@ var camera: Camera3D
 var _cam_vfov := FOV_BASE        # geglätteter VERTIKALER FOV (16:9-Bezug; Ultrawide via ViewUtil)
 var cam_zoom := 1.0              # geglätteter Mausrad-Zoom im Flug (Abstand-Multiplikator)
 var cam_zoom_target := 1.0       # Ziel-Zoom: Mausrad setzt das, cam_zoom folgt weich nach
-var zoom_t := 0.0                # 0 = normal, 1 = voll gezoomt (V gehalten)
+var zoom_t := 0.0                # 0 = normal, 1 = voll gezoomt (Z oder V gehalten)
 var aircraft: AircraftBody
 var design: Array = []
 var throttle := 0.0
@@ -217,8 +218,10 @@ var _horiz_rate := 0.0          # gefilterte Horizontalfehler-Änderungsrate (ra
 var free_look := false          # C halten: Kamera frei um den Flieger schwenken (ohne zu steuern)
 var flook_yaw := 0.0            # Free-Look-Blickwinkel horizontal
 var flook_pitch := 0.0          # Free-Look-Blickwinkel vertikal
-var _flook_basis := Basis()     # geglättete Orbit-Orientierung (Position folgt dem Flieger STARR)
 var _flook_was := false         # war Free-Look letzten Frame aktiv? (für sanften Einstieg)
+var _flook_mix := 0.0           # 0 = Flugkamera, 1 = Free-Look (weich, FREE_LOOK_BLEND)
+var _frei_blick := Vector3.FORWARD   # geglaettete Free-Look-Blickrichtung (Welt)
+var _flug_pos := Vector3.ZERO   # Position der Flugkamera (Glaettungszustand, ohne Free-Look-Drehung)
 var _mouse_idle := 0.0
 var mouse_fly := true           # Maus-Flug an? (STANDARD wie War Thunder; M = Tastatur-Modus)
 var g_protect := true           # G-Schutz: Flügel können nicht abreißen (Taste H)
@@ -671,11 +674,11 @@ func _physics_process(delta: float) -> void:
 		roll += 1.0
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
 		roll -= 1.0
-	# Gieren / Seitenleitwerk (Q = rechts, E oder Z = links). C ist jetzt Free-Look.
+	# Gieren / Seitenleitwerk (Q = rechts, E = links). C ist Free-Look, Z der Zielzoom.
 	var yaw := 0.0
 	if Input.is_physical_key_pressed(KEY_Q):
 		yaw += 1.0
-	if Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_Z):
+	if Input.is_physical_key_pressed(KEY_E):
 		yaw -= 1.0
 
 	# Fass-Roll (War-Thunder-Stil): A oder D LANGE halten -> kinematische 360°-Rolle um die
@@ -1489,9 +1492,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if free_look:
-			# Free-Look (C): Maus schwenkt nur die Kamera frei um den Flieger (voll 360°), lenkt NICHT.
-			flook_yaw = wrapf(flook_yaw - event.relative.x * FREE_LOOK_SENS, -PI, PI)
-			flook_pitch = clampf(flook_pitch - event.relative.y * FREE_LOOK_SENS, -1.7, 1.7)
+			# Free-Look (C): Maus schwenkt nur die Blickrichtung (voll 360°), lenkt NICHT.
+			# Beim Zielzoom ruhiger, wie im Maus-Flug.
+			var fs := FREE_LOOK_SENS * lerpf(1.0, ZOOM_SENS, zoom_t)
+			flook_yaw = wrapf(flook_yaw - event.relative.x * fs, -PI, PI)
+			flook_pitch = clampf(flook_pitch - event.relative.y * fs, -1.45, 1.45)
 			return
 		if mouse_fly:
 			# Maus-Flug: Maus dreht die ZIELRICHTUNG frei in der Welt (360° horizontal).
@@ -1642,9 +1647,9 @@ func _process(delta: float) -> void:
 	aircraft.shake_request = 0.0
 	_cam_shake = maxf(0.0, _cam_shake - delta * CAM_SHAKE_DECAY)
 	# FOV-Speed-Zoom: weitet sich mit dem Tempo (sanft nachgeführt) -> Speed-Gefühl
-	# V gehalten -> Zielzoom. Gepollt (nicht ueber _unhandled_input), damit HALTEN zaehlt.
-	zoom_t = move_toward(zoom_t, 1.0 if Input.is_physical_key_pressed(KEY_V) else 0.0,
-		delta * ZOOM_RATE)
+	# Z oder V gehalten -> Zielzoom. Gepollt (nicht ueber _unhandled_input), damit HALTEN zaehlt.
+	var zoom_an := Input.is_physical_key_pressed(KEY_Z) or Input.is_physical_key_pressed(KEY_V)
+	zoom_t = move_toward(zoom_t, 1.0 if zoom_an else 0.0, delta * ZOOM_RATE)
 	var fov_target := lerpf(FOV_BASE, FOV_MAX, clampf(aircraft.airspeed / FOV_SPEED, 0.0, 1.0))
 	if zoom_t > 0.0:
 		fov_target = lerpf(fov_target, FOV_ZOOM, zoom_t)
@@ -1657,67 +1662,104 @@ func _process(delta: float) -> void:
 	# glatt mit Display-Rate — eine an der ROHEN 60-Hz-Physikposition verankerte
 	# Kamera ließe es relativ zur Kamera zittern (genau das gemeldete Beben).
 	var t := aircraft.get_global_transform_interpolated()
-	if free_look:
-		# C halten: Kamera orbitet als KUGEL (konstanter Abstand) um die Flugzeug-Mitte (Schwerpunkt).
-		# Die Orientierung wird DIREKT aus Heading + Free-Look-Winkeln gebaut (kein look_at) -> smooth
-		# über den Scheitel, KEIN 180°-Flip beim Drüberfahren. Flug läuft normal weiter.
-		var center: Vector3 = t * aircraft.center_of_mass
-		var heading: float = atan2(t.basis.z.x, t.basis.z.z)   # horizontale "Hinten"-Richtung
-		var b_target := Basis(Vector3.UP, heading + flook_yaw) * Basis(Vector3.RIGHT, flook_pitch)
-		if not _flook_was:
-			_flook_basis = camera.global_transform.basis.orthonormalized()   # sanfter Einstieg aus aktueller Sicht
-		_flook_was = true
-		# Nur die ORIENTIERUNG glätten; die POSITION folgt dem (auch schnellen) Flieger STARR -> kein Lag.
-		_flook_basis = _flook_basis.slerp(b_target, _glatt(12.0, delta)).orthonormalized()
-		camera.global_transform = Transform3D(_flook_basis, center + _flook_basis.z * (FREE_LOOK_DIST * cam_zoom))
-		_apply_cam_shake()
-		return
-	# Free-Look-Winkel sanft zurückstellen, wenn nicht (mehr) aktiv
-	_flook_was = false
-	flook_yaw = lerpf(flook_yaw, 0.0, _glatt(5.0, delta))
-	flook_pitch = lerpf(flook_pitch, 0.0, _glatt(5.0, delta))
+	if free_look and not _flook_was:
+		_flook_einstieg(t)
+	_flook_was = free_look
+	_flook_mix = move_toward(_flook_mix, 1.0 if free_look else 0.0, delta / FREE_LOOK_BLEND)
 	if mouse_fly:
 		# Kamera blickt in die ZIELRICHTUNG (Maus), Flugzeug im Vordergrund -> du siehst,
 		# wohin du zeigst und wie die Nase nachzieht. Kein Zurückschwenken (Ziel bleibt stehen).
 		# WICHTIG: die Kamera folgt einer EIGENEN geglätteten Richtung (_cam_aim, 12/s wie
 		# Free-Look) — vorher ruckte das harte look_at entlang der rohen Maus bei jedem Tick.
 		_cam_aim = _cam_aim.lerp(_aim_dir(), _glatt(CAM_AIM_SMOOTH, delta)).normalized()
-		# Up-Referenz WEICH von Welt-UP auf Flugzeug-Up blenden, statt bei 0.97 hart zu
-		# flippen -> kein sichtbarer Horizont-Sprung beim Senkrechtziehen.
-		var upk := clampf((absf(_cam_aim.dot(Vector3.UP)) - UP_BLEND_LO) / (UP_BLEND_HI - UP_BLEND_LO), 0.0, 1.0)
-		var up_ref := Vector3.UP.lerp(t.basis.y, upk).normalized()
-		# Kamera-Höhe UND Blickpunkt-Höhe GLEICH -> die Kamera blickt exakt entlang der
-		# Zielrichtung (_cam_aim), d.h. der Aim-Kreis sitzt MITTIG. Der Flieger sitzt durch die
-		# Kamerahöhe trotzdem tief im Bild. Höhe mit dem echten vertikalen FOV skalieren (32:9
-		# schmal) -> gleiches Framing auf jedem Seitenverhältnis. Abstand nur per Zoom.
-		var fov_fac := tan(ViewUtil.actual_vfov_rad(camera) * 0.5) / tan(deg_to_rad(FOV_BASE) * 0.5)
-		# ZIELZOOM AUCH HIER ZURUECKSETZEN. ZOOM_DIST galt bisher nur im Tastatur-Pfad
-		# (_cam_offset) — im Maus-Flug, dem STANDARD, blieb die Kamera bei 13 m stehen,
-		# waehrend das FOV von 64 auf 22 Grad ging: die eigene Zelle wuchs um das Dreifache
-		# und verdeckte genau das, was man heranzoomen wollte. Hoehe mitskalieren, sonst
-		# rutscht das Flugzeug im Bild nach oben.
-		var zd := lerpf(1.0, ZOOM_DIST, zoom_t)
-		var cam_h := CAM_HEIGHT * fov_fac * cam_zoom * zd
-		var cam_pos := t.origin - _cam_aim * (13.0 * cam_zoom * zd) + Vector3.UP * cam_h
-		# Geschwindigkeits-Vorhalt: der 8/s-Lerp hinkt sonst ~v/8 m hinterher (bei 100 m/s
-		# über 12 m extra Abstand!) -> Vorhalt hält die Distanz auch bei Highspeed stabil.
-		cam_pos += aircraft.linear_velocity * (CAM_LEAD / 8.0)
-		camera.global_position = camera.global_position.lerp(cam_pos, _glatt(8.0, delta))
-		camera.look_at(t.origin + _cam_aim * 30.0 + Vector3.UP * cam_h, up_ref)
-		_apply_cam_shake()
-		return
-	# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
-	_mouse_idle += delta
-	if _mouse_idle > LOOK_RECENTER:
-		var k := _glatt(2.2, delta)
-		look_yaw = lerpf(look_yaw, 0.0, k)
-		look_pitch = lerpf(look_pitch, 0.0, k)
-	var desired := t.origin + _cam_offset(t)
-	# Geschwindigkeits-Vorhalt (s.o.): hält den Verfolger-Abstand auch bei Highspeed stabil.
-	desired += aircraft.linear_velocity * (CAM_LEAD / 6.0)
-	camera.global_position = camera.global_position.lerp(desired, _glatt(6.0, delta))
-	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
+		camera.global_transform = _rig(t, _cam_aim, _flug_pos, delta)
+		_flug_pos = camera.global_position
+	else:
+		# Ohne Mausbewegung sanft zur Verfolgeransicht zurückschwenken
+		_mouse_idle += delta
+		if _mouse_idle > LOOK_RECENTER:
+			var k := _glatt(2.2, delta)
+			look_yaw = lerpf(look_yaw, 0.0, k)
+			look_pitch = lerpf(look_pitch, 0.0, k)
+		var desired := t.origin + _cam_offset(t)
+		# Geschwindigkeits-Vorhalt (s.o.): hält den Verfolger-Abstand auch bei Highspeed stabil.
+		desired += aircraft.linear_velocity * (CAM_LEAD / 6.0)
+		_flug_pos = _flug_pos.lerp(desired, _glatt(6.0, delta))
+		camera.global_position = _flug_pos
+		camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
+	# FREE-LOOK (C halten): DIE FLUGKAMERA, UM DEN FLIEGER GEDREHT. Abstand (Mausrad-Stufe,
+	# Tempo-Nachlauf), Hoehe und Bildaufbau bleiben genau wie im Flug, der Flieger sitzt tief
+	# im Bild; die Maus dreht nur die Blickrichtung, ohne zu lenken, und der Zielzoom (Z/V)
+	# zoomt dorthin, wo man hinschaut. Vorher kreiste C mit festen 14 m (x Mausrad) um den
+	# Schwerpunkt — die Flugkamera steht durch den Nachlauf bei 200 m/s ~30 m weg: C zog einen
+	# heran, die Position sprang hart, und beim Loslassen schnappte der Blick zurueck. Jetzt
+	# beginnt der Blick dort, wo die Kamera hinschaut, und dreht beim Loslassen weich zurueck.
+	if _flook_mix > 0.0:
+		var vor := -t.basis.z
+		var a := atan2(vor.x, vor.z) + flook_yaw
+		var blick := Vector3(sin(a) * cos(flook_pitch), sin(flook_pitch), cos(a) * cos(flook_pitch))
+		_frei_blick = _frei_blick.slerp(blick, _glatt(CAM_AIM_SMOOTH, delta)).normalized()
+		var flug := camera.global_transform
+		var f_flug := -flug.basis.z.normalized()
+		var f_neu := f_flug.slerp(_frei_blick, smoothstep(0.0, 1.0, _flook_mix)).normalized()
+		var dreh := _blick_rahmen(f_neu) * _blick_rahmen(f_flug).transposed()
+		camera.global_transform = Transform3D((dreh * flug.basis).orthonormalized(),
+			t.origin + dreh * (flug.origin - t.origin))
 	_apply_cam_shake()
+
+
+## Aufrechter Rahmen zu einer Blickrichtung (rechts, oben, -Blick) — fuer die Drehung der
+## Flugkamera um den Flieger im Free-Look. Nahe dem Zenit: rechts aus der Flugzeuglage.
+func _blick_rahmen(f: Vector3) -> Basis:
+	var r := f.cross(Vector3.UP)
+	if r.length_squared() < 1e-6:
+		r = aircraft.global_transform.basis.x
+	r = r.normalized()
+	return Basis(r, r.cross(f).normalized(), -f)
+
+
+## DIE FLUGKAMERA (Maus-Flug) als Rechnung: Kamera hinter dem Flieger entgegen der
+## Blickrichtung, auf Blickpunkthoehe (der Aim-Kreis sitzt mittig, der Flieger tief im Bild),
+## Abstand nur per Mausrad-Zoom (cam_zoom) und Zielzoom (ZOOM_DIST). `alt` ist die Position des
+## Vorframes (die Kamera folgt mit 8/s).
+func _rig(t: Transform3D, blick: Vector3, alt: Vector3, delta: float) -> Transform3D:
+	# Up-Referenz WEICH von Welt-UP auf Flugzeug-Up blenden, statt bei 0.97 hart zu
+	# flippen -> kein sichtbarer Horizont-Sprung beim Senkrechtziehen.
+	var upk := clampf((absf(blick.dot(Vector3.UP)) - UP_BLEND_LO) / (UP_BLEND_HI - UP_BLEND_LO), 0.0, 1.0)
+	var up_ref := Vector3.UP.lerp(t.basis.y, upk).normalized()
+	# Kamera-Höhe UND Blickpunkt-Höhe GLEICH -> die Kamera blickt exakt entlang der
+	# Blickrichtung, d.h. der Aim-Kreis sitzt MITTIG. Der Flieger sitzt durch die
+	# Kamerahöhe trotzdem tief im Bild. Höhe mit dem echten vertikalen FOV skalieren (32:9
+	# schmal) -> gleiches Framing auf jedem Seitenverhältnis. Abstand nur per Zoom.
+	var fov_fac := tan(ViewUtil.actual_vfov_rad(camera) * 0.5) / tan(deg_to_rad(FOV_BASE) * 0.5)
+	# ZIELZOOM AUCH HIER ZURUECKSETZEN. ZOOM_DIST galt bisher nur im Tastatur-Pfad
+	# (_cam_offset) — im Maus-Flug, dem STANDARD, blieb die Kamera bei 13 m stehen,
+	# waehrend das FOV von 64 auf 22 Grad ging: die eigene Zelle wuchs um das Dreifache
+	# und verdeckte genau das, was man heranzoomen wollte. Hoehe mitskalieren, sonst
+	# rutscht das Flugzeug im Bild nach oben.
+	var zd := lerpf(1.0, ZOOM_DIST, zoom_t)
+	var cam_h := CAM_HEIGHT * fov_fac * cam_zoom * zd
+	var cam_pos := t.origin - blick * (13.0 * cam_zoom * zd) + Vector3.UP * cam_h
+	# Geschwindigkeits-Vorhalt: der 8/s-Lerp hinkt sonst ~v/8 m hinterher (bei 100 m/s
+	# über 12 m extra Abstand!) -> Vorhalt hält die Distanz auch bei Highspeed stabil.
+	cam_pos += aircraft.linear_velocity * (CAM_LEAD / 8.0)
+	var pos := alt.lerp(cam_pos, _glatt(8.0, delta))
+	var ziel := t.origin + blick * 30.0 + Vector3.UP * cam_h
+	if pos.distance_squared_to(ziel) < 1e-4:
+		return Transform3D(camera.global_transform.basis, pos)
+	return Transform3D(Basis.looking_at(ziel - pos, up_ref), pos)
+
+
+## Free-Look beginnt dort, wo die Kamera GERADE hinschaut (Winkel relativ zur Flugrichtung),
+## und an ihrer jetzigen Position — so aendert sich beim Druecken von C nichts am Bild.
+func _flook_einstieg(t: Transform3D) -> void:
+	var cf := -camera.global_transform.basis.z.normalized()
+	var vor := -t.basis.z
+	flook_pitch = clampf(asin(clampf(cf.y, -1.0, 1.0)), -1.45, 1.45)
+	flook_yaw = wrapf(atan2(cf.x, cf.z) - atan2(vor.x, vor.z), -PI, PI)
+	# Laeuft die Rueckdrehung noch, dort weiter (sonst wie die Kamera gerade schaut).
+	if _flook_mix <= 0.0:
+		_frei_blick = cf
 
 
 # Kamera-Shake auslösen (Feuer/Aufprall) und anwenden (Positions- + Roll-Jitter, quadratisch).
@@ -1774,6 +1816,9 @@ func _snap_camera() -> void:
 	var t := aircraft.global_transform
 	camera.global_position = t.origin + _cam_offset(t)
 	camera.look_at(t.origin + Vector3.UP * 0.8, Vector3.UP)
+	_flug_pos = camera.global_position
+	_flook_mix = 0.0
+	_flook_was = false
 
 
 # ---------------------------------------------------------------------------

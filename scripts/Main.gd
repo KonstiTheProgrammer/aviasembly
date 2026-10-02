@@ -5752,7 +5752,7 @@ func _show_controls_hint() -> void:
 	var lbl := _lbl("STEUERUNG  (blendet gleich aus)\n\n"
 		+ "W/S = Nase hoch/runter    ·    A/D = rollen (A = RECHTS!)    ·    Q/E = gieren    ·    Shift / Strg = Schub / Bremse\n"
 		+ "Leertaste / Linksklick = feuern    ·    1–4 / X = Waffengruppe    ·    B = Bombe    ·    H = Bombenschacht    ·    K / L = Fackeln / Düppel\n"
-		+ "G = Fahrwerk    ·    F = Klappen    ·    V halten = Zielzoom    ·    C halten = Umschauen    ·    M = KARTE\n"
+		+ "G = Fahrwerk    ·    F = Klappen    ·    Z halten = Zielzoom    ·    C halten = Umschauen    ·    M = KARTE\n"
 		+ "N = Maus-/Tastatur-Flug (Start: MAUS)    ·    J = Arcade    ·    T = Assist    ·    O = G-Schutz\n"
 		+ "Enter = Reset/Reparatur    ·    Tab = zurück zum Hangar    ·    Esc = Pause", 15, Color(0.86, 0.95, 1.0))
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

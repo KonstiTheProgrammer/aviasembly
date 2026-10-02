@@ -48,14 +48,14 @@ das Flugzeug längsstabil.
 | **Maus / Touchpad** | **Umschauen** — Kamera frei ums Flugzeug schwenken (schwenkt bei Ruhe zurück) |
 | **M** | **KARTE** öffnen/schließen (auch **Esc**) — große Reliefkarte mit Höhenlinien, Flüssen, Straßen und Gebäuden, Bahnen im echten Kurs, Flugabwehr-Reichweiten, Zielen, deiner Flugspur und Planquadraten. **Mausrad/Pinch** = stufenlos zum Cursor zoomen (beim Hineinzoomen werden scharfe Detailkacheln nachgeladen), **Ziehen** = verschieben, **Klick** = Wegpunkt setzen (erscheint im HUD, auch Klick auf einen Flugplatz in der Seitenleiste), **Rechtsklick** = Wegpunkt löschen, **ZU MIR** = zurück zum Flugzeug |
 | **N** | **Maus-/Tastatur-Flug** umschalten (Maus-Flug ist **Standard** — siehe unten) |
-| **V halten** | **Zielzoom** (~2,8×, wie in War Thunder): FOV verengt sich und die Kamera geht im gleichen Verhältnis zurück, dadurch werden ferne Ziele größer statt nur das eigene Flugzeug; die Maus wird dabei ruhiger gestellt |
+| **Z halten** (oder V) | **Zielzoom** (~2,8×, wie in War Thunder): zoomt dorthin, wo du hinschaust — auch beim Umschauen mit C. FOV verengt sich und die Kamera geht im gleichen Verhältnis zurück, dadurch werden ferne Ziele größer statt nur das eigene Flugzeug; die Maus wird dabei ruhiger gestellt |
 | **1–4 / X** | **Waffengruppe** wählen / durchschalten (Leiste unten Mitte) |
 | **J** | **Arcade-Lenkung** an/aus (super-smooth, schnappt sofort aufs Ziel; aktiviert Maus-Flug) |
 | **Shift / Strg** | Schub hoch / runter — **unter 0 % = bremsen** (Luft- & Radbremse) |
 | **S / ↓** und **W / ↑** | Nase hoch / runter |
 | **A / ←** und **D / →** | rollen — **A = rechts, D = links** (vertauscht) · **lange halten = 🔄 Barrel Roll** |
-| **Q / E** | nach rechts / links gieren (Seitenleitwerk) — **Z** = auch links |
-| **C halten** | **Free-Look**: Kamera frei ums Flugzeug schwenken, ohne zu lenken |
+| **Q / E** | nach rechts / links gieren (Seitenleitwerk) |
+| **C halten** | **Free-Look**: mit der Maus frei umschauen, ohne zu lenken — die Kamera bleibt im selben Abstand wie im Flug (auch herausgezoomt) und dreht beim Loslassen weich zurück |
 | **G** | Einziehfahrwerk ein-/ausfahren |
 | **F** | Landeklappen: Aus → Start → Landung |
 | **H** | **Bombenschacht** auf/zu — Bomben IM Schacht fallen nur bei offener Klappe, offene Klappen bremsen |
