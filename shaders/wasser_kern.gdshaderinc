@@ -67,6 +67,10 @@ uniform vec3 foam_col    : source_color = vec3(0.86, 0.89, 0.92);
 // Grund, der in der Untiefe durchscheint (Sand). Das Klima tauscht ihn (Kies im Norden).
 uniform vec3 grund_col   : source_color = vec3(0.80, 0.72, 0.52);
 uniform float klarheit = 1.6;        // m: auf diese Tiefe faellt der Grund auf 1/e
+// Wie stark das Wasser den durchscheinenden Grund einfaerbt. Fluesse kraeftiger: ihr Grund
+// ist fast ueberall flach, und mit 0.45 lag ein Bergbach als grauer Kiesstreifen da statt
+// als tuerkises Wasser.
+uniform float grund_toenung : hint_range(0.0, 1.0) = 0.45;
 uniform float depth_fade = 18.0;     // Tiefe (m), ueber die shallow -> deep blendet
 uniform float foam_band  = 1.2;      // Uferschaum bis zu dieser senkrechten Tiefe (m)
 uniform float waterline = 0.30;      // m: Randausblendung (nur durchsichtige Seen)
@@ -228,6 +232,7 @@ void vertex() {
 }
 
 void fragment() {
+	vec3 n_geo = NORMAL;   // Flaechennormale (Blickraum) — fuer Wasserfaelle
 	vec3 cam = INV_VIEW_MATRIX[3].xyz;
 	vec3 wpos = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	float rend_d = length(VERTEX);
@@ -250,7 +255,13 @@ void fragment() {
 	vec2 w = normalize(wind_dir);
 	float steil = 0.0;
 	float zug = 0.0;
+	// WASSERFALL (COLOR.a, je Abschnitt) und kochendes BECKEN unter einem Absturz (UV2.x),
+	// beide aus TerrainWorld._build_river_water. UV = (quer m, Laufmeter entlang der Flaeche).
+	float fall = 0.0;
+	float becken = 0.0;
 	if (fliessend) {
+		fall = COLOR.a;
+		becken = fall > 0.0 ? 0.0 : UV2.x;
 		vec2 fd = COLOR.rg * 2.0 - 1.0;
 		if (dot(fd, fd) > 0.01) {
 			w = normalize(fd);
@@ -290,6 +301,9 @@ void fragment() {
 	float h_norm = h0 / max(swell_amp * 1.12 + chop_amp * wf, 1.0e-4);
 	vec3 nw = normalize(vec3(-grad.x * slope_gain, 1.0, -grad.y * slope_gain));
 	NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
+	// Ein Fall steht senkrecht: dort zaehlt die Flaeche selbst, sonst leuchtete die Wand wie
+	// ein waagerechter Spiegel.
+	NORMAL = normalize(mix(NORMAL, n_geo, fall * 0.85));
 
 	// Der Wellenberg hebt den Wasserspiegel — Untiefen und Ufersaum atmen mit.
 	float d_eff = max(tiefe + h0 * 0.6, 0.0);
@@ -302,7 +316,7 @@ void fragment() {
 	// Der Grund scheint durch die Untiefe: Sand, vom Wasser eingefaerbt. Direkt an der
 	// Wasserlinie ist es fast nur Sand — so laeuft das Wasser ohne Kante in den Strand.
 	float durch = exp(-d_eff / klarheit);
-	col = mix(col, grund_col * mix(vec3(1.0), shallow_col * 1.25, 0.45), durch * 0.88);
+	col = mix(col, grund_col * mix(vec3(1.0), shallow_col * 1.25, grund_toenung), durch * 0.88);
 #endif
 
 	// --- Schaum ------------------------------------------------------------------------
@@ -315,7 +329,13 @@ void fragment() {
 	}
 	// Uferschaum: ein BAND an der Wasserlinie, vom Schaumnetz aufgebrochen.
 	float saum = (1.0 - smoothstep(0.0, foam_band, d_eff)) * (1.0 - 0.6 * fern);
-	float schaum = saum * mix(0.55, 1.0, max(netz, netz2) * (1.0 - fern) + fern * 0.5);
+	float saum_muster = max(netz, netz2);
+	if (fliessend && fern < 1.0) {
+		// Fluesse: weiche Flecken statt des Zellnetzes (das lag am Ufer als Sechseckgitter).
+		float wb = texture(wellen_tex, wpos.xz / 9.0 + w * (t * 0.05)).b;
+		saum_muster = smoothstep(-0.15, 0.45, wb);
+	}
+	float schaum = saum * mix(0.55, 1.0, saum_muster * (1.0 - fern) + fern * 0.5);
 	// Brandungslinien: Phase aus der Tiefe — mit der Zeit wandert jede Linie zu kleinerer
 	// Tiefe, also aufs Ufer zu. Ein Rauschen laengs der Kueste versetzt und bricht sie.
 	if (brandung > 0.0 && d_eff < brandung_tiefe) {
@@ -329,13 +349,29 @@ void fragment() {
 	}
 	// Fluss: Schaumschlieren mit der Stroemung (laengs gestrecktes Schaumnetz) und Wildwasser,
 	// wo das Band steil wird.
+	float fluss_schaum = 0.0;
 	if (fliessend && fern < 1.0) {
 		vec2 ql = vec2(dot(wpos.xz, w), dot(wpos.xz, vec2(-w.y, w.x)));
 		float schliere = texture(wellen_tex, ql / vec2(26.0, 7.0) - vec2(t * zug / 26.0, 0.0)).a;
 		float wild = smoothstep(0.10, 0.45, steil);
 		float wildnetz = texture(wellen_tex, ql / vec2(9.0, 5.0) - vec2(t * zug / 9.0, 0.3)).a;
 		schaum = max(schaum, schliere * 0.22 * (1.0 - wild) * (1.0 - fern));
-		schaum = max(schaum, wild * mix(0.55, 1.0, max(schliere, wildnetz)) * (1.0 - fern * 0.5));
+		// Wildwasser in ZUEGEN statt als Decke: zwischen den Schaumbahnen bleibt das Wasser
+		// tuerkis (vorher lag ein Bergbach aus der Luft als einfarbig grauweisses Band da).
+		// Weiche Flecken aus der Wellenhoehe (B) statt der Zellkanten (A) — die lagen nah als
+		// Netz aus Sechsecken auf dem Wasser.
+		float hb1 = texture(wellen_tex, ql / vec2(17.0, 6.0) - vec2(t * zug / 17.0, 0.0)).b;
+		float hb2 = texture(wellen_tex, ql / vec2(6.5, 3.2) - vec2(t * zug / 6.5, 0.41)).b;
+		float zuege = smoothstep(0.02, 0.45, max(hb1, hb2 * 0.9));
+		// Wildwasser und Becken unter einem Absturz (kochender Schaum, flussab auslaufend)
+		// kommen NACH foam_strength dazu: Schaum ist dort, wo er ist, weiss — gedeckelt lag
+		// er als grauer Schleier auf dem Wasser.
+		fluss_schaum = max(wild * smoothstep(0.25, 0.9, zuege), becken * mix(0.30, 1.0, zuege))
+			* mix(0.95, 0.65, fern);
+		schaum = max(schaum, wild * 0.15 * (1.0 - fern));
+	} else if (fliessend) {
+		// In der Ferne ohne Muster: der Mittelwert, damit Wildwasser weiss bleibt.
+		fluss_schaum = max(smoothstep(0.10, 0.45, steil) * 0.40, becken * 0.55);
 	}
 	// Schaumkronen auf offener See, nur auf den hoechsten Kaemmen und in rauen Windfeldern.
 	if (weisskappen > 0.0) {
@@ -348,7 +384,20 @@ void fragment() {
 		land = smoothstep(schale_r * 0.96, schale_r * 0.995, rend_d) * smoothstep(-0.3, -3.0, tiefe);
 	}
 	schaum = clamp(schaum * foam_strength, 0.0, 1.0) * (1.0 - land);
-	col = mix(col, foam_col, schaum);
+	if (fliessend) {
+		schaum = max(schaum, fluss_schaum);
+		if (fall > 0.01) {
+			// WASSER HINTER DEM VORHANG: Flussleben.gd legt ueber jeden Absturz einen
+			// durchsichtigen weissen Vorhang mit welligen Raendern; dieses Band ist schmaler
+			// und dunkler und scheint an dessen Raendern durch. Nur gedaempfte Bahnen,
+			// fallend (UV.y = Laufmeter entlang der Flaeche).
+			float hb = texture(wellen_tex, vec2(UV.x / 20.0, (UV.y - t * 9.0) / 140.0)).b;
+			vec3 hinten = mix(shallow_col * 0.85, deep_col, 0.30) * (0.85 + 0.35 * smoothstep(-0.1, 0.5, hb));
+			col = mix(col, hinten, fall);
+			schaum *= 1.0 - fall;
+		}
+	}
+	col = mix(col, foam_col, schaum * (1.0 - fall));
 	col = mix(col, land_col, land);
 
 	// --- Fresnel + Himmelsspiegelung --------------------------------------------------
@@ -364,7 +413,7 @@ void fragment() {
 	float breit = mix(90.0, 30.0, fern);
 	sky += sun_col * (pow(sd, 1400.0) * 2.2 * (1.0 - fern * 0.7) + pow(sd, breit) * 0.10)
 		* glint_strength;
-	float refl = fres * sky_strength * (1.0 - schaum) * (1.0 - land);
+	float refl = fres * sky_strength * (1.0 - schaum) * (1.0 - land) * (1.0 - fall);
 
 	// Durchleuchtete Kaemme: schaut man gegen die Sonne, glimmt der Kamm tuerkis.
 	vec3 rdw = normalize(wpos - cam);

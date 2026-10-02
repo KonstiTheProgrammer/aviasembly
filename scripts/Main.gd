@@ -487,6 +487,7 @@ var airfields: Array = []
 var _dorf_zonen: Array = []     # Flachzonen der Doerfer (Strassen.flachzonen), Hoehe nach setup()
 var world_env: WorldEnvironment
 var terrain: TerrainWorld           # seed-basierte Landschaft (Chunks um den Spieler)
+var _flussleben_plan: Dictionary = {}   # Flussleben.planen -> bauen (Stege, Muehle)
 var sky_lights: Node3D              # Sonne + Fülllicht NUR für den Flug
 var _sonne: DirectionalLight3D
 var _unterlicht: DirectionalLight3D
@@ -891,7 +892,9 @@ func _hauptstrom() -> Dictionary:
 	var pts: Array = []
 	for v in HAUPTSTROM_PFAD:
 		pts.append(Vector3(v.x, 0.0, v.y))
+	# "stufen": im steilen Oberlauf Kaskaden statt einer grauen Rampe (TerrainWorld.STUFE_*).
 	return {"name": "Silberfluss", "profil": true, "ziel_h": TerrainWorld.SEA_Y, "einsatz": 2.0,
+		"stufen": true,
 		"w_quelle": 4.0, "w": 26.0, "trichter": 1.2,
 		"depth_quelle": 1.2, "depth": 3.6,
 		"tal_quelle": 45.0, "valley": 230.0, "tal_lauf": 12000.0,
@@ -1966,7 +1969,7 @@ func _setup_world() -> void:
 		# unter dem Gelaende — der Bach hatte sich mit braunen Steilwaenden in den Huegel
 		# gefraest (im Seebild neben dem Viadukt). Das Profil laeuft jetzt 1,5 m unter dem
 		# gewachsenen Boden und endet auf dem Seespiegel (-1 m).
-		"name": "Muehlbach", "profil": true, "ziel_h": -1.0, "einsatz": 1.5,
+		"name": "Muehlbach", "profil": true, "ziel_h": -1.0, "einsatz": 1.5, "stufen": true,
 		# Ein BACH, kein Kanal: mit w 13 und kaum Boegen lag er wie ein Graben geradeaus
 		# ueber die Wiese. Schmaler und enger gewunden, zur Muendung breiter.
 		"w_quelle": 3.5, "w": 8.0, "valley": 60.0, "tal_quelle": 30.0, "tal_lauf": 600.0,
@@ -2296,6 +2299,8 @@ func _setup_world() -> void:
 	# Strassenprofile NACH den Fluessen (Bruecken ueber dem Wasser, Rampen auf dem Ufer) und
 	# vor build_now_around und dem Kartenfaden — beide lesen height_at schon mit Strassen.
 	terrain.strassen_fertigstellen()
+	# Stege und Muehle am Fluss planen: ihre Lichtungen muessen VOR dem ersten Chunk stehen.
+	_flussleben_plan = Flussleben.planen(terrain)
 	fly_world.add_child(terrain)
 	terrain.build_now_around(Vector3.ZERO, 900.0)   # Spawn-Bereich sofort (Kollision!)
 	# KARTE: Bild im Hintergrund-Thread generieren (~100k height_at-Samples, kein Startup-Ruckler;
@@ -2525,6 +2530,8 @@ func _setup_world() -> void:
 	# HAFENSTADT mit Kai, Piers, Molen, Schiffen und der Freiheitsstatue auf ihrer Insel.
 	# Die Haeuser brauchen die Blender-Bibliothek (prueft Hafenstadt.bauen selbst).
 	Hafenstadt.bauen(fly_world, terrain)
+	# LEBEN AM FLUSS: Gischt, Steine, Schilf, Seerosen, Reiher, Enten, Stege, Muehle.
+	Flussleben.bauen(fly_world, terrain, _flussleben_plan)
 	Landmarks.build_bridge(fly_world, Vector3(1560, 22, 1130), 120.0, 1.0)   # Viadukt überm Fluss
 	# FELSENTOR am Eingang des Hochtals. Der Bogen steht QUER zur Talachse, man fliegt also
 	# beim Einflug hindurch. Die Fusslinie liegt auf der Gelaendehoehe an der Stelle —

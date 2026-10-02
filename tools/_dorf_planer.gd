@@ -112,7 +112,7 @@ func _raster() -> void:
 			# Wasser. Die Uferhaenge sind steiler als MAX_STEIG — als Sperre zerschnitt der
 			# Silberfluss die Insel in West und Ost (196 Kanten ohne Weg).
 			var fl: Vector4 = t._fluss_naechst(w.x, w.y)
-			if fl.x < maxf(fl.z * 0.5 + 40.0, fl.w * 0.8):
+			if fl.x < maxf(absf(fl.z) * 0.5 + 40.0, fl.w * 0.8):
 				fluss[i] = 1
 			# RAUHEIT: auf 100 m sieht eine Felsstufe wie ein maessiger Hang aus. Die erste
 			# Fassung fuehrte die Strasse ins Hochtal ueber eine Wand, die im Spiel einen

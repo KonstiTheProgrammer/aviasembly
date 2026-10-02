@@ -44,7 +44,7 @@ func _process(_d: float) -> bool:
 				elif t < 50.0:
 					c = "+"
 				var fl: Vector4 = tw._fluss_naechst(x, z)
-				if fl.x < fl.z * 1.5 and t >= 0.0:
+				if fl.x < absf(fl.z) * 1.5 and t >= 0.0:
 					c = "F"
 				zeile += c
 				x += s

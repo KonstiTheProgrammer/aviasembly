@@ -186,6 +186,8 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          Messen: tools/_karte_zeit.gd (misst MAINS Erzeugung, Stufenzeiten), Bilder:
                          tools/_flug_bilder.gd (flug_karte.png, _zoom.png 3x, _zoom8.png, flug_hud_
                          wegpunkt.png) — wartet per `kacheln_bereit()` auf die scharfen Kacheln.
+scripts/Flussleben.gd    class_name Flussleben (statisch). Leben am Fluss: Wasserfall-Vorhaenge, Gischt, Steine,
+                         Schilf, Seerosen, Reiher, Enten, Bootsstege, Muehle. Siehe „Fluesse mit Liebe“.
 scripts/Bergbasis.gd     class_name Bergbasis (statisch). Ausbau der Felsenbasis ADLERHORST: Rippen,
                          Hallenhaeuser, Flugleitung, Wartungsplaetze, Geraet, Schilder, Standplaetze
                          (STAENDE). Siehe Abschnitt „Felsenbasis ADLERHORST: Ausbau der Halle“.
@@ -916,6 +918,62 @@ gratis). Lage/Masse in `Main._sondergelaende` (feste Seeds), Gelaende in Terrain
   sie tauschen `lakes`/`rivers`, waehrend der Fernschuerzen-Faden liest → halten die
   Schuerze jetzt vorher an (`_fern_stopp` + wait_to_finish). Befund dabei: der Bergsee-
   Abfluss meldet "ZU HOCH" (Schwelle +208 m) — so auch im alten Stand, nicht angefasst.
+
+## Fluesse mit Liebe (2026-10-02, Nutzer: „jetzt steck mehr Liebe in die Fluesse“)
+BEFUND aus Bildern entlang des Silberflusses: jedes Ufer eine 230 m breite, fast ebene Rampe
+knapp ueber dem Wasser (Damm erst am Talrand auf Wasser + 1,2 m) — ein Kanal mit gleich breitem
+Sandstreifen links und rechts, das Wasserband endete mit seiner geraden Polygonkante auf dem
+Sand; der Oberlauf eine graue Schaumrampe (Wildwasser deckte das ganze Band); das Uferschaum-
+und Wildwassermuster war das Zellnetz der Wellentextur (Sechsecke); kein Leben am Wasser.
+- UFERFORM (`TerrainWorld._river_carve`, Konstanten `UFER_*`): Querprofil STUECKWEISE LINEAR
+  um die Wasserlinie (erste Fassung mit smoothstep schnitt das 8-m-Netz als Saegezahn). Je Stelle
+  ein BOGEN (`_fluss_boegen`: Kruemmung x Breite x FLUSS_BOGEN_K, + = Innenseite der Normalen
+  (-dz, dx)): aussen Prallhang (tiefer, steile hoehere Boeschung), innen Gleithang mit KIESBANK
+  (Wasserlinie rueckt um UFER_BANK_HINEIN ein, Bank bis UFER_BANK_WEIT), gerade eine 9-m-
+  Boeschung auf 1,3 m. Die Uferlinie WANDERT je Seite (UFER_WANDERN, `_patch` am Fusspunkt).
+  Je Stuetzpunkt `form` 0..1 (`_fl_f`): 0 = alte Rampe — die BAECHE DES BERGSEES behalten sie
+  (ihre Schwellen sind darauf vermessen), Muendungen laufen aus. Neue Arrays `_fl_k`, `_fl_f`,
+  Schluessel `bogen`, `form`, `stufen`, `faelle` im Flusswoerterbuch.
+- `_fluss_naechst` liefert in .z jetzt die Halbbreite JE SEITE (Innenseite bis zum Bankende),
+  NEGATIV fuer Fluesse ohne Uferform — alle Aufrufer nutzen `absf(f.z)`. Kies/Sand
+  (`_ufer_farbe`): Tiefland Sand, Gebirge grauer Kies (`FLUSS_SAND`/`FLUSS_KIES_GRAU`).
+- WASSERBAND (`_build_river_water`, `_band_rand`): reicht UNTER die Boeschung, die Uferlinie ist
+  der Schnitt mit dem Gelaende (Schaumsaum aus der Tiefentextur). UV = (quer m, Laufmeter
+  entlang der Flaeche), UV2 = Schaum im Becken, COLOR.a = Wasserfall je Abschnitt; das Gefaelle
+  (COLOR.b) zaehlt die Abstuerze nicht mit (sonst kochte jedes Becken als Wildwasser).
+- KASKADEN (`"stufen": true`, Silberfluss und Muehlbach; `_stufen_setzen`, `STUFE_*`): wo der
+  Lauf steiler als 6 % faellt, wird das Gefaelle eines Abschnitts zum ABSTURZ an seinem Kopf
+  (3 m) und einem ruhigen Becken (1,5 %) — immer unter der alten Rampe. Steiler als 90 %
+  (Quellwand) bleibt Rampe und wird als Wasserfall gezeichnet. rv["faelle"] = [oben, unten, Hoehe].
+  Tiefster Einschnitt dadurch 73 -> 93 m (Becken graben sich ein).
+- SHADER (`wasser_kern`): Flussgrund kraeftiger getoent (`grund_toenung` 0.72 statt 0.45 —
+  der Bach lag sonst als grauer Kiesstreifen da), Wildwasser in ZUEGEN aus der weichen
+  Wellenhoehe (B) statt Decke aus dem Zellnetz (A), Fluss-Schaum nach `foam_strength` (weiss
+  statt grauer Schleier), Uferschaum der Fluesse weich, hinter Faellen dunkleres Wasser.
+- `scripts/Flussleben.gd` (statisch, `planen` VOR dem ersten Chunk — setzt LICHTUNGEN ueber
+  `TerrainWorld.lichtung_setzen`/`_open_ground` —, `bauen` nach der Hafenstadt): WASSERFALL-
+  VORHAENGE (`shaders/wasserfall.gdshader`: durchsichtig, weiss mit fallenden tuerkisen Bahnen,
+  wellige Raender; Kanten unter den Spiegeln versteckt), GISCHT (GPU-Partikel,
+  `shaders/gischt.gdshader`), Felsbrocken im Wildbach und an den Lippen, SCHILFGUERTEL mit
+  Rohrkolben (`shaders/schilf.gdshader`, Wind wie das Gras), SEEROSEN (teils bluehend),
+  REIHER auf den Sandbaenken, ENTENFAMILIEN (paddeln im Kreis — `flussleben.gdshader`
+  `kreisen`), BOOTSSTEGE mit Ruderboot (schaukelt), Schuppen, Laterne, Angler (wo eine
+  Strasse 60–900 m nah ist), MUEHLE mit drehendem Wasserrad (`drehen`) am ersten 2-7-m-Absturz
+  des Muehlbachs, Holzbruecke darunter. Kacheln je km, Sichtweiten je Art. Alle Bewegung im
+  Shader. `FLUSSLEBEN_ZEIGEN=1` druckt die Lagen. Zahlen: 52 Faelle, ~315 Steine, ~15 000
+  Schilf, ~3500 Seerosen, ~45 Entenfamilien, 2 Stege, Muehle; Bau ~0,6 s.
+  FALLE: `_dreieck` wickelt IM UHRZEIGERSINN von aussen — die erste Fassung andersherum, man sah
+  in jedes Haus hinein (Rueckseiten). Quader-Drehung um X: Basis(RIGHT, +w), nicht -w.
+- GEMESSEN (`tools/_fluss_zeit.gd`, neu, 4K, fuenf Stellungen): Flussleben 0,02-0,11 ms.
+  Werkzeug `tools/_fluss_profil.gd -- <name> [schritt]` (Laengsprofil: Wasser, Gefaelle,
+  Breite, gewachsenes Gelaende). BELEGE: `_loadcheck` OK, `_bewuchs_stufen_check` OK,
+  `_hafenstadt_check` OK, `_grafik_check` 0, `_strassen_check` unveraendert (dieselben 10
+  Stellen „Gelaende ueber dem Band“ wie vorher), `_see_abfluss`/`_see_zufluss` wie vorher
+  (Abfluss meldet weiter das alte „ZU HOCH“), keine Warnungen. `_haupt_pruefsumme` aendert sich
+  entlang der Fluesse (neues Querprofil).
+- NICHT GEMACHT: die Quellwand des Silberflusses (150 m) ist ein schmaler Fall auf einer Rampe —
+  ein freier Fall vor der Wand braeuchte ein Gelaende mit Ueberhang. Klammbach und Canyon haben
+  keine Stufen (flach).
 
 ## Nachladen: Schnellflug und weiches Erscheinen (2026-09)
 Nutzer: „mit einem schnellen Flugzeug laedt die Map viel zu langsam — du bist zu schnell".

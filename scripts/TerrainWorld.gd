@@ -3200,6 +3200,44 @@ var _fl_w := PackedFloat32Array()      # je Segment: Breite an A, an B (2 Werte)
 var _fl_t := PackedFloat32Array()      # Talband an A, an B
 var _fl_d := PackedFloat32Array()      # Tiefe an A, an B
 var _fl_mt := PackedFloat32Array()     # max_tief je Segment
+var _fl_k := PackedFloat32Array()      # Bogen an A, an B (-1..1, + = Kurve zur Normalen)
+# Lichtungen ohne Bewuchs (x, z, Radius) — Flussleben.planen setzt sie fuer Muehle und Stege,
+# VOR dem ersten Chunk (sonst stuenden dort schon Baeume durch die Haeuser).
+var _lichtungen := PackedVector3Array()
+var _fl_f := PackedFloat32Array()      # Uferform an A, an B (0 = alte Rampe, 1 = Boeschung)
+
+# --- FLUSSUFER MIT FORM (2026-10, Nutzer: „steck mehr Liebe in die Fluesse") -------------
+# Vorher lag jedes Ufer als 230 m breite, fast ebene Rampe knapp ueber dem Wasser (der Damm
+# erreichte Wasser + 1,2 m erst am Talrand) — im Bild ein Kanal mit gleich breitem Sandstreifen
+# auf beiden Seiten, und das Wasserband endete mit seiner geraden Polygonkante auf dem Sand.
+# JETZT, je nach BOGEN der Stelle (Kruemmung x Breite, _fluss_boegen):
+#   * AUSSEN (Prallhang): Bett tiefer und bis nah ans Ufer tief, Boeschung steil und hoeher;
+#   * INNEN (Gleithang): Bett flacher, eine KIESBANK wird frei (UFER_BANK_* ueber dem Wasser,
+#     bis UFER_BANK_WEIT x Breite hinaus);
+#   * gerade: Boeschung UFER_BOESCHUNG m breit auf UFER_HOCH m — erst dahinter die Aue.
+# Das Wasserband reicht jetzt UNTER die Boeschung; die Uferlinie ist der Schnitt mit dem
+# Gelaende (Schaumsaum aus der Tiefentextur), nicht mehr die Kante des Bandes.
+const UFER_HOCH := 1.3
+const UFER_HOCH_AUSSEN := 0.9       # zusaetzlich am Prallhang
+const UFER_BOESCHUNG := 9.0
+const UFER_BOESCHUNG_AUSSEN := 6.0
+const UFER_BANK_WEIT := 0.9         # Kiesbank bis (1 + x) Breiten
+const UFER_BANK_OBEN := 0.70        # Hoehe der Bank ueber dem Wasser an ihrem Landende
+const UFER_BANK_HINEIN := 0.32      # so weit (x Breite) rueckt die Wasserlinie an der Bank ein
+const UFER_BANK_NEIGUNG := 0.09     # Neigung des Grundes vor der Bank (flach, Gleithang)
+const UFER_WANDERN := 0.22          # so weit (x Breite, x Rauschen) wandert die Uferlinie
+const FLUSS_BOGEN_K := 5.0          # Bogen = Kruemmung x Breite x K (voll bei R = 5 Breiten)
+# KASKADEN ("stufen": true): wo der Lauf steiler als STUFE_AB faellt, wird das Gefaelle eines
+# Abschnitts zu einem Absturz an seinem Kopf (STUFE_L Meter) und einem ruhigen Becken dahinter
+# (STUFE_BECKEN) — immer UNTER der alten Rampe, das Becken graebt sich also ein, nie ein Damm.
+# Hoehere Stufen als STUFE_MAX bleiben zum Rest steile Rinne. Steiler als FALL_AB bleibt der
+# Abschnitt wie er ist: das ist schon eine Wand — der Shader zeigt ihn als Wasserfall.
+const STUFE_AB := 0.06
+const STUFE_L := 3.0
+const STUFE_BECKEN := 0.015
+const STUFE_MAX := 22.0
+const STUFE_MIN := 1.2
+const FALL_AB := 0.9
 # --- WASSERTIEFE FUER DEN WASSER-SHADER -------------------------------------------------
 # Das Wasser liest die Tiefe nicht mehr aus dem Tiefenpuffer (Begruendung und Messung in
 # shaders/wasser_kern.gdshaderinc), sondern aus der Gelaendehoehe:
@@ -4767,6 +4805,8 @@ func _river_carve(x: float, z: float, h: float) -> float:
 	var best_d2 := INF
 	var bs := -1
 	var best_t := 0.0
+	var fx := 0.0
+	var fz := 0.0
 	for j in range(von, bis):
 		var si := _fl_seg[j]
 		var a := _fl_a[si]
@@ -4782,6 +4822,8 @@ func _river_carve(x: float, z: float, h: float) -> float:
 			best_d2 = dd
 			bs = si
 			best_t = t
+			fx = px
+			fz = pz
 	var dist := sqrt(best_d2)
 	var valley := lerpf(_fl_t[bs * 2], _fl_t[bs * 2 + 1], best_t)
 	if dist >= valley:
@@ -4789,35 +4831,88 @@ func _river_carve(x: float, z: float, h: float) -> float:
 	var best_surf := lerpf(_fl_a[bs].y, _fl_b[bs].y, best_t)
 	var w := lerpf(_fl_w[bs * 2], _fl_w[bs * 2 + 1], best_t)
 	var depth := lerpf(_fl_d[bs * 2], _fl_d[bs * 2 + 1], best_t)
-	# BETT NICHT UEBER DIE VOLLE BREITE FLACH, sondern zur Mitte hin tief: an der
-	# Bandkante des Wassers (0,92 w) bleibt so nur eine Untiefe, und der Uebergang
-	# ins Ufer ist eine Boeschung statt einer Stufe.
-	var mitte := 1.0 - smoothstep(w * 0.40, w * 0.88, dist)
-	var bed: float = best_surf - depth * mitte
-	# Ufer immer ueber dem Wasser (sonst schwebt das Wasserband), aussen ins
-	# natuerliche Gelaende. k: 0 Bett .. 1 Talrand.
-	# DER UFERDAMM LAEUFT ZUM TALRAND HIN AUS. Mit max(Wasser + 1,2 m, Gelaende) im
-	# ganzen Talband sprang es an der Talbandkante vom Damm auf das Gelaende, wo dieses
-	# neben dem Fluss tiefer lag als sein Spiegel. Jetzt ist der Damm nur am Gerinne voll
-	# hoch und laeuft bis zum Talrand stetig ins Gelaende.
-	var k := smoothstep(w, valley, dist)
-	var bank := lerpf(maxf(best_surf + 1.2, h), h, smoothstep(w * 2.0, valley, dist))
-	# EINSCHNITT DECKELN ("max_tief", siehe Hochtal-Baeche): wie weit unter das
-	# VORHANDENE Gelaende der Bach graben darf. Ohne den Wert gilt die Spline allein.
 	var mt := _fl_mt[bs]
-	if mt > 0.0:
-		bed = maxf(bed, h - mt)
-	return lerpf(bed, bank, k)
+	var form := lerpf(_fl_f[bs * 2], _fl_f[bs * 2 + 1], best_t)
+	var alt := h
+	if form < 1.0:
+		# ALTE RAMPE (Baeche des Bergsees, Muendungen): Bett zur Mitte hin tief, Ufer ueber
+		# das ganze Talband ins Gelaende. BETT NICHT UEBER DIE VOLLE BREITE FLACH: an der
+		# Bandkante des Wassers (0,92 w) bleibt so nur eine Untiefe, und der Uebergang ins
+		# Ufer ist eine Boeschung statt einer Stufe.
+		var mitte0 := 1.0 - smoothstep(w * 0.40, w * 0.88, dist)
+		var bed0: float = best_surf - depth * mitte0
+		# Ufer immer ueber dem Wasser (sonst schwebt das Wasserband), aussen ins natuerliche
+		# Gelaende. DER UFERDAMM LAEUFT ZUM TALRAND HIN AUS. Mit max(Wasser + 1,2 m, Gelaende)
+		# im ganzen Talband sprang es an der Talbandkante vom Damm auf das Gelaende, wo dieses
+		# neben dem Fluss tiefer lag als sein Spiegel. Jetzt ist der Damm nur am Gerinne voll
+		# hoch und laeuft bis zum Talrand stetig ins Gelaende.
+		var k := smoothstep(w, valley, dist)
+		var bank := lerpf(maxf(best_surf + 1.2, h), h, smoothstep(w * 2.0, valley, dist))
+		# EINSCHNITT DECKELN ("max_tief", siehe Hochtal-Baeche): wie weit unter das
+		# VORHANDENE Gelaende der Bach graben darf. Ohne den Wert gilt die Spline allein.
+		if mt > 0.0:
+			bed0 = maxf(bed0, h - mt)
+		alt = lerpf(bed0, bank, k)
+		if form <= 0.0:
+			return alt
+	# UFER MIT FORM (siehe UFER_*). Seite aus dem Kreuzprodukt Laufrichtung x Versatz; der
+	# Bogen wirkt erst ab 0,3 Breiten neben der Mitte voll — sonst sprang das Bett in der
+	# Mitte zwischen Innen- und Aussenprofil.
+	var a2 := _fl_a[bs]
+	var b2 := _fl_b[bs]
+	var seite := (b2.x - a2.x) * (z - fz) - (b2.z - a2.z) * (x - fx)
+	var bogen := lerpf(_fl_k[bs * 2], _fl_k[bs * 2 + 1], best_t)
+	var g := bogen * clampf(dist / (0.3 * w), 0.0, 1.0) * (1.0 if seite >= 0.0 else -1.0)
+	var gi := maxf(g, 0.0)
+	var go := maxf(-g, 0.0)
+	var gb := smoothstep(0.15, 0.6, gi)
+	# QUERPROFIL STUECKWEISE LINEAR um die Wasserlinie d0. Eine gekruemmte Boeschung (erste
+	# Fassung: smoothstep) schneidet das 8-m-Netz in einem Saegezahn — eine GERADE Rampe gibt
+	# das Netz exakt wieder, die Uferlinie liegt dann glatt. Deshalb laeuft die Boeschung mit
+	# derselben Neigung unter Wasser weiter bis zum Grund (V- bzw. Trapezrinne, am Prallhang
+	# steil und tief), an der Bank flach.
+	var uh := UFER_HOCH + UFER_HOCH_AUSSEN * go
+	var wb := lerpf(minf(UFER_BOESCHUNG, w * 1.2 + 2.0), UFER_BOESCHUNG_AUSSEN, go)
+	var s_o := uh / wb
+	var s_u := lerpf(s_o, UFER_BANK_NEIGUNG, gb)
+	# DIE UFERLINIE WANDERT: je Seite um bis zu UFER_WANDERN Breiten, gemessen am Fusspunkt auf
+	# der Laufachse (beide Seiten getrennt) — mit einer festen Wasserlinie lag ein Bach wie ein
+	# Kanal mit linealgeraden Kanten da. Bank und Boeschung wandern mit.
+	var wandern := w * UFER_WANDERN * _patch.get_noise_2d(fx * 0.9 + signf(seite) * 517.0, fz * 0.9)
+	var d0 := w * (1.0 - UFER_BANK_HINEIN * gb) + wandern
+	var e := w * (1.0 + UFER_BANK_WEIT * gb) + wandern
+	var tief := depth * (1.0 + 0.55 * go - 0.25 * gi)
+	var bank_top := gb * UFER_BANK_OBEN
+	var oben := e + (uh - bank_top) / s_o
+	var neu: float
+	if dist <= d0:
+		neu = best_surf + maxf(s_u * (dist - d0), -tief)
+		if mt > 0.0:
+			neu = maxf(neu, h - mt)
+	elif dist <= e:
+		neu = best_surf + bank_top * (dist - d0) / maxf(e - d0, 0.001)
+	elif dist <= oben:
+		neu = best_surf + bank_top + s_o * (dist - e)
+	else:
+		neu = lerpf(best_surf + uh, h, smoothstep(oben, valley, dist))
+	return lerpf(alt, neu, form)
 
 
 ## Naechster Flusspunkt zu (x, z): Vector4(Abstand, Wasserhoehe, Halbbreite, Talband), oder
 ## Abstand = INF. Fuer Ufer-Farbe und Auwald (der Carve rechnet selbst, er braucht mehr).
+## HALBBREITE JE SEITE: auf der Innenseite eines Bogens reicht der flache Grund bis ans Ende
+## der Kiesbank (dieselbe Rechnung wie in _river_carve). NEGATIV = Fluss ohne Uferform (Baeche
+## des Bergsees) — dort gelten Kies- und Auwaldregeln der alten Rampe; Betrag = Breite.
 func _fluss_naechst(x: float, z: float) -> Vector4:
 	var raus := Vector4(INF, 0.0, 0.0, 0.0)
 	var k0 := _fl_zelle(x, z)
 	if k0 < 0:
 		return raus
 	var best_d2 := INF
+	var bs := -1
+	var bt := 0.0
+	var fx := 0.0
+	var fz := 0.0
 	for j in range(_fl_start[k0], _fl_start[k0 + 1]):
 		var si := _fl_seg[j]
 		var a := _fl_a[si]
@@ -4831,10 +4926,25 @@ func _fluss_naechst(x: float, z: float) -> Vector4:
 		var dd := (x - px) * (x - px) + (z - pz) * (z - pz)
 		if dd < best_d2:
 			best_d2 = dd
-			raus = Vector4(0.0, lerpf(a.y, b.y, t), lerpf(_fl_w[si * 2], _fl_w[si * 2 + 1], t),
-				lerpf(_fl_t[si * 2], _fl_t[si * 2 + 1], t))
-	raus.x = sqrt(best_d2)
-	return raus
+			bs = si
+			bt = t
+			fx = px
+			fz = pz
+	if bs < 0:
+		return raus
+	var w := lerpf(_fl_w[bs * 2], _fl_w[bs * 2 + 1], bt)
+	var form := lerpf(_fl_f[bs * 2], _fl_f[bs * 2 + 1], bt)
+	var dist := sqrt(best_d2)
+	var ws := -w
+	if form >= 0.5:
+		var a2 := _fl_a[bs]
+		var b2 := _fl_b[bs]
+		var seite := (b2.x - a2.x) * (z - fz) - (b2.z - a2.z) * (x - fx)
+		var g := lerpf(_fl_k[bs * 2], _fl_k[bs * 2 + 1], bt) * clampf(dist / (0.3 * w), 0.0, 1.0) \
+			* (1.0 if seite >= 0.0 else -1.0)
+		ws = w * (1.0 + UFER_BANK_WEIT * smoothstep(0.15, 0.6, maxf(g, 0.0)))
+	return Vector4(dist, lerpf(_fl_a[bs].y, _fl_b[bs].y, bt), ws,
+		lerpf(_fl_t[bs * 2], _fl_t[bs * 2 + 1], bt))
 
 
 ## Hoechster Wasserspiegel aller Flusssegmente in der Naehe des Quadrats
@@ -4862,20 +4972,32 @@ func _fluss_bereich_h(x0: float, z0: float, kante: float) -> float:
 ## wo das Gelaende knapp ueber dem Wasser liegt — an einer Klammwand bleibt es Fels.
 const FLUSS_KIES := Color(0.62, 0.58, 0.47)
 const FLUSS_KIES_NASS := Color(0.44, 0.42, 0.36)
+# Mit Uferform: im Tiefland helle SANDBAENKE, im Gebirge grauer Geroell-Kies (der Shader
+# erkennt ihn als Fels und legt Bloecke darauf). Dazwischen nach Wasserhoehe gemischt.
+const FLUSS_SAND := Color(0.79, 0.71, 0.54)
+const FLUSS_KIES_GRAU := Color(0.57, 0.56, 0.53)
 
 
 func _ufer_farbe(c: Color, cen: Vector3) -> Color:
 	var f := _fluss_naechst(cen.x, cen.z)
 	if f.x == INF:
 		return c
-	var w := f.z
 	var ueber := cen.y - f.y
-	var nah := 1.0 - smoothstep(w * 0.95, w * 1.45, f.x)
-	var tief := 1.0 - smoothstep(0.8, 2.2, ueber)
-	var k := nah * tief
+	var k := 0.0
+	var trocken := FLUSS_KIES
+	if f.z < 0.0:
+		var w := -f.z
+		var nah := 1.0 - smoothstep(w * 0.95, w * 1.45, f.x)
+		var tief := 1.0 - smoothstep(0.8, 2.2, ueber)
+		k = nah * tief
+	else:
+		# Bank und Fuss der Boeschung (bis gut 1 m ueber dem Wasser); die Aue darueber bleibt
+		# Wiese, die steile Prallhangkante zeigt das Gelaende selbst (Fels/Erde).
+		k = (1.0 - smoothstep(f.z + 1.0, f.z + 9.0, f.x)) * (1.0 - smoothstep(0.6, 1.15, ueber))
+		trocken = FLUSS_SAND.lerp(FLUSS_KIES_GRAU, smoothstep(25.0, 120.0, f.y))
 	if k <= 0.01:
 		return c
-	var kies := FLUSS_KIES.lerp(FLUSS_KIES_NASS, 1.0 - smoothstep(-0.2, 0.8, ueber))
+	var kies := trocken.lerp(FLUSS_KIES_NASS, 1.0 - smoothstep(-0.2, 0.8, ueber))
 	var n := _patch.get_noise_2d(cen.x * 3.0, cen.z * 3.0)
 	return c.lerp(kies * (0.93 + 0.14 * n), k * 0.85)
 
@@ -4886,7 +5008,7 @@ func _auwald(x: float, z: float, h: float) -> float:
 	var f := _fluss_naechst(x, z)
 	if f.x == INF:
 		return 0.0
-	var w := f.z
+	var w := absf(f.z)
 	var band := smoothstep(w * 1.5, w * 2.3, f.x) * (1.0 - smoothstep(f.w * 0.55, f.w * 0.95, f.x))
 	var hoehe := 1.0 - smoothstep(4.0, 14.0, h - f.y)
 	return band * hoehe * 0.85
@@ -5173,8 +5295,23 @@ func _prepare_rivers(rvs: Array) -> void:
 				bw *= 1.0 + trichter * smoothstep(gesamt3 - 1400.0, gesamt3, lauf3)
 			breiten.append(bw)
 			tiefen.append(lerpf(tief_q, tief_end, f))
+		# UFERFORM (siehe UFER_*): nicht an den Baechen des Bergsees — deren Schwellen, Delta
+		# und Kiesbank sind auf die alte Rampe vermessen (tools/_see_abfluss.gd u. a.). Zum
+		# Ende hin laeuft die Form aus: im See oder Meer stuende sonst die Boeschung als Wall.
+		var mit_form := int(rv.get("seebach", 0)) == 0 and bool(rv.get("ufer", true))
+		var formen := PackedFloat32Array()
+		var lauf4 := 0.0
+		for i in pts.size():
+			if i > 0:
+				lauf4 += Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length()
+			formen.append(smoothstep(40.0, 160.0, gesamt3 - lauf4) if mit_form else 0.0)
+			# Das Talband muss Bank und Boeschung fassen, sonst endete das Profil am Bandrand
+			# mit einer Stufe.
+			if mit_form:
+				tal_breiten[i] = maxf(tal_breiten[i], breiten[i] * (1.0 + UFER_BANK_WEIT) + UFER_BOESCHUNG + 12.0)
 		rivers.append({"pts": pts, "w": w_end, "valley": valley, "tal": tal_breiten,
 			"seg": seg, "breite": breiten, "tiefe": tiefen,
+			"bogen": _fluss_boegen(pts, breiten), "form": formen, "stufen": bool(rv.get("stufen", false)),
 			"depth": tief_end, "max_tief": rv.get("max_tief", 0.0),
 			# 1 = Zufluss des Bergsees, -1 = Abfluss. Ihre Hoehen stehen NICHT in der Liste,
 			# sondern werden von seebaeche_einpassen() am Gelaende abgelesen.
@@ -5186,6 +5323,41 @@ func _prepare_rivers(rvs: Array) -> void:
 	_fluss_gitter_bauen()
 
 
+func lichtung_setzen(x: float, z: float, r: float) -> void:
+	_lichtungen.append(Vector3(x, z, r))
+
+
+## BOGEN JE STUETZPUNKT: Kruemmung (Drehwinkel / Laenge) x Breite x FLUSS_BOGEN_K, ueber
+## +-2 Punkte geglaettet, auf -1..1 begrenzt. Positiv = der Lauf biegt zur Normalen
+## (-dz, dx) hin, dort liegt also die INNENseite. Ein Strom mit R = 5 Breiten hat Bogen 1.
+func _fluss_boegen(pts: PackedVector3Array, breiten: PackedFloat32Array) -> PackedFloat32Array:
+	var n := pts.size()
+	var roh := PackedFloat32Array()
+	roh.resize(n)
+	for i in range(1, n - 1):
+		var d1 := Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z)
+		var d2 := Vector2(pts[i + 1].x - pts[i].x, pts[i + 1].z - pts[i].z)
+		var l := (d1.length() + d2.length()) * 0.5
+		if l < 0.5:
+			continue
+		var winkel := atan2(d1.x * d2.y - d1.y * d2.x, d1.dot(d2))
+		roh[i] = winkel / l * breiten[i] * FLUSS_BOGEN_K
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var s := 0.0
+		var g := 0.0
+		for k in range(-2, 3):
+			var j := i + k
+			if j < 0 or j >= n:
+				continue
+			var wk := 3.0 - absf(float(k))
+			s += roh[j] * wk
+			g += wk
+		out[i] = clampf(s / g, -1.0, 1.0)
+	return out
+
+
 ## ZELLENRASTER aller Fluesse (flach, siehe _fl_*). Jedes Segment traegt sich in alle
 ## Zellen ein, die sein Rechteck plus Talband beruehrt — eine Probe braucht dann nur ihre
 ## eigene Zelle. MUSS nach jeder Aenderung der Wasserhoehen neu gebaut werden (die Segmente
@@ -5194,6 +5366,7 @@ func _fluss_gitter_bauen() -> void:
 	_fl_a = PackedVector3Array(); _fl_b = PackedVector3Array()
 	_fl_w = PackedFloat32Array(); _fl_t = PackedFloat32Array(); _fl_d = PackedFloat32Array()
 	_fl_mt = PackedFloat32Array()
+	_fl_k = PackedFloat32Array(); _fl_f = PackedFloat32Array()
 	var boxen: Array = []
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
@@ -5202,12 +5375,16 @@ func _fluss_gitter_bauen() -> void:
 		var talb: PackedFloat32Array = rv["tal"]
 		var br: PackedFloat32Array = rv["breite"]
 		var tf: PackedFloat32Array = rv["tiefe"]
+		var bg: PackedFloat32Array = rv["bogen"]
+		var fm: PackedFloat32Array = rv["form"]
 		var mt: float = float(rv.get("max_tief", 0.0))
 		for i in range(pts.size() - 1):
 			_fl_a.append(pts[i]); _fl_b.append(pts[i + 1])
 			_fl_w.append(br[i]); _fl_w.append(br[i + 1])
 			_fl_t.append(talb[i]); _fl_t.append(talb[i + 1])
 			_fl_d.append(tf[i]); _fl_d.append(tf[i + 1])
+			_fl_k.append(bg[i]); _fl_k.append(bg[i + 1])
+			_fl_f.append(fm[i]); _fl_f.append(fm[i + 1])
 			_fl_mt.append(mt)
 			var vv := maxf(talb[i], talb[i + 1]) + 8.0
 			var box := Rect2(minf(pts[i].x, pts[i + 1].x) - vv, minf(pts[i].z, pts[i + 1].z) - vv, 0, 0)
@@ -5377,7 +5554,7 @@ func strasse_profil(pts: PackedVector2Array) -> Array:
 			# NUR UEBER DEM WASSER (plus Rand), nicht im ganzen Tal — sonst wurde eine
 			# Strasse, die neben dem Fluss laeuft, auf voller Laenge zur Bruecke.
 			var fl := _fluss_naechst(pts[i].x, pts[i].y)
-			if fl.x < fl.z * 0.5 + 8.0:
+			if fl.x < absf(fl.z) * 0.5 + 8.0:
 				fluss_min[i] = fl.y + BRUECKE_UEBER
 		# MEERESARME: das 100-m-Raster des Planers sieht schmale Priele und Seegatten nicht —
 		# bei (-23500, -15600) lief die Fahrbahn 50 cm UNTER dem Meeresspiegel durchs Wasser.
@@ -5596,6 +5773,27 @@ func _fluesse_profilieren() -> void:
 			p.y = sp[i]
 			pts[i] = p
 		rv["pts"] = pts
+		rv["faelle"] = []
+		if bool(rv.get("stufen", false)):
+			_stufen_setzen(rv)
+			pts = rv["pts"]
+			n = pts.size()
+			sp = PackedFloat32Array()
+			for p in pts:
+				sp.append(p.y)
+			# Laufmeter und Gelaende der neuen Punkte (fuer die Meldung unten)
+			lauf = PackedFloat32Array()
+			gel = PackedFloat32Array()
+			l = 0.0
+			for i in n:
+				if i > 0:
+					l += Vector2(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z).length()
+				lauf.append(l)
+			var alle_r := rivers
+			rivers = []
+			for p in pts:
+				gel.append(height_at(p.x, p.z))
+			rivers = alle_r
 		var graben := 0.0
 		var wo := Vector2.ZERO
 		for i in n:
@@ -5611,6 +5809,63 @@ func _fluesse_profilieren() -> void:
 		for p in (rv["pts"] as PackedVector3Array):
 			_flora_fluss_h = maxf(_flora_fluss_h, p.y + 1.0)
 	_flora_wasser_h = maxf(_flora_wasser_h, _flora_fluss_h)
+
+
+## KASKADEN UND WASSERFAELLE (siehe STUFE_*). Jeder Abschnitt, der steiler als STUFE_AB
+## faellt, bekommt einen Absturz an seinem Kopf: ein Punkt STUFE_L Meter hinter dem oberen
+## wird eingefuegt und um die Fallhoehe abgesenkt, dahinter liegt ein Becken mit
+## STUFE_BECKEN Gefaelle. Die Stufe liegt damit IMMER unter der alten Rampe (das Becken graebt
+## sich ein, der Spiegel steigt nie ueber das Gelaende). Alle Werte je Stuetzpunkt (Breite,
+## Talband, Tiefe, Bogen, Form) werden mit eingefuegt. Die Faelle landen in rv["faelle"] als
+## [Index oben, Index unten, Fallhoehe] — fuer Gischt, Schaum und Steine (Flussleben.gd).
+func _stufen_setzen(rv: Dictionary) -> void:
+	var pts: PackedVector3Array = rv["pts"]
+	var namen := ["breite", "tal", "tiefe", "bogen", "form"]
+	var alt: Array = []
+	for nm in namen:
+		alt.append(rv[nm])
+	var npts := PackedVector3Array()
+	var neu: Array = []
+	for nm in namen:
+		neu.append(PackedFloat32Array())
+	var faelle: Array = []
+	var n := pts.size()
+	for i in n:
+		npts.append(pts[i])
+		for k in namen.size():
+			var arr: PackedFloat32Array = neu[k]
+			arr.append((alt[k] as PackedFloat32Array)[i])
+			neu[k] = arr
+		if i == n - 1:
+			break
+		var a := pts[i]
+		var b := pts[i + 1]
+		var lh := Vector2(b.x - a.x, b.z - a.z).length()
+		var fall := a.y - b.y
+		if lh < STUFE_L * 4.0:
+			continue
+		var g := fall / lh
+		if g >= FALL_AB:
+			# schon eine Wand: bleibt Rampe, der Shader macht den Wasserfall daraus
+			faelle.append([npts.size() - 1, npts.size(), fall])
+			continue
+		if g < STUFE_AB:
+			continue
+		var hoch := minf(fall - STUFE_BECKEN * (lh - STUFE_L), STUFE_MAX)
+		if hoch < STUFE_MIN:
+			continue
+		var t := STUFE_L / lh
+		npts.append(Vector3(lerpf(a.x, b.x, t), a.y - hoch, lerpf(a.z, b.z, t)))
+		for k in namen.size():
+			var src: PackedFloat32Array = alt[k]
+			var arr2: PackedFloat32Array = neu[k]
+			arr2.append(lerpf(src[i], src[i + 1], t))
+			neu[k] = arr2
+		faelle.append([npts.size() - 2, npts.size() - 1, hoch])
+	rv["pts"] = npts
+	for k in namen.size():
+		rv[namen[k]] = neu[k]
+	rv["faelle"] = faelle
 
 
 ## BAECHE DES BERGSEES AN DAS GELAENDE ANLEGEN. Laeuft einmal aus setup(), nachdem die
@@ -6311,50 +6566,161 @@ func _build_river_water(rv: Dictionary) -> void:
 	if pts.size() < 2:
 		return
 	var breiten: PackedFloat32Array = rv["breite"]
+	var boegen: PackedFloat32Array = rv["bogen"]
+	var formen: PackedFloat32Array = rv["form"]
+	var n := pts.size()
+	# Laufmeter ENTLANG DER FLAECHE (mit Hoehe): im Wasserfall laufen die Schlieren sonst
+	# auf einer Wand gestaucht, deren waagerechte Laenge nur ein paar Meter ist.
+	var lauf := PackedFloat32Array()
+	lauf.resize(n)
+	for i in range(1, n):
+		lauf[i] = lauf[i - 1] + pts[i].distance_to(pts[i - 1])
+	# SCHAUM UNTER DEN FAELLEN: am Fuss jedes Absturzes kocht das Becken und beruhigt sich
+	# flussab (UV2.x, etwa 30 m Halbwert, hoehere Faelle schaeumen weiter).
+	var schaum := PackedFloat32Array()
+	schaum.resize(n)
+	for fl in rv.get("faelle", []):
+		var unten: int = int(fl[1])
+		var hoch: float = float(fl[2])
+		var staerke := clampf(hoch / 5.0, 0.25, 1.0)
+		var weit := 6.0 + minf(hoch, 40.0) * 0.8
+		for i in range(unten, n):
+			var d := lauf[i] - lauf[unten]
+			if d > weit * 4.0:
+				break
+			schaum[i] = maxf(schaum[i], staerke * exp(-d / weit))
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_smooth_group(-1)
 	var left := PackedVector3Array()
 	var right := PackedVector3Array()
+	var wl := PackedFloat32Array()
+	var wr := PackedFloat32Array()
+	var kl := PackedFloat32Array()        # Wasserlinie links/rechts (fuer die Faelle)
+	var kr := PackedFloat32Array()
 	var farben := PackedColorArray()
-	for i in pts.size():
+	for i in n:
 		var dir: Vector3
 		if i == 0:
 			dir = pts[1] - pts[0]
-		elif i == pts.size() - 1:
+		elif i == n - 1:
 			dir = pts[i] - pts[i - 1]
 		else:
 			dir = pts[i + 1] - pts[i - 1]
-		var gef := -dir.y / maxf(Vector2(dir.x, dir.z).length(), 0.01)   # Gefaelle
+		# GEFAELLE OHNE DIE ABSTUERZE: am Kopf und Fuss eines Falls zaehlt nur das Becken —
+		# sonst schaeumte das ganze Becken als Wildwasser und die Treppe lag grauweiss da.
+		var gef := 0.0
+		var gn := 0.0
+		for j in [i - 1, i]:
+			if j < 0 or j >= n - 1:
+				continue
+			var lh0 := Vector2(pts[j + 1].x - pts[j].x, pts[j + 1].z - pts[j].z).length()
+			var gj := (pts[j].y - pts[j + 1].y) / maxf(lh0, 0.01)
+			if gj < FALL_AB * 0.6 or lh0 > STUFE_L * 2.0:
+				gef += gj
+				gn += 1.0
+		gef = gef / gn if gn > 0.0 else 0.0
 		dir.y = 0.0
 		dir = dir.normalized()
 		var perp := Vector3(-dir.z, 0.0, dir.x)
 		var c := Vector3(pts[i].x, pts[i].y + 0.15, pts[i].z)
-		var w: float = breiten[i] * 0.92
-		# AN DAS UFER EINGEZOGEN, NICHT KONSTANT BREIT (siehe _ufer_breite): wo sich der
-		# Kanal verengt, laege sonst eine Platte mit gerader Kante auf dem Sand.
-		left.append(c + perp * _ufer_breite(c, perp, w))
-		right.append(c - perp * _ufer_breite(c, -perp, w))
+		var bl: float
+		var br2: float
+		if formen[i] >= 0.5:
+			# MIT UFERFORM: das Band reicht bis in die Boeschung (bzw. ueber die Kiesbank) und
+			# liegt dort UNTER dem Gelaende — die Uferlinie ist der Schnitt mit dem Boden.
+			# Links = Normalenseite, dort ist der Bogen positiv innen (siehe _fluss_boegen).
+			bl = _band_rand(c, perp, breiten[i], boegen[i])
+			br2 = _band_rand(c, -perp, breiten[i], -boegen[i])
+		else:
+			# AN DAS UFER EINGEZOGEN, NICHT KONSTANT BREIT (siehe _ufer_breite): wo sich der
+			# Kanal verengt, laege sonst eine Platte mit gerader Kante auf dem Sand.
+			var w: float = breiten[i] * 0.92
+			bl = _ufer_breite(c, perp, w)
+			br2 = _ufer_breite(c, -perp, w)
+		left.append(c + perp * bl)
+		right.append(c - perp * br2)
+		wl.append(bl)
+		wr.append(br2)
+		var w_i: float = breiten[i]
+		kl.append(minf(bl, w_i * (1.0 - UFER_BANK_HINEIN * smoothstep(0.15, 0.6, maxf(boegen[i], 0.0)))))
+		kr.append(minf(br2, w_i * (1.0 - UFER_BANK_HINEIN * smoothstep(0.15, 0.6, maxf(-boegen[i], 0.0)))))
 		# FLIESSRICHTUNG und GEFAELLE fuer den Shader (fliessend): RG = Richtung, B = wie
 		# steil. Die Wellen laufen damit flussab, und wo es steil wird, schaeumt es.
-		farben.append(Color(dir.x * 0.5 + 0.5, dir.z * 0.5 + 0.5, clampf(gef * 4.0, 0.0, 1.0), 1.0))
-	for i in pts.size() - 1:
+		farben.append(Color(dir.x * 0.5 + 0.5, dir.z * 0.5 + 0.5, clampf(gef * 4.0, 0.0, 1.0), 0.0))
+	for i in n - 1:
 		# Wo der Spiegel das Meer erreicht, fuellt das Meer die Rinne selbst — ein Band auf
 		# derselben Hoehe wuerde dort mit der Meeresflaeche flimmern.
 		if pts[i].y <= SEA_Y + 0.25 and pts[i + 1].y <= SEA_Y + 0.25:
 			continue
-		st.set_color(farben[i]); st.add_vertex(left[i])
-		st.set_color(farben[i]); st.add_vertex(right[i])
-		st.set_color(farben[i + 1]); st.add_vertex(right[i + 1])
-		st.set_color(farben[i]); st.add_vertex(left[i])
-		st.set_color(farben[i + 1]); st.add_vertex(right[i + 1])
-		st.set_color(farben[i + 1]); st.add_vertex(left[i + 1])
+		# WASSERFALL je ABSCHNITT (COLOR.a): ein Absturz ist ein einzelner kurzer Abschnitt,
+		# seine Steilheit gehoert nicht in die Eckpunkte der Nachbarn.
+		var lh := Vector2(pts[i + 1].x - pts[i].x, pts[i + 1].z - pts[i].z).length()
+		var fall := smoothstep(0.55, 1.3, (pts[i].y - pts[i + 1].y) / maxf(lh, 0.01))
+		var ca := farben[i]
+		ca.a = fall
+		var cb := farben[i + 1]
+		cb.a = fall
+		var la := left[i]
+		var ra := right[i]
+		var lb := left[i + 1]
+		var rb := right[i + 1]
+		var ula := wl[i]
+		var ura := wr[i]
+		var ulb := wl[i + 1]
+		var urb := wr[i + 1]
+		if fall > 0.5:
+			# ABSTURZ NUR SO BREIT WIE DAS GERINNE (und schmaler als der Vorhang, den
+			# Flussleben.gd darueberlegt): das Band reicht sonst bis in die Boeschung, und an
+			# der Stufe kann das 8-m-Gelaende es nicht verdecken — die Seitenteile standen als
+			# weisse Mauern neben dem Fall.
+			var ma := Vector3(pts[i].x, pts[i].y + 0.15, pts[i].z)
+			var mb := Vector3(pts[i + 1].x, pts[i + 1].y + 0.15, pts[i + 1].z)
+			ula = kl[i] * 0.62
+			ura = kr[i] * 0.62
+			ulb = kl[i + 1] * 0.62
+			urb = kr[i + 1] * 0.62
+			la = ma + (left[i] - ma).normalized() * ula
+			ra = ma + (right[i] - ma).normalized() * ura
+			lb = mb + (left[i + 1] - mb).normalized() * ulb
+			rb = mb + (right[i + 1] - mb).normalized() * urb
+		# UV2: im Becken (Schaum, 0); im FALL (quer -1..1, Lippe 0 .. Fuss 1) — der Shader
+		# malt daraus Lippe, Schleier, dunklere Raender und den weissen Fuss.
+		var u2 := [Vector2(schaum[i], 0.0), Vector2(schaum[i], 0.0),
+			Vector2(schaum[i + 1], 0.0), Vector2(schaum[i + 1], 0.0)]
+		if fall > 0.0:
+			u2 = [Vector2(-1.0, 0.0), Vector2(1.0, 0.0), Vector2(1.0, 1.0), Vector2(-1.0, 1.0)]
+		var ecken := [[la, ca, Vector2(-ula, lauf[i]), u2[0]],
+			[ra, ca, Vector2(ura, lauf[i]), u2[1]],
+			[rb, cb, Vector2(urb, lauf[i + 1]), u2[2]],
+			[lb, cb, Vector2(-ulb, lauf[i + 1]), u2[3]]]
+		for k in [0, 1, 2, 0, 2, 3]:
+			var e: Array = ecken[k]
+			st.set_color(e[1])
+			st.set_uv(e[2])
+			st.set_uv2(e[3])
+			st.add_vertex(e[0])
 	st.generate_normals()
 	var mi := MeshInstance3D.new()
 	mi.mesh = st.commit()
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.material_override = _water_mat(FLUSS)   # derselbe Shader wie Meer und See
 	add_child(mi)
+
+
+## Wie weit das Band eines Flusses MIT UFERFORM zur Seite reicht: bis in die halbe Boeschung
+## (Bank und Boeschung wie in _river_carve). Liegt das Gelaende dort doch unter dem Wasser
+## (Senke neben dem Fluss), bleibt es bei der alten Suche nach der Uferlinie.
+func _band_rand(mitte: Vector3, richtung: Vector3, w: float, bogen: float) -> float:
+	var gb := smoothstep(0.15, 0.6, maxf(bogen, 0.0))
+	var go := maxf(-bogen, 0.0)
+	var e := w * (1.0 + UFER_BANK_WEIT * gb)
+	var wb := lerpf(minf(UFER_BOESCHUNG, w * 1.2 + 2.0), UFER_BOESCHUNG_AUSSEN, go)
+	var soll := e + wb * 0.5 + 1.0 + w * UFER_WANDERN   # + das Wandern der Uferlinie
+	var aussen: Vector3 = mitte + richtung * soll
+	if height_at(aussen.x, aussen.z) > mitte.y:
+		return soll
+	return _ufer_breite(mitte, richtung, w * 0.92)
 
 
 # Gewaesser-Typen fuer _water_mat.
@@ -6453,6 +6819,7 @@ func _water_mat(typ: int) -> ShaderMaterial:
 		m.set_shader_parameter("deep_col", Color(0.11, 0.36, 0.46))
 		# Flussgrund: Kies statt Strandsand.
 		m.set_shader_parameter("grund_col", Color(0.62, 0.58, 0.46))
+		m.set_shader_parameter("grund_toenung", 0.72)
 		# 0.9 statt 1.4: ein schmaler Bach (Muehlbach, 8 m) ist fast ueberall flach — mit
 		# klarerem Wasser lag er als blassgraues Band auf der Wiese.
 		m.set_shader_parameter("klarheit", 0.9)
@@ -8774,6 +9141,16 @@ func _open_ground(x: float, z: float) -> float:
 	var k := _halde_frei(x, z)
 	if k <= 0.0:
 		return 0.0
+	# LICHTUNGEN (Flussleben: Muehle, Bootsstege) — vor build_now_around gesetzt.
+	for li in _lichtungen.size():
+		var lc := _lichtungen[li]
+		var ldx := x - lc.x
+		var ldz := z - lc.y
+		var ld2 := ldx * ldx + ldz * ldz
+		if ld2 < lc.z * lc.z:
+			k = minf(k, smoothstep(lc.z * 0.65, lc.z, sqrt(ld2)))
+	if k <= 0.0:
+		return 0.0
 	var zk := _zn_zelle(x, z)
 	var zj0 := 0
 	var zj1 := 0
@@ -8842,7 +9219,7 @@ func _submerged(x: float, z: float, h: float, check_rivers: bool) -> bool:
 	if not check_rivers:
 		return false
 	var f := _fluss_naechst(x, z)
-	return f.x < f.z * 1.4 and h < f.y + 0.8
+	return f.x < absf(f.z) * 1.4 and h < f.y + 0.8
 
 
 # Ein Dreieck mit Flächenfarbe (aus Höhe + Steilheit am Schwerpunkt) einfügen.
