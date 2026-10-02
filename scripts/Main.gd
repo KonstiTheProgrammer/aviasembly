@@ -2598,6 +2598,12 @@ func _setup_world() -> void:
 		Vector3(kav_p.x, ADLERHORST_HOEHE + ADLERHORST_KAVERNE_HUB, kav_p.y),
 		atan2(TAL_RICHTUNG.x, TAL_RICHTUNG.y))
 	_kaverne_knoten = kaverne
+	# Die Felsstirn ums Portal mit dem Material des Gelaendes: gemalter Fels wie die Wand
+	# daneben (Landmarks liefert sie in einer Farbe mit glatten Normalen).
+	if kaverne != null and terrain != null:
+		var stirn := kaverne.get_node_or_null("Stirn") as MeshInstance3D
+		if stirn != null:
+			stirn.material_override = terrain._mat
 	if kaverne != null:
 		# Lichtbahnen im Hallendunst nur von Scheinwerfern (auch denen am Portal, die nach
 		# Bergbasis.bauen entstehen) — siehe Bergbasis._dunst.
@@ -2988,7 +2994,7 @@ func _kaverne_ebene_setzen(kaverne: Node3D) -> void:
 	for w in wurzeln:
 		for g in w.find_children("*", "GeometryInstance3D", true, false):
 			var gi := g as GeometryInstance3D
-			if gi.name == "Stirn":
+			if gi.name == "Stirn" or gi.name == "Portalrahmen" or gi.name == "AusbauAussen":
 				continue
 			var ab := gi.get_aabb()
 			var m := inv * (gi.global_transform * ab.get_center())

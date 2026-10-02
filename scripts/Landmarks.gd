@@ -2570,11 +2570,20 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 	mi.mesh = teile[1]
 	mi.material_override = _hb_mat()
 	node.add_child(mi)
+	# Die Stirn noch einmal geteilt: der FELS (dunkel) bekommt in Main das Material des
+	# Gelaendes (gemalter Fels wie die Wand daneben — als glatte Vertexfarbe stand er als
+	# Plastikkuppel davor) und dafuer glatte Normalen; der PORTALRAHMEN (hell) bleibt Beton.
+	var stirn_teile := _hb_nach_helligkeit(teile[0], 0.27)
 	var mi_s := MeshInstance3D.new()
 	mi_s.name = "Stirn"
-	mi_s.mesh = teile[0]
+	mi_s.mesh = _hb_glatt(stirn_teile[0], Color(0.36, 0.35, 0.34))
 	mi_s.material_override = _hb_mat()
 	node.add_child(mi_s)
+	var mi_r := MeshInstance3D.new()
+	mi_r.name = "Portalrahmen"
+	mi_r.mesh = stirn_teile[1]
+	mi_r.material_override = _hb_mat()
+	node.add_child(mi_r)
 
 	var body := StaticBody3D.new()
 	body.name = "Kollision"
@@ -2612,6 +2621,66 @@ static func build_felsenbasis(parent: Node3D, mitte: Vector3, kurs: float) -> No
 ##
 ## quer ist der GLATTE Portalquerschnitt (_hb_ring), nicht der gebrochene Ring 0 der
 ## Roehre — begruendet oben bei der Rauheit.
+## Teilt nach der Helligkeit der Dreiecksfarbe: [dunkel, hell].
+static func _hb_nach_helligkeit(mesh: ArrayMesh, schwelle: float) -> Array:
+	var raus: Array = [ArrayMesh.new(), ArrayMesh.new()]
+	if mesh.get_surface_count() == 0:
+		return raus
+	var arr := mesh.surface_get_arrays(0)
+	var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var cs: PackedColorArray = arr[Mesh.ARRAY_COLOR]
+	for teil in 2:
+		var v2 := PackedVector3Array()
+		var n2 := PackedVector3Array()
+		var c2 := PackedColorArray()
+		for t in range(0, vs.size() - 2, 3):
+			var hell := (cs[t].r + cs[t].g + cs[t].b) / 3.0 > schwelle
+			if hell != (teil == 1):
+				continue
+			for k in 3:
+				v2.append(vs[t + k])
+				n2.append(ns[t + k])
+				c2.append(cs[t + k])
+		if v2.is_empty():
+			continue
+		var a2 := []
+		a2.resize(Mesh.ARRAY_MAX)
+		a2[Mesh.ARRAY_VERTEX] = v2
+		a2[Mesh.ARRAY_NORMAL] = n2
+		a2[Mesh.ARRAY_COLOR] = c2
+		(raus[teil] as ArrayMesh).add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a2)
+	return raus
+
+
+## Dasselbe Netz, eine Farbe, GLATTE Normalen (gleiche Lagen werden zu einem Eckpunkt).
+## Jedes Dreieck wird dabei VON `innen` WEG gewickelt: die Schale wurde beidseitig gezeichnet
+## und hat gemischte Wicklung — mit dem einseitigen Gelaendematerial stand die Stirn sonst
+## dunkel da (Normalen nach innen) oder hatte Loecher.
+static func _hb_glatt(mesh: ArrayMesh, farbe: Color, innen := Vector3(0, 25, 60)) -> ArrayMesh:
+	if mesh.get_surface_count() == 0:
+		return mesh
+	var vs: PackedVector3Array = mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var stg := SurfaceTool.new()
+	stg.begin(Mesh.PRIMITIVE_TRIANGLES)
+	stg.set_smooth_group(0)
+	for t in range(0, vs.size() - 2, 3):
+		var a := vs[t]
+		var b := vs[t + 1]
+		var c := vs[t + 2]
+		var n := Plane(a, b, c).normal
+		if n.dot((a + b + c) / 3.0 - innen) < 0.0:
+			var tmp := b
+			b = c
+			c = tmp
+		for v in [a, b, c]:
+			stg.set_color(farbe)
+			stg.add_vertex(v)
+	stg.index()
+	stg.generate_normals()
+	return stg.commit()
+
+
 ## Teilt ein Dreiecksnetz nach der Lage laengs: [vor z_grenze, dahinter] (Schwerpunkt je
 ## Dreieck). Normalen und Farben bleiben, wie sie sind.
 static func _hb_teilen(mesh: ArrayMesh, z_grenze: float) -> Array:

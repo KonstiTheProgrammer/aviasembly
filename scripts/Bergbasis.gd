@@ -70,6 +70,8 @@ var sr: SurfaceTool        # Rohre (glatt)
 var koll: StaticBody3D
 var rng := RandomNumberGenerator.new()
 var tueren: Array = []      # [Lage vor der Tuer, Richtung zur Bahn (x)]
+var haeuser: Array = []     # [Name, sx, za, ze, tuer_z]
+var hindernisse: Array = [] # [x, z, Radius] fuer spaetere Aufstellungen (Terrasse)
 
 
 static func bauen(basis: Node3D) -> void:
@@ -110,6 +112,10 @@ func _los() -> void:
 	_banner()
 	_rollschilder()
 	_portalbau()
+	_bewegung()
+	_notausgaenge()
+	_bodenspuren()
+	_kantine()
 	_figuren()
 
 	_fertig(st, _fest_mat(), "AusbauFest")
@@ -473,6 +479,7 @@ func _haus(sx: float, za: float, ze: float, nr: int) -> void:
 	Landmarks._box_geo(sl, Vector3(x0 - sx * 0.12, y0 + 2.7, tuer_z), Vector3(0.12, 0.18, 0.5),
 		L_WARM)
 	tueren.append([Vector3(x0 - sx * 1.8, y0, tuer_z), -sx])
+	haeuser.append([HAUS_NAMEN[nr % HAUS_NAMEN.size()], sx, za, ze, tuer_z])
 	# Laubengang mit Treppe (dreigeschossig): Gang vor dem oberen Geschoss, Gelaender,
 	# Treppe am Hausende hinauf.
 	if stock == 3:
@@ -594,7 +601,6 @@ func _leitstand() -> void:
 			Vector3(0.12, float(a[2]), 0.12), C_STAHL)
 		Landmarks._box_geo(sl, Vector3(float(a[0]), dy + float(a[2]) + 0.1, float(a[1])),
 			Vector3(0.2, 0.2, 0.2), Color(1.0, 0.15, 0.1))
-	_zyl(st, Vector3(-66.5, dy + 1.4, 898.0), Vector3(-65.6, dy + 1.9, 898.0), 0.9, 12, Color(0.8, 0.8, 0.78))
 	_q(st, Vector3(-66.8, dy + 0.8, 898.0), Vector3(0.2, 1.4, 0.2), C_STAHL)
 	# Schilder
 	_q(st, Vector3(kxa + 1.0, dy + 0.7, zm), Vector3(0.1, 1.0, 9.0), Color(0.08, 0.09, 0.10))
@@ -878,12 +884,15 @@ func _fahrzeugpark() -> void:
 				Vector3(x + sx * rng.randf_range(-1.5, 1.5), BODEN, z + float(k) * 1.6 - 3.0)))
 		_gabelstapler(Transform3D(Basis(Vector3.UP, sx * PI * 0.5 + 0.4),
 			Vector3(x - sx * 4.5, BODEN, z + 3.0)))
+		hindernisse.append([x, z, 6.0])
+		hindernisse.append([x - sx * 4.5, z + 3.0, 2.5])
 	var cont := [[1.0, 375.0, Color(0.55, 0.28, 0.10)], [1.0, 382.0, Color(0.20, 0.30, 0.40)],
 		[-1.0, 505.0, Color(0.30, 0.34, 0.22)], [-1.0, 760.0, Color(0.55, 0.28, 0.10)],
 		[1.0, 640.0, Color(0.30, 0.34, 0.22)]]
 	for c: Array in cont:
 		var sx: float = c[0]
 		_container(Transform3D(Basis(), Vector3(sx * 57.5, BODEN, float(c[1]))), c[2])
+		hindernisse.append([sx * 57.5, float(c[1]), 4.0])
 	# Loeschfahrzeug bereit am Hallenanfang
 	_feuerwehr(Transform3D(Basis(Vector3.UP, PI), Vector3(-52.0, BODEN, 240.0)))
 
@@ -1242,6 +1251,275 @@ func _portalbau() -> void:
 			Vector3(mx + 1.8, talboden + 13.1, wz + dz), Vector3(mx + 1.2, talboden + 13.5, wz + dz), C_GOLD)
 		Landmarks._quad(sa, Vector3(mx + 1.8, talboden + 13.5, wz + dz), Vector3(mx + 2.4, talboden + 13.9, wz + dz),
 			Vector3(mx + 2.4, talboden + 13.5, wz + dz), Vector3(mx + 1.8, talboden + 13.1, wz + dz), C_GOLD)
+
+
+# --- Bewegung: Follow-me-Wagen, Radar --------------------------------------------------------
+## Ein Follow-me-Wagen umrundet die Bahn: rechts neben ihr in den Berg, am Ende in einem
+## Bogen ueber die Bahn, links zurueck. Ohne Kollision (er weicht nicht aus).
+class Rundfahrt extends Node3D:
+	var gerade := 900.0
+	var r := 19.5
+	var z0 := 40.0
+	var tempo := 9.0
+	var s := 0.0
+
+	func _process(d: float) -> void:
+		var umfang := 2.0 * gerade + TAU * r
+		s = fposmod(s + d * tempo, umfang)
+		var p := Vector3.ZERO
+		var dir := Vector3.FORWARD
+		if s < gerade:
+			p = Vector3(r, 0, z0 + s)
+			dir = Vector3(0, 0, 1)
+		elif s < gerade + PI * r:
+			var a := (s - gerade) / r
+			p = Vector3(r * cos(a), 0, z0 + gerade + r * sin(a))
+			dir = Vector3(-sin(a), 0, cos(a))
+		elif s < 2.0 * gerade + PI * r:
+			var u := s - gerade - PI * r
+			p = Vector3(-r, 0, z0 + gerade - u)
+			dir = Vector3(0, 0, -1)
+		else:
+			var a := (s - 2.0 * gerade - PI * r) / r
+			p = Vector3(-r * cos(a), 0, z0 - r * sin(a))
+			dir = Vector3(sin(a), 0, -cos(a))
+		transform = Transform3D(Basis.looking_at(-dir, Vector3.UP), p + Vector3(0, 0.12, 0))
+
+
+class Dreher extends Node3D:
+	var rate := 1.1
+
+	func _process(d: float) -> void:
+		rotate_y(d * rate)
+
+
+## Baut mit den gewohnten Bauteilen in EIGENE Netze (fuer bewegte Knoten) und haengt sie an
+## `ziel`. Die Bauteile duerfen dabei kein _kol rufen (die Kollision stuende fest).
+func _beweglich(ziel: Node3D, bau: Callable) -> void:
+	var alt := [st, sl, sb]
+	st = _neu(-1)
+	sl = _neu(-1)
+	sb = _neu(-1)
+	bau.call()
+	var teile := [[st, _fest_mat()], [sl, _leucht_mat()], [sb, _signal_mat(false)]]
+	for t: Array in teile:
+		var s2: SurfaceTool = t[0]
+		s2.generate_normals()
+		var mi := MeshInstance3D.new()
+		mi.mesh = s2.commit()
+		mi.material_override = t[1]
+		if t[1] is ShaderMaterial:
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ziel.add_child(mi)
+	st = alt[0]
+	sl = alt[1]
+	sb = alt[2]
+
+
+func _bewegung() -> void:
+	var f := Rundfahrt.new()
+	f.name = "FollowMe"
+	f.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	f.s = 130.0
+	f._process(0.0)   # gleich an den Startpunkt (Main legt die Ebene nach der Lage fest)
+	node.add_child(f)
+	_beweglich(f, func() -> void: _followme(Transform3D()))
+	for seite: float in [-1.0, 1.0]:
+		var l := Label3D.new()
+		l.text = "FOLLOW ME"
+		l.font = _schrift()
+		l.font_size = 96
+		l.pixel_size = 0.0034
+		l.modulate = Color(0.02, 0.02, 0.02)
+		l.shaded = true
+		l.double_sided = false
+		l.position = Vector3(0, 2.26, -0.3 + seite * 0.075)
+		l.rotation.y = 0.0 if seite > 0.0 else PI
+		f.add_child(l)
+	# Radarschuessel auf der Flugleitung
+	var r := Dreher.new()
+	r.name = "Radar"
+	r.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	r.position = Vector3(-66.8, BODEN + 7.1 + 1.2 + 3.0 + 0.25 + 1.5, 898.0)
+	node.add_child(r)
+	_beweglich(r, func() -> void:
+		var x := Transform3D()
+		_ob(st, x, Vector3(0, 0.1, 0), Vector3(0.5, 0.25, 0.5), C_STAHL)
+		_ob(st, x, Vector3(0, 0.6, 0.2), Vector3(3.2, 1.1, 0.12), Color(0.80, 0.80, 0.78))
+		_ob(st, x, Vector3(0, 0.6, 0.35), Vector3(0.12, 0.12, 0.5), C_STAHL)
+		Landmarks._box_geo(sl, Vector3(0, 1.25, 0.2), Vector3(0.12, 0.12, 0.12), Color(1.0, 0.15, 0.1)))
+
+
+func _followme(xf: Transform3D) -> void:
+	var schwarz := Color(0.03, 0.03, 0.03)
+	_ob(st, xf, Vector3(0, 0.72, 0), Vector3(1.9, 0.75, 4.4), C_GELB)
+	_ob(st, xf, Vector3(0, 1.42, -0.3), Vector3(1.75, 0.65, 2.2), C_GLAS)
+	_ob(st, xf, Vector3(0, 1.79, -0.3), Vector3(1.82, 0.08, 2.32), C_GELB)
+	for k in 8:
+		for sx: float in [-0.96, 0.96]:
+			_ob(st, xf, Vector3(sx, 0.82, -1.9 + float(k) * 0.5), Vector3(0.03, 0.25, 0.5),
+				schwarz if k % 2 == 0 else C_GELB)
+	# Dachschild, schachbrett, mit Rundumleuchten
+	_ob(st, xf, Vector3(0, 2.26, -0.3), Vector3(1.6, 0.55, 0.12), C_GELB)
+	for k in 12:
+		for y: float in [2.06, 2.46]:
+			if (k + (1 if y > 2.2 else 0)) % 2 == 0:
+				continue
+			_ob(st, xf, Vector3(-0.73 + float(k) * 0.133, y, -0.3), Vector3(0.133, 0.12, 0.135), schwarz)
+	for ex: float in [-0.75, 0.75]:
+		_zyl(sb, xf * Vector3(ex, 2.55, -0.3), xf * Vector3(ex, 2.78, -0.3), 0.1, 8,
+			_phase(Color(1.0, 0.6, 0.05)))
+	for ex: float in [-0.65, 0.65]:
+		Landmarks._box_geo(sl, xf * Vector3(ex, 0.85, 2.21), Vector3(0.3, 0.16, 0.03), L_KALT)
+		Landmarks._box_geo(sl, xf * Vector3(ex, 0.85, -2.21), Vector3(0.3, 0.14, 0.03), Color(1.0, 0.1, 0.06))
+	for wx: float in [-0.9, 0.9]:
+		for wz: float in [-1.45, 1.45]:
+			_rad(st, xf, Vector3(wx, 0.36, wz), 0.36, 0.26)
+
+
+# --- Notausgaenge an den Seitenstollen ---------------------------------------------------------
+## Die Seitenstollen (Landmarks._hb_betrieb: schwarze Oeffnungen bei z 420, 640, 860) bekommen
+## einen Rahmen mit Warnkante, ein gruenes Notausgangsschild und eine Stollennummer.
+func _notausgaenge() -> void:
+	var n := 0
+	for sx: float in [-1.0, 1.0]:
+		for z: float in [420.0, 640.0, 860.0]:
+			n += 1
+			var x := sx * (Landmarks.HB_W_HALLE - 3.1)
+			for ez: float in [-3.75, 3.75]:
+				for k in 7:
+					_q(st, Vector3(x, 0.5 + float(k), z + ez), Vector3(0.5, 1.0, 0.5),
+						C_GELB if k % 2 == 0 else Color(0.04, 0.04, 0.04))
+			_q(st, Vector3(x, 7.4, z), Vector3(0.6, 0.7, 8.1), C_STAHL)
+			Landmarks._box_geo(sl, Vector3(x - sx * 0.32, 8.4, z), Vector3(0.06, 0.7, 2.6),
+				Color(0.15, 0.95, 0.35))
+			_schild("NOTAUSGANG", Vector3(x - sx * 0.37, 8.4, z), Vector3(-sx, 0, 0), 0.0048,
+				Color(1.0, 1.0, 1.0))
+			_schild("STOLLEN %d" % n, Vector3(x - sx * 0.3, 5.0, z - 2.4), Vector3(-sx, 0, 0), 0.006,
+				Color(0.95, 0.80, 0.22))
+
+
+# --- Bodenspuren: Reifenabrieb, Oel, Zebrastreifen, Sperrflaeche ------------------------------
+func _bodenspuren() -> void:
+	var dunkel := Color(0.075, 0.072, 0.07)
+	# Reifenabrieb in beiden Aufsetzzonen
+	for zone: Array in [[110.0, 270.0], [750.0, 910.0]]:
+		for k in 46:
+			var z := rng.randf_range(float(zone[0]), float(zone[1]))
+			var lang := rng.randf_range(5.0, 24.0)
+			var x: float = [-2.9, -2.6, 2.6, 2.9, 0.0][k % 5] + rng.randf_range(-0.9, 0.9)
+			var gier := rng.randf_range(-0.03, 0.03)
+			var c := Landmarks._shade(dunkel, rng.randf_range(0.8, 1.6))
+			_ob(st, Transform3D(Basis(Vector3.UP, gier), Vector3(x, 0.142, z)), Vector3.ZERO,
+				Vector3(rng.randf_range(0.25, 0.42), 0.008, lang), c)
+	# Oelflecken unter den Maschinen
+	for s: Array in STAENDE:
+		for k in 3:
+			var r := rng.randf_range(0.5, 1.3)
+			var c := Vector3(float(s[1]) + rng.randf_range(-2.0, 2.0), BODEN + 0.006,
+				float(s[2]) + rng.randf_range(-1.5, 1.5))
+			_zyl(st, c, c + Vector3(0, 0.01, 0), r, 12, dunkel, true)
+	# Zebrastreifen vom Gehweg zu den Standplaetzen
+	for e: Array in [[1.0, 470.0], [-1.0, 400.0], [1.0, 690.0], [-1.0, 600.0], [1.0, 300.0]]:
+		var sx: float = e[0]
+		var z: float = e[1]
+		var x := 42.0
+		while x < 59.0:
+			_q(st, Vector3(sx * x, BODEN + 0.018, z), Vector3(0.7, 0.02, 3.0), Color(0.80, 0.80, 0.76))
+			x += 1.4
+	# Sperrflaeche fuer das Loeschfahrzeug: gelber Rand, Schraffur, Aufschrift
+	var m := Vector3(-52.0, BODEN + 0.02, 240.0)
+	for e2: Array in [[Vector3(0, 0, -6.5), Vector3(7.4, 0.02, 0.35)], [Vector3(0, 0, 6.5), Vector3(7.4, 0.02, 0.35)],
+			[Vector3(-3.6, 0, 0), Vector3(0.35, 0.02, 13.0)], [Vector3(3.6, 0, 0), Vector3(0.35, 0.02, 13.0)]]:
+		_q(st, m + (e2[0] as Vector3), e2[1], C_GELB)
+	for k in 9:
+		var z := -5.6 + float(k) * 1.4
+		_ob(st, Transform3D(Basis(Vector3.UP, PI * 0.25), m + Vector3(0, 0, z)), Vector3.ZERO,
+			Vector3(0.3, 0.02, 2.0), C_GELB)
+	_boden_schrift("FEUERWEHR", m + Vector3(5.6, 0.03, 0), -1.0, 0.012, C_GELB)
+	hindernisse.append([-52.0, 240.0, 8.0])
+
+
+# --- Kantine mit Terrasse ----------------------------------------------------------------------
+## Vor der Kantine Tische mit Stuehlen, ein paar Leute beim Essen und eine Lichterkette.
+func _kantine() -> void:
+	for h: Array in haeuser:
+		if String(h[0]) != "KANTINE":
+			continue
+		var sx: float = h[1]
+		var tz: float = h[4]
+		# Masten (x 61, alle 55 m ab 60) und Stand-Umrisse meiden
+		for k in 19:
+			hindernisse.append([sx * 61.0, 60.0 + float(k) * 55.0, 2.0])
+		for s: Array in STAENDE:
+			if signf(float(s[1])) == sx:
+				hindernisse.append([float(s[1]), float(s[2]), 9.0])
+		var tische := 0
+		for row: float in [56.8, 53.6]:
+			for dz: float in [-5.0, 0.0, 5.0]:
+				var p := Vector3(sx * row, BODEN, tz + dz)
+				var frei := true
+				for o: Array in hindernisse:
+					if Vector2(p.x - float(o[0]), p.z - float(o[1])).length() < float(o[2]) + 1.8:
+						frei = false
+				if not frei:
+					continue
+				tische += 1
+				_zyl(st, p, p + Vector3(0, 0.72, 0), 0.06, 6, C_STAHL)
+				_zyl(st, p + Vector3(0, 0.72, 0), p + Vector3(0, 0.77, 0), 0.55, 12,
+					Color(0.85, 0.83, 0.78))
+				for a in 4:
+					var w := TAU * float(a) / 4.0 + 0.4
+					var cp := p + Vector3(cos(w), 0, sin(w)) * 0.95
+					var xf := Transform3D(Basis(Vector3.UP, -w + PI * 0.5), cp)
+					_ob(st, xf, Vector3(0, 0.45, 0), Vector3(0.42, 0.06, 0.42), Color(0.55, 0.12, 0.08))
+					_ob(st, xf, Vector3(0, 0.75, -0.19), Vector3(0.42, 0.55, 0.05), Color(0.55, 0.12, 0.08))
+					for lx: float in [-0.17, 0.17]:
+						for lz: float in [-0.17, 0.17]:
+							_ob(st, xf, Vector3(lx, 0.22, lz), Vector3(0.03, 0.44, 0.03), C_STAHL)
+					if (a + tische) % 3 == 0:
+						_sitzend(Transform3D(Basis(Vector3.UP, -w - PI * 0.5), cp))
+				# Teller und Becher
+				for k2 in 3:
+					var w2 := TAU * float(k2) / 3.0
+					_zyl(st, p + Vector3(cos(w2) * 0.3, 0.77, sin(w2) * 0.3),
+						p + Vector3(cos(w2) * 0.3, 0.79, sin(w2) * 0.3), 0.12, 8, Color(0.92, 0.92, 0.9))
+		if OS.get_environment("KANTINE_ZEIGEN") != "":
+			print("KANTINE x %.0f z %.0f Tische %d" % [sx * 55.0, tz, tische])
+		if tische == 0:
+			return
+		# Lichterkette zwischen zwei Masten laengs der Terrasse
+		var xk := sx * 58.6
+		for ez: float in [-7.5, 7.5]:
+			_q(st, Vector3(xk, BODEN + 1.8, tz + ez), Vector3(0.1, 3.6, 0.1), C_STAHL)
+		var n := 22
+		for i in n + 1:
+			var t := float(i) / float(n)
+			var y := BODEN + 3.5 - 0.7 * (1.0 - pow(2.0 * t - 1.0, 2.0))
+			var z := tz - 7.5 + 15.0 * t
+			Landmarks._box_geo(sl, Vector3(xk, y - 0.1, z), Vector3(0.14, 0.18, 0.14),
+				[Color(1.0, 0.75, 0.35), Color(1.0, 0.55, 0.25), Color(1.0, 0.85, 0.55)][i % 3])
+		var l := OmniLight3D.new()
+		l.position = Vector3(sx * 56.0, BODEN + 3.0, tz)
+		l.light_color = Color(1.0, 0.78, 0.45)
+		l.light_energy = 2.2
+		l.omni_range = 11.0
+		l.shadow_enabled = false
+		l.light_volumetric_fog_energy = 0.0
+		node.add_child(l)
+		return
+
+
+func _sitzend(xf: Transform3D) -> void:
+	var jacke: Color = [Color(0.14, 0.16, 0.26), Color(0.30, 0.34, 0.22), Color(0.30, 0.31, 0.33)][rng.randi() % 3]
+	var haut := Color(0.70, 0.52, 0.40) if rng.randf() < 0.6 else Color(0.48, 0.34, 0.25)
+	for bx: float in [-0.11, 0.11]:
+		_ob(st, xf, Vector3(bx, 0.5, 0.2), Vector3(0.16, 0.16, 0.45), jacke)
+		_ob(st, xf, Vector3(bx, 0.25, 0.42), Vector3(0.15, 0.5, 0.16), jacke)
+	_ob(st, xf, Vector3(0, 0.82, -0.02), Vector3(0.44, 0.62, 0.26), jacke)
+	_ob(st, xf, Vector3(0, 1.25, 0.0), Vector3(0.2, 0.24, 0.22), haut)
+	for ax: float in [-0.27, 0.27]:
+		_ob(st, xf, Vector3(ax, 0.82, 0.18), Vector3(0.11, 0.12, 0.42), jacke)
 
 
 ## FIGUREN: Bodenpersonal mit Helm und Warnweste, Techniker, Piloten, Einweiser mit

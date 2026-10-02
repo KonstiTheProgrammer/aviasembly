@@ -342,8 +342,26 @@ StaticBody mit Boxen.
   * GEMESSEN (`_kaverne_zeit`, 4K): Halle 13,5-14,5 ms (vorher 14,0-14,6 — die Sonne muss die
     Halle nicht mehr rechnen), Ausbau 0,23-0,48 ms. `_kaverne_einflug` frei bis 990 m auf
     8/15/22 m, keine Warnungen.
-- NICHT GEMACHT: man kann die Kanzel nicht betreten (Glas ist undurchsichtiges Leuchten); die
-  Stirn bleibt eine glatte Kuppel (jetzt grau, mit Mauern davor).
+- MEHR LIEBE (dritte Runde, Nutzer: „mehr Liebe“):
+  * FELSSTIRN MIT GELAENDEMATERIAL: `Landmarks._hb_nach_helligkeit` trennt die Stirn in Fels
+    (dunkel) und „Portalrahmen“ (hell, Beton); der Fels bekommt eine Farbe und GLATTE Normalen
+    (`_hb_glatt`, jedes Dreieck von einem Punkt im Berg WEG gewickelt — die Schale ist
+    beidseitig gezeichnet und gemischt gewickelt, mit dem einseitigen Gelaendematerial stand
+    die Stirn sonst schwarz da), Main setzt `terrain._mat` — gemalter Fels wie die Wand.
+    „Portalrahmen“ und „AusbauAussen“ bleiben in `_kaverne_ebene_setzen` in der Sonne.
+  * BEWEGUNG: Follow-me-Wagen (`Bergbasis.Rundfahrt`, umrundet die Bahn mit 9 m/s, Wende in
+    Boegen ueber die Bahn, ohne Kollision, Rundumleuchten, Schachbrett, „FOLLOW ME“) und
+    drehende Radarschuessel auf der Flugleitung (`Dreher`); gebaut ueber `_beweglich` (eigene
+    Netze je Knoten, die Bauteile duerfen dort kein `_kol` rufen); Physik-Interpolation aus.
+  * Notausgaenge an den sechs Seitenstollen (Warnrahmen, gruenes Schild, „STOLLEN n“),
+    Reifenabrieb in beiden Aufsetzzonen, Oelflecken unter den Maschinen, Zebrastreifen,
+    Sperrflaeche „FEUERWEHR“, KANTINE mit Terrasse (sechs Tische mit Stuehlen, Gedecke, Leute
+    beim Essen, Lichterkette mit warmem Licht; Platz ueber `hindernisse` geprueft;
+    `KANTINE_ZEIGEN=1` meldet die Lage).
+  * GEMESSEN (`_kaverne_zeit`): Halle 13,6-14,6 ms, unveraendert. `_kaverne_einflug` frei.
+- NICHT GEMACHT: man kann die Kanzel nicht betreten (Glas ist undurchsichtiges Leuchten); oben
+  auf der Felsstirn liegt ein heller, flacher Rand (dort erkennt das Gelaendematerial keinen
+  Fels).
 
 ## Wasser (Umbau 2026-09: undurchsichtig, Tiefentextur, Meer bis zum Horizont)
 Shader: `shaders/wasser_kern.gdshaderinc` (ganze Logik + Begruendung), eingebunden von
