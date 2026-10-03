@@ -2714,89 +2714,21 @@ func _setup_world() -> void:
 	# geschaltet (frueher ein eigenes MeshInstance3D mit hellem Inline-Shader).
 
 
-## DAMPFFAHNE UEBER JEDEM VULKAN. Die Saeule selbst baut CloudField (dort steht auch,
-## warum sie aus denselben Puffs besteht wie die Wolkendecke) — hier wird nur bestimmt, WO
-## sie steht und wie hoch sie reicht.
-##
-## SIE MUSS NACH _limit_sichtweite STEHEN. Das deckelt alle Wahrzeichen auf den
-## Haeuser-Sichthorizont, weil sie sonst ueber leerem Gelaende schweben. Fuer die Fahne
-## waere genau das falsch herum: sie haengt in der Luft, braucht keinen Boden unter sich
-## und soll gerade dann noch zu sehen sein, wenn vom Kegel nur ein Buckel am Horizont
-## uebrig ist.
-##
-## DER FUSS LIEGT IM KRATER, nicht auf der Lippe: der Rand steht rund 0.7 Gipfelhoehen ueber
-## dem Kraterboden (tools/_vulkan_form.gd misst beides). Mit dem Fuss auf 0.70 der
-## Gipfelhoehe wachsen die untersten Ballen aus der Schuessel heraus, und aus der Ferne kommt
-## die Saeule aus dem Berg statt auf ihm zu sitzen.
-##
-## "GIPFELHOEHE" IST peak PLUS SCHUERZE, nicht peak allein. Die Schuerze ("apron", siehe die
-## Massivtabelle) traegt den ganzen Kegel um ihre Hoehe hoeher; wer hier nur peak liest,
-## setzt die Saeule genau um diesen Betrag zu tief an — bei 190 m Schuerze also unter den
-## Kraterboden, wo vom untersten Drittel der Fahne nichts mehr zu sehen waere. Ohne den
-## Schluessel ist der Summand null und es bleibt bei peak, wie bisher.
+## DER AKTIVE VULKAN (scripts/Vulkanausbruch.gd): Saeule, Schirm, Ausbrueche, Fontaene, Fumarolen.
+## Er MUSS NACH _limit_sichtweite STEHEN — das deckelt alle Wahrzeichen auf den Haeuser-Sichthorizont,
+## die Saeule soll aber gerade dann noch zu sehen sein, wenn vom Kegel nur ein Buckel am Horizont
+## uebrig ist. Der Schlot liegt auf dem Spiegel des Lavasees (height_at in Kratermitte).
 func _vulkanfahnen() -> void:
 	for ms in terrain.massifs:
 		if String(ms.get("type", "")) != "vulkan":
 			continue
-		var p: Vector3 = ms["pos"]
-		var peak := float(ms["peak"]) + float(ms.get("apron", 0.0))
-		var cr := float(ms.get("crater_r", 400.0))
-		# ASCHESAEULE (2026-10-03): dunkel, unten von der Glut angeleuchtet, oben breit und im
-		# Wind liegend — vorher 21 hellgraue Wolkenballen wie Marshmallows.
-		CloudField.fahne(fly_world, {
-			"name": "VulkanFahne",
-			"fuss": Vector3(p.x, peak * 0.70, p.z),
-			"hoehe": peak * 1.75,
-			"r_unten": cr * 0.11,
-			"r_oben": cr * 1.10,
-			"stufen": 40,
-			"biegung": 1.45,
-			"wuchs": 0.95,
-			"drift": Vector2(1.05, -0.14),
-			"helligkeit": 0.40,
-			"asche": true,
-			"farben": [[Color(0.36, 0.22, 0.16), Color(1.0, 0.42, 0.10)],
-				[Color(0.33, 0.285, 0.25), Color(0.22, 0.10, 0.06)],
-				[Color(0.40, 0.355, 0.32), Color(0.115, 0.095, 0.085)],
-				[Color(0.54, 0.49, 0.45), Color(0.19, 0.165, 0.15)]],
-			"seed": int(p.x) * 31 + int(p.z),
-		})
-		_vulkan_glut(Vector3(p.x, terrain.height_at(p.x, p.z), p.z), cr)
-
-
-## KRATERGLUT: FUNKENREGEN aus dem Schlot — gluehende Brocken steigen auf und fallen im Bogen
-## zurueck (GPU-Partikel, additiv, weit ueber Weiss: sie gluehen im Lichtglanz). Den orangen
-## Schein an den Kraterwaenden rechnet der Gelaende-Shader (gelaende_kern, „Glutschein“); der Fuss
-## der Aschesaeule traegt ihn als Farbe (CloudField.fahne, erste Zone).
-func _vulkan_glut(boden: Vector3, cr: float) -> void:
-	var wurzel := Node3D.new()
-	wurzel.name = "VulkanGlut"
-	wurzel.position = boden
-	wurzel.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	fly_world.add_child(wurzel)
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/vulkan_funke.gdshader")
-	var quad := QuadMesh.new()
-	quad.size = Vector2(1.0, 1.0)
-	quad.material = mat
-	var bahn := ShaderMaterial.new()
-	bahn.shader = load("res://shaders/vulkan_funken_bahn.gdshader")
-	bahn.set_shader_parameter("schlot_r", cr * 0.10)
-	var funken := GPUParticles3D.new()
-	funken.name = "Funken"
-	funken.amount = 420
-	funken.lifetime = 8.5
-	funken.preprocess = 8.5
-	funken.randomness = 0.6
-	funken.explosiveness = 0.12
-	funken.process_material = bahn
-	funken.draw_pass_1 = quad
-	funken.local_coords = true
-	funken.visibility_aabb = AABB(Vector3(-cr * 1.6, -80.0, -cr * 1.6), Vector3(cr * 3.2, cr * 3.2, cr * 3.2))
-	funken.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	funken.visibility_range_end = 9000.0
-	funken.position = Vector3(0.0, 10.0, 0.0)
-	wurzel.add_child(funken)
+		# AKTIVER VULKAN (2026-10-03, „mach noch krasser“): steigende Aschesaeule mit Schirm,
+		# Ausbrueche mit Lavabomben, Druckwelle und Blitzen, pumpende Lavafontaene, Fumarolen.
+		# Vorher stand hier eine stille Saeule (CloudField.fahne) und ein Funkenregen.
+		if vulkan != null and is_instance_valid(vulkan):
+			vulkan.queue_free()
+		vulkan = Vulkanausbruch.bauen(fly_world, terrain, ms, Vector2(1.05, -0.14), KAMERA_FERN)
+		break
 
 
 func grafik_anwenden() -> void:
@@ -3004,6 +2936,14 @@ func _wolken_aufenthalt(delta: float) -> void:
 	_formationen_im_flug(delta, pos)
 	if not is_finite(roh):
 		roh = 0.0
+	# ASCHE des Vulkans zaehlt wie eine Wolke (Nebel, Turbulenz, Fetzen) — nur dunkel
+	var asche := _vulkan_im_flug(delta, pos)
+	if is_finite(asche) and asche > 0.0:
+		_asche_k = lerpf(_asche_k, clampf(asche / maxf(roh, asche), 0.0, 1.0), clampf(delta * 3.0, 0.0, 1.0))
+		roh = maxf(roh, asche)
+	elif roh > 0.05:
+		_asche_k = lerpf(_asche_k, 0.0, clampf(delta * 3.0, 0.0, 1.0))
+	var wolke_farbe := NEBEL_FARBE_WOLKE.lerp(ASCHE_NEBEL, _asche_k)
 	wolken_dichte = clampf(lerpf(wolken_dichte, roh, clampf(delta * 4.0, 0.0, 1.0)), 0.0, 1.0)
 
 	flight_ctrl.wolken_dichte = wolken_dichte
@@ -3022,13 +2962,16 @@ func _wolken_aufenthalt(delta: float) -> void:
 		var frei := nebel_farbe_bei(cam_y)
 		if terrain != null:
 			terrain.setze_dunst(env_sky.fog_depth_begin, env_sky.fog_depth_end,
-				env_sky.fog_depth_curve, frei.lerp(NEBEL_FARBE_WOLKE, k))
+				env_sky.fog_depth_curve, frei.lerp(wolke_farbe, k))
 			if _gewitter_mat != null:
 				_gewitter_mat.set_shader_parameter("nebel_anfang", env_sky.fog_depth_begin)
 				_gewitter_mat.set_shader_parameter("nebel_ende", env_sky.fog_depth_end)
 				_gewitter_mat.set_shader_parameter("nebel_form", env_sky.fog_depth_curve)
 				_gewitter_mat.set_shader_parameter("nebel_farbe", terrain.dunst_farbe)
-		env_sky.fog_light_color = frei.lerp(NEBEL_FARBE_WOLKE, k)
+			if vulkan != null and is_instance_valid(vulkan):
+				vulkan.nebel_setzen(env_sky.fog_depth_begin, env_sky.fog_depth_end,
+					env_sky.fog_depth_curve, terrain.dunst_farbe)
+		env_sky.fog_light_color = frei.lerp(wolke_farbe, k)
 		# Auch der HIMMEL muss mit eintrueben, sonst steht mitten im Weiss noch ein
 		# blauer Zenit — der Nebel faerbt nur Geometrie, nicht den Hintergrund.
 		env_sky.fog_sky_affect = lerpf(0.1, 1.0, k)
@@ -8257,6 +8200,10 @@ var _blitz_t := 0.0                   # Restdauer des laufenden Blitzes
 var _blitz_naechster := 3.0
 var _blitz_rng := RandomNumberGenerator.new()
 var _fetzen: GPUParticles3D
+## Der aktive Vulkan (Vulkanausbruch): Asche im Flug, Druckwelle, Aufwind (_vulkan_im_flug)
+var vulkan: Vulkanausbruch
+var _asche_k := 0.0                   # Anteil der Asche am Nebel (geglaettet)
+const ASCHE_NEBEL := Color(0.19, 0.155, 0.13)
 ## Fuer Bildwerkzeuge: der naechste Blitz schlaegt sicher mit Bahn ein und flackert nicht.
 var blitz_test := false
 
@@ -8460,7 +8407,8 @@ func _formationen_im_flug(delta: float, pos: Vector3) -> void:
 		var pm := _fetzen.process_material as ParticleProcessMaterial
 		pm.emission_shape_offset = Vector3(0.0, 0.0, lerpf(-170.0, -70.0, wolken_dichte))
 		((_fetzen.draw_pass_1 as QuadMesh).material as ShaderMaterial).set_shader_parameter(
-			"farbe", Color(0.92, 0.94, 0.97).lerp(Color(0.62, 0.66, 0.72), wolken_dichte))
+			"farbe", Color(0.92, 0.94, 0.97).lerp(Color(0.62, 0.66, 0.72), wolken_dichte)
+				.lerp(Color(0.26, 0.21, 0.18), _asche_k))
 	# --- Gewitter ---------------------------------------------------------------------
 	flight_ctrl.turbulenz_faktor = 1.0
 	flight_ctrl.aufwind = 0.0
@@ -8478,6 +8426,23 @@ func _formationen_im_flug(delta: float, pos: Vector3) -> void:
 	else:
 		flight_ctrl.aufwind = -0.4 * kern * smoothstep(0.0, 200.0, GEWITTER_BASIS - pos.y)
 	_blitze(delta)
+
+
+## DER VULKAN IM FLUG: Asche (Rueckgabe, 0..1), heftige Turbulenz in der Saeule, Aufwind ueber dem
+## Schlot, und die Druckwelle eines Ausbruchs wackelt die Kamera, wenn sie ankommt (mit
+## Schallgeschwindigkeit — aus 5 km kommt der Stoss 15 s nach dem Blitz).
+func _vulkan_im_flug(delta: float, pos: Vector3) -> float:
+	if vulkan == null or not is_instance_valid(vulkan):
+		return 0.0
+	var asche := vulkan.dichte_bei(pos)
+	if asche > 0.01:
+		flight_ctrl.turbulenz_faktor = maxf(flight_ctrl.turbulenz_faktor, lerpf(1.0, 4.0, asche))
+	flight_ctrl.aufwind += vulkan.aufwind_bei(pos)
+	var cam := camera.global_position if camera != null else pos
+	var w := vulkan.welle_trifft(cam, delta)
+	if w > 0.0:
+		flight_ctrl.add_shake(w)
+	return asche
 
 
 func _blitze(delta: float) -> void:

@@ -109,15 +109,30 @@ func _lauf() -> void:
 		_gras(false)
 		var o_gras := await _median()
 		_gras(true)
-		# GZ_VULKAN=1: Anteile am Vulkan (Rauchsaeule, Kraterglut mit Licht und Funken, Material)
+		# GZ_VULKAN=1: Anteile am Vulkan (Vulkanausbruch: Saeule/Schirm, Ausbruchswolken, Bomben mit
+		# Rauchspuren, Dampf, Fontaene, Ascheregen, alles zusammen; dann das Gesteinsmaterial).
+		# Mit VULKAN_STOSS=<s> laeuft die Messung mitten in einem Ausbruch.
 		if OS.get_environment("GZ_VULKAN") != "":
-			for nm in ["VulkanFahne", "VulkanGlut"]:
-				var kn: Node3D = main.fly_world.get_node_or_null(nm)
-				if kn != null:
-					kn.visible = false
+			var vk: Node3D = main.fly_world.get_node_or_null("Vulkanausbruch")
+			if vk != null:
+				for gruppe in [["Saeule", "Schirm"], ["Ausbruchswolke"], ["Lavabomben", "Rauchspuren"],
+						["Dampf"], ["Funken"], ["Ascheregen"], [""]]:
+					var aus: Array[Node3D] = []
+					for kind in vk.get_children():
+						var k3 := kind as Node3D
+						if k3 == null or not k3.visible:
+							continue
+						for vor in gruppe:
+							if String(k3.name).begins_with(vor):
+								aus.append(k3)
+								break
+					for k3 in aus:
+						k3.visible = false
 					var o_k := await _median()
-					kn.visible = true
-					print("    VULKAN %-12s %5.2f ms" % [nm, alles.x - o_k.x])
+					for k3 in aus:
+						k3.visible = true
+					print("    VULKAN %-24s %5.2f ms" % ["+".join(gruppe) if gruppe != [""] else "alles",
+						alles.x - o_k.x])
 			var vmat: ShaderMaterial = main.terrain._mat
 			var kreis: Vector4 = vmat.get_shader_parameter("vulkan_kreis")
 			vmat.set_shader_parameter("vulkan_kreis", Vector4(0, 0, -1, 0))

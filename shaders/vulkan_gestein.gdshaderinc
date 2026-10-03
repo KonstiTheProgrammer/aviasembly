@@ -16,6 +16,7 @@
 // Uniforms setzt TerrainWorld.vulkan_material_setzen (Chunks und Fernschuerze).
 uniform vec4 vulkan_kreis = vec4(0.0, 0.0, -1.0, 0.0);   // x, z, Radius voll, Radius aus
 uniform vec3 vulkan_mass = vec3(900.0, 240.0, 400.0);     // Gipfelhoehe, Fusshoehe, Kraterradius
+global uniform float vulkan_ausbruch;                      // s seit dem letzten Ausbruch (Vulkanausbruch.gd)
 
 // UMFANG der Abwicklung um den Kegel (quer = Winkel / TAU * Umfang). 5100 m ist ein ganzes
 // Vielfaches aller Muster, die quer abgetastet werden (150, 34, 12,75 und 5,1 m) — sonst steht im

@@ -187,6 +187,9 @@ scripts/WorldMap.gd      Vollbild-Inselkarte (Taste M im Flug) = RELIEFKARTE + V
                          Messen: tools/_karte_zeit.gd (misst MAINS Erzeugung, Stufenzeiten), Bilder:
                          tools/_flug_bilder.gd (flug_karte.png, _zoom.png 3x, _zoom8.png, flug_hud_
                          wegpunkt.png) — wartet per `kacheln_bereit()` auf die scharfen Kacheln.
+scripts/Vulkanausbruch.gd class_name Vulkanausbruch. Der aktive Vulkan: steigende Aschesaeule mit Schirm,
+                         Ausbrueche (Bomben, Druckwelle, Blitze), Fontaene, Fumarolen, Asche im Flug.
+                         Siehe „DER VULKAN BRICHT AUS“ im Vulkan-Abschnitt.
 scripts/Flussleben.gd    class_name Flussleben (statisch). Leben am Fluss: Wasserfall-Vorhaenge, Gischt, Steine,
                          Schilf, Seerosen, Reiher, Enten, Bootsstege, Muehle. Siehe „Fluesse mit Liebe“.
 scripts/Bergbasis.gd     class_name Bergbasis (statisch). Ausbau der Felsenbasis ADLERHORST: Rippen,
@@ -1731,9 +1734,69 @@ dazu das Felsrelief der Ketten.
   `_strassen_check` (Gelaende ueber Band 0), `_bewuchs_stufen_check`, `_baum_ausfall_check`,
   `_grafik_check`, `_loadcheck`, `_rundflug_alle` OK, keine Warnungen, keine Lecks beim Beenden.
   `_haupt_pruefsumme` aendert sich am Vulkan (Form). Bilder `ansichten/28_vulkan.jpg`.
-- NICHT GEMACHT: die Saeule steht still (keine aufsteigende Bewegung); die Lava beleuchtet ihre
-  Umgebung nicht; an der Silhouette zeichnet das 8-m-Netz die Rippen noch leicht saegezahnig; die
-  Karte (M) zeigt weiter die rohe Haut.
+- NICHT GEMACHT: die Lava beleuchtet ihre Umgebung nicht; an der Silhouette zeichnet das 8-m-Netz
+  die Rippen noch leicht saegezahnig; die Karte (M) zeigt weiter die rohe Haut. (Die stille Saeule
+  ist seit dem Ausbruch unten erledigt.)
+- DER VULKAN BRICHT AUS (2026-10-03, Nutzer: „mach noch krasser“) — `scripts/Vulkanausbruch.gd`
+  (class_name, Node3D unter fly_world, gebaut in `Main._vulkanfahnen` statt CloudField.fahne +
+  `_vulkan_glut`). BEFUND vorher: die Aschesaeule hing still wie ein Foto, sonst passierte nichts.
+  * STEIGENDE SAEULE (128 Ballen) + SCHIRM (96): der Wolken-Shader (CloudField.PUFF_SHADER) wird per
+    Textersatz um eine BAHN ergaenzt (`_asche_shader_code`, vier Stellen, meldet push_error, wenn
+    sich der Wolken-Shader aendert): `world_vertex_coords`, die Instanzen sind EINHEITSBALLEN im
+    Ursprung (INSTANCE_CUSTOM = Phase, Groesse, quer), der Vertex-Shader setzt sie aus TIME an ihren
+    Ort — Steigen mit abnehmendem Tempo (`steig_h` 4200 m in `steig_t` 230 s), Aufweitung, Neigung
+    in den Wind, oben der Schirm (5,6 km im Wind, auffaechernd, flach, vergehend). ROLLEN um eine
+    waagerechte Achse und BRODELN (Rauschen entlang der Normale). Die KRONE (COLOR.r) wird NACH dem
+    Rollen aus der Lage gerechnet, sonst rollte die helle Kuppe nach unten. Phasen GESCHICHTET
+    (i/N), sonst klafften unten Luecken. Farbzonen nach Hoehe (zk0..3/zb0..3), Glut von unten nur
+    an Unterseiten nahe dem Schlot, WARME FUELLUNG als Emission (Albedo × 0,40/0,34/0,27) — das
+    blaue Himmelslicht machte die dunkle Asche auf der Schattenseite marineblau. EIGENER NEBEL
+    (`fog_disabled`, `nebel_setzen` je Frame aus `Main._wolken_aufenthalt`, Dunstfarbe zur Haelfte
+    entsaettigt): mit Godots Nebel stand die besonnte Saeule aus 6 km lavendelfarben da. Keine
+    CPU-Arbeit.
+  * AUSBRUECHE alle 30-60 s (`ausloesen`): Lichtblitz (OmniLight 1,5 s), FEUERBALL ueber dem Rand,
+    DRUCKWELLE (Kugelsaum mit 340 m/s, 3 s sichtbar; die Kamera wackelt, wenn sie am Flugzeug
+    ankommt — aus 5 km 15 s nach dem Blitz), 200 LAVABOMBEN mit RAUCHSPUREN, BLUMENKOHLWOLKE
+    (56 Ballen, ~250 m/s aus dem Rand, steigt auf 2-3 km, vergeht nach 40-58 s), VULKANBLITZE
+    (verzweigt, in alle Richtungen; nach einem Ausbruch alle 0,25-1,6 s, sonst selten; leuchten
+    die Ballen nur im Umkreis von 520 m an), Krater flammt auf (`gelaende_kern`, „schein“).
+    ZWEI FASSUNGEN (A/B) im Wechsel mit eigenem `stoss_alter`: ein neuer Ausbruch reisst die
+    Bomben und die Wolke des vorigen nicht weg. Globale Shader-Variable `vulkan_ausbruch`
+    (project.godot) = Sekunden seit dem letzten (Gelaende, Fontaene, Saeulenblitz).
+  * BOMBEN UND SPUREN RECHNEN GESCHLOSSEN (`shaders/vulkan_ausbruch.gdshaderinc`): Bahn mit
+    linearer Reibung aus der Bombennummer, AUFSCHLAG auf dem radialen Kegelprofil (`vb_profil`,
+    16 Radien x 16 Richtungen gemittelt, 24 Schritte + 6 Halbierungen), danach Nachgluehen am Hang.
+    Spurballen (64 Bomben x 32, alle 0,25 s) liegen dort, wo ihre Bombe vor tau Sekunden war, und
+    sind in Flugrichtung zur KAPSEL gestreckt — rund gezeichnet war die Spur eine Perlenkette, als
+    gestauchte Ellipse eine Leiter. FALLEN: (1) ungesetzte MultiMesh-Transforms sind eine
+    NULL-Matrix — die Instanz wird nicht gezeichnet, auch wenn der Vertex-Shader VERTEX in
+    Weltkoordinaten ganz neu setzt (Transform3D.IDENTITY setzen); (2) Bomben additiv mit
+    Gelbweiss standen vor dem Himmel als weisse Federn da — gesaettigtes Orange; (3) mit dem
+    Abstand wachsendes Leuchten addierte sich aus 6 km zu einem weissen Stern — Helligkeit durch
+    das Quadrat des Wachstums teilen; (4) der Feuerball und der Beginn der Wolke lagen IM Kessel
+    (330 m tief, `rand_tiefe` aus dem Profil) — man sah den Knall nicht.
+  * LAVAFONTAENE (vulkan_funken_bahn, 1600 Teilchen) pumpt in Takten von 1,7 s, ein Drittel als
+    enger hoher Strahl; beim Ausbruch fliegt alles schneller. FUMAROLEN (6 am Rand) und LAVADAMPF
+    (10 heisseste Stellen der Stroeme, gelesen aus `TerrainWorld._vulkan_haut`) als periodische
+    Rauchballen (`shaders/vulkan_rauch.gdshader`, modus 0). ASCHEREGEN unter dem Schirm: weicher
+    Schleier, HELLES Graubraun mit eigenem Dunst (`fog_disabled`) — dunkel und duenn verdunkelte er
+    nur das Himmelsblau und stand als Lichtstrahlen da.
+  * IM FLUG (`Main._vulkan_im_flug`, aus `_wolken_aufenthalt`): `dichte_bei` (dieselben Formeln wie
+    der Shader) zaehlt wie eine Wolke — Nebel dicht, aber ASCHE_NEBEL dunkelbraun (`_asche_k`),
+    Turbulenz bis x4, Aufwind bis 0,7 g ueber dem Schlot (`aufwind_bei`), Druckwelle
+    (`welle_trifft`) -> `flight_ctrl.add_shake`.
+  * KOSTEN (`_gelaende_zeit`, GZ_VULKAN=1, 4K, GZ_NUR=Vulkan): Flanke 500 m alles 0,63-0,71 ms
+    (Saeule+Schirm 0,25-0,36); ueber dem Krater MITTEN IM AUSBRUCH (VULKAN_STOSS=8) 1,54 ms, davon
+    Bomben+Spuren 1,48 (erste Fassung 3,46: 110 x 28 Spuren mit zwei Rauschoktaven je Bildpunkt —
+    vor der Kamera ueberdecken sie sich dutzendfach). Die Saeule SPART ueber dem Krater sogar
+    (verdeckt das teure Gelaende). Start +0,17 s.
+  * WERKZEUGE: `VULKAN_STOSS=<s>` friert einen Ausbruch in diesem Alter ein (Bilder, Messung),
+    `VULKAN_RUHE=1` keine Ausbrueche, `VULKAN_BLITZ=1` ein Blitz dauernd. Beleg
+    `tools/_vulkan_ausbruch_check.gd` (headless: Aufbau, Dichte, Fassungswechsel, Welle trifft 3 km
+    nach 8,8 s, im Flug dunkler Nebel/Turbulenz/Aufwind, draussen frei). Bilder
+    `ansichten/29_vulkan_ausbruch.jpg`.
+  * NICHT GEMACHT: keine Geraeusche (das Spiel hat keinen Ton); Bomben treffen das Flugzeug nicht;
+    die Spuren sind ab ~6 km ausgeblendet; die Ballen an der Fernebene (9 km) werden angeschnitten.
 
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
 Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen

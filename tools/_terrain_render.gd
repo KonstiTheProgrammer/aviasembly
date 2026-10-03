@@ -322,7 +322,7 @@ func _shoot(name: String, pos: Vector3, target: Vector3) -> void:
 	# ohne Fahne, die Fahne beurteilt man im normalen Bild.
 	if schalter.has("ohne_fahne"):
 		for n in main.fly_world.get_children():
-			if String(n.name).begins_with("VulkanFahne"):
+			if String(n.name).begins_with("VulkanFahne") or String(n.name) == "Vulkanausbruch":
 				(n as Node3D).visible = false
 	cam.look_at_from_position(pos, target, Vector3.UP)
 	# Die Welt so hinstellen, wie sie fuer einen Spieler AN DIESER STELLE aussieht:

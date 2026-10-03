@@ -614,6 +614,8 @@ void fragment() {
 		float vk_rd = distance(w_pos.xz, vulkan_kreis.xy);
 		float schein = 1.0 - smoothstep(vulkan_mass.z * 0.40, vulkan_mass.z * 1.04, vk_rd);
 		schein *= schein * (0.85 + 0.15 * sin(TIME * 2.3 + vk_rd * 0.03));
+		// AUSBRUCH (Vulkanausbruch.gd): der Krater flammt auf und klingt in ein paar Sekunden ab
+		schein *= 1.0 + 2.6 * exp(-vulkan_ausbruch * 0.9);
 		vk_glow += srgb_linear(clamp(c, vec3(0.0), vec3(1.0))) * vec3(3.4, 1.05, 0.22) * schein * vw;
 	}
 
