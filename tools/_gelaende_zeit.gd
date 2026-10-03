@@ -65,7 +65,8 @@ func _lauf() -> void:
 		["Mittel 700 m", Vector3(-6000, 700, 3000), Vector3(-7000, 300, 4000), false],
 		["Flur 300 m", Vector3(6000, 300, 6500), Vector3(7200, 0, 8000), true],
 		["Flur 60 m", Vector3(6800, 60, 7000), Vector3(7300, 0, 7500), true],
-		["Vulkan 500 m", Vector3(10300, 520, -4300), Vector3(11800, 650, -5600), false],
+		["Vulkan 500 m", Vector3(9900, 520, -4000), Vector3(11800, 650, -5600), false],
+		["Vulkankrater", Vector3(11500, 1500, -5200), Vector3(11800, 800, -5600), false],
 	]
 	var gpu := false
 	var summe := Vector3.ZERO
@@ -108,6 +109,21 @@ func _lauf() -> void:
 		_gras(false)
 		var o_gras := await _median()
 		_gras(true)
+		# GZ_VULKAN=1: Anteile am Vulkan (Rauchsaeule, Kraterglut mit Licht und Funken, Material)
+		if OS.get_environment("GZ_VULKAN") != "":
+			for nm in ["VulkanFahne", "VulkanGlut"]:
+				var kn: Node3D = main.fly_world.get_node_or_null(nm)
+				if kn != null:
+					kn.visible = false
+					var o_k := await _median()
+					kn.visible = true
+					print("    VULKAN %-12s %5.2f ms" % [nm, alles.x - o_k.x])
+			var vmat: ShaderMaterial = main.terrain._mat
+			var kreis: Vector4 = vmat.get_shader_parameter("vulkan_kreis")
+			vmat.set_shader_parameter("vulkan_kreis", Vector4(0, 0, -1, 0))
+			var o_m := await _median()
+			vmat.set_shader_parameter("vulkan_kreis", kreis)
+			print("    VULKAN %-12s %5.2f ms" % ["Material", alles.x - o_m.x])
 		# Feldflur (feldflur.gdshaderinc) aus: nur der Shader, die Chunks bleiben
 		var tmat: ShaderMaterial = main.terrain._mat
 		tmat.set_shader_parameter("feld_an", 0.0)

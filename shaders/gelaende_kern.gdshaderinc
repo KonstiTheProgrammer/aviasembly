@@ -201,6 +201,42 @@ vec4 mat_oben(vec2 xz, float ebene, float kachel, out vec3 stoer, out float ao) 
 // sie als senkrechte Streifen durch ("gestreckt"). Zweiter, grosser Massstab nur in der Farbe.
 // klein: Anteil des kleinen Massstabs (1 nah, 0.45 ab ~600 m) — aus der Mitteldistanz sollen
 // die grossen Baenke die Wand gliedern, nicht ein Nadelstreifen aus den kleinen.
+// FELS AM VULKAN: EINE Projektion um den Kegel (u = Winkel mal festem Radius, v = Hoehe) statt
+// drei. Der Kegel ist rundum Fels — triplanar waren das bis zu zwoelf Proben je Bildpunkt auf der
+// ganzen Flanke, gemessen 1,8 ms in 4K (vorher blieb der dunkle Basalt glatt, ohne Material).
+// Der Umfang 4888 m ist ein ganzes Vielfaches beider Kachelmasse (94 x 52 m, 20 x 244,4 m): keine
+// Naht bei +-180 Grad. Die Schichten laufen als Baender um den Berg.
+vec4 mat_zylinder(vec3 p, vec2 mitte, float ebene, float kachel, float klein, out vec3 stoer, out float ao) {
+	vec2 rel = p.xz - mitte;
+	float ang = atan(rel.y, rel.x);
+	vec2 q = vec2(ang * (4888.0 / 6.2831853), -p.y);
+	float g = 1.0 / (kachel * KACHEL_GROSS);
+	vec2 uv = q / kachel;
+	vec2 uv2 = q * g;
+	// Ableitungen von Hand: an der Naht springt ang, die automatische Mipstufe gaebe dort einen
+	// Strich aus der kleinsten Stufe
+	vec2 dx = dFdx(p.xz);
+	vec2 dy = dFdy(p.xz);
+	float rr = max(length(rel), 1.0);
+	vec2 tang = vec2(-rel.y, rel.x) / rr;
+	float k = (4888.0 / 6.2831853) / rr;
+	vec2 qdx = vec2(dot(dx, tang) * k, -dFdx(p.y));
+	vec2 qdy = vec2(dot(dy, tang) * k, -dFdy(p.y));
+	// der kleine Massstab nur nah (klein > 0): aus der Ferne steht er in den Mipmaps auf Mittelwert
+	vec4 f = vec4(0.5, 0.5, 0.5, 0.5);
+	vec4 m = vec4(0.5, 0.5, 1.0, 1.0);
+	if (klein > 0.01) {
+		f = textureGrad(mat_farbe, vec3(uv, ebene), qdx / kachel, qdy / kachel);
+		m = textureGrad(mat_normale, vec3(uv, ebene), qdx / kachel, qdy / kachel);
+	}
+	vec4 f2 = textureGrad(mat_farbe, vec3(uv2, ebene), qdx * g, qdy * g);
+	vec4 m2 = textureGrad(mat_normale, vec3(uv2, ebene), qdx * g, qdy * g);
+	vec2 dd = (m.xy * 2.0 - 1.0) * klein + (m2.xy * 2.0 - 1.0) * FACETTE_GROSS;
+	stoer = vec3(tang.x, 0.0, tang.y) * dd.x + vec3(0.0, -dd.y, 0.0);
+	ao = m.z * mix(1.0, m2.z, 0.5);
+	return vec4(mix(vec3(1.0), f.rgb * 2.0, klein) * mix(vec3(1.0), f2.rgb * 2.0, 0.6), mix(f.a, f2.a, 0.35));
+}
+
 vec4 mat_dreifach(vec3 p, vec3 nn, float ebene, float kachel, float klein, out vec3 stoer, out float ao) {
 	vec3 w = pow(abs(nn), vec3(4.0));
 	w /= (w.x + w.y + w.z);
@@ -401,13 +437,24 @@ void fragment() {
 		c = mix(c, stein, fels * 0.88);
 	}
 	c *= 1.0 - 0.20 * saum;
+	// --- VULKAN: Grundfarbe nach Zonen (vulkan_gestein.gdshaderinc). Die STRUKTUR machen die
+	// Materialien unten: Fels (triplanar, mit Relief) auf den Flanken, Erde auf Asche und Schutt.
+	float vw = vk * (1.0 - gruen) * (1.0 - schnee);
+	float vk_asche = 0.0;
+	float vk_fels = 0.0;          // Felsanteil des Vulkans (schon mal vw)
+	if (vw > 0.001) {
+		c = mix(c, vk_grund(roh, w_pos, n, d, vk_asche), vw);
+		// ENTWEDER Fels (Flanken, steiler als ~35 Grad) ODER Erde (flacher Fuss), nur ein schmales
+		// Band traegt beides — beide ueberall kosteten zusammen 2,1 ms in 4K
+		vk_fels = smoothstep(0.93, 0.82, n.y) * vw;
+	}
 #ifdef FERN
 	// Fels in der Fernschuerze: grosse Baenke (mat_fern), Ton aus der Neigung zur Sonne, Licht
 	// mit maessiger Neigung — wie die Chunks (siehe Materialblock unten).
-	if (mat_da && fels > 0.02) {
+	if (mat_da && max(fels, vk_fels) > 0.02) {
 		vec3 st_f;
 		vec4 ff = mat_fern(vec3(w_pos.x, w_pos.y + schicht_biege(w_pos.xz), w_pos.z), n, st_f);
-		float a_f = fels * k;
+		float a_f = max(fels, vk_fels) * k;
 		c *= mix(vec3(1.0), mix(vec3(1.0), ff.rgb, 0.6), a_f);
 		float ft = clamp(dot(st_f, sonne_dir) * FACETTE_TON, -0.40, 0.40) * a_f;
 		c *= (1.0 + ft) * mix(vec3(1.0), ft > 0.0 ? vec3(1.04, 1.01, 0.95) : vec3(0.93, 0.97, 1.06),
@@ -441,6 +488,14 @@ void fragment() {
 		float rest_w = (1.0 - w_fels) * (1.0 - schnee) * (1.0 - gruen) * (1.0 - stroh);
 		float w_sand = warm * smoothstep(0.52, 0.66, lum) * rest_w;
 		float w_erde = warm * (1.0 - smoothstep(0.52, 0.66, lum)) * rest_w;
+		// VULKAN: Fels auf den Flanken, Erde (Asche, Schutt) sonst — unabhaengig von der Rohfarbe
+		if (vw > 0.001) {
+			w_fels = mix(w_fels, vk_fels / vw, vw);
+			w_erde = mix(w_erde, 1.0 - vk_fels / vw, vw);
+			w_gras *= 1.0 - vw;
+			w_wald *= 1.0 - vw;
+			w_sand *= 1.0 - vw;
+		}
 
 		vec4 p_gras = vec4(1.0, 1.0, 1.0, 0.5), p_wald = p_gras, p_erde = p_gras,
 			p_sand = p_gras, p_fels = p_gras, p_schnee = p_gras;
@@ -456,10 +511,17 @@ void fragment() {
 		if (w_sand > 0.02) { p_sand = mat_oben(w_pos.xz, MAT_SAND, KACHEL_SAND, s_sand, a_sand); }
 		if (w_schnee > 0.02) { p_schnee = mat_oben(w_pos.xz, MAT_SCHNEE, KACHEL_SCHNEE, s_schnee, a_schnee); }
 		if (w_fels > 0.02) {
-			// VERBOGENE SCHICHTEN (schicht_biege, oben).
-			vec3 p_schicht = vec3(w_pos.x, w_pos.y + schicht_biege(w_pos.xz), w_pos.z);
-			p_fels = mat_dreifach(p_schicht, n, MAT_FELS, KACHEL_FELS,
-				1.0 - 0.55 * smoothstep(120.0, 600.0, d), s_fels, a_fels);
+			if (vw > 0.6) {
+				// Vulkan: eine Projektion um den Kegel (mat_zylinder)
+				p_fels = mat_zylinder(w_pos, vulkan_kreis.xy, MAT_FELS, KACHEL_FELS,
+					(1.0 - 0.55 * smoothstep(120.0, 600.0, d)) * (1.0 - smoothstep(700.0, 1100.0, d)),
+					s_fels, a_fels);
+			} else {
+				// VERBOGENE SCHICHTEN (schicht_biege, oben).
+				vec3 p_schicht = vec3(w_pos.x, w_pos.y + schicht_biege(w_pos.xz), w_pos.z);
+				p_fels = mat_dreifach(p_schicht, n, MAT_FELS, KACHEL_FELS,
+					1.0 - 0.55 * smoothstep(120.0, 600.0, d), s_fels, a_fels);
+			}
 		}
 
 		// UEBERBLENDEN NACH HOEHE: wo zwei Materialien sich teilen, gewinnt das hoehere —
@@ -503,7 +565,8 @@ void fragment() {
 				// Simse: die Geometrie plus die Neigung der Baenke nach oben
 				float moos = smoothstep(MOOS_AB, MOOS_VOLL, n_geo_y + s_fels.y * 0.8)
 					* smoothstep(0.30, 0.55, n_geo_y)
-					* anteil_fels * abdeckung * (1.0 - schnee) * (0.55 + 0.45 * p_fels.a);
+					* anteil_fels * abdeckung * (1.0 - schnee) * (0.55 + 0.45 * p_fels.a)
+					* (1.0 - vw);          // kein Moos auf dem Vulkan
 				vec3 moos_c = rampe(GRAS_TIEF, GRAS_MITTE, GRAS_HELL,
 					clamp(0.30 + verlauf * 0.6 + (p_fels.a - 0.5) * 0.4, 0.0, 1.0));
 				c = mix(c, moos_c, moos * 0.75);
@@ -526,18 +589,32 @@ void fragment() {
 	}
 #endif
 
-	// --- VULKAN (vulkan_gestein.gdshaderinc): ueber allem, was nicht gruen ist ---------------
+	// --- VULKAN: LAVA ueber allem (vulkan_gestein.gdshaderinc) --------------------------------
 	vec3 vk_glow = vec3(0.0);
-	if (vk > 0.001) {
-		float vk_fuge;
-		vec3 vc = vk_farbe(roh, w_pos, normalize(w_nrm), d, 1.0 - COLOR.a, vk_glow, vk_fuge);
-		float vw = vk * (1.0 - gruen) * (1.0 - schnee);
-		c = mix(c, vc, vw);
-		hohl = mix(hohl, 1.0 - 0.25 * vk_fuge, vw);
-		// WARMER WIDERSCHEIN: dunkles Rotbraun unter der blauen Himmelsfuellung (klares_licht) stand
-		// aus der Ferne lila da. Ein Hauch warmes Eigenlicht (Restwaerme, Glut im Krater) haelt den
-		// Kegel braun — auch auf der Schattenseite.
-		vk_glow = vk_glow * vw + srgb_linear(vc) * vec3(0.30, 0.17, 0.08) * vw;
+	if (vw > 0.001) {
+#ifdef FERN
+		// Die Schuerze hat keine Glut im Alpha (dort steht die Grundabsenkung): aus der Lavafarbe
+		// der Haut (0.97/0.31/0.05 bzw. 0.72/0.12/0.03) zurueckgerechnet
+		float vk_glut = clamp((roh.r - roh.g * 1.6 - 0.12) * 2.2, 0.0, 1.0);
+#else
+		float vk_glut = 1.0 - COLOR.a;
+#endif
+		float vk_deck;
+		vec3 vk_kruste;
+		vk_glow = vk_lava(w_pos, vk_glut, d, vk_deck, vk_kruste) * vw;
+		c = mix(c, vk_kruste, vk_deck * vw);
+		hohl = mix(hohl, 1.0, vk_deck * vw);
+		n = normalize(mix(n, normalize(w_nrm), vk_deck * vw * 0.85));
+		// WARMER WIDERSCHEIN: dunkles Gestein unter der blauen Himmelsfuellung (klares_licht) stand
+		// aus der Ferne lila da; ein Hauch warmes Eigenlicht haelt den Kegel braun.
+		vk_glow += srgb_linear(clamp(c, vec3(0.0), vec3(1.0))) * vec3(0.30, 0.17, 0.08) * vw;
+		// GLUTSCHEIN IM KRATER: die Waende leuchten vom Lavasee her orange, zum Rand hin ausklingend,
+		// leicht flackernd. Gerechnet statt eines Lichts — ein OmniLight ueber dem See kostete in
+		// 4K 0,85 ms (jeder Bildpunkt der Schuessel durchlief damit die Lichtschleife ein zweites Mal).
+		float vk_rd = distance(w_pos.xz, vulkan_kreis.xy);
+		float schein = 1.0 - smoothstep(vulkan_mass.z * 0.40, vulkan_mass.z * 1.04, vk_rd);
+		schein *= schein * (0.85 + 0.15 * sin(TIME * 2.3 + vk_rd * 0.03));
+		vk_glow += srgb_linear(clamp(c, vec3(0.0), vec3(1.0))) * vec3(3.4, 1.05, 0.22) * schein * vw;
 	}
 
 	ALBEDO = srgb_linear(clamp(c, vec3(0.0), vec3(1.0))) * hohl;
@@ -547,7 +624,9 @@ void fragment() {
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.2;
 #ifndef FERN
-	EMISSION = srgb_linear(roh) * (1.0 - COLOR.a) * GLUT + vk_glow;
+	EMISSION = srgb_linear(roh) * (1.0 - COLOR.a) * GLUT * (1.0 - vw) + vk_glow;
+#else
+	EMISSION = vk_glow;      // Lava leuchtet auch in der Fernschuerze
 #endif
 }
 

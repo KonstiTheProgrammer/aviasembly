@@ -150,15 +150,33 @@ static func fahne(parent: Node3D, opts := {}) -> Node3D:
 	var root := Node3D.new()
 	root.name = String(opts.get("name", "Fahne"))
 	parent.add_child(root)
-	var mat := _cloud_material()
-	# Dampf mit Asche darin, nicht Schoenwetterkumulus: warmes Grau statt des kuehlen
-	# Blaus, das eine Wolkenbasis vom Himmel zurueckbekommt.
-	mat.set_shader_parameter("farbe_krone", Color(0.80, 0.79, 0.77))
-	mat.set_shader_parameter("farbe_basis", Color(0.31, 0.30, 0.30))
-	# Dunkler als die Decke (0.52). Eine Fahne in Kumulusweiss steht als hellster Fleck im
-	# ganzen Bild und zieht das Auge vom Berg weg — sie soll aus ihm aufsteigen, nicht ihn
-	# ueberstrahlen.
-	mat.set_shader_parameter("helligkeit", 0.44)
+	# ZONEN VON UNTEN NACH OBEN (2026-10-03, opts["farben"] = [[Krone, Basis], ...]): unten von der
+	# Glut angeleuchtet (orange Baeuche), in der Mitte dunkle Asche, oben aufhellend. Vorher ein
+	# einziges Material in Hellgrau — die Saeule stand als Stapel Marshmallows ueber dem Krater.
+	# Ohne die Angabe wie frueher: Dampf mit Asche, warmes Grau, dunkler als die Decke (0.52).
+	var farben: Array = opts.get("farben", [[Color(0.80, 0.79, 0.77), Color(0.31, 0.30, 0.30)]])
+	var mats: Array = []
+	for fb in farben:
+		var m := _cloud_material()
+		m.set_shader_parameter("farbe_krone", fb[0])
+		m.set_shader_parameter("farbe_basis", fb[1])
+		m.set_shader_parameter("helligkeit", float(opts.get("helligkeit", 0.44)))
+		if opts.get("asche", false):
+			# Asche nimmt weder das Himmelsblau der Ferne noch den blauen Schattenton der Wolken
+			# an — damit stand die Saeule lavendelblau ueber dem Berg.
+			m.set_shader_parameter("himmel_fern", 0.06)
+			m.set_shader_parameter("himmel_misch", 0.0)
+			m.set_shader_parameter("schatten_ton", Vector3(0.115, 0.10, 0.10))
+			m.set_shader_parameter("silber", 0.12)
+			# der weiche Rand mischt Himmelsfarbe ein (bei Wolken richtig, hier ein blauer Saum)
+			m.set_shader_parameter("rand_weich", 0.08)
+			m.set_shader_parameter("nah_dunst", 0.12)
+		mats.append(m)
+	# > 1: die Saeule steigt erst und legt sich oben in den Wind
+	var biegung := float(opts.get("biegung", 1.0))
+	# Wuchs des Halbmessers (0.5 = Wurzel, reisst gleich ueber dem Krater auf; 1 = schlank
+	# aus dem Schlot, damit der Lavasee darunter frei bleibt)
+	var wuchs := float(opts.get("wuchs", 0.5))
 	var src_kern := _kugel(20, 10)
 	var src_schulter := _kugel(14, 7)
 	var src_knubbel := _kugel(8, 4)
@@ -170,7 +188,7 @@ static func fahne(parent: Node3D, opts := {}) -> Node3D:
 		var mesh: ArrayMesh = formen[rng.randi() % formen.size()]
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
-		mi.material_override = mat
+		mi.material_override = mats[mini(int(f * float(mats.size())), mats.size() - 1)]
 		# Kein Schattenwurf. Eine Fahne dieser Groesse legt sonst einen harten dunklen
 		# Fleck ueber den halben Kegel — und ausgerechnet ueber den Teil, dessen Glut man
 		# sehen soll.
@@ -184,7 +202,7 @@ static func fahne(parent: Node3D, opts := {}) -> Node3D:
 		# Achse las sich die Fahne als PERLENKETTE — man zaehlte die Kugeln. Erst wenn
 		# benachbarte Ballen verschieden gross sind und einander seitlich verdecken,
 		# verschmelzen sie zu einer Saeule.
-		var r := lerpf(r_unten, r_oben, sqrt(f)) * rng.randf_range(0.78, 1.30)
+		var r := lerpf(r_unten, r_oben, pow(f, wuchs)) * rng.randf_range(0.78, 1.30)
 		# EIGENMASS AUS DEM MESH statt einer Konstanten: _puff_mesh wuerfelt sein Grundmass
 		# zwischen 54 und 78 aus, und wer dort etwas aendert, soll die Fahne nicht
 		# stillschweigend umbauen.
@@ -194,8 +212,9 @@ static func fahne(parent: Node3D, opts := {}) -> Node3D:
 		# und mit gleichem Abstand klaffte zwischen den ersten beiden Ballen eine Luecke,
 		# durch die man den Kraterrand sah.
 		var y := hoehe * pow(f, 1.25)
-		mi.position = fuss + Vector3(drift.x * y + rng.randf_range(-0.42, 0.42) * r, y,
-			drift.y * y + rng.randf_range(-0.42, 0.42) * r)
+		var weg := hoehe * pow(f, 1.25 * biegung)       # seitlicher Weg im Wind
+		mi.position = fuss + Vector3(drift.x * weg + rng.randf_range(-0.42, 0.42) * r, y,
+			drift.y * weg + rng.randf_range(-0.42, 0.42) * r)
 		root.add_child(mi)
 	return root
 

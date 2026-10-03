@@ -4442,6 +4442,12 @@ func _feld_staerke(x: float, z: float, h: float, wald: float, k: float, offen :=
 	if s <= 0.001:
 		return 0.0
 	s *= smoothstep(0.35, 0.8, offen if offen >= 0.0 else _open_ground(x, z))
+	# Kein Acker auf dem Aschenfuss eines Vulkans (die Felder lagen als gelbe Flicken in der Lava)
+	if s > 0.001:
+		for vk in _vulkane:
+			var vr: float = maxf(float(vk["apr"]), float(vk["r"]) * 1.1)
+			var vd := Vector2(x - float(vk["x"]), z - float(vk["z"])).length()
+			s *= smoothstep(vr * 0.98, vr * 1.12, vd)
 	# Kein Acker bis an die Fahrbahn: Bankett und Wegrain (vorher lag Getreide am Asphalt)
 	if s > 0.001 and _strassen_an:
 		s *= smoothstep(STRASSE_B_HAUPT + 5.0, STRASSE_B_HAUPT + 12.0, strasse_abstand(x, z))
@@ -9505,19 +9511,23 @@ static func boden_material() -> Array:
 
 ## Gibt einem Material des Gelaende-Shaders die Bodenmaterialien (Chunks, Felsboegen).
 ## Vulkangestein (shaders/vulkan_gestein.gdshaderinc) an ein Gelaendematerial: Kreis des ersten
-## Vulkans (voll bis zur Haut, auslaufend ueber den Aschenfuss). Chunks UND Fernschuerze.
+## Vulkans (voll bis zur Haut, auslaufend ueber den Aschenfuss) und seine Masse (Gipfelhoehe,
+## Fusshoehe, Kraterradius). Chunks UND Fernschuerze.
 func vulkan_material_setzen(m: ShaderMaterial) -> void:
-	if _vulkane.is_empty():
+	# VULKAN_ROH=1 (Werkzeuge): ohne das Material — zeigt die rohe Haut aus den Eckpunktfarben
+	if _vulkane.is_empty() or OS.get_environment("VULKAN_ROH") != "":
 		return
 	var vk: Dictionary = _vulkane[0]
 	var mr: float = vk["r"]
-	m.set_shader_parameter("vulkan_kreis", Vector4(vk["x"], vk["z"], mr * 1.02, mr * 1.22))
-	var spitze := 0.0
+	# bis ueber den Aschenfuss (VULKAN_APRON_WEIT 1,45): mit 1,02..1,22 endete das Material auf
+	# halbem Fuss, der Rest stand aus der Ferne als lila-schwarzer Fladen im Gruenen
+	m.set_shader_parameter("vulkan_kreis", Vector4(vk["x"], vk["z"], mr * 1.27, mr * 1.47))
 	for ms in massifs:
 		if String(ms.get("type", "")) == "vulkan":
-			spitze = float(ms["peak"])
+			var sockel := float(ms.get("apron", 0.0))
+			m.set_shader_parameter("vulkan_mass", Vector3(float(ms["peak"]) + sockel
+				+ float(ms.get("rand_h", 0.0)), sockel, float(ms.get("crater_r", mr * 0.16))))
 			break
-	m.set_shader_parameter("vulkan_spitze", spitze)
 
 
 static func boden_material_setzen(m: ShaderMaterial) -> void:

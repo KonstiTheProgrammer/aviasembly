@@ -1673,36 +1673,67 @@ und Bergdorf) und alle Flugplaetze der Hauptinsel (ausser ADLERHORST).
 - Bildwerkzeug: `_gefuehl_bilder.gd` Szenen gewitter, gewitter_nah, im_sturm, blitz
   (erzwingt Blitz ueber `Main.blitz_test`), nebelmeer, fetzen, hoch.
 
-## Vulkan: Struktur und Material (2026-10-02, Nutzer: „der Vulkan schaut nicht gut aus, mach dass er richtig baba aussieht, vor allem Struktur und Material“)
-BEFUND (`_luftbild.gd`/`luftabs`, Stellungen Fern 7500/700/-2600, Flanke 10300/520/-4300, Oben
-12600/1500/-4300): die Flanke ein Igel aus Spitzen, darueber ein Tarnmuster aus schwarzen Flecken,
-dazu waagerechte Sedimentbaenke mit Moos (die allgemeine Felserkennung), aus der Ferne
-dunkelblau. GEMESSEN (Probe im Verlauf: mittlere |2. Ableitung| je 8 m laengs der Fallinie,
-500-1200 m): 4,9 m — davon Bloecke 1,3, Nasen 0,8, dazu das Felsrelief der Ketten.
-- STRUKTUR (Main, Vulkan-Massiv): `bloecke` 32 -> 0, `nasen` 13 -> 0, `fels` 26 -> 5,
-  `feinrippen` 15 -> 4, `apron_bloecke` 15 -> 6; dafuer `rippen` 40 -> 48, `barranco` 55 -> 85,
-  `lava_lappen` 26 -> 22. Das FELSRELIEF der Ketten (height_at, FELS_GROB/FEIN) gilt auf dem Kegel
-  nicht mehr (`TerrainWorld._vulkan_kern`, voll bis 0,95 r). Rauheit jetzt 1,4 m; die Flanke
-  traegt radiale Rippen und Barrancos bis zum Fuss.
-- MATERIAL `shaders/vulkan_gestein.gdshaderinc` (in gelaende_kern, Chunks UND Fernschuerze;
-  Uniforms `vulkan_kreis`/`vulkan_spitze`, gesetzt von `TerrainWorld.vulkan_material_setzen`):
-  Basalt kohlschwarz bis braun (grosse Flecken), rote SCHLACKE in Feldern (in der Ferne
-  schwaecher), helle ASCHENRINNEN die Fallinie hinab (Winkel x FESTER Radius 800 m, laengs der
-  Abstand; nicht im Krater), nah BLOCKLAVA (Worley 8 x 12 m an Waenden, 9 m flach, eigener Ton,
-  Kuppe, schmale Fugen; feine Koernung unter 260 m), Glut aus COLOR.a leuchtet in den Fugen
-  (Kraterboden: Netz aus gluehenden Rissen). Ersetzt dort Sedimentfels + Moos (`fels`, `grau`
-  mit `(1 - vk)`). Warmer Widerschein (Emission = Albedo x 0,30/0,17/0,08) gegen das Lila unter
-  der blauen Himmelsfuellung.
-  FALLEN: (1) quer = Winkel x ABSTAND (Bogenlaenge) wandert auf jeder Fallinie durch die Textur —
-  ueber den Kegel lagen Ringe, im Bild ein Hoehenlinien-Zebra; (2) Asche aus Neigung oder
-  Rohhelligkeit gab dasselbe Zebra (beide wechseln auf jeder kleinen Welle); (3) zwei gleich
-  starke Zellfugen-Lagen = Spinnweb, runde Zellen = Pflaster.
-- GEMESSEN (`_gelaende_zeit`, neue Stellung „Vulkan 500 m“, 4K): Bild 14,56 -> 14,28 ms.
-  `_vulkan_form` laeuft, `_loadcheck`, `_grafik_check`, `_bewuchs_stufen_check`,
-  `_baum_ausfall_check`, `_rundflug_alle` OK. `_haupt_pruefsumme` aendert sich am Vulkan.
-  Bilder `ansichten/28_vulkan.jpg`.
-- NICHT GEMACHT: die Kanten der Rippen zeichnet das 8-m-Netz an der Silhouette noch als
-  Saegezahn; die Fahne ist weiter der alte Wolkenstapel.
+## Vulkan: Form, Gestein, Lava, Aschesaeule (2026-10-02/03)
+Nutzer: „der Vulkan schaut nicht gut aus, mach dass er richtig baba aussieht, vor allem Struktur und
+Material“ — und nach der ERSTEN Fassung (nur Kleinformen weg + eigene Zellmuster als Blocklava):
+„ne schaut gar ned geil aus, da gehoert noch viel mehr Muehe rein“. Die erste Fassung war ein
+Faltenrock mit orangen Tarnflecken, Pflaster aus Worley-Zellen, blassen Lavalinien und dem alten
+Wolkenstapel als Rauch. LEHRE: bei „richtig baba“ reicht ein Farb-/Musterwechsel nicht — Form,
+Material UND Effekte (Lava, Rauch, Glut) zusammen anfassen.
+BEFUND vorher (`luftabs`, Stellungen Fern 7500/700/-2600, Flanke 9900/520/-4000, Oben
+12900/1500/-3900, Krater 11500/1500/-5200, Nord 11800/600/-7900): Igel aus Spitzen, Tarnmuster aus
+schwarzen Flecken, waagerechte Sedimentbaenke mit Moos, aus der Ferne dunkelblau, ein steiler Stumpf.
+GEMESSEN (mittlere |2. Ableitung| je 8 m laengs der Fallinie): 4,9 m, davon Bloecke 1,3, Nasen 0,8,
+dazu das Felsrelief der Ketten.
+- FORM (Main, Vulkan-Massiv): `r` 1350 -> 1750 mit `flanke` 1,15 -> 1,5 = KONKAVES Profil (flacher
+  Fuss, steiler Gipfel, mittlere Boeschung 26 statt 32,5 Grad) — vorher ein Kegelstumpf mit geraden
+  Kanten. `bloecke` 32 -> 0, `nasen` 13 -> 0, `feinrippen` 15 -> 4, `fels` 26 -> 12,
+  `apron_bloecke` 15 -> 6; `rippen` 40 -> 48, `barranco` 55 -> 85, `lava_lappen` 26 -> 22. Das
+  FELSRELIEF der Ketten (height_at, FELS_GROB/FEIN) gilt auf dem Kegel nicht (`_vulkan_kern`).
+  Kein Acker auf dem Aschenfuss (`_feld_staerke`).
+- GESTEIN (`shaders/vulkan_gestein.gdshaderinc`, in gelaende_kern fuer Chunks UND Fernschuerze;
+  `TerrainWorld.vulkan_material_setzen` setzt `vulkan_kreis` — bis 1,27..1,47 r, also ueber den
+  ganzen Aschenfuss — und `vulkan_mass`): die STRUKTUR kommt aus den gemalten Materialien der Welt,
+  nicht aus eigenen Mustern. `vk_grund` liefert nur die Grundfarbe nach Zonen (Basalt kohlschwarz
+  bis braun, junge Stroeme glasig dunkel, rote SCHLACKENKRONE zum Gipfel, ASCHENRINNEN die Fallinie
+  hinab, Aschenfuss, Schwefelschleier an der Lippe, in der Ferne heller/waermer gegen das Lila unter
+  dem blauen Dunst). Darauf Fels in EINER Projektion um den Kegel (`mat_zylinder`: u = Winkel x
+  fester Radius, v = Hoehe, Umfang 4888 m = 94 x 52 m = 20 x 244,4 m, Ableitungen von Hand) auf
+  Flanken steiler als ~35 Grad, sonst Erde; kein Moos.
+- LAVA (`vk_lava`, wo die Haut Glut traegt, COLOR.a < 1; in der Schuerze aus der Lavafarbe
+  zurueckgerechnet): Fliessmuster laeuft die Fallinie hinab (TIME), heisser Kern gelbweiss ->
+  orange -> rot, am Rand dunkle Kruste mit gluehenden Rissen, im Strom treibende SCHOLLEN
+  (Worley, 1000 Zellen rundum periodisch), HDR-Emission (Lichtglanz). LAVASEE im Krater bis ans
+  Ufer offen (Glut 0,42-0,62 erzwungen) mit Schollen. GLUTSCHEIN an den Kraterwaenden gerechnet
+  (Emission = Albedo x Orange x Abstand zum See).
+- ASCHESAEULE (`CloudField.fahne`, neue Optionen `farben` [[Krone, Basis] je Zone von unten],
+  `asche`, `biegung`, `wuchs`, `helligkeit`): 40 Ballen, unten von der Glut orange, dann dunkle
+  Asche, oben aufhellend; schlank aus dem Schlot (`wuchs` 0,95 — der See bleibt frei), oben breit
+  und im Wind liegend. `asche` nimmt Himmelsblau, blauen Schattenton und weichen Rand heraus.
+- FUNKENREGEN (`Main._vulkan_glut`, `shaders/vulkan_funken_bahn.gdshader` + `vulkan_funke.gdshader`):
+  420 gluehende Brocken aus dem Schlot, im Bogen bis ueber den Kraterrand.
+- FALLEN: (1) quer = Winkel x ABSTAND wandert auf jeder Fallinie durch die Textur — Ringe ueber dem
+  Kegel (Zebra); Asche aus Neigung/Rohhelligkeit gab dasselbe. (2) NAHT im Westen (Winkel springt
+  von -180 auf +180 Grad): jeder quer abgetastete Massstab muss den Umfang ganzzahlig teilen
+  (`VK_UMFANG` 5100 = 34 x 150 = 150 x 34 = 400 x 12,75 = 1000 x 5,1; Fels 4888). (3) Fels- UND
+  Erdtextur auf dem ganzen Kegel + sieben Proben in `vk_grund` = 2,1 ms; triplanar allein 1,8 ms
+  (vorher blieb der dunkle Basalt ganz ohne Material). (4) Ein OmniLight ueber dem See 0,85 ms
+  (jeder Bildpunkt der Schuessel laeuft ein zweites Mal durch light()). (5) `ParticleProcessMaterial`
+  hinterliess hier beim Beenden einen Shader („1 shaders of type ParticlesShaderRD were never
+  freed“, headless als DummyShader-Leck) — eigener Partikel-Shader. (6) See mit Glut 0,72
+  ueberstrahlte weiss; Schwefel als kleine Flecken = Tarnmuster in der Schuessel; Aschesaeule mit
+  Wolkenwerten = lavendelblau.
+- GEMESSEN (`_gelaende_zeit`, neue Stellungen „Vulkan 500 m“/„Vulkankrater“, 4K; `GZ_VULKAN=1`
+  zeigt die Anteile Saeule/Glut/Material): ganzes Bild erste Fassung -> jetzt 14,84 -> 14,99 ms
+  (Flanke), 16,67 -> 16,97 (Krater). Material allein 1,2-1,7 ms gegen glattes Gelaende, Funken
+  0,03-0,11, Saeule 0,1.
+- WERKZEUG: `VULKAN_ROH=1` zeigt die rohe Haut ohne Material. BELEGE: `_vulkan_form`,
+  `_strassen_check` (Gelaende ueber Band 0), `_bewuchs_stufen_check`, `_baum_ausfall_check`,
+  `_grafik_check`, `_loadcheck`, `_rundflug_alle` OK, keine Warnungen, keine Lecks beim Beenden.
+  `_haupt_pruefsumme` aendert sich am Vulkan (Form). Bilder `ansichten/28_vulkan.jpg`.
+- NICHT GEMACHT: die Saeule steht still (keine aufsteigende Bewegung); die Lava beleuchtet ihre
+  Umgebung nicht; an der Silhouette zeichnet das 8-m-Netz die Rippen noch leicht saegezahnig; die
+  Karte (M) zeigt weiter die rohe Haut.
 
 ## Die Welt jenseits der Hauptinsel (Landmassen, Regionen, Biome)
 Die Welt misst 168 km (WorldMap.WORLD_R = Main.FERN_WELT = 84 km). Regionen-Eingriffe duerfen

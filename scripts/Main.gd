@@ -1907,9 +1907,9 @@ func _setup_world() -> void:
 		# TerrainWorld._vulkan_kern). Jetzt traegt die GROSSFORM: Rippen und tiefere Barrancos
 		# (55 -> 85 m); Bloecke und Nasen sind weg, die Oberflaeche macht das Material
 		# (shaders/vulkan_gestein.gdshaderinc: Blocklava, Schlacke, Asche).
-		{"pos": Vector3(11800, 0, -5600), "r": 1350.0, "peak": 860.0, "type": "vulkan",
+		{"pos": Vector3(11800, 0, -5600), "r": 1750.0, "peak": 860.0, "type": "vulkan",
 			"apron": 240.0, "apron_rippen": 54.0, "apron_bloecke": 6.0,
-			"flanke": 1.15, "rippen": 48.0, "fels": 5.0, "fuss": 0.11,
+			"flanke": 1.5, "rippen": 48.0, "fels": 12.0, "fuss": 0.11,
 			"barranco": 85.0, "ader_tief": 26.0, "lava_lappen": 22.0, "bloecke": 0.0,
 			"nasen": 0.0, "feinrippen": 4.0,
 			"crater_r": 400.0, "lippe": 0.22,
@@ -2740,23 +2740,65 @@ func _vulkanfahnen() -> void:
 			continue
 		var p: Vector3 = ms["pos"]
 		var peak := float(ms["peak"]) + float(ms.get("apron", 0.0))
+		var cr := float(ms.get("crater_r", 400.0))
+		# ASCHESAEULE (2026-10-03): dunkel, unten von der Glut angeleuchtet, oben breit und im
+		# Wind liegend — vorher 21 hellgraue Wolkenballen wie Marshmallows.
 		CloudField.fahne(fly_world, {
 			"name": "VulkanFahne",
 			"fuss": Vector3(p.x, peak * 0.70, p.z),
-			# Gut eine Kegelhoehe ueber dem Fuss. Kuerzer las sich die Saeule als Wolke, die
-			# zufaellig ueber dem Gipfel haengt; deutlich hoeher als Fabrikschornstein.
-			"hoehe": peak * 1.30,
-			"r_unten": float(ms.get("crater_r", 400.0)) * 0.11,
-			"r_oben": float(ms.get("crater_r", 400.0)) * 0.48,
+			"hoehe": peak * 1.75,
+			"r_unten": cr * 0.11,
+			"r_oben": cr * 1.10,
+			"stufen": 40,
+			"biegung": 1.45,
+			"wuchs": 0.95,
+			"drift": Vector2(1.05, -0.14),
+			"helligkeit": 0.40,
+			"asche": true,
+			"farben": [[Color(0.36, 0.22, 0.16), Color(1.0, 0.42, 0.10)],
+				[Color(0.33, 0.285, 0.25), Color(0.22, 0.10, 0.06)],
+				[Color(0.40, 0.355, 0.32), Color(0.115, 0.095, 0.085)],
+				[Color(0.54, 0.49, 0.45), Color(0.19, 0.165, 0.15)]],
 			"seed": int(p.x) * 31 + int(p.z),
 		})
+		_vulkan_glut(Vector3(p.x, terrain.height_at(p.x, p.z), p.z), cr)
 
 
-## Traegt ALLE Grafikeinstellungen aus dem Spielstand in die Szene.
-##
-## EINE Stelle fuer alles: die Werte wirken auf Licht, Wolken, Flora und Viewport, und
-## jede haette sonst ihre eigene Anwendungsstelle mit eigener Vergesslichkeit. So genuegt
-## ein Aufruf — beim Weltaufbau und nach jeder Aenderung im Menue.
+## KRATERGLUT: FUNKENREGEN aus dem Schlot — gluehende Brocken steigen auf und fallen im Bogen
+## zurueck (GPU-Partikel, additiv, weit ueber Weiss: sie gluehen im Lichtglanz). Den orangen
+## Schein an den Kraterwaenden rechnet der Gelaende-Shader (gelaende_kern, „Glutschein“); der Fuss
+## der Aschesaeule traegt ihn als Farbe (CloudField.fahne, erste Zone).
+func _vulkan_glut(boden: Vector3, cr: float) -> void:
+	var wurzel := Node3D.new()
+	wurzel.name = "VulkanGlut"
+	wurzel.position = boden
+	wurzel.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	fly_world.add_child(wurzel)
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/vulkan_funke.gdshader")
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.0, 1.0)
+	quad.material = mat
+	var bahn := ShaderMaterial.new()
+	bahn.shader = load("res://shaders/vulkan_funken_bahn.gdshader")
+	bahn.set_shader_parameter("schlot_r", cr * 0.10)
+	var funken := GPUParticles3D.new()
+	funken.name = "Funken"
+	funken.amount = 420
+	funken.lifetime = 8.5
+	funken.preprocess = 8.5
+	funken.randomness = 0.6
+	funken.explosiveness = 0.12
+	funken.process_material = bahn
+	funken.draw_pass_1 = quad
+	funken.local_coords = true
+	funken.visibility_aabb = AABB(Vector3(-cr * 1.6, -80.0, -cr * 1.6), Vector3(cr * 3.2, cr * 3.2, cr * 3.2))
+	funken.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	funken.visibility_range_end = 9000.0
+	funken.position = Vector3(0.0, 10.0, 0.0)
+	wurzel.add_child(funken)
+
+
 func grafik_anwenden() -> void:
 	# LICHTGLANZ (Glow). Gemessen 1,5 ms je Bild in 4K (tools/_gefuehl_zeit.gd) — der
 	# teuerste Teil des Bild-Looks, deshalb abschaltbar.
